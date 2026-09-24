@@ -1120,6 +1120,25 @@ void GalaxyXRDeviceProvider::AnchorReleaseGesture(uint32_t openVRID){
 // exp(-dt/tau)): pure CA at tau -> inf; the decay is what bounds phantom
 // integration across dup coasts and abrupt stops. covariance layout:
 // [P00 P01 P02 P11 P12 P22] (symmetric upper triangle).
+// 2026-09-24 controller motion port: a causal 30ms orientation low-pass. Velocity is derived from the actual
+// smoothed quaternion increment, in world frame, before output-frame conversion.
+static void SmoothReportedRotation(const vr::HmdQuaternion_t& previous,
+    const vr::HmdQuaternion_t& target, double dt, vr::HmdQuaternion_t& result, double velocity[3]){
+    vr::HmdQuaternion_t inverse = {previous.w,-previous.x,-previous.y,-previous.z};
+    auto delta = QuatMultiply(target,inverse);
+    if(delta.w<0){delta.w=-delta.w;delta.x=-delta.x;delta.y=-delta.y;delta.z=-delta.z;}
+    double length=sqrt(delta.x*delta.x+delta.y*delta.y+delta.z*delta.z);
+    double angle=2*atan2(length,delta.w);
+    double amount=angle*(1-exp(-dt/0.030));
+    double factor=length>1e-12 ? sin(amount*0.5)/length : 0;
+    vr::HmdQuaternion_t step={cos(amount*0.5),delta.x*factor,delta.y*factor,delta.z*factor};
+    result=QuatMultiply(step,previous);
+    double norm=sqrt(result.w*result.w+result.x*result.x+result.y*result.y+result.z*result.z);
+    if(norm>1e-12){result.w/=norm;result.x/=norm;result.y/=norm;result.z/=norm;}
+    double rate=length>1e-12 ? amount/(length*dt) : 0;
+    velocity[0]=delta.x*rate;velocity[1]=delta.y*rate;velocity[2]=delta.z*rate;
+}
+
 static void CaStatePredict(double dt, double tau, double &p, double &v, double &a){
 	// exact Singer discretization: the acceleration decays DURING the
 	// interval, so position/velocity integrate its true average
@@ -1189,6 +1208,48 @@ static double CaUpdate(double y, double R, double &p, double &v, double &a, doub
 }
 static void CaInit(double P[6], double p0Var, double v0Var, double a0Var){
 	P[0] = p0Var; P[1] = 0; P[2] = 0; P[3] = v0Var; P[4] = 0; P[5] = a0Var;
+}
+
+
+// 2026-09-24: brake modeled momentum continuously instead of increasing position
+// correction gain. The covariance-inflation experiment (pose-brake1) reduced
+// excursion but produced a user-confirmed snap-back; do not restore that gain.
+static double CaBrakeTarget(double dt, double tau, double sigma, double span,
+        const double measured[3], const double previous[3], const double p[3],
+        const double v[3], const double a[3]){
+    if(!std::isfinite(dt) || !std::isfinite(tau) || !std::isfinite(sigma)
+            || !std::isfinite(span) || dt <= 0 || dt > 0.2 || tau <= 0
+            || sigma <= 0 || span < 0.004 || span > 0.05){ return 0; }
+    double speed2 = 0, step2 = 0, dot = 0, error = 0;
+    for(int i = 0; i < 3; ++i){
+        double pp = p[i], vv = v[i], aa = a[i];
+        CaStatePredict(dt, tau, pp, vv, aa);
+        double step = measured[i] - previous[i];
+        speed2 += vv * vv;
+        step2 += step * step;
+        dot += vv * step / span;
+        error += vv * (pp - measured[i]);
+    }
+    if(!std::isfinite(speed2) || !std::isfinite(step2)
+            || !std::isfinite(dot) || !std::isfinite(error)
+            || speed2 <= 0.25 || step2 <= 0.0003 * 0.0003
+            || dot >= speed2 || error <= 0){ return 0; }
+    double weight = error / (sqrt(speed2) * 3.0 * sigma);
+    if(weight > 1){ weight = 1; }
+    double ratio = dot / speed2;
+    if(ratio < 0){ ratio = 0; }
+    return weight * (1.0 - ratio);
+}
+static void CaBrakePredict(double dt, double strength, double& p, double& v, double& a){
+    if(strength <= 0 || !std::isfinite(strength) || !std::isfinite(dt) || dt <= 0 || dt > 0.05){ return; }
+    if(strength > 1){ strength = 1; }
+    double decay = exp(-dt * strength / 0.008);
+    double oldV = v;
+    v *= decay;
+    a *= decay;
+    // Integrate the velocity reduction over this callback, rather than pulling
+    // position to the measurement. Keep covariance conservative (no shrink).
+    p -= 0.5 * (oldV - v) * dt;
 }
 
 bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose){
@@ -2243,6 +2304,8 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 									ks.time = now;
 									ks.tMeas = tMeas;
 									ks.coastStart = -1.0;
+									ks.brakeFresh = ks.brakeTarget = ks.brakeStrength = 0;
+                    ks.positionSmoothHave = false; ks.rotationSmoothHave = false; ks.angularBrakeHave = false; ks.angularBrakeTarget = ks.angularBrakeStrength = 0;
 									ks.haveSlow = false;
 									ks.nisEma = 1.0;
 									ks.schedNis = 1.0;
@@ -2415,6 +2478,8 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 				ks.time = now;
 				ks.tMeas = tMeas;
 				ks.coastStart = -1.0;
+				ks.brakeFresh = ks.brakeTarget = ks.brakeStrength = 0;
+                    ks.positionSmoothHave = false; ks.rotationSmoothHave = false; ks.angularBrakeHave = false; ks.angularBrakeTarget = ks.angularBrakeStrength = 0;
 				for(int a2 = 0; a2 < 3; a2++){
 					ks.p[a2] = pose.vecPosition[a2];
 					ks.v[a2] = 0;
@@ -2556,11 +2621,41 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 					}
 				}
 				double caBeta = exp(-dt / caTau);
+				// A fresh observation schedules braking; repeats only advance the
+				// continuous response. Never treat repeated payloads as new slowing.
+				bool brakeAllowed = caFull && !linearMeasurementMissing
+					&& !driverConfig.streamFrame.kalmanCaReportAccel
+					&& driverConfig.streamFrame.kalmanSmoothLagMs <= 0;
+				if(brakeAllowed){
+					if(!dupRepeat && ks.rawCount > 0){
+						int prev = (ks.rawHead - 1 + KalState::rawRingN) % KalState::rawRingN;
+						double span = tMeas - ks.rawT[prev];
+						double step2 = 0;
+						for(int i = 0; i < 3; ++i){
+							double step = pose.vecPosition[i] - ks.rawP[prev][i];
+							step2 += step * step;
+						}
+						if(span >= 0.004 && span <= 0.05 && step2 > 0.0003 * 0.0003){
+							ks.brakeFresh = now;
+							ks.brakeTarget = CaBrakeTarget(dt, caTau, rp, span,
+								pose.vecPosition, ks.rawP[prev], ks.p, ks.v, ks.ca);
+						}
+					}
+					if(now - ks.brakeFresh > 0.025){
+						ks.brakeTarget = ks.brakeStrength = 0;
+					}else{
+						ks.brakeStrength += (1.0 - exp(-dt / 0.010))
+							* (ks.brakeTarget - ks.brakeStrength);
+					}
+				}else{
+					ks.brakeTarget = ks.brakeStrength = 0;
+				}
 				double nisAccum = 0;
 				double nisBaseAccum = 0;
 				if(caFull){
 					for(int a2 = 0; a2 < 3; a2++){
 						CaStatePredict(dt, caTau, ks.p[a2], ks.v[a2], ks.ca[a2]);
+						CaBrakePredict(dt, ks.brakeStrength, ks.p[a2], ks.v[a2], ks.ca[a2]);
 						CaCovPredict(dt, caJ, caTau, caBeta, caExactCov, ks.P6[a2]);
 						rtsStep = true;
 						rtsPredX[a2][0] = ks.p[a2]; rtsPredX[a2][1] = ks.v[a2]; rtsPredX[a2][2] = ks.ca[a2];
@@ -2778,6 +2873,50 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 						}
 					}
 				}
+
+                // Independent accepted-quaternion clock: linear movement may be still.
+                if(caFull && !driverConfig.streamFrame.kalmanCaReportAccel
+                    && driverConfig.streamFrame.kalmanSmoothLagMs <= 0){
+                    if(!ks.angularBrakeHave){
+                        ks.angularBrakeHave = true;
+                        ks.angularBrakeQ = pose.qRotation;
+                        ks.angularBrakeT = tMeas;
+                    }else{
+                        auto previous = ks.angularBrakeQ;
+                        previous.x=-previous.x; previous.y=-previous.y; previous.z=-previous.z;
+                        auto stepQ = QuatMultiply(pose.qRotation, previous);
+                        double sign = stepQ.w < 0 ? -1.0 : 1.0;
+                        double step[3] = {2*sign*stepQ.x,2*sign*stepQ.y,2*sign*stepQ.z};
+                        double step2 = step[0]*step[0]+step[1]*step[1]+step[2]*step[2];
+                        double span = tMeas - ks.angularBrakeT;
+                        if(span > 0.05 || span < 0){
+                            ks.angularBrakeQ = pose.qRotation; ks.angularBrakeT = tMeas;
+                            ks.angularBrakeTarget = ks.angularBrakeStrength = 0;
+                        }else if(span >= 0.004 && step2 > 0.000872665*0.000872665){
+                            ks.angularBrakeQ = pose.qRotation; ks.angularBrakeT = tMeas;
+                            ks.angularBrakeFresh = now; ks.angularBrakeTarget = 0;
+                            double speed2=0, measuredDot=0;
+                            for(int i=0;i<3;++i){
+                                speed2+=ks.w[i]*ks.w[i];
+                                measuredDot+=step[i]*ks.w[i]/span;
+                            }
+                            if(std::isfinite(speed2) && std::isfinite(measuredDot)
+                                && speed2 > 1.0 && measuredDot < 0.8*speed2){
+                                double ratio=measuredDot/speed2; if(ratio<0) ratio=0;
+                                ks.angularBrakeTarget=1-ratio;
+                            }
+                        }
+                    }
+                    if(now-ks.angularBrakeFresh>0.025){
+                        ks.angularBrakeTarget=0;
+                    }
+                    {
+                        ks.angularBrakeStrength+=(1-exp(-dt/0.010))*(ks.angularBrakeTarget-ks.angularBrakeStrength);
+                    }
+                }else{
+                    ks.angularBrakeHave=false;
+                    ks.angularBrakeTarget=ks.angularBrakeStrength=0;
+                }
 				// angular channel: predict q by w (in CA-full: by the
 				// midpoint angular velocity including the angular
 				// acceleration state), correct by the residual
@@ -3490,6 +3629,46 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 					pose.qRotation = ks.q;
 				}
 			}
+            // User-selected 30ms positional low-pass, after estimation and grip
+            // transport. Report the velocity of the actual smoothed output.
+            if(caFull && !driverConfig.streamFrame.kalmanCaReportAccel
+                && driverConfig.streamFrame.kalmanSmoothLagMs <= 0){
+                double smoothDt=now-ks.positionSmoothT;
+                if(ks.positionSmoothHave && smoothDt>1e-6 && smoothDt<=0.100){
+                    double alpha=1-exp(-smoothDt/0.030);
+                    for(int i=0;i<3;++i){
+                        double step=alpha*(pose.vecPosition[i]-ks.positionSmoothP[i]);
+                        pose.vecPosition[i]=ks.positionSmoothP[i]+step;
+                        pose.vecVelocity[i]=step/smoothDt;
+                    }
+                }else{
+                    pose.vecVelocity[0]=pose.vecVelocity[1]=pose.vecVelocity[2]=0;
+                }
+                for(int i=0;i<3;++i){
+                    ks.positionSmoothP[i]=pose.vecPosition[i];
+                    pose.vecAcceleration[i]=0;
+                }
+                ks.positionSmoothT=now;ks.positionSmoothHave=true;
+            }else{
+                ks.positionSmoothHave=false;
+            }
+            // User-selected 30ms rotation smoothing.
+            if(caFull && !driverConfig.streamFrame.kalmanCaReportAccel
+                && driverConfig.streamFrame.kalmanSmoothLagMs <= 0){
+                double smoothDt=now-ks.rotationSmoothT;
+                if(ks.rotationSmoothHave && smoothDt>1e-6 && smoothDt<=0.100){
+                    vr::HmdQuaternion_t smoothed;
+                    SmoothReportedRotation(ks.rotationSmoothQ,pose.qRotation,smoothDt,
+                        smoothed,pose.vecAngularVelocity);
+                    pose.qRotation=smoothed;
+                }else{
+                    pose.vecAngularVelocity[0]=pose.vecAngularVelocity[1]=pose.vecAngularVelocity[2]=0;
+                }
+                pose.vecAngularAcceleration[0]=pose.vecAngularAcceleration[1]=pose.vecAngularAcceleration[2]=0;
+                ks.rotationSmoothQ=pose.qRotation;ks.rotationSmoothT=now;ks.rotationSmoothHave=true;
+            }else{
+                ks.rotationSmoothHave=false;
+            }
 			// reported angular velocity frame (kalmanAngularOutFrame):
 			// 0 world (state as-is), 1 body (q^-1 w q using the pose
 			// actually reported), 2 zero. ks.repW stays world-frame so
@@ -3517,6 +3696,19 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 				}
 			}
 
+
+            // Limit only runtime angular prediction during measured braking.
+            // Keep the estimated orientation and both linear outputs intact.
+            if(caFull && !driverConfig.streamFrame.kalmanCaReportAccel
+                && driverConfig.streamFrame.kalmanSmoothLagMs <= 0
+                && now - ks.angularBrakeFresh <= 0.100){
+                double age = now - ks.angularBrakeFresh;
+                double strength = ks.angularBrakeStrength * (age > 0.025 ? exp(-(age-0.025)/0.010) : 1.0);
+                if(strength < 0) strength = 0;
+                if(strength > 1) strength = 1;
+                double scale = 1.0 - 0.3 * strength;
+                for(int i=0; i<3; ++i){pose.vecAngularVelocity[i] *= scale;}
+            }
 			// Epoch contract:
 			//   ks.p/q are estimates at the accepted measurement epoch tMeas.
 			//   lead moves the reported state to tMeas + lead.

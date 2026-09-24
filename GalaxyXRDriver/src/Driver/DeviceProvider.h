@@ -33,6 +33,8 @@ public:
 	
 	// handle hook of TrackedDevicePoseUpdated
 	bool HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose);
+	// Used by pose detours to publish corrections only for physical controllers.
+	bool IsStreamedController(uint32_t openVRID);
 	// handle hook of TrackedDeviceAdded
 	bool HandleDeviceAdded(const char* &pchDeviceSerialNumber, vr::ETrackedDeviceClass &eDeviceClass, vr::ITrackedDeviceServerDriver* &pDriver);
 	// set of driver conexts collected by the hooking process
@@ -184,7 +186,7 @@ private:
 	std::mutex streamedIdentityLock;
 	StreamedDeviceKind GetStreamedDeviceKind(uint32_t openVRID);
 	bool IsNativeHand(uint32_t openVRID);
-	bool IsStreamedController(uint32_t openVRID);
+
 	// derive-mode adaptive smoothing state (pure math under its own lock;
 	// never calls out — lock discipline)
 	// one coherent estimated kinematic state per controller (kalman mode):
@@ -194,6 +196,21 @@ private:
 	// CV Kalman filters for the angular channel). guarded by
 	// deriveFilterLock; pure math only under the lock.
 	struct KalState {
+        bool positionSmoothHave = false;
+        double positionSmoothP[3] = {};
+        double positionSmoothT = 0;
+
+        bool rotationSmoothHave = false;
+        vr::HmdQuaternion_t rotationSmoothQ = {1,0,0,0};
+        double rotationSmoothT = 0;
+
+        bool angularBrakeHave = false;
+        vr::HmdQuaternion_t angularBrakeQ = {1,0,0,0};
+        double angularBrakeT = 0, angularBrakeFresh = 0;
+        double angularBrakeTarget = 0, angularBrakeStrength = 0;
+
+		// Continuous braking schedule; reset with filter initialization.
+		double brakeFresh = 0, brakeTarget = 0, brakeStrength = 0;
 		bool have = false;
 		double time = 0;
 		double p[3] = {};

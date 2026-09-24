@@ -53,36 +53,13 @@ static Hook<vr::EVRInputError(*)(vr::IVRDriverInput *, vr::PropertyContainerHand
 static Hook<vr::EVRInputError(*)(vr::IVRDriverInput *, vr::VRInputComponentHandle_t, vr::EVRSkeletalMotionRange, const vr::VRBoneTransform_t *, uint32_t)>
 	UpdateSkeletonComponentHook004("IVRDriverInput004::UpdateSkeletonComponent");
 
-// Do not hand vrserver any DriverPose_t but the caller's own.
-//
-// The detour copied the caller's pose, ran the handler over the copy and
-// forwarded that copy. Doing so stops SteamVR promoting vrlink's native hand
-// devices to a controller role: Prop_ControllerRoleHint_Int32 stays correct
-// while GetControllerRoleForTrackedDeviceIndex returns Invalid for the whole
-// hand session, so /user/hand/left|right resolve to no device and every hand
-// binding is dead - while index_pinch still reaches IVRDriverInput and returns
-// VRInputError_None, which is why nothing looks wrong at the driver boundary.
-//
-// Bisected live on SteamVR 2.17.9 / Steam Link 2.0.20, reading
-// GetTrackedDeviceIndexForControllerRole across the hand/controller swap:
-//
-//   forward a stack copy for every device                  -> hands broken
-//   detour not installed at all                            -> hands work
-//   forward the caller's object for every device           -> hands work
-//   run the handler over the caller's object (const_cast)  -> hands broken
-//   forward the copy only for devices we modified          -> hands broken
-//   forward a persistent per-device static buffer          -> hands broken
-//
-// Every object other than the caller's own breaks it, whatever its lifetime,
-// and for any device - forwarding a copy for the CONTROLLERS alone still takes
-// the hands down. Writing into the caller's struct breaks it too. Why vrserver
-// behaves this way is not established; only that it reproducibly does.
-//
-// Until that is understood, correctness wins over the pose corrections: the
-// handler still runs, so its estimator state, aligner and diagnostics stay
-// live, but vrserver always gets the pose it gave us. THIS MEANS THE PHYSICAL
-// CONTROLLER POSE CORRECTIONS (grip convention, Kalman/CA velocity, trims) DO
-// NOT REACH SteamVR. See the pull request's test matrix and trade-off notes.
+// 2026-09-24: publish the corrected pose for physical streamed controllers.
+// The previous diagnostic-only path ran the estimator but always forwarded
+// newPose, so grip, Kalman and smoothing changes never reached SteamVR.
+// Other devices retain the caller's original object, including native hands.
+// Upstream observed hand-role failures even when only controller copies were
+// forwarded (SteamVR 2.17.9 / Steam Link 2.0.20). This restores controller
+// compensation, but does not establish that controller/hand switching is fixed.
 static void PoseAbiWarn(uint32_t unPoseStructSize)
 {
 	static std::atomic<bool> reported{ false };
@@ -102,12 +79,11 @@ static void DetourTrackedDevicePoseUpdated005(vr::IVRServerDriverHost *_this, ui
 		TrackedDevicePoseUpdatedHook005.originalFunc(_this, unWhichDevice, newPose, unPoseStructSize);
 		return;
 	}
-	// the handler works on a private copy purely for its own state and
-	// diagnostics; the copy is deliberately discarded, see above
+	const bool correctController = Driver->IsStreamedController(unWhichDevice);
 	auto pose = newPose;
 	if (Driver->HandleDevicePoseUpdated(unWhichDevice, pose))
 	{
-		TrackedDevicePoseUpdatedHook005.originalFunc(_this, unWhichDevice, newPose, unPoseStructSize);
+		TrackedDevicePoseUpdatedHook005.originalFunc(_this, unWhichDevice, correctController ? pose : newPose, unPoseStructSize);
 	}
 }
 
@@ -119,12 +95,11 @@ static void DetourTrackedDevicePoseUpdated006(vr::IVRServerDriverHost *_this, ui
 		TrackedDevicePoseUpdatedHook006.originalFunc(_this, unWhichDevice, newPose, unPoseStructSize);
 		return;
 	}
-	// the handler works on a private copy purely for its own state and
-	// diagnostics; the copy is deliberately discarded, see above
+	const bool correctController = Driver->IsStreamedController(unWhichDevice);
 	auto pose = newPose;
 	if (Driver->HandleDevicePoseUpdated(unWhichDevice, pose))
 	{
-		TrackedDevicePoseUpdatedHook006.originalFunc(_this, unWhichDevice, newPose, unPoseStructSize);
+		TrackedDevicePoseUpdatedHook006.originalFunc(_this, unWhichDevice, correctController ? pose : newPose, unPoseStructSize);
 	}
 }
 
