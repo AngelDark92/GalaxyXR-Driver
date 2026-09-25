@@ -365,7 +365,7 @@ struct GalaxyXrConfig{
 	// maximum" the community measured as 1536; we raise it so the tiers
 	// above 1536 are not clamped. 3584 = next 256-multiple above the panel.
 	int profileMaxStreamFormatWidth = 0; // v3: unused, the profile max tracks the tile width (kept so old files parse)
-	bool profileSupports10bit = true; // 09-05: the current APK decodes Main10 at full rate (A/B: fewer resets than 8-bit); older APKs could not
+	bool profileSupports10bit = true; // Legacy compatibility value; SDR10 baseline now owns the request (2026-09-25).
 	// also write the global driver_vrlink.force10bit ("Warning: Driver
 	// forcing 10bit mode via 'force10bit' setting."), the belt to the
 	// profile's braces. the community tool used to set it, then removed it.
@@ -500,9 +500,11 @@ struct GalaxyXrConfig{
 	// (saturation 50 / vibrance 0 / contrast 50 / gamma
 	// 2.2 / tint 1 / no matrix / dither off / black-floor off / post-pack
 	// bypassed / VUI left to Valve's original pair). stored controls are
-	// untouched and resume when this goes off. default false = today's
-	// behavior exactly. force10bit stays retired regardless.
+	// untouched and resume when this goes off; the 10-bit request is disabled.
+	// force10bit stays retired regardless.
 	bool sdr10Baseline = false;
+	// Keep the pre-migration sentinel so schema 2 survives default-diff saves.
+	int sdr10SettingsVersion = 1;
 	// 2026-09-25: explicit warning consent permits image enhancements while
 	// retaining the SDR10 capability request. Old files remain neutral.
 	bool sdr10AllowEnhancements = false;

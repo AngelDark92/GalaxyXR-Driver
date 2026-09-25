@@ -133,7 +133,7 @@ void ReconLogger::NoteProcessingDevice(ID3D11Device*) { UnexpectedEyeProcessing(
 void ReconLogger::InstallOnce(ID3D11DeviceContext*) { UnexpectedEyeProcessing(); }
 void ReconLogger::NoteLayerDimensions(uint32_t, uint32_t) { UnexpectedEyeProcessing(); }
 void ReconLogger::ResetSuppression() { UnexpectedEyeProcessing(); }
-ZeroCopyV3& ZeroCopyV3::Get() { UnexpectedEyeProcessing(); }
+ZeroCopyV3& ZeroCopyV3::Get() { static ZeroCopyV3 instance; return instance; }
 void ZeroCopyV3::SetProcessingDevice(ID3D11Device*) { UnexpectedEyeProcessing(); }
 void ZeroCopyV3::PublishShadow(uint32_t, uint32_t, int, HANDLE) { UnexpectedEyeProcessing(); }
 void ZeroCopyV3::MarkFresh(uint32_t, uint32_t, int) { UnexpectedEyeProcessing(); }
@@ -142,6 +142,47 @@ void ZeroCopyV3::MaybeHeartbeat() { UnexpectedEyeProcessing(); }
 int main() {
     CheckEyeActivity();
     Config config;
+    config.streamFrame.enable = true;
+    config.streamFrame.zeroCopyV3 = true;
+    config.streamFrame.contrast = 75;
+    Dispatch(config, "Zero-copy enabled before eye activity");
+    Check(!ZeroCopyV3::Get().Armed(), "enabling zero-copy waits for active eye work");
+    Check(EyeActive(config) && ZeroCopyV3::Get().Armed(), "active eye processing arms zero-copy");
+    config.streamFrame.zeroCopyV3 = false;
+    Dispatch(config, "Zero-copy feature OFF without another frame");
+    Check(!ZeroCopyV3::Get().Armed(), "feature OFF disarms immediately while parent remains ON");
+    ZeroCopyV3::Get().SetArmed(true);
+    Check(!ZeroCopyV3::Get().Armed(), "disabled feature rejects old activity updates");
+    config.streamFrame.zeroCopyV3 = true;
+    Dispatch(config, "Zero-copy feature re-enabled before fresh activity");
+    Check(!ZeroCopyV3::Get().Armed(), "re-enable cannot restore activity from before OFF");
+    Check(EyeActive(config) && ZeroCopyV3::Get().Armed(), "fresh eye work re-arms enabled feature");
+    config.streamFrame.enable = false;
+    Dispatch(config, "Zero-copy parent OFF without another frame");
+    Check(!ZeroCopyV3::Get().Armed(), "parent OFF disarms without an eye pass");
+    ZeroCopyV3::Get().SetArmed(true);
+    Check(!ZeroCopyV3::Get().Armed(), "old eye activity cannot arm a disabled parent");
+    config.streamFrame.zeroCopyV3 = false;
+    Dispatch(config, "Zero-copy OFF after parent OFF");
+    Check(!EyeActive(config) && !ZeroCopyV3::Get().Armed(), "feature OFF remains disarmed with inactive parent");
+    config.streamFrame.enable = true;
+    Dispatch(config, "Parent ON with zero-copy OFF");
+    Check(EyeActive(config) && !ZeroCopyV3::Get().Armed(), "active pixels do not arm zero-copy while OFF");
+    config.streamFrame.zeroCopyV3 = true;
+    Dispatch(config, "Zero-copy re-enabled");
+    Check(EyeActive(config) && ZeroCopyV3::Get().Armed(), "re-enabling restores arming with eye work");
+    config.streamFrame.contrast = 50;
+    Check(!EyeActive(config) && !ZeroCopyV3::Get().Armed(), "removing last eye effect disarms zero-copy");
+    Dispatch(config, "Neutral eye work provider tick");
+    Check(!ZeroCopyV3::Get().Armed(), "provider tick does not re-arm inactive eye processing");
+    config.streamFrame.contrast = 75;
+    Check(EyeActive(config) && ZeroCopyV3::Get().Armed(), "restoring eye work arms again");
+    config.galaxyXr.sdr10Baseline = true;
+    config.galaxyXr.sdr10AllowEnhancements = false;
+    Dispatch(config, "Zero-copy consent revoked");
+    Check(!ZeroCopyV3::Get().Armed(), "SDR10 consent removal disarms immediately");
+    config = Config{};
+    bandwidthCalls = 0;
     config.streamFrame.enable = true;
     Dispatch(config, "Neutral picture with post-pack CAS");
     Check(lastPostPack.enable && lastPostPack.casEnable, "neutral picture enables post-pack CAS without an eye pass");

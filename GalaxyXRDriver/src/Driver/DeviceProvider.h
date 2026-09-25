@@ -593,6 +593,9 @@ private:
 		// it from the value with hysteresis.
 		vr::VRInputComponentHandle_t gripTouchHandle = vr::k_ulInvalidInputComponentHandle;
 		bool gripTouched = false;
+		bool gripTouchSource = false;
+		bool gripTouchCreateAttempted = false;
+		float gripTouchValue = 0;
 		// distortion tuner control role, classified from the path at create:
 		// 0 none, 1 joystick y (nudge), 2 a (band out), 3 b (band in),
 		// 4 x (eye cycle), 5 y (reset band), 6 grip value (hold to save).
@@ -613,6 +616,10 @@ private:
 		double diagLastLogTime = 0;
 	};
 	std::map<vr::VRInputComponentHandle_t, InputComponentInfo> inputComponents = {};
+	// Serialize synthesized-input IO without holding the reentrant input map lock.
+	std::mutex gripTouchLock;
+	void UpdateGripTouch(vr::VRInputComponentHandle_t handle);
+	void RefreshGripTouch();
 	// gate for tuner input capture on the hot component-update path
 	std::atomic<bool> tunerInputActive {false};
 
@@ -628,6 +635,7 @@ private:
 	std::map<uint32_t, MotionSnapshot> motionSnapshots = {};
 	double lastReleaseLogTime = 0;
 	double lastEdgeLogTime = 0;
+	void HandleInputRelease(vr::PropertyContainerHandle_t container, const std::string &name);
 	void LogReleaseSnapshot(vr::PropertyContainerHandle_t container, const std::string &name);
 	uint32_t ResolveContainerId(vr::PropertyContainerHandle_t container);
 	// the vrlink HMD device, stored at TrackedDeviceAdded so the real

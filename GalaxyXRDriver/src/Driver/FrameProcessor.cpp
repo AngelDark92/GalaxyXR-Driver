@@ -1694,6 +1694,10 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	// Keep the paired configs and hook/heartbeat bookkeeping serialized.
 	static std::mutex encoderSettingsLock;
 	std::lock_guard<std::mutex> guard(encoderSettingsLock);
+	// 2026-09-25: provider reloads also reach this ungated publisher when
+	// no eye pass runs. Disabling either switch must stop copy redirection.
+	ZeroCopyV3::Get().SetEnabled(settings.config.zeroCopyV3
+		&& gxr::ImageEnhancementsEnabled(settings.config, settings.policy));
 	// 2026-09-25 CAS activation fix: synchronize independently of eye work,
 	// and use the same enable decision for pixel remapping and its VUI flag.
 	const bool postPackEnabled = settings.config.nvencTap
@@ -1767,7 +1771,7 @@ bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::Sh
 	// drives the shadow slot rotation (one advance per scene frame)
 	{
 		static bool prevArmed = false;
-		bool nowArmed = settings.config.zeroCopyV3;
+		bool nowArmed = ZeroCopyV3::Get().Armed();
 		if(nowArmed && !prevArmed){
 			// fresh observation phase: un-suppress the recon copy lines so
 			// the post-arming copies are visible in the log
@@ -1775,7 +1779,6 @@ bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::Sh
 		}
 		prevArmed = nowArmed;
 	}
-	ZeroCopyV3::Get().SetArmed(settings.config.zeroCopyV3);
 	ZeroCopyV3::Get().MaybeHeartbeat();
 	frameCounter++;
 

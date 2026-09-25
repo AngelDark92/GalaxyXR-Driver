@@ -188,6 +188,7 @@ void GalaxyXRDeviceProvider::RunFrame(){
 	settings.config = driverConfig.streamFrame;
 	settings.policy = gxr::ResolveSdr10Policy(driverConfig);
 	FrameProcessor::UpdateEncoderSettings(settings);
+	RefreshGripTouch();
 	
 	hidModifier.RunFrame();
 	
@@ -520,24 +521,88 @@ void GalaxyXRDeviceProvider::OnScalarComponentCreated(vr::PropertyContainerHandl
 		(unsigned long long)container, name, (unsigned long long)handle,
 		info.openVRID, info.interesting ? " [watched]" : "",
 		info.nativeHand ? " [native-hand passthrough]" : "");
-	// grip capacitive touch: vrlink never creates /input/grip/touch for these
-	// controllers; synthesize it next to grip/value (before taking the lock:
-	// the create call re-enters our own hook)
-	bool wantGripTouch = !info.nativeHand
-		&& driverConfig.galaxyXr.nativeInputProfile && driverConfig.galaxyXr.synthesizeGripTouch
+	// 2026-09-25 toggle audit: remember eligible sources even while OFF so
+	// enabling later can create the component without reconnecting.
+	info.gripTouchSource = !info.nativeHand
 		&& lower.size() >= 17 && lower.compare(lower.size() - 17, 17, "/input/grip/value") == 0;
-	if(wantGripTouch && vr::VRDriverInput()){
-		vr::VRInputComponentHandle_t touchHandle = vr::k_ulInvalidInputComponentHandle;
-		vr::EVRInputError err = vr::VRDriverInput()->CreateBooleanComponent(container, "/input/grip/touch", &touchHandle);
-		if(err == vr::VRInputError_None && touchHandle != vr::k_ulInvalidInputComponentHandle){
-			info.gripTouchHandle = touchHandle;
-			DriverLog("InputTap: synthesized /input/grip/touch (handle %llu) on container %llu from grip/value", (unsigned long long)touchHandle, (unsigned long long)container);
-		}else{
-			DriverLog("InputTap: could not create /input/grip/touch on container %llu (error %d)", (unsigned long long)container, (int)err);
+	{
+		std::lock_guard<std::mutex> guard(poseLogLock);
+		inputComponents[handle] = info;
+	}
+	UpdateGripTouch(handle);
+}
+
+static bool GripTouchSynthesisEnabled(){
+	const auto &g = driverConfig.galaxyXr;
+	return g.nativeInputProfile && g.synthesizeGripTouch && !g.controllerBypass;
+}
+
+void GalaxyXRDeviceProvider::UpdateGripTouch(vr::VRInputComponentHandle_t handle){
+	// Creation and updates re-enter the boolean tap: never hold poseLogLock
+	// across either API call. This lock only serializes synthetic-input IO.
+	std::lock_guard<std::mutex> synthesisGuard(gripTouchLock);
+	auto* input = vr::VRDriverInput();
+	if(!input){ return; }
+	vr::PropertyContainerHandle_t createContainer = 0;
+	bool create = false;
+	{
+		std::lock_guard<std::mutex> guard(poseLogLock);
+		auto found = inputComponents.find(handle);
+		if(found == inputComponents.end() || !found->second.gripTouchSource){ return; }
+		auto &info = found->second;
+		if(!GripTouchSynthesisEnabled()){
+			info.gripTouchCreateAttempted = false;
+		}else if(info.gripTouchHandle == vr::k_ulInvalidInputComponentHandle && !info.gripTouchCreateAttempted){
+			info.gripTouchCreateAttempted = true;
+			createContainer = info.container;
+			create = true;
 		}
 	}
-	std::lock_guard<std::mutex> guard(poseLogLock);
-	inputComponents[handle] = info;
+	if(create){
+		vr::VRInputComponentHandle_t touch = vr::k_ulInvalidInputComponentHandle;
+		const auto error = input->CreateBooleanComponent(createContainer, "/input/grip/touch", &touch);
+		if(error != vr::VRInputError_None || touch == vr::k_ulInvalidInputComponentHandle){
+			DriverLog("InputTap: could not create /input/grip/touch on container %llu (error %d)", (unsigned long long)createContainer, (int)error);
+			return;
+		}
+		std::lock_guard<std::mutex> guard(poseLogLock);
+		auto found = inputComponents.find(handle);
+		if(found == inputComponents.end() || found->second.container != createContainer){ return; }
+		found->second.gripTouchHandle = touch;
+	}
+	vr::VRInputComponentHandle_t touch = vr::k_ulInvalidInputComponentHandle;
+	bool touched = false;
+	{
+		std::lock_guard<std::mutex> guard(poseLogLock);
+		auto found = inputComponents.find(handle);
+		if(found == inputComponents.end()){ return; }
+		auto &info = found->second;
+		if(info.gripTouchHandle == vr::k_ulInvalidInputComponentHandle){ return; }
+		const float threshold = (std::max)(0.005f, (std::min)(0.5f, (float)driverConfig.galaxyXr.gripTouchThreshold));
+		touched = GripTouchSynthesisEnabled() && info.gripTouchValue > (info.gripTouched ? threshold * 0.5f : threshold);
+		if(touched == info.gripTouched){ return; }
+		touch = info.gripTouchHandle;
+	}
+	if(input->UpdateBooleanComponent(touch, touched, 0.0) == vr::VRInputError_None){
+		std::lock_guard<std::mutex> guard(poseLogLock);
+		auto found = inputComponents.find(handle);
+		if(found != inputComponents.end() && found->second.gripTouchHandle == touch){
+			found->second.gripTouched = touched;
+		}
+	}
+}
+
+void GalaxyXRDeviceProvider::RefreshGripTouch(){
+	// Release an asserted touch on OFF/bypass even if pressure sends no more
+	// updates; OFF -> ON also works for already-created scalar components.
+	std::vector<vr::VRInputComponentHandle_t> sources;
+	{
+		std::lock_guard<std::mutex> guard(poseLogLock);
+		for(const auto &entry : inputComponents){
+			if(entry.second.gripTouchSource){ sources.push_back(entry.first); }
+		}
+	}
+	for(auto handle : sources){ UpdateGripTouch(handle); }
 }
 
 void GalaxyXRDeviceProvider::OnScalarComponentUpdated(vr::VRInputComponentHandle_t handle, float value, double timeOffset, vr::EVRInputError error){
@@ -567,24 +632,17 @@ void GalaxyXRDeviceProvider::OnScalarComponentUpdated(vr::VRInputComponentHandle
 				id, name.c_str(), value, timeOffset, (int)error);
 		}
 	}
-	// grip touch from grip value (hysteresis 0.03 / 0.015); updated outside the lock
+	// Keep the pressure source separate from release-edge tracking. Failed
+	// source updates must not generate a synthetic touch transition.
 	{
-		vr::VRInputComponentHandle_t touchHandle = vr::k_ulInvalidInputComponentHandle;
-		bool newTouched = false, changed = false;
-		{
-			std::lock_guard<std::mutex> guard(poseLogLock);
-			auto found = inputComponents.find(handle);
-			if(found != inputComponents.end() && found->second.gripTouchHandle != vr::k_ulInvalidInputComponentHandle){
-				InputComponentInfo &gi = found->second;
-				float th = (float)driverConfig.galaxyXr.gripTouchThreshold; if(th < 0.005f){ th = 0.005f; } if(th > 0.5f){ th = 0.5f; }
-				newTouched = gi.gripTouched ? (value > th * 0.5f) : (value > th);
-				if(newTouched != gi.gripTouched){ gi.gripTouched = newTouched; changed = true; touchHandle = gi.gripTouchHandle; }
-			}
-		}
-		if(changed && vr::VRDriverInput()){
-			vr::VRDriverInput()->UpdateBooleanComponent(touchHandle, newTouched, 0.0);
+		std::lock_guard<std::mutex> guard(poseLogLock);
+		auto found = inputComponents.find(handle);
+		if(error == vr::VRInputError_None && found != inputComponents.end()){
+			found->second.gripTouchValue = value;
 		}
 	}
+	UpdateGripTouch(handle);
+	if(error != vr::VRInputError_None){ return; }
 	// distortion tuner capture: isolated fields so the tuner never disturbs
 	// the release-forensics / velocity-fix state below, and gated by an
 	// atomic so the hot path costs one relaxed load when the tuner is off
@@ -596,10 +654,8 @@ void GalaxyXRDeviceProvider::OnScalarComponentUpdated(vr::VRInputComponentHandle
 		}
 	}
 	bool fixOn = driverConfig.streamFrame.velocityFixMode == 2;
-	bool logOn = driverConfig.streamFrame.poseLogging;
-	if(!fixOn && !logOn){
-		return;
-	}
+	// 2026-09-25: edge state and functional release triggers must remain
+	// live with diagnostics OFF, including mid-grip logging/tuning changes.
 	vr::PropertyContainerHandle_t container = 0;
 	std::string name;
 	bool release = false;
@@ -638,8 +694,8 @@ void GalaxyXRDeviceProvider::OnScalarComponentUpdated(vr::VRInputComponentHandle
 			AnchorReleaseGesture(id);
 		}
 	}
-	if(release && logOn){
-		LogReleaseSnapshot(container, name);
+	if(release){
+		HandleInputRelease(container, name);
 	}
 }
 
@@ -665,15 +721,13 @@ void GalaxyXRDeviceProvider::OnBooleanComponentUpdated(vr::VRInputComponentHandl
 				id, name.c_str(), (int)value, timeOffset, (int)error);
 		}
 	}
+	if(error != vr::VRInputError_None){ return; }
 	if(tunerInputActive.load(std::memory_order_relaxed)){
 		std::lock_guard<std::mutex> tunerGuard(poseLogLock);
 		auto found = inputComponents.find(handle);
 		if(found != inputComponents.end() && found->second.tunerRole != 0){
 			found->second.tunerBool = value;
 		}
-	}
-	if(!driverConfig.streamFrame.poseLogging){
-		return;
 	}
 	vr::PropertyContainerHandle_t container = 0;
 	std::string name;
@@ -699,8 +753,8 @@ void GalaxyXRDeviceProvider::OnBooleanComponentUpdated(vr::VRInputComponentHandl
 		release = info.interesting && wasHeld && !value;
 	}
 	if(release){
-		LogReleaseSnapshot(container, name);
-	}else if(edge){
+		HandleInputRelease(container, name);
+	}else if(edge && driverConfig.streamFrame.poseLogging){
 		// low rate visibility of ALL boolean edges so the actual grab
 		// control names itself in the log even if the watch filter misses
 		double now = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -719,7 +773,32 @@ void GalaxyXRDeviceProvider::OnBooleanComponentUpdated(vr::VRInputComponentHandl
 	}
 }
 
+void GalaxyXRDeviceProvider::HandleInputRelease(vr::PropertyContainerHandle_t container, const std::string &name){
+	// 2026-09-25 toggle audit: release effects are functional input handling,
+	// not diagnostics. Neither poseLogging nor its shared 20 Hz log budget
+	// may suppress an edge (especially simultaneous left/right releases).
+	const uint32_t id = ResolveContainerId(container);
+	if(IsStreamedController(id)){
+		const double now = std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count() / 1000000.0;
+		if(driverConfig.streamFrame.velocityFixMode == 4 && driverConfig.streamFrame.kalmanReleaseRewindMs > 0.5){
+			const double hold = (std::max)(0.02, driverConfig.streamFrame.kalmanRewindHoldMs / 1000.0);
+			std::lock_guard<std::mutex> guard(deriveFilterLock);
+			auto &state = kalStates[id];
+			state.rewindUntil = now + hold;
+			state.rewindTarget = now - driverConfig.streamFrame.kalmanReleaseRewindMs / 1000.0;
+		}
+		if(driverConfig.streamFrame.velocityFixMode == 3 && driverConfig.streamFrame.deriveReleaseLatch){
+			const double hold = (std::max)(0.02, driverConfig.streamFrame.deriveLatchHoldMs / 1000.0);
+			std::lock_guard<std::mutex> guard(deriveFilterLock);
+			deriveFilterStates[id].latchUntil = now + hold;
+		}
+	}
+	if(driverConfig.streamFrame.poseLogging){ LogReleaseSnapshot(container, name); }
+}
+
 void GalaxyXRDeviceProvider::LogReleaseSnapshot(vr::PropertyContainerHandle_t container, const std::string &name){
+	if(!driverConfig.streamFrame.poseLogging){ return; }
 	{
 		double now = std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now().time_since_epoch()).count() / 1000000.0;
@@ -915,38 +994,19 @@ void GalaxyXRDeviceProvider::LogReleaseSnapshot(vr::PropertyContainerHandle_t co
 				relOutSp, skewMs, rawPkSpOut, relOverRawPk, relRawDir, fdSp, fdOverRawPk, fdRawDir, skewWMs, rawPkWSpOut, wRelOverRawWPk, relRawAng);
 		}
 	}
-	// release latch trigger: arm the peak replay for this device the moment
-	// the input tap reports the release. identity resolved ABOVE, outside
-	// any lock; deriveFilterLock taken alone here (leaf, never nested)
-	// EXPERIMENT B trigger: on release, arm the kalman rewind window
+	// Engagement diagnostics only; HandleInputRelease already applied these
+	// effects before this function's logging gate/throttle.
 	if(driverConfig.streamFrame.velocityFixMode == 4
 			&& driverConfig.streamFrame.kalmanReleaseRewindMs > 0.5
 			&& IsStreamedController(id)){
-		double nowRw = std::chrono::duration_cast<std::chrono::microseconds>(
-			std::chrono::steady_clock::now().time_since_epoch()).count() / 1000000.0;
-		double holdS = driverConfig.streamFrame.kalmanRewindHoldMs / 1000.0;
-		if(holdS < 0.02){ holdS = 0.02; }
-		{
-			std::lock_guard<std::mutex> rwGuard(deriveFilterLock);
-			KalState &ksr = kalStates[id];
-			ksr.rewindUntil = nowRw + holdS;
-			ksr.rewindTarget = nowRw - driverConfig.streamFrame.kalmanReleaseRewindMs / 1000.0;
-		}
-		// outside the lock; bounded by the caller's release throttle
 		DriverLog("VelocityFix: kalman rewind armed id=%u rewind=%.0fms hold=%.0fms",
 			id, driverConfig.streamFrame.kalmanReleaseRewindMs, driverConfig.streamFrame.kalmanRewindHoldMs);
 	}
 	if(driverConfig.streamFrame.velocityFixMode == 3
 			&& driverConfig.streamFrame.deriveReleaseLatch
 			&& IsStreamedController(id)){
-		double nowLatch = std::chrono::duration_cast<std::chrono::microseconds>(
-			std::chrono::steady_clock::now().time_since_epoch()).count() / 1000000.0;
 		double holdS = driverConfig.streamFrame.deriveLatchHoldMs / 1000.0;
 		if(holdS < 0.02){ holdS = 0.02; }
-		{
-			std::lock_guard<std::mutex> latchGuard(deriveFilterLock);
-			deriveFilterStates[id].latchUntil = nowLatch + holdS;
-		}
 		// engagement confirmation, rate-limited by the caller's 20Hz release
 		// throttle above; outside all locks
 		DriverLog("VelocityFix: latch armed id=%u hold=%.0fms", id, holdS * 1000.0);
@@ -1043,6 +1103,7 @@ void GalaxyXRDeviceProvider::OnSkeletonComponentCreated(vr::PropertyContainerHan
 }
 
 bool GalaxyXRDeviceProvider::HandleSkeletonUpdate(vr::VRInputComponentHandle_t handle, const vr::VRBoneTransform_t *bones, uint32_t count, vr::VRBoneTransform_t *outBones){
+	if(driverConfig.galaxyXr.controllerBypass){ return false; }
 	double x = driverConfig.galaxyXr.skeletonOffsetXCm * 0.01;
 	double y = driverConfig.galaxyXr.skeletonOffsetYCm * 0.01;
 	double z = driverConfig.galaxyXr.skeletonOffsetZCm * 0.01;

@@ -10,6 +10,15 @@ Image processing settings apply live within about a second. Identity, input prof
 
 Saved settings and their defaults apply on the first driver start after installation; no toggle cycle is needed. Missing JSON keys use the driver's defaults. Encoder options are published before the first encoder is created, and explicit advanced VRLink overrides are reapplied after profile, stream and resolution settings. Opening a GUI page preserves saved tuning, including values that fall between slider steps. Image processing still follows the Image Enhancements master and SDR10 consent rules below.
 
+Toggle corrections (2026-09-25):
+
+- Grip Touch From Grip Pressure OFF releases any synthesized touch and stops further synthesis. Controller Bypass also stops synthesis and skeleton offsets. Re-enabling synthesis works with an already connected controller.
+- NVENC Tap OFF stops API upgrades for new encoder sessions. Existing upgraded sessions keep the API compatibility handling they need until closed; reconnect to start a stock session.
+- Zero-Copy v3 OFF, Image Enhancements OFF, or inactive eye processing stops texture redirection. Re-enabling waits for active eye processing.
+- vrlink Debug Overlay OFF writes both diagnostic flags false, even if they were previously true. Explicit advanced VRLink overrides remain authoritative; uninstall restores unchanged journal-owned values.
+- Pose Logging OFF silences pose diagnostics without disabling release latch or release rewind.
+- Legacy encoder imports preserve explicit OFF choices for encoder switches, the headset profile, and CAS. Completed migrations are not repeated; settings already overwritten by an older version cannot be reconstructed automatically.
+
 ## Install
 
 1. Unpack the entire release zip. The GUI folder and the `GalaxyXRNative` folder must stay next to each other.
@@ -71,7 +80,7 @@ Image Enhancements is off by default with the baseline, bypassing picture proces
 
 **Status.** Driver Settings and App Settings indicate when both modes are on and warn that image quality may be reduced. Stream Frame then exposes the picture controls. A device custom shader enabled for this headset still conflicts with the baseline request.
 
-**Rollback.** Turning the baseline off also turns Image Enhancements off and clears its 10-bit opt-in. Enable Image Enhancements separately to apply stored tuning. The forced profile request is removed through the settings journal; only unchanged driver-owned values are restored. Encoder profile changes take effect at the normal reconnect/restart. Picture adjustments reset when enabling the baseline are not restored by disabling it.
+**Rollback.** Turning the baseline off disables its 10-bit capability request (`supports10bit=false`), also turns Image Enhancements off and clears enhancement consent. The explicit false is journaled even with vrlink Headset Profile off, so removing the key cannot accidentally restore an earlier true. Enable Image Enhancements separately to apply stored tuning. Schema 2 retires the old enabled `profileSupports10bit` default only when the baseline is off; custom picture/encoder tuning and explicit advanced overrides are preserved. Uninstall/recovery restores original values only while the current values still match the journal. Requires a SteamVR restart and reconnect. Recognized Quest Pro/PICO built-in capabilities can bypass per-model requests, so this switch does not guarantee a live 8-bit codec; verify the connection log. Picture adjustments reset when enabling the baseline are not restored by disabling it.
 
 **Limits.** Requested is not observed: after a SteamVR start, check `driver_vrlink.txt` for `Using 10bit mode: 1`. Physical panel precision is unverified, and the authorized runtime test matrix has not been run.
 

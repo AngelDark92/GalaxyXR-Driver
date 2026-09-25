@@ -169,7 +169,13 @@ constexpr size_t kPicParams11Size = 3344;   // 12.1: 3360
 constexpr size_t kLockBitstream11Size = 1544; // 12.1: 1552
 constexpr size_t kScratch = 4096;
 
-bool UpgradeWanted(){ return driverConfig.streamFrame.nvencSplitMode > 0 && !sessionUpgradeRejected.load(); }
+bool UpgradeWanted(){
+	// 2026-09-25: OFF must also stop upgrades for newly opened sessions and
+	// function lists after the hook is installed. Existing upgraded sessions
+	// still use Upgraded(encoder) below: their ABI cannot change mid-session.
+	const NvencTapConfig cfg = NvencTap::Get().GetConfig();
+	return cfg.enabled && cfg.splitMode > 0 && !sessionUpgradeRejected.load();
+}
 bool Upgraded(void* encoder){ std::lock_guard<std::mutex> g(upgradedLock); return upgradedSessions.count(encoder) != 0; }
 inline bool Is111(uint32_t v){ return (v & 0xFFFFu) == 11u; }
 inline uint32_t Tag121(uint32_t digit, bool b31){ return kApi121 | (digit << 16) | (0x7u << 28) | (b31 ? (1u << 31) : 0u); }

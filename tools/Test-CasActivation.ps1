@@ -80,7 +80,8 @@ if ($gateStart -lt 0 -or $gateEnd -lt 0) { throw 'Production eye activity decisi
 $gateSource = Join-Path $outputDirectory 'EyeActivity.cpp'
 $gateCode = $rawBody.Substring($gateStart, $gateEnd + $gateEndMarker.Length - $gateStart)
 $frameHeader = (Join-Path $repoRoot 'GalaxyXRDriver/src/Driver/FrameProcessor.h').Replace('\', '/')
-[IO.File]::WriteAllText($gateSource, "#include `"$frameHeader`"`n#include <cmath>`nbool CasEyeActivityForTest(FrameProcessSettings settings, double dimFactor) {`n$gateCode`n}`n")
+$zeroCopyHeader = (Join-Path $repoRoot 'GalaxyXRDriver/src/Driver/ZeroCopy.h').Replace('\', '/')
+[IO.File]::WriteAllText($gateSource, "#include `"$frameHeader`"`n#include `"$zeroCopyHeader`"`n#include <cmath>`nbool CasEyeActivityForTest(FrameProcessSettings settings, double dimFactor) {`n$gateCode`n}`n")
 
 $source = Join-Path $repoRoot 'GalaxyXRDriver/tests/CasActivationTest.cpp'
 $headers = Join-Path $repoRoot 'ThirdParty/openvr/headers'

@@ -87,6 +87,7 @@ describe('SDR 10-bit image enhancement consent', () => {
     expect(imageEnhancementsEnabled(next)).toBe(false);
     expect(next.galaxyXr!.sdr10AllowEnhancements).toBe(false);
     expect(next.streamFrame).toEqual({ ...enabled.streamFrame, enable: false });
+    expect(next.galaxyXr!.profileSupports10bit).toBe(false);
   });
 
   it('enabling the baseline resets picture settings and old consent but preserves unrelated tuning', () => {

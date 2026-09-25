@@ -37,6 +37,8 @@ void ApplyStreamQualitySetting() {
 void ApplyHeadsetProfileSetting(const std::string&, const gxr::Sdr10BaselinePolicy& policy) {
     calls += 'P';
     values["supports10bit"] = policy.profileSupports10bit;
+    values["debugRegionColoring"] = driverConfig.galaxyXr.vrlinkDebugOverlay;
+    values["showAdvancedGraphs"] = driverConfig.galaxyXr.vrlinkDebugOverlay;
 }
 void ApplyVrlinkExtraKeys() {
     calls += 'E';
@@ -77,6 +79,19 @@ void CheckOverrides(const char* label, double renderWidth = 4000) {
     Check(!calls.empty() && calls.back() == 'E', std::string(label) + ": extras applied last");
 }
 
+void CheckOverlay(bool regions, bool graphs, const char* label) {
+    Check(values.count("debugRegionColoring") == 1 && values.at("debugRegionColoring") == (regions ? 1.0 : 0.0),
+        std::string(label) + ": region coloring has the effective explicit boolean");
+    Check(values.count("showAdvancedGraphs") == 1 && values.at("showAdvancedGraphs") == (graphs ? 1.0 : 0.0),
+        std::string(label) + ": advanced graphs have the effective explicit boolean");
+}
+
+void CheckOverlayRemoved(const char* label) {
+    Check(values.count("debugRegionColoring") == 0 && values.count("showAdvancedGraphs") == 0,
+        std::string(label) + ": explicit overlay removals win");
+    Check(!calls.empty() && calls.back() == 'E', std::string(label) + ": extras applied last");
+}
+
 int main() {
     auto& config = driverConfig.galaxyXr;
     config.nativeResolution = true;
@@ -88,15 +103,20 @@ int main() {
         { "renderWidth", 'i', 4000 }, { "targetBandwidth", 'i', 900 },
         { "supports10bit", 'b', 0 }, { "streamFormatWidth", 'x', 0 }
     };
+    // The orchestration must publish OFF even when the previous session was ON.
+    // This fake-writer test covers orchestration, not journal restoration.
+    values["debugRegionColoring"] = values["showAdvancedGraphs"] = 1;
     EarlySettingsForTest();
     Check(calls == "RNSPE", "startup writes standard settings before explicit overrides");
     CheckOverrides("startup");
+    CheckOverlay(false, false, "startup overlay OFF");
 
     PriorityShim shim;
     calls.clear();
     shim.ActivateSettings();
     Check(calls == "RNSPE", "activation preserves startup ordering");
     CheckOverrides("activation");
+    CheckOverlay(false, false, "activation overlay OFF");
     calls.clear(); shim.RunFrameSettings();
     Check(calls.empty(), "unchanged active frame does not rewrite settings");
 
@@ -110,10 +130,15 @@ int main() {
     Check(calls == "SE", "stream-only change reapplies unchanged explicit overrides");
     CheckOverrides("bandwidth reload");
 
-    config.profileSupports10bit = false;
+    config.sdr10Baseline = true;
     calls.clear(); shim.RunFrameSettings();
-    Check(calls == "PE", "profile-only change reapplies unchanged explicit overrides");
+    Check(calls == "PE", "baseline ON reapplies unchanged explicit overrides");
     CheckOverrides("profile reload");
+
+    config.sdr10Baseline = false;
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "PE", "baseline OFF reapplies unchanged explicit overrides");
+    CheckOverrides("baseline off reload");
 
     config.customStreamFormatWidth = 2048;
     calls.clear(); shim.RunFrameSettings();
@@ -136,6 +161,53 @@ int main() {
     config.vrlinkBackoffRecoveryCoefficient = 0.75;
     calls.clear(); shim.RunFrameSettings();
     Check(calls == "E" && values["backoffRecoveryCoefficient"] == 0.75, "backoff-only change reaches extra writer");
+
+    // 2026-09-25: the overlay switch is independent of the baseline and route,
+    // but an explicit expert value/removal remains authoritative after reload.
+    config.vrlinkDebugOverlay = true;
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "PE", "overlay ON reapplies profile then expert overrides");
+    CheckOverlay(true, true, "overlay ON");
+    config.vrlinkDebugOverlay = false;
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "PE", "overlay OFF reapplies profile then expert overrides");
+    CheckOverlay(false, false, "overlay OFF");
+
+    const auto overlayExtraStart = config.vrlinkExtraKeys.size();
+    config.vrlinkExtraKeys.emplace_back("debugRegionColoring", 'b', 1);
+    config.vrlinkExtraKeys.emplace_back("showAdvancedGraphs", 'b', 0);
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "E", "overlay expert values apply without a toggle change");
+    CheckOverlay(true, false, "expert true/false over overlay OFF");
+    config.vrlinkDebugOverlay = true;
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "PE", "overlay ON retains unchanged expert values");
+    CheckOverlay(true, false, "expert true/false over overlay ON");
+
+    std::get<2>(config.vrlinkExtraKeys[overlayExtraStart]) = 0;
+    std::get<2>(config.vrlinkExtraKeys[overlayExtraStart + 1]) = 1;
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "E", "opposite overlay expert values apply immediately");
+    CheckOverlay(false, true, "expert false/true over overlay ON");
+    config.vrlinkDebugOverlay = false;
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "PE", "overlay OFF retains unchanged expert values");
+    CheckOverlay(false, true, "expert false/true over overlay OFF");
+
+    std::get<1>(config.vrlinkExtraKeys[overlayExtraStart]) = 'x';
+    std::get<1>(config.vrlinkExtraKeys[overlayExtraStart + 1]) = 'x';
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "E", "overlay expert removals apply immediately");
+    CheckOverlayRemoved("expert removal over overlay OFF");
+    config.vrlinkDebugOverlay = true;
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "PE", "overlay ON reapplies unchanged expert removals");
+    CheckOverlayRemoved("expert removal over overlay ON");
+    config.vrlinkHeadsetProfile = true;
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "RNPSE", "route change reapplies unchanged overlay removals");
+    CheckOverlayRemoved("expert removal after route change");
+    CheckOverrides("overlay route reload", 4200);
 
     shim.active = false;
     config.nativeResolution = true; config.customBandwidthMbit = 500;

@@ -16,11 +16,12 @@ type Harness = {
   flush: () => Promise<void>;
 };
 
-function buildHarness(stored: Record<string, unknown> | undefined = {}, disValues: unknown = undefined) {
+function buildHarness(stored: Record<string, unknown> | undefined = {}, disValues: unknown = undefined, rawStored: unknown = undefined) {
   const saved: unknown[] = [];
   const dss = {
     values: () => stored,
     save: (v: unknown) => { saved.push(v); },
+    ...(rawStored === undefined ? {} : { storedValues: () => rawStored }),
   };
   const dis = { values: () => disValues };
   const appSettings = { values: () => ({ advanceMode: false }) };
@@ -30,6 +31,39 @@ function buildHarness(stored: Record<string, unknown> | undefined = {}, disValue
 }
 
 describe('schema migrations', () => {
+  it.each([false, true])('migrates SDR10 OFF with legacy compatibility=%s without changing tuning', async legacy10bit => {
+    const stored = structuredClone(driverDefaults);
+    stored.streamFrame!.streamFrameSchema = 4;
+    stored.streamFrame!.nvencSettingsVersion = 4;
+    stored.galaxyXr!.sdr10Baseline = false;
+    stored.galaxyXr!.profileSupports10bit = legacy10bit;
+    stored.galaxyXr!.customBandwidthMbit = 177;
+    stored.streamFrame!.gamma = 1.8;
+    const { saved, flush } = buildHarness(stored);
+    await flush();
+    expect(stored.galaxyXr!.sdr10SettingsVersion).toBe(2);
+    expect(stored.galaxyXr!.profileSupports10bit).toBe(false);
+    expect(stored.galaxyXr!.customBandwidthMbit).toBe(177);
+    expect(stored.streamFrame!.gamma).toBe(1.8);
+    expect(saved.length).toBe(1);
+    const reopened = buildHarness(JSON.parse(JSON.stringify(stored)));
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
+  });
+
+  it.each([false, true])('keeps active SDR10 and its legacy compatibility=%s during migration', async legacy10bit => {
+    const stored = structuredClone(driverDefaults);
+    stored.streamFrame!.streamFrameSchema = 4;
+    stored.streamFrame!.nvencSettingsVersion = 4;
+    stored.galaxyXr!.sdr10Baseline = true;
+    stored.galaxyXr!.profileSupports10bit = legacy10bit;
+    const { flush } = buildHarness(stored);
+    await flush();
+    expect(stored.galaxyXr!.sdr10SettingsVersion).toBe(2);
+    expect(stored.galaxyXr!.sdr10Baseline).toBe(true);
+    expect(stored.galaxyXr!.profileSupports10bit).toBe(legacy10bit);
+  });
+
   it('chains schema 1 -> 2 -> 3 -> 4 for an exact-default legacy kalman config', async () => {
     const stored: any = {
       streamFrame: { velocityFixMode: 'kalman' },
@@ -107,7 +141,7 @@ describe('schema migrations', () => {
     }
   });
 
-  it('overwrites pre-v3 NVENC values with the shipped v3 defaults', async () => {
+  it('retains intentional pre-v3 scalar resets to the shipped v3 defaults', async () => {
     const d: any = driverDefaults.streamFrame;
     const stored: any = {
       streamFrame: {
@@ -121,6 +155,89 @@ describe('schema migrations', () => {
     expect(stored.streamFrame.nvencBitrateMbit).toBe(d.nvencBitrateMbit);
     expect(stored.streamFrame.nvencMinQp).toBe(d.nvencMinQp);
     expect(stored.streamFrame.nvencSettingsVersion).toBe(4);
+  });
+
+  it('preserves explicit pre-v3 encoder and headset-profile Off choices', async () => {
+    const off = {
+      nvencTap: false, nvencFixLevel: false, nvencForceCbr: false,
+      nvencBitrateScale: false, nvencPresetMerge: false,
+    };
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, vrlinkHeadsetProfile: false },
+      streamFrame: { streamFrameSchema: 4, nvencSettingsVersion: 2, ...off },
+    };
+    const { flush } = buildHarness(stored);
+    await flush();
+    expect(stored.streamFrame).toMatchObject({ ...off, nvencSettingsVersion: 4 });
+    expect(stored.galaxyXr.vrlinkHeadsetProfile).toBe(false);
+    const reopened = buildHarness(structuredClone(stored));
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
+    expect(reopened.gs.settings).toMatchObject(off);
+  });
+
+  it('fills missing legacy encoder toggle values from defaults', async () => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 4, nvencSettingsVersion: 2 },
+    };
+    const { gs, flush } = buildHarness(stored);
+    await flush();
+    for (const key of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencBitrateScale', 'nvencPresetMerge'] as const) {
+      expect(stored.streamFrame[key], key).toBe(driverDefaults.streamFrame![key]);
+    }
+    expect(gs.galaxyXr.vrlinkHeadsetProfile).toBe(driverDefaults.galaxyXr!.vrlinkHeadsetProfile);
+  });
+
+  it.each([
+    { enable: false }, { casEnable: false },
+    { enable: false, casEnable: true }, { enable: true, casEnable: false },
+  ])('keeps explicit post-pack mode %j during the v4 migration', async mode => {
+    const stored: any = {
+      streamFrame: {
+        streamFrameSchema: 4, nvencSettingsVersion: 3, nvencTap: true,
+        cas: { enable: true, strength: 0.9 }, postPack: { ...mode, foveaStrength: 0.23 },
+      },
+    };
+    const { flush } = buildHarness(stored);
+    await flush();
+    expect(stored.streamFrame.postPack).toMatchObject({ ...mode, foveaStrength: 0.23 });
+    expect(stored.streamFrame.nvencSettingsVersion).toBe(4);
+  });
+
+  it.each([false, true])('keeps legacy CAS Off with independent limitedRange=%s', async limitedRange => {
+    const stored: any = {
+      streamFrame: {
+        streamFrameSchema: 4, nvencSettingsVersion: 3, nvencTap: true,
+        cas: { enable: false, strength: 0.87 }, postPack: { limitedRange },
+      },
+    };
+    const { flush } = buildHarness(stored);
+    await flush();
+    expect(stored.streamFrame.cas.enable).toBe(false);
+    expect(stored.streamFrame.postPack.casEnable).toBe(false);
+    expect(stored.streamFrame.postPack.enable).toBe(limitedRange);
+    expect(stored.streamFrame.cas.strength).toBe(0.87);
+  });
+
+  it('distinguishes service-filled post-pack defaults from an explicit stored mode', async () => {
+    const raw = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: {
+        streamFrameSchema: 4, nvencSettingsVersion: 3, nvencTap: true,
+        cas: { enable: true, strength: 0.91 },
+      },
+    };
+    const values = structuredClone(driverDefaults);
+    values.galaxyXr = { ...values.galaxyXr!, ...raw.galaxyXr };
+    Object.assign(values.streamFrame!, raw.streamFrame, {
+      cas: { ...values.streamFrame!.cas, ...raw.streamFrame.cas },
+    });
+    const { flush } = buildHarness(values, undefined, raw);
+    await flush();
+    expect(values.streamFrame!.cas.enable).toBe(false);
+    expect(values.streamFrame!.postPack).toMatchObject({ enable: true, casEnable: true, foveaStrength: 0.91 });
+    expect(raw.streamFrame.cas).toEqual({ enable: true, strength: 0.91 });
   });
 
   it('moves an enabled pre-encode CAS to post-pack when the NVENC tap is on', async () => {

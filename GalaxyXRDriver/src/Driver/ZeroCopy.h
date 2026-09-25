@@ -48,8 +48,20 @@ class ZeroCopyV3{
 public:
 	static ZeroCopyV3& Get();
 
-	void SetArmed(bool on){ armed.store(on, std::memory_order_relaxed); }
-	bool Armed() const { return armed.load(std::memory_order_relaxed); }
+	// 2026-09-25: configuration OFF must take effect even without another
+	// processed frame. Activity alone cannot re-arm a disabled feature.
+	void SetEnabled(bool on){
+		if(on){ armState.fetch_or(1, std::memory_order_relaxed); }
+		else { armState.store(0, std::memory_order_relaxed); }
+	}
+	void SetArmed(bool on){
+		if(!on){ armState.fetch_and(1, std::memory_order_relaxed); }
+		else {
+			uint8_t enabledOnly = 1;
+			armState.compare_exchange_strong(enabledOnly, 3, std::memory_order_relaxed);
+		}
+	}
+	bool Armed() const { return armState.load(std::memory_order_relaxed) == 3; }
 
 	// our processing device: copies issued by it are never redirected
 	void SetProcessingDevice(ID3D11Device* device);
@@ -106,7 +118,9 @@ private:
 	};
 	std::mutex zLock;
 	std::map<uint64_t, Entry> entries; // key = (w << 32) | h
-	std::atomic<bool> armed{false};
+	// Atomic pair: bit 0 = configured, bit 1 = active eye work. OFF clears
+	// both together so an in-flight activity update cannot resurrect state.
+	std::atomic<uint8_t> armState{0};
 	ID3D11Device* processingDevice = nullptr;
 
 	// counters, logged bounded

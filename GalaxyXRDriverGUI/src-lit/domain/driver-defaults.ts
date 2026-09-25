@@ -7,6 +7,7 @@ const nativeDefaults = {
   "galaxyXr": {
     "sdr10Baseline": false,
     "sdr10AllowEnhancements": false,
+    "sdr10SettingsVersion": 1,
     "nativeIdentity": true,
     "renderModelVariant": "",
     "nativeInputProfile": false,

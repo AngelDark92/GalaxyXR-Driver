@@ -58,6 +58,42 @@ static Config StoredConfig() {
 }
 
 int main() {
+    for(bool baseline : {false, true}) for(bool legacy10bit : {false, true}) {
+        GalaxyXrConfig g{};
+        g.sdr10Baseline = baseline;
+        g.profileSupports10bit = legacy10bit;
+        g.customBandwidthMbit = 177;
+        g.vrlinkExtraKeys = {{"supports10bit", 'b', 1}};
+        Check(gxr::MigrateSdr10Settings(g), "legacy SDR10 settings migrate once");
+        Check(g.sdr10SettingsVersion == 2 && g.sdr10Baseline == baseline,
+            "migration stamps version 2 without changing baseline selection");
+        Check(g.profileSupports10bit == (baseline && legacy10bit),
+            "migration only clears the old true default when baseline is off");
+        Check(g.customBandwidthMbit == 177 && std::get<2>(g.vrlinkExtraKeys.front()) == 1,
+            "migration preserves custom tuning and advanced overrides");
+        Check(!gxr::MigrateSdr10Settings(g), "SDR10 migration is idempotent");
+    }
+    {
+        GalaxyXrConfig current{};
+        current.sdr10SettingsVersion = 3;
+        Check(!gxr::MigrateSdr10Settings(current) && current.profileSupports10bit,
+            "migration leaves current/future compatibility values untouched");
+    }
+    // 2026-09-25: the removed compatibility toggle must not keep the request
+    // enabled when the visible baseline switch is turned off.
+    for(bool profile : {false, true}) for(bool legacy10bit : {false, true}) {
+        Config c{};
+        c.galaxyXr.vrlinkHeadsetProfile = profile;
+        c.galaxyXr.profileSupports10bit = legacy10bit;
+        c.galaxyXr.sdr10Baseline = true;
+        const auto on = gxr::ResolveSdr10Policy(c);
+        c.galaxyXr.sdr10Baseline = false;
+        const auto off = gxr::ResolveSdr10Policy(c);
+        Check(on.profileSupports10bit && !off.profileSupports10bit,
+            "ON -> OFF disables the 10-bit request for both profile routes and legacy values");
+        Check(off.profileEnabled == profile, "OFF preserves the profile geometry switch");
+        Check(c.galaxyXr.profileSupports10bit == legacy10bit, "policy does not rewrite legacy stored values");
+    }
     Check(!Config{}.galaxyXr.sdr10AllowEnhancements, "legacy/default configs do not opt into SDR10 enhancements");
     // ---- default-off: every policy field passes the stored config through exactly ----
     {

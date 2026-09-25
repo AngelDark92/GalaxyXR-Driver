@@ -12,9 +12,8 @@
 //   immutable Config snapshot and returns a value object of EFFECTIVE
 //   values. callers that must see a consistent snapshot resolve it while
 //   holding driverConfigLock (the caller's existing lock discipline).
-// - OFF-PATH UNCHANGED: while sdr10Baseline is off (or in conflict) every
-//   policy field passes the stored config through exactly, so every
-//   consumer that reads only the policy behaves byte-for-byte as before.
+// - OFF: stored picture controls and profile geometry pass through. The
+//   10-bit capability request is disabled, including with legacy profiles.
 // - PURE RESOLVER: stored user controls are never modified or pruned here;
 //   Companion explicitly resets picture controls when the user enables it. force10bit stays
 //   retired and is deliberately absent from this policy.
@@ -31,6 +30,16 @@
 //   including legacy overlapping settings.
 
 namespace gxr{
+
+// schema 2 (2026-09-25): the baseline switch now owns the capability request.
+// Retire only the old enabled compatibility default when the baseline is off;
+// preserve explicit false, active baselines, advanced overrides and all tuning.
+inline bool MigrateSdr10Settings(GalaxyXrConfig &config){
+	if(config.sdr10SettingsVersion >= 2){ return false; }
+	if(!config.sdr10Baseline && config.profileSupports10bit){ config.profileSupports10bit = false; }
+	config.sdr10SettingsVersion = 2;
+	return true;
+}
 
 // Effective SDR10 baseline values for one settings snapshot.
 // field defaults are the ACTIVE baseline values, so a default-constructed
@@ -82,7 +91,7 @@ inline bool ImageEnhancementsEnabled(const StreamFrameConfig &config, const Sdr1
 }
 
 // Resolve the effective baseline policy from one settings snapshot.
-// see the header comment for the off-path-unchanged and conflict rules.
+// see the header comment for the capability and conflict rules.
 inline Sdr10BaselinePolicy ResolveSdr10Policy(const Config &config){
 	Sdr10BaselinePolicy p;
 	p.requested = config.galaxyXr.sdr10Baseline;
@@ -94,12 +103,12 @@ inline Sdr10BaselinePolicy ResolveSdr10Policy(const Config &config){
 	}
 	// 2026-09-25: consent restores stored picture controls, but keeps the
 	// active baseline's 10-bit capability request. Master OFF stays neutral.
-	// Inactive or conflicting: pass the stored config through exactly.
+	// Inactive or conflicting: pass stored picture controls through exactly.
 	// This is the ONLY place the stored picture values are read, and only as-is,
-	// so with the baseline off the policy equals today's behavior.
+	// 2026-09-25: OFF must not inherit the old hidden profileSupports10bit=true.
 	if(!p.active){
 		p.profileEnabled = config.galaxyXr.vrlinkHeadsetProfile;
-		p.profileSupports10bit = config.galaxyXr.profileSupports10bit;
+		p.profileSupports10bit = false;
 	}
 	p.saturation = config.streamFrame.saturation;
 	p.vibrance = config.streamFrame.vibrance;

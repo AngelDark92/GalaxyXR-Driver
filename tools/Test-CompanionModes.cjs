@@ -17,6 +17,7 @@ async function scenario(change, run) {
   const initial = clone(h.source('domain/driver-defaults').driverDefaults);
   initial.streamFrame.streamFrameSchema = 4;
   initial.streamFrame.nvencSettingsVersion = 4;
+  initial.galaxyXr.sdr10SettingsVersion = 2;
   change(initial);
   h.fixture.put(h.fixture.data + '/settings.json', initial);
   const c = await h.app();
@@ -138,6 +139,8 @@ const writes = h => h.fixture.calls.filter(x => x.kind === 'write' && x.path ===
     assert.equal(await c.galaxy.setSdr10Baseline(true), true);
     assert.equal(await c.galaxy.setSdr10Baseline(false), true);
     assert.equal(c.galaxy.imageEnhancementsEnabled, false);
+    assert.equal(c.dss.values().galaxyXr.profileSupports10bit, false);
+    assert.equal(JSON.parse(h.fixture.files.get(h.fixture.data + '/settings.json')).galaxyXr.profileSupports10bit, false);
     assert.equal(await c.galaxy.setImageEnhancements(true), true);
     assert.equal(c.galaxy.imageEnhancementsEnabled, true); assert.equal(c.galaxy.baselineRequested, false);
   }));

@@ -2,6 +2,7 @@
 #include "DriverLog.h"
 #include "EyeTrackingTap.h"
 #include "DeviceProvider.h"
+#include "ZeroCopy.h"
 #include "../Config/ConfigLoader.h"
 #include <chrono>
 #include <cmath>
@@ -1711,6 +1712,9 @@ bool DirectModeComponentShim::GetActiveSettings(FrameProcessSettings &settings, 
 	}
 	remapActive |= config.alignment.leftH != 0 || config.alignment.leftV != 0
 		|| config.alignment.rightH != 0 || config.alignment.rightV != 0;
+	// 2026-09-25: clear activity before returning false. A skipped eye
+	// pass must not leave an old processed shadow eligible for redirection.
+	ZeroCopyV3::Get().SetArmed(config.enable && (colorActive || remapActive));
 	return config.enable && (colorActive || remapActive);
 }
 

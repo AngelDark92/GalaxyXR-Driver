@@ -134,6 +134,16 @@ export class GalaxySettingsBase {
       // save or reset clears the error; otherwise a read-only file loops forever.
       const canMigrate = !this.dss.inspecting && !this.dss.writeFileError?.();
       if (this.rootSetting) {
+        // schema 2 (2026-09-25): mirrors MigrateSdr10Settings in the driver.
+        // Only retire the old enabled compatibility default with baseline OFF.
+        const rawGalaxy = this.rootSetting.galaxyXr;
+        if (rawGalaxy && canMigrate && (rawGalaxy.sdr10SettingsVersion ?? 1) < 2) {
+          if (!rawGalaxy.sdr10Baseline && (rawGalaxy.profileSupports10bit ?? true)) {
+            rawGalaxy.profileSupports10bit = false;
+          }
+          rawGalaxy.sdr10SettingsVersion = 2;
+          queueMicrotask(() => this.save());
+        }
         // schema-2 migration (2026-08-15), on the RAW stored object BEFORE
         // fillDefaults so absent keys are distinguishable from explicit old
         // defaults. mirrors the driver-side migration; this side persists
@@ -200,11 +210,14 @@ export class GalaxySettingsBase {
         // NVENC settings v3 (2026-09-05): one measured configuration replaces
         // the per-experiment values. mirrors ConfigLoader's migration: the
         // v3 encoder defaults go over any pre-v3 file, spatial AQ is forced
-        // off (it serializes NVENC submission), floors/VUI cleared, tap on.
+        // off (it serializes NVENC submission), floors/VUI cleared. Explicit
+        // toggle choices are preserved by the 2026-09-25 correction below.
         if (rawSf && canMigrate && (rawSf.nvencSettingsVersion ?? 0) < 3) {
           const d = defaultStreamFrame();
-          for (const k of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencVbvFrames', 'nvencLowDelayKfScale',
-            'nvencMaxBitrateHeadroomPct', 'nvencForceFps', 'nvencBitrateScale', 'nvencPresetMerge', 'nvencSplitMode',
+          // 2026-09-25: preserve explicit toggle choices; absent keys still
+          // receive normal defaults. Mirror the native legacy-import fix.
+          for (const k of ['nvencVbvFrames', 'nvencLowDelayKfScale',
+            'nvencMaxBitrateHeadroomPct', 'nvencForceFps', 'nvencSplitMode',
             'nvencPreset', 'nvencAqStrength', 'nvencMinQp', 'nvencMinQpIntra', 'nvencMaxQp', 'nvencVuiFullRange',
             'nvencVuiMatrix', 'nvencVuiPrimaries', 'nvencVuiTransfer', 'nvencBitrateMbit', 'nvencBandwidthOverrideMbit']) {
             (rawSf as any)[k] = (d as any)[k];
@@ -213,7 +226,7 @@ export class GalaxySettingsBase {
           const g = this.rootSetting.galaxyXr as any;
           if (g) {
             if (g.customStreamFormatWidth === undefined || g.customStreamFormatWidth > 2048 || g.customStreamFormatWidth < 512) { g.customStreamFormatWidth = 1536; }
-            g.force10bit = false; g.vrlinkHeadsetProfile = true;
+            g.force10bit = false;
           }
           queueMicrotask(() => this.save());
         }
@@ -221,12 +234,21 @@ export class GalaxySettingsBase {
         // NVENC tap is on. an enabled pre-encode CAS carries its strength to
         // the fovea and switches off.
         if (rawSf && canMigrate && (rawSf.nvencSettingsVersion ?? 0) < 4) {
+          // Inspect the stored object: the service has already filled defaults
+          // into rawSf, which otherwise makes absent mode flags look explicit.
+          const storedSf = (this.dss.storedValues?.() as Settings | undefined)?.streamFrame ?? rawSf;
+          const postPackChosen = typeof storedSf.postPack?.enable === 'boolean'
+            || typeof storedSf.postPack?.casEnable === 'boolean';
+          const casOff = storedSf.cas?.enable === false;
           if (!rawSf.postPack) { rawSf.postPack = { enable: false, casEnable: true, foveaStrength: 0.6, peripheryStrength: 0.3, foveaTop: true, edgeFalloff: 0.12, limitedRange: false }; }
-          if (rawSf.cas && rawSf.cas.enable && (rawSf.nvencTap ?? true)) {
+          if ((rawSf.nvencTap ?? true) && !postPackChosen && casOff) {
+            rawSf.postPack.casEnable = false;
+            rawSf.postPack.enable = rawSf.postPack.limitedRange;
+          } else if (!postPackChosen && rawSf.cas && rawSf.cas.enable && (rawSf.nvencTap ?? true)) {
             rawSf.postPack.enable = true; rawSf.postPack.casEnable = true;
             rawSf.postPack.foveaStrength = Math.max(0.6, Math.min(1, rawSf.cas.strength ?? 0.6));
             rawSf.cas.enable = false;
-          } else if (rawSf.nvencTap ?? true) {
+          } else if (!postPackChosen && (rawSf.nvencTap ?? true)) {
             rawSf.postPack.enable = true; rawSf.postPack.casEnable = true;
           }
           rawSf.nvencSettingsVersion = 4;

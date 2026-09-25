@@ -304,16 +304,19 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 	int maxSfw = std::max(1024, GalaxyXR_EffectiveTileWidth());
 	// 2026-09-19 SDR10 baseline: the profile gate and the 10-bit request
 	// follow the EFFECTIVE policy (active baseline forces both on, inactive
-	// passes the stored values through exactly). the debug overlay is not
+	// disables the 10-bit request and keeps stored geometry). the debug overlay is not
 	// baseline-owned and keeps its stored-config read
 	for(const auto& section : gxr::VrlinkCapabilitySections(g.vrlinkHeadsetProfile, modelNumberIn)){
 		DriverLog("GalaxyXR: headset profile apply: section %s profile=%d maxSfw=%d (tracks tile) supports10bit=%d overlay=%d",
 			section.c_str(), (int)policy.profileEnabled, maxSfw, (int)policy.profileSupports10bit, (int)g.vrlinkDebugOverlay);
 		const char* sec = section.c_str();
+		// 2026-09-25: write an explicit OFF even with profile geometry disabled.
+		// Restoring/removing this key could expose an earlier true value. The
+		// journal still keeps that original value for uninstall/recovery.
+		SetBoolIfDifferent(sec, "supports10bit", policy.profileSupports10bit);
 		if(policy.profileEnabled){
 			SetInt32IfDifferent(sec, "recommendedRenderWidth", kGalaxyXrRenderWidth);
 			SetInt32IfDifferent(sec, "recommendedRenderHeight", kGalaxyXrRenderHeight);
-			SetBoolIfDifferent(sec, "supports10bit", policy.profileSupports10bit);
 			SetInt32IfDifferent(sec, "minStreamFormatWidth", 1024);
 			SetInt32IfDifferent(sec, "maxStreamFormatWidth", maxSfw);
 			SetInt32IfDifferent(sec, "minNonFoveatedStreamFormatWidth", 1024);
@@ -332,8 +335,6 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 		}else{
 			RemoveIntIfOursIn(sec, "recommendedRenderWidth", {kGalaxyXrRenderWidth});
 			RemoveIntIfOursIn(sec, "recommendedRenderHeight", {kGalaxyXrRenderHeight});
-			RemoveBoolIfOurs(sec, "supports10bit", true);
-			RemoveBoolIfOurs(sec, "supports10bit", false);
 			RemoveIntIfOursIn(sec, "minStreamFormatWidth", {1024});
 			RemoveIntIfOursIn(sec, "maxStreamFormatWidth", {maxSfw, 1536, 2048, 3072, 3200, 3584, 4096});
 			RemoveIntIfOursIn(sec, "minNonFoveatedStreamFormatWidth", {1024});
@@ -344,14 +345,13 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 		// force10bit is retired; supports10bit is the capability request.
 		// Restore only values with journal proof, not another tool's setting.
 		RemoveBoolIfOurs(section.c_str(), "force10bit", true);
-		if(g.vrlinkDebugOverlay){
-			SetBoolIfDifferent(section.c_str(), "debugRegionColoring", true);
-			SetBoolIfDifferent(section.c_str(), "showAdvancedGraphs", true);
-			DriverLog("GalaxyXR: wrote selected-section debugRegionColoring/showAdvancedGraphs = true (effective at next connect)");
-		}else{
-			RemoveBoolIfOurs(section.c_str(), "debugRegionColoring", true);
-			RemoveBoolIfOurs(section.c_str(), "showAdvancedGraphs", true);
-		}
+		// 2026-09-25: OFF is an explicit request, not recovery of an older
+		// enabled value. Keep originals journaled for uninstall; the caller
+		// applies explicit expert values/removals after this normal request.
+		SetBoolIfDifferent(section.c_str(), "debugRegionColoring", g.vrlinkDebugOverlay);
+		SetBoolIfDifferent(section.c_str(), "showAdvancedGraphs", g.vrlinkDebugOverlay);
+		DriverLog("GalaxyXR: wrote selected-section debugRegionColoring/showAdvancedGraphs = %d (effective at next connect)",
+			(int)g.vrlinkDebugOverlay);
 	}
 }
 

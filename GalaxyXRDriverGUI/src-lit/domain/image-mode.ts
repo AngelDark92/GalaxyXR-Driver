@@ -51,6 +51,9 @@ export function changePictureMode(
     return next;
   }
   next.galaxyXr = { nativeIdentity: true, ...(next.galaxyXr ?? {}), sdr10Baseline: enabled, sdr10AllowEnhancements: false };
+  // 2026-09-25: persist OFF for older drivers as well as the current policy.
+  // Never let the removed compatibility switch undo an explicit user action.
+  if (!enabled) next.galaxyXr.profileSupports10bit = false;
   // Leaving the baseline never silently re-enables enhancements from a legacy
   // overlapping file. Enabling enhancements is a separate, explicit action.
   sf.enable = false;

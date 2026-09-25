@@ -8,6 +8,7 @@
 #include "nlohmann/json.hpp"
 #include "../Driver/DriverLog.h"
 #include "StreamTiers.h"
+#include "SdrColorPolicy.h"
 #include "../Distortion/DistortionProfileConstructor.h"
 #ifdef _WIN32
 #include "Windows.h"
@@ -503,6 +504,9 @@ void ConfigLoader::ParseConfig(){
 			}
 			if(galaxyXrData["sdr10AllowEnhancements"].is_boolean()){
 				newConfig.galaxyXr.sdr10AllowEnhancements = galaxyXrData["sdr10AllowEnhancements"].get<bool>();
+			}
+			if(galaxyXrData["sdr10SettingsVersion"].is_number_integer()){
+				newConfig.galaxyXr.sdr10SettingsVersion = galaxyXrData["sdr10SettingsVersion"].get<int>();
 			}
 		}
 		if(data["streamFrame"].is_object()){
@@ -1435,9 +1439,9 @@ void ConfigLoader::ParseConfig(){
 		// NVENC rewrite carry per-experiment values (AQ, floors, VBR, no fps
 		// pin, tap off, legacy tier names). the measured outcome of the
 		// project is one configuration, so a pre-v3 file gets the v3 encoder
-		// defaults over it; only bandwidth/tier/custom widths survive. AQ is
+		// scalar defaults over it; toggle choices and bandwidth/tier/custom widths survive. AQ is
 		// forced off unconditionally: any spatial AQ serializes NVENC
-		// submission (run X3). the GUI writes nvencSettingsVersion 3 on save.
+		// submission (run X3). the GUI writes the current migration stamp on save.
 		{
 			auto &sf = newConfig.streamFrame;
 			auto &g = newConfig.galaxyXr;
@@ -1465,24 +1469,38 @@ void ConfigLoader::ParseConfig(){
 				nvencMigrated = true;
 				const StreamFrameConfig d = {};
 				bool hadAq = sf.nvencAqStrength > 0;
-				sf.nvencTap = d.nvencTap; sf.nvencFixLevel = d.nvencFixLevel; sf.nvencForceCbr = d.nvencForceCbr;
+				// 2026-09-25: parsed booleans already contain defaults for absent
+				// keys. Preserve explicit OFF instead of enabling old experiments.
 				sf.nvencVbvFrames = d.nvencVbvFrames; sf.nvencLowDelayKfScale = d.nvencLowDelayKfScale;
 				sf.nvencMaxBitrateHeadroomPct = d.nvencMaxBitrateHeadroomPct; sf.nvencForceFps = d.nvencForceFps;
-				sf.nvencBitrateScale = d.nvencBitrateScale; sf.nvencPresetMerge = d.nvencPresetMerge;
 				sf.nvencSplitMode = d.nvencSplitMode; sf.nvencPreset = d.nvencPreset;
 				sf.nvencAqStrength = 0; sf.nvencMinQp = 0; sf.nvencMinQpIntra = 0; sf.nvencMaxQp = 0;
 				sf.nvencVuiFullRange = -1; sf.nvencVuiMatrix = -1; sf.nvencVuiPrimaries = -1; sf.nvencVuiTransfer = -1;
 				sf.nvencBitrateMbit = 0; sf.nvencBandwidthOverrideMbit = 0;
 				if(g.customStreamFormatWidth > 2048 || g.customStreamFormatWidth < 512){ g.customStreamFormatWidth = 1536; }
-				g.force10bit = false; g.vrlinkHeadsetProfile = true; // profileSupports10bit: the user's choice stays
+				g.force10bit = false; // profile and capability toggles retain the user's choice
 				sf.nvencSettingsVersion = 3;
-				DriverLog("Config: NVENC settings migrated to v3 defaults (tap on, P auto, CBR, VBV 2, KF 2, headroom 0, fps 90, split auto, AQ/floors/VUI cleared%s); tier '%s'",
+				DriverLog("Config: NVENC settings migrated to v3 defaults (toggles preserved, P auto, VBV 2, KF 2, headroom 0, fps 90, split auto, AQ/floors/VUI cleared%s); tier '%s'",
 					hadAq ? " - spatial AQ was set and is now OFF: it serialized the encoder" : "", g.streamQuality.c_str());
 			}
 			// v4: post-pack CAS replaces the pre-encode CAS when the tap is on
 			if(sf.nvencSettingsVersion < 4){
 				nvencMigrated = true;
-				if(sf.nvencTap){
+				// 2026-09-25: preserve an explicitly selected post-pack mode,
+				// or legacy CAS OFF. Only migrate an unspecified destination.
+				const json storedSf = data.contains("streamFrame") && data["streamFrame"].is_object()
+					? data["streamFrame"] : json::object();
+				const json storedPost = storedSf.value("postPack", json::object());
+				const json storedCas = storedSf.value("cas", json::object());
+				const bool postPackChosen = storedPost.is_object()
+					&& ((storedPost.contains("enable") && storedPost["enable"].is_boolean())
+						|| (storedPost.contains("casEnable") && storedPost["casEnable"].is_boolean()));
+				const bool casOff = storedCas.is_object() && storedCas.contains("enable")
+					&& storedCas["enable"].is_boolean() && !storedCas["enable"].get<bool>();
+				if(sf.nvencTap && !postPackChosen && casOff){
+					sf.postPack.casEnable = false;
+					sf.postPack.enable = sf.postPack.limitedRange;
+				} else if(sf.nvencTap && !postPackChosen){
 					if(sf.cas.enable){
 						sf.postPack.foveaStrength = (std::max)(0.6, (std::min)(1.0, sf.cas.strength));
 						sf.cas.enable = false;
@@ -1538,6 +1556,10 @@ void ConfigLoader::ParseConfig(){
 				}
 			}
 		}
+		// schema 2 (2026-09-25): retire only the old enabled compatibility
+		// default with baseline OFF. Like streamFrame schema migrations, this
+		// upgrades the runtime snapshot; Companion persists the version on save.
+		gxr::MigrateSdr10Settings(newConfig.galaxyXr);
 		// write to global config
 		{
 			std::lock_guard<std::mutex> lock(driverConfigLock);
@@ -1684,6 +1706,7 @@ void ConfigLoader::WriteInfo(){
 			{"galaxyXr", {
 				{"sdr10Baseline", defaultSettings.galaxyXr.sdr10Baseline},
 				{"sdr10AllowEnhancements", defaultSettings.galaxyXr.sdr10AllowEnhancements},
+				{"sdr10SettingsVersion", defaultSettings.galaxyXr.sdr10SettingsVersion},
 			}},
 			{"generalHeadset", {
 				{"useViveBluetooth", defaultSettings.generalHeadset.useViveBluetooth},
