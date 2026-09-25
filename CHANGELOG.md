@@ -6,6 +6,12 @@ New release entries are generated from commits on `main`: `fix:` bumps the patch
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.2.9] - 2026-09-25
+
+### Fixes
+
+- controller Kalman CA regression fix (`bb52c11`)
+
 ## [1.2.8] - 2026-09-24
 
 ### Fixes
