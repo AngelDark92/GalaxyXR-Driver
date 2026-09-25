@@ -9,6 +9,7 @@
 // All dated-campaign comments and migration predicates are preserved
 // verbatim from the source of record.
 import { driverDefaults } from '../domain/driver-defaults';
+import { getDriverDefaultsForVendor } from '../domain/vendor-driver-defaults';
 import type { AppSettingService } from '../services/app-setting';
 import { effect, signal } from '../reactive';
 import type { DriverSettingService } from '../services/driver-setting';
@@ -27,7 +28,7 @@ function zeroHandOffsets(): HandOffsets {
   };
 }
 
-function defaultControllers(): ControllersConfig { return structuredClone(driverDefaults.controllers!); }
+function defaultControllers(): ControllersConfig { return getDriverDefaultsForVendor(vendor).controllers!; }
 
 function fillDefaults(target: any, defaults: any): any {
   if (target === undefined || target === null) {
@@ -128,6 +129,10 @@ export class GalaxySettingsBase {
     });
     effect(() => {
       this.rootSetting = this.dss.values();
+      // 2026-09-25: a failed migration save rolls back to the disk snapshot.
+      // Do not migrate/save that snapshot again until an explicit successful
+      // save or reset clears the error; otherwise a read-only file loops forever.
+      const canMigrate = !this.dss.inspecting && !this.dss.writeFileError?.();
       if (this.rootSetting) {
         // schema-2 migration (2026-08-15), on the RAW stored object BEFORE
         // fillDefaults so absent keys are distinguishable from explicit old
@@ -135,7 +140,7 @@ export class GalaxySettingsBase {
         // it. only exact-old-default configs are upgraded - custom tuning
         // and deliberate mode choices pass through untouched.
         const rawSf: any = this.rootSetting.streamFrame;
-        if (rawSf && !this.dss.inspecting && (rawSf.streamFrameSchema ?? 1) < 2) {
+        if (rawSf && canMigrate && (rawSf.streamFrameSchema ?? 1) < 2) {
           const cvDef = (rawSf.kalmanProcessAccel ?? 1) === 1 && (rawSf.kalmanPosNoiseMm ?? 2.7) === 2.7
             && (rawSf.kalmanProcessAngAccel ?? 400) === 400 && (rawSf.kalmanOriNoiseDeg ?? 1.25) === 1.25;
           const caOld = rawSf.kalmanCaJerk === 10 && (rawSf.kalmanCaAngJerk ?? 1500) === 1500
@@ -154,7 +159,7 @@ export class GalaxySettingsBase {
         // schema-3 migration (2026-08-16): schema-2 ratified CA tuning ->
         // new ratified defaults. chains after the schema-2 block so a
         // schema-1 config upgraded above matches the pattern here too.
-        if (rawSf && !this.dss.inspecting && (rawSf.streamFrameSchema ?? 1) < 3) {
+        if (rawSf && canMigrate && (rawSf.streamFrameSchema ?? 1) < 3) {
           const caS2 = rawSf.kalmanCaJerk === 17 && (rawSf.kalmanCaAngJerk ?? 1500) === 1500
             && rawSf.kalmanCaPosNoiseMm === 5.7 && rawSf.kalmanCaOriNoiseDeg === 5.75
             && (rawSf.kalmanCaAccelTauMs ?? 150) === 150 && !(rawSf.kalmanCaExactCov ?? false);
@@ -174,7 +179,7 @@ export class GalaxySettingsBase {
         // bends throws off target - and retired Freeze Coast Turn. unlike
         // schema 2/3 this does not check for old defaults: custom values are
         // reset too, on purpose. mirrors the driver-side migration.
-        if (rawSf && !this.dss.inspecting && (rawSf.streamFrameSchema ?? 1) < 4) {
+        if (rawSf && canMigrate && (rawSf.streamFrameSchema ?? 1) < 4) {
           rawSf.kalmanDirLeadMs = 0;
           rawSf.kalmanFreezeCoastTurn = 0;
           // controller offsets from the previous release were measured
@@ -196,7 +201,7 @@ export class GalaxySettingsBase {
         // the per-experiment values. mirrors ConfigLoader's migration: the
         // v3 encoder defaults go over any pre-v3 file, spatial AQ is forced
         // off (it serializes NVENC submission), floors/VUI cleared, tap on.
-        if (rawSf && !this.dss.inspecting && (rawSf.nvencSettingsVersion ?? 0) < 3) {
+        if (rawSf && canMigrate && (rawSf.nvencSettingsVersion ?? 0) < 3) {
           const d = defaultStreamFrame();
           for (const k of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencVbvFrames', 'nvencLowDelayKfScale',
             'nvencMaxBitrateHeadroomPct', 'nvencForceFps', 'nvencBitrateScale', 'nvencPresetMerge', 'nvencSplitMode',
@@ -215,7 +220,7 @@ export class GalaxySettingsBase {
         // v4 (2026-09-05): post-pack CAS replaces the pre-encode CAS when the
         // NVENC tap is on. an enabled pre-encode CAS carries its strength to
         // the fovea and switches off.
-        if (rawSf && !this.dss.inspecting && (rawSf.nvencSettingsVersion ?? 0) < 4) {
+        if (rawSf && canMigrate && (rawSf.nvencSettingsVersion ?? 0) < 4) {
           if (!rawSf.postPack) { rawSf.postPack = { enable: false, casEnable: true, foveaStrength: 0.6, peripheryStrength: 0.3, foveaTop: true, edgeFalloff: 0.12, limitedRange: false }; }
           if (rawSf.cas && rawSf.cas.enable && (rawSf.nvencTap ?? true)) {
             rawSf.postPack.enable = true; rawSf.postPack.casEnable = true;
@@ -235,7 +240,7 @@ export class GalaxySettingsBase {
         if (typeof this.defaults.kalmanAngularOutFrame === 'number') {
           this.defaults.kalmanAngularOutFrame = frameNames[this.defaults.kalmanAngularOutFrame as any] ?? 'body';
         }
-        if (rawSf && !this.dss.inspecting && typeof rawSf.kalmanAngularOutFrame === 'number') {
+        if (rawSf && canMigrate && typeof rawSf.kalmanAngularOutFrame === 'number') {
           rawSf.kalmanAngularOutFrame = frameNames[rawSf.kalmanAngularOutFrame] ?? 'body';
           queueMicrotask(() => this.save());
         }

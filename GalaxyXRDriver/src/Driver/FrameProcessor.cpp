@@ -1689,6 +1689,75 @@ bool FrameProcessor::ProcessEye(ID3D11Texture2D* texture, const vr::VRTextureBou
 	return true;
 }
 
+void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings){
+	// Startup/provider ticks and scene submission can publish concurrently.
+	// Keep the paired configs and hook/heartbeat bookkeeping serialized.
+	static std::mutex encoderSettingsLock;
+	std::lock_guard<std::mutex> guard(encoderSettingsLock);
+	// 2026-09-25 CAS activation fix: synchronize independently of eye work,
+	// and use the same enable decision for pixel remapping and its VUI flag.
+	const bool postPackEnabled = settings.config.nvencTap
+		&& gxr::ImageEnhancementsEnabled(settings.config, settings.policy)
+		&& settings.policy.postPackEnable;
+	// v3: the encoder settings are global; the tier (or custom mode)
+	// only supplies tile width + bandwidth. nvencTap is the master
+	// switch: off = stock streamer.
+	NvencTapConfig tc;
+	tc.enabled = settings.config.nvencTap;
+	tc.fixLevel = settings.config.nvencFixLevel;
+	// encoder bitrate: the debug "separate" value if set, else the
+	// effective pacer bandwidth (tier/custom/Advanced override)
+	tc.bitrateMbit = settings.config.nvencBitrateMbit > 0 ? settings.config.nvencBitrateMbit : GalaxyXR_EffectiveBandwidthMbit();
+	tc.maxQp = settings.config.nvencMaxQp;
+	tc.aqStrength = settings.config.nvencAqStrength;
+	tc.maxBitrateHeadroomPct = settings.config.nvencMaxBitrateHeadroomPct;
+	tc.vbvFrames = settings.config.nvencVbvFrames;
+	tc.forceFps = settings.config.nvencForceFps;
+	tc.bitrateScale = settings.config.nvencBitrateScale;
+	tc.vrlinkClampMbit = settings.config.nvencVrlinkClampMbit;
+	tc.preset = settings.config.nvencPreset;
+	tc.presetMerge = settings.config.nvencPresetMerge;
+	// the post-pack limited-range remap needs the VUI full-range flag
+	// cleared so the decoder expands 16..235 back; it overrides the
+	// (graveyard) manual VUI value. 2026-09-19 SDR10 baseline: the
+	// enable and the VUI pair are EFFECTIVE values — the baseline
+	// bypasses post-pack and leaves Valve's original pixel/metadata
+	// pair untouched (all -1)
+	tc.vuiFullRange = postPackEnabled && settings.config.postPack.limitedRange ? 0 : settings.policy.vuiFullRange;
+	tc.vuiMatrix = settings.policy.vuiMatrix;
+	tc.vuiPrimaries = settings.policy.vuiPrimaries;
+	tc.vuiTransfer = settings.policy.vuiTransfer;
+	tc.minQp = settings.config.nvencMinQp;
+	tc.minQpIntra = settings.config.nvencMinQpIntra;
+	tc.forceCbr = settings.config.nvencForceCbr;
+	tc.lowDelayKfScale = settings.config.nvencLowDelayKfScale;
+	tc.presetAuto = settings.config.nvencPreset == 0; // 0 = by engine count (NvencTap)
+	{
+		const auto &pp = settings.config.postPack;
+		NvencPostPackConfig pc;
+		// effective post-pack enable (2026-09-19 SDR10 baseline: false
+		// while active -> NvencPostPack::Process skips; the other fields
+		// are inert while disabled)
+		// The Image Enhancements master also gates post-pack processing;
+		// disabling the UI mode must stop this path, not just the eye pass.
+		pc.enable = postPackEnabled; pc.casEnable = pp.casEnable;
+		pc.foveaStrength = (float)pp.foveaStrength; pc.peripheryStrength = (float)pp.peripheryStrength;
+		pc.foveaTop = pp.foveaTop; pc.limitedRange = pp.limitedRange; pc.edgeFalloff = (float)pp.edgeFalloff;
+		NvencPostPack::SetConfig(pc);
+	}
+	tc.splitMode = settings.config.nvencSplitMode;
+	tc.qpFovea = (std::max)(-10, (std::min)(0, settings.config.nvencQpFovea));
+	tc.qpPeriphery = (std::max)(0, (std::min)(10, settings.config.nvencQpPeriphery));
+	tc.qpEdgeFalloff = (float)settings.config.postPack.edgeFalloff;
+	tc.qpFoveaTop = settings.config.postPack.foveaTop;
+	tc.verbose = settings.config.nvencVerbose;
+	NvencTap::Get().SetConfig(tc);
+	if(tc.enabled){
+		NvencTap::Get().TryInstall();
+		NvencTap::Get().MaybeHeartbeat();
+	}
+}
+
 bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::SharedTextureHandle_t rightEye,
 	const vr::VRTextureBounds_t &leftBounds, const vr::VRTextureBounds_t &rightBounds,
 	vr::SharedTextureHandle_t syncTexture, const FrameProcessSettings &settings){
@@ -1708,65 +1777,6 @@ bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::Sh
 	}
 	ZeroCopyV3::Get().SetArmed(settings.config.zeroCopyV3);
 	ZeroCopyV3::Get().MaybeHeartbeat();
-	{
-		// v3: the encoder settings are global; the tier (or custom mode)
-		// only supplies tile width + bandwidth. nvencTap is the master
-		// switch: off = stock streamer.
-		NvencTapConfig tc;
-		tc.enabled = settings.config.nvencTap;
-		tc.fixLevel = settings.config.nvencFixLevel;
-		// encoder bitrate: the debug "separate" value if set, else the
-		// effective pacer bandwidth (tier/custom/Advanced override)
-		tc.bitrateMbit = settings.config.nvencBitrateMbit > 0 ? settings.config.nvencBitrateMbit : GalaxyXR_EffectiveBandwidthMbit();
-		tc.maxQp = settings.config.nvencMaxQp;
-		tc.aqStrength = settings.config.nvencAqStrength;
-		tc.maxBitrateHeadroomPct = settings.config.nvencMaxBitrateHeadroomPct;
-		tc.vbvFrames = settings.config.nvencVbvFrames;
-		tc.forceFps = settings.config.nvencForceFps;
-		tc.bitrateScale = settings.config.nvencBitrateScale;
-		tc.vrlinkClampMbit = settings.config.nvencVrlinkClampMbit;
-		tc.preset = settings.config.nvencPreset;
-		tc.presetMerge = settings.config.nvencPresetMerge;
-		// the post-pack limited-range remap needs the VUI full-range flag
-		// cleared so the decoder expands 16..235 back; it overrides the
-		// (graveyard) manual VUI value. 2026-09-19 SDR10 baseline: the
-		// enable and the VUI pair are EFFECTIVE values — the baseline
-		// bypasses post-pack and leaves Valve's original pixel/metadata
-		// pair untouched (all -1)
-		tc.vuiFullRange = settings.policy.postPackEnable && settings.config.postPack.limitedRange ? 0 : settings.policy.vuiFullRange;
-		tc.vuiMatrix = settings.policy.vuiMatrix;
-		tc.vuiPrimaries = settings.policy.vuiPrimaries;
-		tc.vuiTransfer = settings.policy.vuiTransfer;
-		tc.minQp = settings.config.nvencMinQp;
-		tc.minQpIntra = settings.config.nvencMinQpIntra;
-		tc.forceCbr = settings.config.nvencForceCbr;
-		tc.lowDelayKfScale = settings.config.nvencLowDelayKfScale;
-		tc.presetAuto = settings.config.nvencPreset == 0; // 0 = by engine count (NvencTap)
-		{
-			const auto &pp = settings.config.postPack;
-			NvencPostPackConfig pc;
-			// effective post-pack enable (2026-09-19 SDR10 baseline: false
-			// while active -> NvencPostPack::Process skips; the other fields
-			// are inert while disabled)
-			// The Image Enhancements master also gates post-pack processing;
-			// disabling the UI mode must stop this path, not just the eye pass.
-			pc.enable = tc.enabled && gxr::ImageEnhancementsEnabled(settings.config, settings.policy) && settings.policy.postPackEnable; pc.casEnable = pp.casEnable;
-			pc.foveaStrength = (float)pp.foveaStrength; pc.peripheryStrength = (float)pp.peripheryStrength;
-			pc.foveaTop = pp.foveaTop; pc.limitedRange = pp.limitedRange; pc.edgeFalloff = (float)pp.edgeFalloff;
-			NvencPostPack::SetConfig(pc);
-		}
-		tc.splitMode = settings.config.nvencSplitMode;
-		tc.qpFovea = (std::max)(-10, (std::min)(0, settings.config.nvencQpFovea));
-		tc.qpPeriphery = (std::max)(0, (std::min)(10, settings.config.nvencQpPeriphery));
-		tc.qpEdgeFalloff = (float)settings.config.postPack.edgeFalloff;
-		tc.qpFoveaTop = settings.config.postPack.foveaTop;
-		tc.verbose = settings.config.nvencVerbose;
-		NvencTap::Get().SetConfig(tc);
-		if(tc.enabled){
-			NvencTap::Get().TryInstall();
-			NvencTap::Get().MaybeHeartbeat();
-		}
-	}
 	frameCounter++;
 
 	// re-arm the diagnostic budget every 5 minutes so problems in apps

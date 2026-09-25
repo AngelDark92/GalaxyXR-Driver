@@ -136,7 +136,7 @@ export class AppSelect extends LitElement {
       return;
     }
     try {
-      dd.value = this.value;
+      dd.value = String(this.value);
       dd.control?.setAttribute('aria-label', accessibleLabel(this, this.label));
     } catch {
       if (attempts < 60) this.syncTimer = setTimeout(() => this.syncValue(attempts + 1), 16);
@@ -241,8 +241,8 @@ export class AppNumber extends LitElement {
 }
 
 /**
- * app-slider — commits once per user gesture end (no duplicate commits from
- * both input and change).
+ * app-slider — forwards Fluent's interaction changes without treating display
+ * synchronization or normalization as edits to the stored setting.
  */
 @customElement('app-slider')
 export class AppSlider extends LitElement {
@@ -264,9 +264,41 @@ export class AppSlider extends LitElement {
   @property({ type: Number }) step = 1;
   @property({ type: Boolean }) disabled = false;
 
+  private synchronizing = false;
+  private initialized = false;
+
+  // 2026-09-25: Fluent 3.1.3 emits change from its value setter, including
+  // programmatic writes and min/max/step normalization. Set bounds first and
+  // suppress those events, preserving exact saved tuning even if its slider
+  // display is rounded or clamped. Initial sync also precedes Fluent's first
+  // animation-frame default-value check, which otherwise resets an out-of-
+  // range value to the midpoint and silently saves it through the page.
+  private syncValue(): void {
+    const control = this.renderRoot.querySelector('fluent-slider') as (HTMLElement & {
+      min: string; max: string; step: string; value: string;
+    }) | null;
+    if (!control || !this.isConnected) return;
+    this.synchronizing = true;
+    try {
+      control.min = String(this.min);
+      control.max = String(this.max);
+      control.step = String(this.step);
+      control.value = String(this.value);
+      this.initialized = true;
+    } finally {
+      this.synchronizing = false;
+    }
+  }
+
+  firstUpdated(): void { this.syncValue(); }
+
+  updated(changed: PropertyValues): void {
+    if (['value', 'min', 'max', 'step'].some(key => changed.has(key))) this.syncValue();
+  }
+
   private onNativeChange = (event: Event) => {
     event.stopPropagation();
-    if (this.disabled) return;
+    if (this.disabled || this.synchronizing || !this.initialized) return;
     const el = event.currentTarget as HTMLElement & { value: number };
     if (!Number.isFinite(Number(el.value))) return;
     this.value = Number(el.value);
@@ -275,12 +307,8 @@ export class AppSlider extends LitElement {
 
   render() {
     return html`<fluent-slider
-      .value=${this.value}
       ?disabled=${this.disabled}
       aria-label=${accessibleLabel(this)}
-      .min=${this.min}
-      .max=${this.max}
-      .step=${this.step}
       @change=${this.onNativeChange}
     ></fluent-slider>`;
   }

@@ -79,8 +79,8 @@ PNVENCUNMAPINPUTRESOURCE origUnmapInputResource = nullptr;
 // vrlink registers a ring of D3D11 textures (nvEncRegisterResource ->
 // registered handle), maps one per frame (nvEncMapInputResource ->
 // mapped/input pointer) and encodes it (nvEncEncodePicture inputBuffer ==
-// mapped). two maps turn the input pointer back into the ID3D11Texture2D
-// so the post-pack pass can run on it right before the encoder reads it.
+// mapped). Resolve the registered texture before mapping it; once mapped,
+// NVENC owns the resource and no D3D writes are allowed until it is unmapped.
 std::mutex resLock;
 struct RegInfo { void* texture; uint32_t fmt; uint32_t type; };
 std::map<void*, RegInfo> registered;   // NV_ENC_REGISTERED_PTR -> texture
@@ -122,12 +122,17 @@ const int8_t* GetQpMap(uint32_t w, uint32_t h, const NvencTapConfig &cfg, uint32
 }
 inline bool QpMapWanted(const NvencTapConfig &cfg){ return cfg.enabled && (cfg.qpFovea != 0 || cfg.qpPeriphery != 0); }
 
-bool LookupInputTexture(void* input, void** texture, uint32_t* fmt){
-	std::lock_guard<std::mutex> g(resLock);
-	auto m = mappedToReg.find(input);
-	if(m == mappedToReg.end()){ return false; }
-	auto r = registered.find(m->second);
-	if(r == registered.end() || r->second.type != (uint32_t)NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX){ return false; }
+// Caller holds resLock through processing and the map call so another map,
+// unmap, or unregister cannot change ownership while the texture is written.
+bool LookupUnmappedTexture(void* reg, void** texture, uint32_t* fmt){
+	auto r = registered.find(reg);
+	if(r == registered.end() || !r->second.texture || r->second.type != (uint32_t)NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX){ return false; }
+	for(const auto &m : mappedToReg){
+		if(m.second == reg){ return false; }
+		// A texture may have more than one registered handle.
+		auto alias = registered.find(m.second);
+		if(alias != registered.end() && alias->second.texture == r->second.texture){ return false; }
+	}
 	*texture = r->second.texture; *fmt = r->second.fmt; return true;
 }
 
@@ -708,12 +713,16 @@ NVENCSTATUS NVENCAPI NvencTapShims::RegisterResource(void* encoder, NV_ENC_REGIS
 	return st;
 }
 NVENCSTATUS NVENCAPI NvencTapShims::UnregisterResource(void* encoder, NV_ENC_REGISTERED_PTR reg){
-	{ std::lock_guard<std::mutex> g(resLock); registered.erase(reg); }
-	return origUnregisterResource(encoder, reg);
+	std::lock_guard<std::mutex> g(resLock);
+	NVENCSTATUS st = origUnregisterResource(encoder, reg);
+	if(st == NV_ENC_SUCCESS){ registered.erase(reg); }
+	return st;
 }
 NVENCSTATUS NVENCAPI NvencTapShims::UnmapInputResource(void* encoder, NV_ENC_INPUT_PTR mapped){
-	{ std::lock_guard<std::mutex> g(resLock); mappedToReg.erase(mapped); }
-	return origUnmapInputResource(encoder, mapped);
+	std::lock_guard<std::mutex> g(resLock);
+	NVENCSTATUS st = origUnmapInputResource(encoder, mapped);
+	if(st == NV_ENC_SUCCESS){ mappedToReg.erase(mapped); }
+	return st;
 }
 
 NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARAMS* params){
@@ -727,11 +736,6 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 		DriverLog("NvencTap: nvEncEncodePicture encoder=%p %ux%u pitch=%u in=%p out=%p fmt=0x%x picType=%u struct=%u frameIdx=%u flags=0x%x",
 			encoder, params->inputWidth, params->inputHeight, params->inputPitch, params->inputBuffer, params->outputBitstream,
 			(unsigned)params->bufferFmt, (unsigned)params->pictureType, (unsigned)params->pictureStruct, params->frameIdx, params->encodePicFlags);
-	}
-	// post-pack pass on the packed frame, before the encoder reads it
-	if(params && params->inputBuffer){
-		void* tex = nullptr; uint32_t fmt = 0;
-		if(LookupInputTexture(params->inputBuffer, &tex, &fmt)){ NvencPostPack::Process(tex, fmt); }
 	}
 	double t0 = NowSecondsNv();
 	NVENCSTATUS st;
@@ -879,9 +883,15 @@ NVENCSTATUS NVENCAPI NvencTapShims::UnregisterAsyncEvent(void* encoder, NV_ENC_E
 }
 NVENCSTATUS NVENCAPI NvencTapShims::MapInputResource(void* encoder, NV_ENC_MAP_INPUT_RESOURCE* params){
 	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 4, false); }
+	std::lock_guard<std::mutex> g(resLock);
+	// CAS ordering fix (2026-09-25): submit all post-pack D3D writes before
+	// NVENC maps the texture; modifying a mapped input is undefined behavior.
+	if(params && params->registeredResource){
+		void* tex = nullptr; uint32_t fmt = 0;
+		if(LookupUnmappedTexture(params->registeredResource, &tex, &fmt)){ NvencPostPack::Process(tex, fmt); }
+	}
 	NVENCSTATUS st = origMapInputResource(encoder, params);
 	if(st == NV_ENC_SUCCESS && params && params->mappedResource){
-		std::lock_guard<std::mutex> g(resLock);
 		mappedToReg[params->mappedResource] = params->registeredResource;
 	}
 	return st;

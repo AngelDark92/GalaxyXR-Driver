@@ -5,7 +5,7 @@
 // vrlink's foveation shader renders the frame NVENC encodes: four stacked
 // square tiles of streamFormatWidth (per eye: a 1:1 gaze-tracked cut-out of
 // the render target and the whole view downscaled). The NvencTap sees that
-// texture at nvEncEncodePicture, right before the encoder reads it. Doing
+// texture before nvEncMapInputResource transfers it to the encoder. Doing
 // per-pixel work HERE instead of on the app's eye textures is ~10x fewer
 // pixels (9.4 MP vs 109 MP at 200% SS), removes a full-resolution copy from
 // the compositor path, sharpens the periphery AFTER its downscale (where it
@@ -22,7 +22,7 @@
 // Mechanics: copy the packed NV12/P010 texture to a scratch, then one
 // full-screen pixel-shader pass per plane from the scratch's plane SRV into
 // the original's plane RTV (RTVs on video planes are guaranteed: vrlink
-// itself renders into them). EncodePicture is called on vrlink's encode
+// itself renders into them). MapInputResource is called on vrlink's encode
 // thread, so its immediate context is used under D3D11 multithread
 // protection. Any failure disables the feature for the session with a log
 // line; the encoder then sees vrlink's untouched frame.
@@ -46,10 +46,10 @@ struct NvencPostPackStats {
 };
 
 // registered/mapped resource bookkeeping is done by the tap; it hands the
-// D3D11 texture (ID3D11Texture2D*) here.
+// unmapped D3D11 texture (ID3D11Texture2D*) here.
 namespace NvencPostPack {
 	void SetConfig(const NvencPostPackConfig &cfg);
-	// process the packed frame before the encoder reads it. returns false if
+	// process the packed frame before NVENC maps it. returns false if
 	// nothing was done (disabled, unsupported, error).
 	bool Process(void* d3d11Texture2D, uint32_t nvencBufferFormat);
 	NvencPostPackStats GetStats();

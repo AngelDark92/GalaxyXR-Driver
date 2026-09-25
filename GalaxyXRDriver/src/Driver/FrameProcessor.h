@@ -120,6 +120,10 @@ bool MapHeadDirToEyeUv(const FrameProcessSettings &settings, int eye,
 
 class FrameProcessor{
 public:
+	// 2026-09-25: encoder/post-pack settings must update even when the eye
+	// pass is an identity transform or Image Enhancements has been disabled.
+	static void UpdateEncoderSettings(const FrameProcessSettings &settings);
+
 	// process both eye textures of the scene layer. syncTexture is the direct
 	// mode sync texture whose keyed mutex guards the frame. returns true if the
 	// frame was processed, false if it was skipped (frame is still valid).
@@ -319,6 +323,7 @@ private:
 // non windows stub
 class FrameProcessor{
 public:
+	static void UpdateEncoderSettings(const FrameProcessSettings &){}
 	bool ProcessSceneLayer(vr::SharedTextureHandle_t, vr::SharedTextureHandle_t,
 		const vr::VRTextureBounds_t &, const vr::VRTextureBounds_t &,
 		vr::SharedTextureHandle_t, const FrameProcessSettings &){ return false; }

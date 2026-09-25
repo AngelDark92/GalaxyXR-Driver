@@ -3,16 +3,16 @@ import { exists, writeTextFile } from '@tauri-apps/plugin-fs';
 import type { AppSetting, Settings } from '../domain/types';
 import { PathsService } from './paths';
 import { JsonSettingServiceBase } from './settings-base';
-import { deepCopy, deepMerge } from '../domain/pure';
+import { deepMerge } from '../domain/pure';
 import type { DriverInfoService } from './driver-info';
-import { driverDefaults } from '../domain/driver-defaults';
+import { getDriverDefaultsForVendor } from '../domain/vendor-driver-defaults';
 import { vendor } from '../environment';
 
 export class DriverSettingService extends JsonSettingServiceBase<Settings> {
   private readonly pathService: PathsService;
   constructor(paths: PathsService, driverInfoService: DriverInfoService, appSettingGetter: () => AppSetting | undefined) {
     super(paths.settingPath, paths.appDataDirPath, () => {
-      const defaults = deepMerge(deepCopy(driverDefaults), driverInfoService.values()?.defaultSettings ?? {});
+      const defaults = deepMerge(getDriverDefaultsForVendor(vendor), driverInfoService.values()?.defaultSettings ?? {});
       if (vendor === 'galaxyxr' && defaults.galaxyXr) {
         defaults.galaxyXr.nativeIdentity = true;
         defaults.galaxyXr.vrlinkHeadsetProfile = true;

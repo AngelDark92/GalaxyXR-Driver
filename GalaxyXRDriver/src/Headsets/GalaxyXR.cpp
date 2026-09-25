@@ -420,8 +420,7 @@ void GalaxyXR_EarlyApplyVrlinkSettings(){
 static void ApplyNativeResolutionSetting(){
     // 2026-09-24: native render geometry must not reset a user's refresh rate.
     // Retire old implicit 90 Hz writes only while the journal still owns them.
-    // Keep explicit expert overrides (including removals) across HMD activation,
-    // which reapplies geometry without reapplying the extra-key list.
+    // Keep explicit expert overrides (including removals) across HMD activation.
     const auto& extraKeys = driverConfig.galaxyXr.vrlinkExtraKeys;
     const bool explicitDisplayFrequency = std::any_of(extraKeys.begin(), extraKeys.end(),
         [](const auto& entry){ return std::get<0>(entry) == "displayFrequency"; });
@@ -486,6 +485,9 @@ void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInit
 	// the stored booleans do not change
 	const gxr::Sdr10BaselinePolicy baselinePolicy = ResolveSdr10PolicyLocked();
 	ApplyHeadsetProfileSetting(origModelNumber, baselinePolicy);
+	// 2026-09-25: explicit overrides must win after activation reapplies the
+	// normal profile/stream/geometry keys, just as they do during early init.
+	ApplyVrlinkExtraKeys();
 	appliedHeadsetProfile = baselinePolicy.profileEnabled;
 	appliedProfile10bit = baselinePolicy.profileSupports10bit;
 	appliedBandwidthOverride = driverConfig.streamFrame.nvencBandwidthOverrideMbit;
@@ -629,6 +631,7 @@ void GalaxyXRHmdShim::RunFrame(){
         if(driverConfig.galaxyXr.nativeIdentity) ApplyIdentity();
     }
     const bool routeChanged = active && driverConfig.galaxyXr.vrlinkHeadsetProfile != appliedProfileRoute;
+    bool reapplyExtraKeys = routeChanged;
     if(routeChanged){
         RestoreInactiveVrlinkSettings(origModelNumber);
         appliedProfileRoute = driverConfig.galaxyXr.vrlinkHeadsetProfile;
@@ -640,6 +643,7 @@ void GalaxyXRHmdShim::RunFrame(){
 	if(active && (routeChanged || driverConfig.galaxyXr.nativeResolution != appliedNativeResolution)){
 		appliedNativeResolution = driverConfig.galaxyXr.nativeResolution;
 		ApplyNativeResolutionSetting();
+		reapplyExtraKeys = true;
 	}
 	{
 		const auto &g = driverConfig.galaxyXr;
@@ -662,11 +666,7 @@ void GalaxyXRHmdShim::RunFrame(){
 			appliedProfileMaxSfw = tileNow;
 			appliedProfile10bit = policy.profileSupports10bit;
 			ApplyHeadsetProfileSetting(origModelNumber, policy);
-		}
-		if(active && (routeChanged || g.vrlinkExtraKeys != appliedExtraKeys || g.vrlinkMaxVideoQueueLatencyUs != appliedMaxVqLat
-				|| g.vrlinkBackoffRecoveryCoefficient != appliedBackoffCoef)){
-			appliedExtraKeys = g.vrlinkExtraKeys; appliedMaxVqLat = g.vrlinkMaxVideoQueueLatencyUs; appliedBackoffCoef = g.vrlinkBackoffRecoveryCoefficient;
-			ApplyVrlinkExtraKeys();
+			reapplyExtraKeys = true;
 		}
 		bool customChanged = g.streamQuality == "custom" && (g.customEncodeWidth != appliedCustomEncodeWidth
 			|| g.customStreamFormatWidth != appliedCustomStreamFormatWidth || g.customBandwidthMbit != appliedCustomBandwidthMbit);
@@ -678,6 +678,12 @@ void GalaxyXRHmdShim::RunFrame(){
 			appliedCustomBandwidthMbit = g.customBandwidthMbit;
 			appliedBandwidthOverride = bwOverride;
 			ApplyStreamQualitySetting();
+			reapplyExtraKeys = true;
+		}
+		if(active && (reapplyExtraKeys || g.vrlinkExtraKeys != appliedExtraKeys || g.vrlinkMaxVideoQueueLatencyUs != appliedMaxVqLat
+				|| g.vrlinkBackoffRecoveryCoefficient != appliedBackoffCoef)){
+			appliedExtraKeys = g.vrlinkExtraKeys; appliedMaxVqLat = g.vrlinkMaxVideoQueueLatencyUs; appliedBackoffCoef = g.vrlinkBackoffRecoveryCoefficient;
+			ApplyVrlinkExtraKeys();
 		}
 	}
 }

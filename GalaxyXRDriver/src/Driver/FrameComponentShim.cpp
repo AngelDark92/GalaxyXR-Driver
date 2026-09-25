@@ -1515,6 +1515,26 @@ void DirectModeComponentShim::SaveTunedProfile(const FrameProcessSettings &setti
 }
 
 bool DirectModeComponentShim::GetActiveSettings(FrameProcessSettings &settings, bool &processAtSubmit){
+	{
+		std::lock_guard<std::mutex> configGuard(driverConfigLock);
+		// 2026-09-25: gaze prediction must read the saved settings, not the
+		// default-constructed frame snapshot. Resolve every consumer first.
+		settings.config = driverConfig.streamFrame;
+		processAtSubmit = driverConfig.streamFrame.processAtSubmitLayer;
+		// 2026-09-19 SDR10 baseline: resolve the effective color policy from
+		// the SAME snapshot under the SAME lock so eye and encoder settings
+		// cannot mix stored settings with a different baseline policy.
+		settings.policy = gxr::ResolveSdr10Policy(driverConfig);
+		// 2026-09-25: require explicit SDR10 enhancement consent for old/external files too.
+		settings.config.enable = gxr::ImageEnhancementsEnabled(settings.config, settings.policy);
+		if(driverConfigLoader.info.isDashboardOpen && driverConfig.streamFrame.skipColorWhileDashboardOpen){
+			settings.applyColor = false;
+		}
+		// Publish before releasing the config lock so an older scene snapshot
+		// cannot undo a newer provider OFF/consent update. Post-pack CAS has
+		// no eye-texture work of its own, so this precedes the activity gate.
+		FrameProcessor::UpdateEncoderSettings(settings);
+	}
 	// live gaze for the frame about to be processed (dynamic pupil swim /
 	// gaze debug). 100ms staleness guard: a brief hiccup degrades to the
 	// static behavior instead of consuming stale gaze.
@@ -1600,22 +1620,6 @@ bool DirectModeComponentShim::GetActiveSettings(FrameProcessSettings &settings, 
 			}
 		}
 	}
-	{
-		std::lock_guard<std::mutex> configGuard(driverConfigLock);
-		settings.config = driverConfig.streamFrame;
-		processAtSubmit = driverConfig.streamFrame.processAtSubmitLayer;
-		// 2026-09-19 SDR10 baseline: resolve the effective color policy from
-		// the SAME snapshot under the SAME lock (see FrameProcessSettings::
-		// policy). both eyes and the encode config then read one consistent
-		// state, and a mid-frame toggle cannot mix pre-toggle NVENC policy
-		// with post-toggle color constants
-		settings.policy = gxr::ResolveSdr10Policy(driverConfig);
-		// 2026-09-25: require explicit SDR10 enhancement consent for old/external files too.
-		settings.config.enable = gxr::ImageEnhancementsEnabled(settings.config, settings.policy);
-		if(driverConfigLoader.info.isDashboardOpen && driverConfig.streamFrame.skipColorWhileDashboardOpen){
-			settings.applyColor = false;
-		}
-	}
 	// fixation dot direction for this frame's render pose and the head
 	// angular velocity, both maintained in SubmitLayer
 	settings.dotValid = dotHeadValid;
@@ -1643,6 +1647,7 @@ bool DirectModeComponentShim::GetActiveSettings(FrameProcessSettings &settings, 
 	// through exactly and this is unchanged
 	bool colorActive = settings.applyColor && (
 		policy.saturation != 50 ||
+		policy.vibrance != 0 ||
 		policy.contrast != 50 ||
 		policy.gamma != 2.2 ||
 		policy.colorMultiplier.r != 1.0 || policy.colorMultiplier.g != 1.0 || policy.colorMultiplier.b != 1.0 ||
@@ -1651,6 +1656,11 @@ bool DirectModeComponentShim::GetActiveSettings(FrameProcessSettings &settings, 
 	// baseline-owned (stays a user control); dither is judged on the
 	// effective value (baseline forces it off)
 	colorActive |= config.cas.enable || policy.dither;
+	// 2026-09-25: these passes also change pixels with otherwise neutral
+	// controls; do not make them depend on unrelated color/distortion work.
+	colorActive |= config.fxaaMode == 1 || config.fxaaMode == 2;
+	colorActive |= config.blackFloor.rampBar || policy.blackFloorRangeMode != 0
+		|| policy.blackFloorShadowLift || policy.blackFloorBlackPointCode > 0.01;
 	// debug/calibration overlays draw in the shader, so they must force
 	// the pass on even when everything else is an identity transform
 	// (previously the grid/ring only rendered when something else
@@ -1699,6 +1709,8 @@ bool DirectModeComponentShim::GetActiveSettings(FrameProcessSettings &settings, 
 			}
 		}
 	}
+	remapActive |= config.alignment.leftH != 0 || config.alignment.leftV != 0
+		|| config.alignment.rightH != 0 || config.alignment.rightV != 0;
 	return config.enable && (colorActive || remapActive);
 }
 

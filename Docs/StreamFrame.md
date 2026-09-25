@@ -8,6 +8,8 @@ A standalone SteamVR vendor driver for the Samsung Galaxy XR over Steam Link / v
 
 Image processing settings apply live within about a second. Identity, input profile, resolution and quality need a SteamVR restart.
 
+Saved settings and their defaults apply on the first driver start after installation; no toggle cycle is needed. Missing JSON keys use the driver's defaults. Encoder options are published before the first encoder is created, and explicit advanced VRLink overrides are reapplied after profile, stream and resolution settings. Opening a GUI page preserves saved tuning, including values that fall between slider steps. Image processing still follows the Image Enhancements master and SDR10 consent rules below.
+
 ## Install
 
 1. Unpack the entire release zip. The GUI folder and the `GalaxyXRNative` folder must stay next to each other.
@@ -46,7 +48,7 @@ Controller Offsets (under Controllers Advanced) are authored for the left hand a
 - **Saturation / Contrast / Gamma**: same semantics as the original shader (50 and 2.2 are neutral).
 - **Vibrance**: smart saturation, changes muted colors most and vivid colors least. Stacks with Saturation.
 - **FXAA**: anti-aliasing before the encode.
-- **CAS Sharpening**: applied before the video encode, per-eye strength available.
+- **CAS Sharpening**: with Image Enhancements enabled, Post-pack sharpens the packed frame on NVIDIA with the NVENC Tap on, even when color and distortion controls are neutral. Its fovea/periphery strengths and Off selection apply live; turning Image Enhancements off also stops it. Pre-encode provides per-eye strength for AMD or when the tap is off. Use one sharpening mode at a time.
 - **Dither**: helps banding in dark gradients. The encoder eats some of it, but low amplitude noise before quantization still helps.
 - **Stationary Dimming**: dims the image when the headset is not moving for a while.
 - **Color Matrix**: advanced gamut/white point correction. Empty = off.

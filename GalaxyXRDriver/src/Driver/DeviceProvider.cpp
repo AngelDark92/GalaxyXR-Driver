@@ -5,8 +5,7 @@
 #include "EyeTrackingTap.h"
 #include "CompositorPlugin.h"
 #include "HidModifier.h"
-#include "NvencTap.h"
-#include "../Config/StreamTiers.h"
+#include "FrameProcessor.h"
 
 #include "Hooking/InterfaceHookInjector.h"
 
@@ -95,6 +94,15 @@ vr::EVRInitError GalaxyXRDeviceProvider::Init(vr::IVRDriverContext *pDriverConte
 	WriteHasBeenRunSetting(driverName.c_str());
 	
 	driverConfigLoader.Start();
+	{
+		// 2026-09-25: publish saved/default encoder options before installing
+		// hooks. The first encoder can initialize before any scene is submitted.
+		std::lock_guard<std::mutex> lock(driverConfigLock);
+		FrameProcessSettings settings;
+		settings.config = driverConfig.streamFrame;
+		settings.policy = gxr::ResolveSdr10Policy(driverConfig);
+		FrameProcessor::UpdateEncoderSettings(settings);
+	}
 	// vrlink reads its stream/profile keys from steamvr.vrsettings during
 	// its own init, before any HMD Activate; write ours now so the FIRST
 	// connect of a session already runs the current config (09-03 race)
@@ -167,12 +175,6 @@ void DebugEventLog(const vr::VREvent_t& vrevent){
 }
 
 void GalaxyXRDeviceProvider::RunFrame(){
-	// NVENC tap must be hooked before vrlink creates its encoder at headset
-	// connect; RunFrame ticks from driver start, long before that. (the
-	// frame-path install site only runs once frames flow = too late.)
-	if(driverConfig.streamFrame.nvencTap || FindGxrStreamTier(driverConfig.galaxyXr.streamQuality) != nullptr){
-		NvencTap::Get().TryInstall();
-	}
 	// when locked out by the vendor-neutral driver nothing was initialized, so do nothing
 	if(lockedOut){
 		return;
@@ -180,6 +182,12 @@ void GalaxyXRDeviceProvider::RunFrame(){
 	
 	// acquire driverConfig.configLock for the duration of this function
 	std::lock_guard<std::mutex> lock(driverConfigLock);
+	// Keep reloads and hook retries working while no eye frames are flowing,
+	// including disabling the tap/post-pack pass before the next connection.
+	FrameProcessSettings settings;
+	settings.config = driverConfig.streamFrame;
+	settings.policy = gxr::ResolveSdr10Policy(driverConfig);
+	FrameProcessor::UpdateEncoderSettings(settings);
 	
 	hidModifier.RunFrame();
 	
