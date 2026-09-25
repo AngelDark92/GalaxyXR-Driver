@@ -36,6 +36,7 @@
     <ClInclude Include="src\Driver\DriverLockout.h" />
     <ClInclude Include="src\Driver\DriverLog.h" />
     <ClInclude Include="src\Driver\Hooking\Hooking.h" />
+    <ClInclude Include="src\Driver\Hooking\ControllerPoseDispatch.h" />
     <ClInclude Include="src\Driver\Hooking\InterfaceHookInjector.h" />
     <ClInclude Include="src\Headsets\GalaxyXR.h" />
     <ClInclude Include="src\Headsets\VrlinkCapabilities.h" />

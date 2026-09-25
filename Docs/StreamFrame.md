@@ -3,7 +3,7 @@
 A standalone SteamVR vendor driver for the Samsung Galaxy XR over Steam Link / vrlink. It does three things:
 
 - **Identity.** The headset and controllers show up in SteamVR as what they are: Galaxy XR model name, icons, official controller models and bindings.
-- **Controllers.** Corrected grip origin and pose components, plus a Kalman filter that fixes throw velocity and improves tracking dropouts.
+- **Controllers.** Corrected grip origin and pose components, plus Kalman filtering for controller motion during valid tracking.
 - **Image processing.** Color, sharpening, anti-aliasing and distortion correction applied to the streamed frames right before the driver encodes them.
 
 Image processing settings apply live within about a second. Identity, input profile, resolution and quality need a SteamVR restart.
@@ -34,6 +34,10 @@ After changing anything in the Headset section or the input profile, restart Ste
 With the official input profile on, SteamVR sees `galaxy_xr_controller`. Games that ship a native Galaxy XR binding use it, everything else falls back to Index controller bindings through the official remapping, so most titles will show Index controllers in their binding UI. Custom per-game bindings made before enabling the profile (when the controllers were Touch) do not carry over.
 
 Controller Fix Mode drives the pose filter. Kalman CA is the default, the tuning row below it shows the gains for whichever mode is selected, and Kalman Advanced Settings holds the rarely-touched knobs. Since 1.0.0 the reported angular velocity is in controller-local frame, which is what SteamVR's own prediction expects.
+
+Controller pose publication (2026-09-25): corrected pose, velocity and offsets reach SteamVR while a physical Galaxy XR controller is connected and reports valid `Running_OK` tracking. Native hands, unrecognized devices, and invalid/disconnected controller samples retain the original Steam Link pose and tracking flags. The estimator still processes loss/reacquisition internally, but loss-coast output and `forceTracking` status promotion are not published on those samples. This preserves the preceding hand-compatibility patch's loss behavior while restoring corrections during valid tracking; it does not restore synthetic tracking through a dropout.
+
+The earlier hand-compatibility patch calculated Kalman corrections but discarded them, so a `CA FULL active` log alone did not prove the game received them. After installing a build with restored publication, check throwing with both controllers, switch physical controllers to native hands and back, and reconnect the stream. Verify role assignment and bindings as well as throws. The previous patch recorded hand-role failures even with controller-only corrected poses; preserving source loss flags narrows that risk but requires this live check.
 
 Controller Offsets (under Controllers Advanced) are authored for the left hand and mirrored to the right by default. Per-hand trims appear when Mirror is off and are added on top of the shared offsets.
 

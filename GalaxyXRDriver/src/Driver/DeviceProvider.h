@@ -33,6 +33,8 @@ public:
 	
 	// handle hook of TrackedDevicePoseUpdated
 	bool HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose);
+	// Strict physical-controller classification shared with pose publication.
+	bool IsStreamedController(uint32_t openVRID);
 	// handle hook of TrackedDeviceAdded
 	bool HandleDeviceAdded(const char* &pchDeviceSerialNumber, vr::ETrackedDeviceClass &eDeviceClass, vr::ITrackedDeviceServerDriver* &pDriver);
 	// set of driver conexts collected by the hooking process
@@ -184,7 +186,6 @@ private:
 	std::mutex streamedIdentityLock;
 	StreamedDeviceKind GetStreamedDeviceKind(uint32_t openVRID);
 	bool IsNativeHand(uint32_t openVRID);
-	bool IsStreamedController(uint32_t openVRID);
 	// derive-mode adaptive smoothing state (pure math under its own lock;
 	// never calls out — lock discipline)
 	// one coherent estimated kinematic state per controller (kalman mode):
