@@ -6,6 +6,12 @@ New release entries are generated from commits on `main`: `fix:` bumps the patch
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.2.11] - 2026-09-25
+
+### Fixes
+
+- CAS and other settings woould potentially not apply at driver install (`2c9daba`)
+
 ## [1.2.10] - 2026-09-25
 
 ### Fixes
