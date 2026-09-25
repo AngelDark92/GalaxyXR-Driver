@@ -6,6 +6,12 @@ New release entries are generated from commits on `main`: `fix:` bumps the patch
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.2.8] - 2026-09-24
+
+### Fixes
+
+- 90Hz not forced anymore (`6bff22d`)
+
 ## [1.2.7] - 2026-09-23
 
 ### Fixes
