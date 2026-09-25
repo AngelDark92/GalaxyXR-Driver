@@ -54,7 +54,7 @@ In Driver Settings and Image Settings:
 
 - Headset: Native Identity on, Native Render Resolution on (default), Stream Quality Preset High.
 - Controllers: Official Controller Input Profile on. Leave Controller Fix Mode on Kalman CA.
-- Picture mode: keep **SDR 10-bit baseline** for unprocessed SDR output. To tune color or sharpening, turn the baseline off before enabling **Image Enhancements**. To return to the baseline, first turn Image Enhancements off. Enabling the baseline resets picture adjustments and active lens corrections after confirmation.
+- Picture mode: keep **SDR 10-bit baseline** for unprocessed SDR output. To experiment with color, sharpening or lens correction while keeping the 10-bit request, enable **Image Enhancements** in App Settings and accept the image-quality warning. The combination may reduce image quality. Turn Image Enhancements off to return to neutral processing. Enabling the baseline resets picture adjustments and active lens corrections after confirmation.
 
 Then restart SteamVR once.
 

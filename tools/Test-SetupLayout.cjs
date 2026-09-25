@@ -151,6 +151,32 @@ function buttonLabels(template) {
   return [...markup(template).matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)]
     .map(m => m[1].replace(/<[^>]+>/g, '').trim());
 }
+function enhancementSwitch(template) {
+  if (Array.isArray(template)) {
+    for (const value of template) { const found = enhancementSwitch(value); if (found) return found; }
+  } else if (template?.strings) {
+    if (template.strings[0].includes('<app-switch')) return template;
+    return enhancementSwitch(template.values);
+  }
+}
+function switchProperty(template, property) {
+  const control = enhancementSwitch(template);
+  assert.ok(control, 'Image Enhancements switch exists in the inert template');
+  const index = control.strings.findIndex(part => part.endsWith(`.${property}=`));
+  assert.notEqual(index, -1, `${property} binding exists`);
+  return control.values[index];
+}
+function imageModeContext(baseline = true, enabled = false) {
+  const ctx = context();
+  ctx.galaxy.baselineRequested = baseline;
+  ctx.galaxy.imageEnhancementsEnabled = enabled;
+  ctx.galaxy.setImageEnhancements = async (value, accepted) => {
+    ctx.calls.push({ action: 'setImageEnhancements', enabled: value, accepted });
+    ctx.galaxy.imageEnhancementsEnabled = value;
+    return true;
+  };
+  return ctx;
+}
 async function test(name, fn) {
   try { await fn(); results.push({ test: name, passed: true }); console.log('PASS ' + name); }
   catch (error) { results.push({ test: name, passed: false, error: String(error) }); console.error('FAIL ' + name, error); process.exitCode = 1; }
@@ -214,6 +240,64 @@ async function test(name, fn) {
     const ctx = context(); ctx.appSetting.readFileError.set(new Error('fixture')); ctx.galaxy.imageModeError.set('mode fixture');
     const sections = cards(render(AppSettingsPage, ctx).template); assert.equal(sections.length, 1);
     assert.match(markup(sections[0]), /Application preferences/); assert.match(markup(sections[0]), /Check installation on Setup/); assert.match(markup(sections[0]), /mode fixture/);
+  });
+  await test('Image Enhancement page handler: cancelled warning leaves settings and switch off', async () => {
+    const ctx = imageModeContext(), prompts = [];
+    ctx.dialog.confirm = async (...args) => { prompts.push(args); return false; };
+    const { page } = render(AppSettingsPage, ctx), control = { checked: true };
+    await page.setImageEnhancements(true, control);
+    assert.equal(prompts.length, 1); assert.deepEqual(ctx.calls, []);
+    assert.equal(ctx.galaxy.imageEnhancementsEnabled, false); assert.equal(control.checked, false);
+    assert.match(prompts[0][0], /SDR 10-bit/);
+    assert.match(prompts[0][1], /reduce image quality/);
+    assert.match(prompts[0][1], /does not guarantee.*10-bit precision/);
+    assert.match(prompts[0][2], /I understand/); assert.equal(prompts[0][3], 'danger');
+  });
+  await test('Image Enhancement page handler: acceptance forwards explicit consent and updates switch', async () => {
+    const ctx = imageModeContext(); let prompts = 0;
+    ctx.dialog.confirm = async () => { prompts++; return true; };
+    const { page } = render(AppSettingsPage, ctx), control = { checked: true };
+    await page.setImageEnhancements(true, control);
+    assert.equal(prompts, 1);
+    assert.deepEqual(ctx.calls, [{ action: 'setImageEnhancements', enabled: true, accepted: true }]);
+    assert.equal(control.checked, true); assert.equal(ctx.galaxy.baselineRequested, true);
+  });
+  await test('Image Enhancement page handler: ordinary enable and disable do not show a warning', async () => {
+    for (const [baseline, enabled, requested] of [[false, false, true], [true, true, false]]) {
+      const ctx = imageModeContext(baseline, enabled); let prompts = 0;
+      ctx.dialog.confirm = async () => { prompts++; return true; };
+      const { page } = render(AppSettingsPage, ctx), control = { checked: requested };
+      await page.setImageEnhancements(requested, control);
+      assert.equal(prompts, 0);
+      assert.deepEqual(ctx.calls, [{ action: 'setImageEnhancements', enabled: requested, accepted: false }]);
+      assert.equal(control.checked, requested);
+    }
+  });
+  await test('Image Enhancement page handler: pending warning blocks duplicate toggles', async () => {
+    const ctx = imageModeContext(); let resolveWarning, prompts = 0;
+    ctx.dialog.confirm = () => { prompts++; return new Promise(resolve => { resolveWarning = resolve; }); };
+    const { page } = render(AppSettingsPage, ctx), control = { checked: true };
+    const pending = page.setImageEnhancements(true, control);
+    assert.equal(control.checked, false);
+    assert.equal(switchProperty(page.render(), 'disabled'), true);
+    await page.setImageEnhancements(true, control);
+    await page.setImageEnhancements(false, control);
+    assert.equal(prompts, 1); assert.deepEqual(ctx.calls, []);
+    resolveWarning(true); await pending;
+    assert.deepEqual(ctx.calls, [{ action: 'setImageEnhancements', enabled: true, accepted: true }]);
+    assert.equal(control.checked, true); assert.equal(switchProperty(page.render(), 'disabled'), false);
+  });
+  await test('Image Enhancement inert template: baseline permits the switch only with installed known settings', () => {
+    const ctx = imageModeContext();
+    const { page } = render(AppSettingsPage, ctx);
+    assert.equal(switchProperty(page.render(), 'disabled'), false);
+    assert.equal(switchProperty(page.render(), 'known'), true);
+    ctx.dss.values.set(undefined);
+    assert.equal(switchProperty(page.render(), 'disabled'), true);
+    ctx.dss.values.set({}); ctx.dss.readFileError.set(new Error('unknown settings'));
+    assert.equal(switchProperty(page.render(), 'disabled'), true);
+    ctx.dss.readFileError.set(undefined); ctx.sds.driverInstalled.set(undefined); ctx.sds.driverState.set('not-installed');
+    assert.equal(switchProperty(page.render(), 'disabled'), true);
   });
   await test('Troubleshooting uses a complete card and links to the single Setup install action', () => {
     const { page } = render(DriverTroubleshooter, context({ installed: false })); page.wait = true;

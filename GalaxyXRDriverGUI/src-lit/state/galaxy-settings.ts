@@ -15,6 +15,7 @@ import type { DriverSettingService } from '../services/driver-setting';
 import type { DriverInfoService } from '../services/driver-info';
 import type { Settings, StreamFrameConfig, ControllersConfig, GalaxyXrConfig, HandOffsets } from '../domain/types';
 import { vendor } from '../environment';
+import { t } from '../locale/i18n';
 import { baselineRequested, imageEnhancementsEnabled, changePictureMode } from '../domain/image-mode';
 
 function defaultStreamFrame(): StreamFrameConfig { return structuredClone(driverDefaults.streamFrame!); }
@@ -60,11 +61,11 @@ export class GalaxySettingsBase {
     return this.setPictureMode('baseline', enabled);
   }
 
-  async setImageEnhancements(enabled: boolean): Promise<boolean> {
-    return this.setPictureMode('enhancements', enabled);
+  async setImageEnhancements(enabled: boolean, qualityWarningAccepted = false): Promise<boolean> {
+    return this.setPictureMode('enhancements', enabled, qualityWarningAccepted);
   }
 
-  private async setPictureMode(mode: 'baseline' | 'enhancements', enabled: boolean): Promise<boolean> {
+  private async setPictureMode(mode: 'baseline' | 'enhancements', enabled: boolean, qualityWarningAccepted = false): Promise<boolean> {
     if (this.imageModeChanging() || this.dss.inspecting) return false;
     this.imageModeChanging.set(true);
     this.imageModeError.set('');
@@ -73,11 +74,11 @@ export class GalaxySettingsBase {
       // reset then travel through the same save/rollback path in one write.
       await this.dss.flush();
       if (this.dss.inspecting || this.dss.readFileError()) return false;
-      const next = changePictureMode(this.dss.values(), this.defaults, mode, enabled);
+      const next = changePictureMode(this.dss.values(), this.defaults, mode, enabled, qualityWarningAccepted);
       if (!next) {
         this.imageModeError.set(mode === 'baseline'
           ? 'Turn Image Enhancements off before enabling SDR 10-bit baseline.'
-          : 'Turn SDR 10-bit baseline off before enabling Image Enhancements.');
+          : t('Accept the image-quality warning before enabling Image Enhancements with SDR 10-bit baseline.'));
         return false;
       }
       const saved = await this.dss.save(next);

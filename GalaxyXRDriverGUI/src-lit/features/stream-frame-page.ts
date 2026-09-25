@@ -75,7 +75,7 @@ if (galaxy.imageEnhancementsEnabled) {
         parts.push(sectionRow(t('Color'), sections['color'], 1, () => this.toggleSection('color')));
 if (sections.color) {
 if (galaxy.sdr10BaselineActive()) {
-            parts.push(noteRow(t('SDR 10-bit baseline is on. Disable it in Driver Settings before enabling Image Enhancements in App Settings.')));
+            parts.push(noteRow(t('SDR 10-bit and Image Enhancements are both on. Image quality may be reduced.')));
 }
           parts.push(fieldRow(t('Brightness'), html`
       <app-number .value=${settings.brightness} step="0.05" min="0.05" max="1.5" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.brightness = e.detail; } save(); }}></app-number>
@@ -241,9 +241,9 @@ if (settings.stationaryDimming.enable) {
 }
 } else {
         parts.push(noteRow(galaxy.baselineRequested
-          ? html`<strong>${t('Image Enhancements is disabled while SDR 10-bit baseline is on.')}</strong>
-              ${t('Turn the baseline off in Driver Settings, then enable Image Enhancements in App Settings. Enabling the baseline resets picture adjustments to their defaults.')}
-              <a href="#/driver-settings">${t('Open Driver Settings')}</a>`
+          ? html`<strong>${t('SDR 10-bit baseline is on. Image Enhancements is off.')}</strong>
+              ${t('Enable Image Enhancements in App Settings and accept the image-quality warning to adjust the picture while keeping the 10-bit request.')}
+              <a href="#/app-settings">${t('Open App Settings')}</a>`
           : html`${t('Enable Image Enhancements in App Settings to adjust color and sharpening. Turn enhancements off before enabling SDR 10-bit baseline.')}
               <a href="#/app-settings">${t('Open App Settings')}</a>`));
 }

@@ -1610,7 +1610,7 @@ bool DirectModeComponentShim::GetActiveSettings(FrameProcessSettings &settings, 
 		// state, and a mid-frame toggle cannot mix pre-toggle NVENC policy
 		// with post-toggle color constants
 		settings.policy = gxr::ResolveSdr10Policy(driverConfig);
-		// Match Companion's mutually exclusive modes for old/external files too.
+		// 2026-09-25: require explicit SDR10 enhancement consent for old/external files too.
 		settings.config.enable = gxr::ImageEnhancementsEnabled(settings.config, settings.policy);
 		if(driverConfigLoader.info.isDashboardOpen && driverConfig.streamFrame.skipColorWhileDashboardOpen){
 			settings.applyColor = false;

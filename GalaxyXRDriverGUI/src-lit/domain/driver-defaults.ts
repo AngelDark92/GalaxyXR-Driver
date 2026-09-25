@@ -369,6 +369,7 @@ const nativeDefaults = {
     "skeletonOffsetZCm": 0.0,
     "skeletonOffsetMirror": true,
     "sdr10Baseline": false,
+    "sdr10AllowEnhancements": false,
     "vrlinkExtraKeys": {}
   },
   "watchDistortionProfiles": true

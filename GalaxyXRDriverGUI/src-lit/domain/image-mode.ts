@@ -15,10 +15,11 @@ export function baselineRequested(settings?: Settings): boolean {
   return settings?.galaxyXr?.sdr10Baseline === true;
 }
 
-/** A legacy/external file can contain both flags. The baseline has priority
- * for display; reading/checking a file must never reset or rewrite its values. */
+/** 2026-09-25: legacy overlapping flags remain protected unless the user
+ * explicitly accepted the quality warning. Inspection never rewrites values. */
 export function imageEnhancementsEnabled(settings?: Settings): boolean {
-  return settings?.streamFrame?.enable === true && !baselineRequested(settings);
+  return settings?.streamFrame?.enable === true &&
+    (!baselineRequested(settings) || settings?.galaxyXr?.sdr10AllowEnhancements === true);
 }
 
 function resetKnownValues(current: unknown, defaults: unknown): unknown {
@@ -31,22 +32,25 @@ function resetKnownValues(current: unknown, defaults: unknown): unknown {
   return structuredClone(defaults);
 }
 
-/** Build one immutable write. Undefined means that the other mode must first
- * be switched off, or that no verified driver configuration is available. */
+/** Build one immutable write. Undefined means consent is missing, enhancements
+ * must be switched off before a baseline reset, or settings are unavailable. */
 export function changePictureMode(
   settings: Settings | undefined, defaults: StreamFrameConfig,
   mode: 'baseline' | 'enhancements', enabled: boolean,
+  qualityWarningAccepted = false,
 ): Settings | undefined {
   if (!settings?.streamFrame) return undefined;
-  if (enabled && mode === 'enhancements' && baselineRequested(settings)) return undefined;
+  if (enabled && mode === 'enhancements' && baselineRequested(settings) && !qualityWarningAccepted) return undefined;
   if (enabled && mode === 'baseline' && imageEnhancementsEnabled(settings)) return undefined;
   const next = structuredClone(settings);
   const sf = next.streamFrame!;
   if (mode === 'enhancements') {
     sf.enable = enabled;
+    next.galaxyXr = { nativeIdentity: true, ...(next.galaxyXr ?? {}),
+      sdr10AllowEnhancements: enabled && baselineRequested(settings) && qualityWarningAccepted };
     return next;
   }
-  next.galaxyXr = { nativeIdentity: true, ...(next.galaxyXr ?? {}), sdr10Baseline: enabled };
+  next.galaxyXr = { nativeIdentity: true, ...(next.galaxyXr ?? {}), sdr10Baseline: enabled, sdr10AllowEnhancements: false };
   // Leaving the baseline never silently re-enables enhancements from a legacy
   // overlapping file. Enabling enhancements is a separate, explicit action.
   sf.enable = false;

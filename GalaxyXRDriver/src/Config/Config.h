@@ -496,12 +496,16 @@ struct GalaxyXrConfig{
 	// 2026-09-19 SDR10 baseline: opt-in VD-like neutral baseline (see
 	// SdrColorPolicy.h). effective (not stored): while on, the vrlink
 	// headset profile is requested with supports10bit and the host color
-	// pipeline runs neutral (saturation 50 / vibrance 0 / contrast 50 / gamma
+	// pipeline runs neutral unless enhancements are explicitly allowed
+	// (saturation 50 / vibrance 0 / contrast 50 / gamma
 	// 2.2 / tint 1 / no matrix / dither off / black-floor off / post-pack
 	// bypassed / VUI left to Valve's original pair). stored controls are
 	// untouched and resume when this goes off. default false = today's
 	// behavior exactly. force10bit stays retired regardless.
 	bool sdr10Baseline = false;
+	// 2026-09-25: explicit warning consent permits image enhancements while
+	// retaining the SDR10 capability request. Old files remain neutral.
+	bool sdr10AllowEnhancements = false;
 };
 
 struct StreamFrameConfig{

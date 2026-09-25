@@ -66,6 +66,7 @@ export type GalaxyXrConfig = {
   // SdrColorPolicy.h); effective override of the stored controls, which
   // stay untouched and resume when this is off
   sdr10Baseline?: boolean,
+  sdr10AllowEnhancements?: boolean,
 }
 export type ControllersConfig = {
   mirrorOffsetsForRightHand?: boolean,

@@ -501,6 +501,9 @@ void ConfigLoader::ParseConfig(){
 			if(galaxyXrData["sdr10Baseline"].is_boolean()){
 				newConfig.galaxyXr.sdr10Baseline = galaxyXrData["sdr10Baseline"].get<bool>();
 			}
+			if(galaxyXrData["sdr10AllowEnhancements"].is_boolean()){
+				newConfig.galaxyXr.sdr10AllowEnhancements = galaxyXrData["sdr10AllowEnhancements"].get<bool>();
+			}
 		}
 		if(data["streamFrame"].is_object()){
 			json streamFrameData = data["streamFrame"];
@@ -1678,6 +1681,10 @@ void ConfigLoader::WriteInfo(){
 	ordered_json data = {
 		{"about", "This file is not for configuration. It provides info from the driver for other utilities to use."},
 		{"defaultSettings", {
+			{"galaxyXr", {
+				{"sdr10Baseline", defaultSettings.galaxyXr.sdr10Baseline},
+				{"sdr10AllowEnhancements", defaultSettings.galaxyXr.sdr10AllowEnhancements},
+			}},
 			{"generalHeadset", {
 				{"useViveBluetooth", defaultSettings.generalHeadset.useViveBluetooth},
 			}},

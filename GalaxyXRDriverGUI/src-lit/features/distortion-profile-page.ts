@@ -258,9 +258,9 @@ if (sections.share) {
 } else {
         parts.push(sectionHeading(t('Distortion Correction')));
         parts.push(noteRow(galaxy.baselineRequested
-          ? html`<strong>${t('Distortion correction is disabled while SDR 10-bit baseline is on.')}</strong>
-              ${t('Turn the baseline off in Driver Settings, then enable Image Enhancements in App Settings. Enabling the baseline resets lens correction and other picture adjustments.')}
-              <a href="#/driver-settings">${t('Open Driver Settings')}</a>`
+          ? html`<strong>${t('Enable Image Enhancements to use distortion correction with SDR 10-bit.')}</strong>
+              ${t('Enable Image Enhancements in App Settings and accept the image-quality warning to adjust the picture while keeping the 10-bit request.')}
+              <a href="#/app-settings">${t('Open App Settings')}</a>`
           : html`${t('Enable Image Enhancements in App Settings to use distortion correction and profile sharing.')}
               <a href="#/app-settings">${t('Open App Settings')}</a>`));
 }

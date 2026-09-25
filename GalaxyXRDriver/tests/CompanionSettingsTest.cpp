@@ -33,18 +33,20 @@ int main() {
             Check(config.galaxyXr.vrlinkHeadsetProfile == profile, "resolver does not change the saved profile switch");
         }
     }
-    // Picture modes are mutually exclusive even for an old/external file
-    // containing both flags. Do not mutate stored state during evaluation.
-    for(bool baseline : {false, true}) for(bool enhancements : {false, true}) {
+    // 2026-09-25: combined picture modes require explicit warning consent.
+    // Older overlapping files remain bypassed without rewriting stored state.
+    for(bool baseline : {false, true}) for(bool enhancements : {false, true}) for(bool consent : {false, true}) {
         Config config{};
         config.galaxyXr.sdr10Baseline = baseline;
         config.streamFrame.enable = enhancements;
+        config.galaxyXr.sdr10AllowEnhancements = consent;
         config.customShader.enableForOther = false;
         const auto policy = gxr::ResolveSdr10Policy(config);
-        Check(gxr::ImageEnhancementsEnabled(config.streamFrame, policy) == (enhancements && !baseline), "baseline/master truth table gates all enhancement passes");
+        Check(gxr::ImageEnhancementsEnabled(config.streamFrame, policy) == (enhancements && (!baseline || consent)), "baseline/master/consent truth table gates all enhancement passes");
         Check(config.streamFrame.enable == enhancements, "runtime mode gate does not rewrite stored master");
         Check(config.galaxyXr.sdr10Baseline == baseline, "runtime mode gate preserves stored baseline");
-        Check(!baseline || (policy.active && policy.profileSupports10bit), "baseline still requests 10-bit with enhancements bypassed");
+        Check(config.galaxyXr.sdr10AllowEnhancements == consent, "runtime mode gate preserves stored consent");
+        Check(!baseline || (policy.active && policy.profileSupports10bit), "baseline still requests 10-bit regardless of enhancement consent");
     }
     {
         Config config{};

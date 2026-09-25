@@ -84,11 +84,54 @@ const writes = h => h.fixture.calls.filter(x => x.kind === 'write' && x.path ===
     assert.equal(c.galaxy.baselineRequested, false); assert.equal(c.galaxy.imageEnhancementsEnabled, true);
     assert.equal(writes(h).length, count); assert.match(c.galaxy.imageModeError(), /Turn Image Enhancements off/);
   }));
-  await test('Image Enhancements cannot be enabled while baseline is on', async () => scenario(s => { s.galaxyXr.sdr10Baseline = true; }, async (h, c) => {
+  await test('Image Enhancements requires quality warning acceptance while baseline is on', async () => scenario(s => { s.galaxyXr.sdr10Baseline = true; }, async (h, c) => {
     const count = writes(h).length;
     assert.equal(await c.galaxy.setImageEnhancements(true), false);
     assert.equal(c.galaxy.imageEnhancementsEnabled, false); assert.equal(c.galaxy.baselineRequested, true);
     assert.equal(writes(h).length, count);
+  }));
+  await test('Accepted enhancements preserve baseline and tuning through save and reload', async () => scenario(s => {
+    s.galaxyXr.sdr10Baseline = true; s.streamFrame.enable = false;
+    s.streamFrame.gamma = 1.7; s.streamFrame.cas.enable = true; s.streamFrame.nvencBitrateMbit = 175;
+  }, async (h, c) => {
+    const before = clone(c.dss.values()), count = writes(h).length;
+    assert.equal(await c.galaxy.setImageEnhancements(true, true), true);
+    assert.equal(writes(h).length, count + 1, 'consent and enhancements are saved together');
+    assert.equal(c.galaxy.baselineRequested, true); assert.equal(c.galaxy.imageEnhancementsEnabled, true);
+    assert.equal(c.dss.values().galaxyXr.sdr10AllowEnhancements, true);
+    assert.deepEqual(clone(c.dss.values().streamFrame), { ...before.streamFrame, enable: true });
+    const disk = JSON.parse(h.fixture.files.get(h.fixture.data + '/settings.json'));
+    assert.equal(disk.galaxyXr.sdr10Baseline, true); assert.equal(disk.galaxyXr.sdr10AllowEnhancements, true);
+    await c.checks.refresh();
+    assert.equal(c.galaxy.baselineRequested, true); assert.equal(c.galaxy.imageEnhancementsEnabled, true);
+    assert.equal(c.dss.values().streamFrame.gamma, 1.7); assert.equal(c.dss.values().streamFrame.nvencBitrateMbit, 175);
+  }));
+  await test('Disabling accepted enhancements retains tuning and requires renewed consent', async () => scenario(s => {
+    s.galaxyXr.sdr10Baseline = true; s.galaxyXr.sdr10AllowEnhancements = true; s.streamFrame.enable = true;
+    s.streamFrame.gamma = 1.7; s.streamFrame.cas.enable = true;
+  }, async (h, c) => {
+    const before = clone(c.dss.values().streamFrame);
+    assert.equal(c.galaxy.imageEnhancementsEnabled, true);
+    assert.equal(await c.galaxy.setImageEnhancements(false), true);
+    await c.checks.refresh();
+    assert.equal(c.galaxy.baselineRequested, true); assert.equal(c.galaxy.imageEnhancementsEnabled, false);
+    assert.equal(c.dss.values().galaxyXr.sdr10AllowEnhancements, false);
+    assert.deepEqual(clone(c.dss.values().streamFrame), { ...before, enable: false });
+    const count = writes(h).length;
+    assert.equal(await c.galaxy.setImageEnhancements(true), false);
+    assert.equal(writes(h).length, count);
+  }));
+  await test('Failed enhancement save rolls back consent and retains baseline and tuning', async () => scenario(s => {
+    s.galaxyXr.sdr10Baseline = true; s.streamFrame.enable = false; s.streamFrame.gamma = 1.7;
+  }, async (h, c) => {
+    const before = clone(c.dss.values()), disk = h.fixture.files.get(h.fixture.data + '/settings.json');
+    h.fixture.denied.add(h.fixture.data + '/settings.json');
+    assert.equal(await c.galaxy.setImageEnhancements(true, true), false);
+    assert.equal(c.galaxy.baselineRequested, true); assert.equal(c.galaxy.imageEnhancementsEnabled, false);
+    assert.equal(c.dss.values().galaxyXr.sdr10AllowEnhancements, false);
+    assert.deepEqual(clone(c.dss.values()), before);
+    assert.equal(h.fixture.files.get(h.fixture.data + '/settings.json'), disk);
+    assert.match(c.galaxy.imageModeError(), /Permission denied/); assert.equal(c.galaxy.imageModeChanging(), false);
   }));
   await test('Explicit transitions require the previous mode to be switched off', async () => scenario(s => { s.streamFrame.enable = true; }, async (h, c) => {
     assert.equal(await c.galaxy.setImageEnhancements(false), true);

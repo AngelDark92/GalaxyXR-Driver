@@ -27,7 +27,8 @@
 //   split, tracking, geometry/distortion, blackout/dimming safety and the
 //   nvencTap master switch are NOT scalar overrides in this policy.
 //   ImageEnhancementsEnabled separately bypasses image-processing passes
-//   while the baseline is requested, including legacy overlapping settings.
+//   while the baseline is requested without explicit enhancement consent,
+//   including legacy overlapping settings.
 
 namespace gxr{
 
@@ -36,8 +37,10 @@ namespace gxr{
 // policy is the neutral baseline (the safe state) and the inactive path
 // overwrites every field with the stored config.
 struct Sdr10BaselinePolicy{
-	// Requested state also gates the mutually exclusive enhancement mode.
+	// 2026-09-25: consent gates combined SDR10 + enhancement use separately
+	// from the capability request, preserving safe behavior for old files.
 	bool requested = false;
+	bool allowEnhancements = false;
 	bool conflict = false;
 	bool active = false;
 	// effective vrlink headset profile request (startup writer)
@@ -71,11 +74,11 @@ struct Sdr10BaselinePolicy{
 	int vuiTransfer = -1;
 };
 
-// Companion mode contract: the saved baseline has priority even for an older
-// settings file that contains both flags. This is an effective runtime gate,
-// not a disk migration. Checking settings must not rewrite user files.
+// Companion mode contract: the saved baseline has priority unless the user
+// explicitly accepted the image-quality warning. Older overlapping files
+// remain bypassed; checking settings never rewrites user files.
 inline bool ImageEnhancementsEnabled(const StreamFrameConfig &config, const Sdr10BaselinePolicy &policy){
-	return config.enable && !policy.requested;
+	return config.enable && (!policy.requested || policy.allowEnhancements);
 }
 
 // Resolve the effective baseline policy from one settings snapshot.
@@ -83,16 +86,21 @@ inline bool ImageEnhancementsEnabled(const StreamFrameConfig &config, const Sdr1
 inline Sdr10BaselinePolicy ResolveSdr10Policy(const Config &config){
 	Sdr10BaselinePolicy p;
 	p.requested = config.galaxyXr.sdr10Baseline;
+	p.allowEnhancements = config.galaxyXr.sdr10AllowEnhancements;
 	p.conflict = p.requested && config.customShader.enable && config.customShader.enableForOther;
 	p.active = p.requested && !p.conflict;
-	if(p.active){
+	if(p.active && !ImageEnhancementsEnabled(config.streamFrame, p)){
 		return p; // neutral baseline: struct defaults already hold it
 	}
-	// inactive or conflicting: pass the stored config through exactly.
-	// this is the ONLY place the stored values are read, and only as-is,
+	// 2026-09-25: consent restores stored picture controls, but keeps the
+	// active baseline's 10-bit capability request. Master OFF stays neutral.
+	// Inactive or conflicting: pass the stored config through exactly.
+	// This is the ONLY place the stored picture values are read, and only as-is,
 	// so with the baseline off the policy equals today's behavior.
-	p.profileEnabled = config.galaxyXr.vrlinkHeadsetProfile;
-	p.profileSupports10bit = config.galaxyXr.profileSupports10bit;
+	if(!p.active){
+		p.profileEnabled = config.galaxyXr.vrlinkHeadsetProfile;
+		p.profileSupports10bit = config.galaxyXr.profileSupports10bit;
+	}
 	p.saturation = config.streamFrame.saturation;
 	p.vibrance = config.streamFrame.vibrance;
 	p.contrast = config.streamFrame.contrast;

@@ -58,6 +58,7 @@ static Config StoredConfig() {
 }
 
 int main() {
+    Check(!Config{}.galaxyXr.sdr10AllowEnhancements, "legacy/default configs do not opt into SDR10 enhancements");
     // ---- default-off: every policy field passes the stored config through exactly ----
     {
         Config c = StoredConfig();
@@ -103,6 +104,35 @@ int main() {
         Check(p.blackFloorRangeMode == 0 && p.blackFloorShadowLift == false && p.blackFloorBlackPointCode == 0.0, "active: black floor range/shadow/blackpoint disabled");
         Check(p.postPackEnable == false, "active: post-pack bypassed");
         Check(p.vuiFullRange == -1 && p.vuiMatrix == -1 && p.vuiPrimaries == -1 && p.vuiTransfer == -1, "active: VUI left to Valve's original pair (all -1)");
+    }
+    // ---- explicit consent restores picture controls without dropping 10-bit ----
+    {
+        Config c = StoredConfig();
+        const auto stored = gxr::ResolveSdr10Policy(c);
+        c.galaxyXr.sdr10Baseline = true;
+        c.galaxyXr.sdr10AllowEnhancements = true;
+        const auto combined = gxr::ResolveSdr10Policy(c);
+        Check(combined.active && combined.profileEnabled && combined.profileSupports10bit, "consent: baseline capability request remains active");
+        Check(gxr::ImageEnhancementsEnabled(c.streamFrame, combined), "consent: enhancement passes enabled");
+        Check(combined.saturation == stored.saturation && combined.vibrance == stored.vibrance && combined.contrast == stored.contrast, "consent: stored saturation/vibrance/contrast restored");
+        Check(combined.contrastMidpoint == stored.contrastMidpoint && combined.contrastLinear == stored.contrastLinear && combined.gamma == stored.gamma && combined.brightness == stored.brightness, "consent: stored contrast mode/gamma/brightness restored");
+        Check(combined.colorMultiplier.r == stored.colorMultiplier.r && combined.colorMultiplier.g == stored.colorMultiplier.g && combined.colorMultiplier.b == stored.colorMultiplier.b && combined.srgbMatrix == stored.srgbMatrix, "consent: stored tint and matrix restored");
+        Check(combined.dither == stored.dither && combined.blackFloorRangeMode == stored.blackFloorRangeMode && combined.blackFloorShadowLift == stored.blackFloorShadowLift, "consent: stored dither and black floor mode restored");
+        Check(combined.blackFloorFloorCode == stored.blackFloorFloorCode && combined.blackFloorKneeCode == stored.blackFloorKneeCode && combined.blackFloorBlackPointCode == stored.blackFloorBlackPointCode, "consent: stored black floor tuning restored");
+        Check(combined.postPackEnable == stored.postPackEnable && combined.vuiFullRange == stored.vuiFullRange && combined.vuiMatrix == stored.vuiMatrix && combined.vuiPrimaries == stored.vuiPrimaries && combined.vuiTransfer == stored.vuiTransfer, "consent: stored post-pack and VUI restored");
+        Check(c.streamFrame.saturation == 62 && !c.galaxyXr.profileSupports10bit, "consent: stored settings remain untouched");
+        c.streamFrame.enable = false;
+        const auto masterOff = gxr::ResolveSdr10Policy(c);
+        Check(!gxr::ImageEnhancementsEnabled(c.streamFrame, masterOff) && masterOff.saturation == 50 && !masterOff.postPackEnable && masterOff.vuiFullRange == -1, "consent with master off: neutral picture and metadata restored");
+        Check(masterOff.active && masterOff.profileSupports10bit, "master off: 10-bit request remains active");
+        c.streamFrame.enable = true;
+        c.galaxyXr.sdr10AllowEnhancements = false;
+        const auto revoked = gxr::ResolveSdr10Policy(c);
+        Check(!gxr::ImageEnhancementsEnabled(c.streamFrame, revoked) && revoked.saturation == 50 && !revoked.postPackEnable, "consent revoked: enhancements bypassed and neutral values restored");
+        c.galaxyXr.sdr10Baseline = false;
+        c.galaxyXr.sdr10AllowEnhancements = true;
+        const auto off = gxr::ResolveSdr10Policy(c);
+        Check(!off.active && off.saturation == stored.saturation && off.profileSupports10bit == stored.profileSupports10bit, "baseline off: consent has no effect on existing behavior");
     }
     // ---- resolve is const-correct and leaves the stored config unmodified ----
     {

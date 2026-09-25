@@ -1661,6 +1661,47 @@ Enabled by default. Stream size and bandwidth, render overrides, diagnostics, an
 
 The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_&lt;original model&gt; destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.</source>
       </trans-unit>
+      <trans-unit id="sdr10-opt-in-273e6bb8a7648ff4" datatype="html">
+        <source>Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. You can then enable Image Enhancements in App Settings after accepting the image-quality warning. Restart SteamVR and reconnect after changing it.
+
+The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_&lt;original model&gt; destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-c581735f6a6cfd97" datatype="html">
+        <source>SDR 10-bit and Image Enhancements are both on. Image quality may be reduced.</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-87befbfd1ebca350" datatype="html">
+        <source>SDR 10-bit baseline is on. Image Enhancements is off by default.</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-7a8b28e368f3e846" datatype="html">
+        <source>Enable Image Enhancements in App Settings if you accept the risk of reduced image quality. Picture adjustments reset when the baseline is enabled; switching it off does not restore them.</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-a9943d30ffef0e26" datatype="html">
+        <source>Enable Image Enhancements with SDR 10-bit?</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-58479bb4b2b580af" datatype="html">
+        <source>Combining SDR 10-bit with Image Enhancements can reduce image quality, introduce banding or artifacts, and change colors. The picture will no longer be a neutral baseline. The 10-bit stream request stays enabled, but does not guarantee that processing preserves 10-bit precision. Only continue if you understand this tradeoff and want to experiment. You can turn Image Enhancements off at any time to return to the neutral baseline.</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-6a12938133555f02" datatype="html">
+        <source>I understand — enable enhancements</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-401eade0d80fdfd3" datatype="html">
+        <source>SDR 10-bit baseline is on. Enabling Image Enhancements requires accepting an image-quality warning.</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-87b2cc05ef211995" datatype="html">
+        <source>Turn Image Enhancements off to use the neutral baseline. Your picture adjustments are kept.</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-c83c8189912542a2" datatype="html">
+        <source>SDR 10-bit baseline is on. Image Enhancements is off.</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-1b0f59c1d9a096cd" datatype="html">
+        <source>Enable Image Enhancements in App Settings and accept the image-quality warning to adjust the picture while keeping the 10-bit request.</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-ebf4067b174947d6" datatype="html">
+        <source>Enable Image Enhancements to use distortion correction with SDR 10-bit.</source>
+      </trans-unit>
+      <trans-unit id="sdr10-opt-in-b32f1c26702ddc3b" datatype="html">
+        <source>Accept the image-quality warning before enabling Image Enhancements with SDR 10-bit baseline.</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>
