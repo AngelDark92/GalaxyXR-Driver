@@ -281,6 +281,19 @@ describe('schema migrations', () => {
 });
 
 describe('defaults resolution', () => {
+  it('defaults Hitch Diagnostics to off and resets an explicit opt-in to off', async () => {
+    const stored = structuredClone(driverDefaults);
+    stored.streamFrame!.streamFrameSchema = 4;
+    stored.streamFrame!.nvencSettingsVersion = 4;
+    stored.streamFrame!.hitchDiag = true;
+    const { gs, flush } = buildHarness(stored);
+    await flush();
+    expect(gs.defaults.hitchDiag).toBe(false);
+    expect(gs.settings!.hitchDiag).toBe(true);
+    gs.reset('hitchDiag');
+    expect(gs.settings!.hitchDiag).toBe(false);
+  });
+
   it('uses the driver-published defaults when present, TS literals as fallback', () => {
     const { gs } = buildHarness({}, { defaultSettings: { streamFrame: { saturation: 42, gamma: 2.4 } } });
     expect(gs.defaults.saturation).toBe(42);

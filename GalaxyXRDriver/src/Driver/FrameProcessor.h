@@ -242,6 +242,8 @@ private:
 	// gap between successive ProcessSceneLayer entries is the observable a
 	// user feels; acquire and work times plus per-frame event tags let an
 	// outlier gap self-attribute to what the PREVIOUS frame did.
+	// Latched at frame start for helpers without a settings parameter.
+	bool cfgHitchDiag = false;
 	static uint64_t NowUs();
 	uint64_t hdLastFrameStartUs = 0;
 	uint64_t hdWindowStartUs = 0;

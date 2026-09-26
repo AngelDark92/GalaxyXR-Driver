@@ -461,7 +461,7 @@ bool FrameProcessor::EnsureShaders(){
 						if(SUCCEEDED(device->CreatePixelShader(fxBlob->GetBufferPointer(), fxBlob->GetBufferSize(), nullptr, &fxNew))){
 							if(fxaaShader){ fxaaShader->Release(); }
 							fxaaShader = fxNew;
-							hdFrameTags |= TagShaderCompile;
+							if(cfgHitchDiag){ hdFrameTags |= TagShaderCompile; }
 							DriverLog("FrameProcessor: fxaa pass shader ready (from file)");
 						}
 						fxBlob->Release();
@@ -521,7 +521,7 @@ bool FrameProcessor::EnsureShaders(){
 		pixelShader = newShader;
 		pixelShaderFileTime = fileTime;
 		shaderFailed = false;
-		hdFrameTags |= TagShaderCompile;
+		if(cfgHitchDiag){ hdFrameTags |= TagShaderCompile; }
 		// capability provenance: a stale hlsl next to a new dll fails
 		// SILENTLY for appended features (cbuffer appends are layout
 		// compatible), so name what this shader source actually contains
@@ -661,7 +661,7 @@ bool FrameProcessor::EnsureScratch(uint32_t width, uint32_t height, DXGI_FORMAT 
 				lru = it;
 			}
 		}
-		hdEvicts++;
+		if(cfgHitchDiag){ hdEvicts++; }
 		if(cfgDeferEvict){
 			PendingEvict pe;
 			pe.set = lru->second;
@@ -683,8 +683,10 @@ bool FrameProcessor::EnsureScratch(uint32_t width, uint32_t height, DXGI_FORMAT 
 	scratchFx = inserted->second.fx;
 	scratchFxSRV = inserted->second.fxSRV;
 	scratchFxRTV = inserted->second.fxRTV;
-	hdCreates++;
-	hdFrameTags |= TagScratchCreate;
+	if(cfgHitchDiag){
+		hdCreates++;
+		hdFrameTags |= TagScratchCreate;
+	}
 	DriverLog("FrameProcessor: created scratch textures %ux%u format=%u (%zu sets cached, %zu pending evict)",
 		width, height, (unsigned)format, scratchSets.size(), pendingEvictions.size());
 	return true;
@@ -712,7 +714,7 @@ void FrameProcessor::EnsureFxTexture(ScratchSet &set, uint32_t width, uint32_t h
 		set.fx = nullptr;
 		return;
 	}
-	hdFrameTags |= TagScratchCreate;
+	if(cfgHitchDiag){ hdFrameTags |= TagScratchCreate; }
 	DriverLog("FrameProcessor: added fxaa intermediate %ux%u format=%u", width, height, (unsigned)format);
 }
 
@@ -905,7 +907,7 @@ bool FrameProcessor::BakeLutIfNeeded(const StreamFrameConfig &config){
 
 	lastLutKey = key;
 	lutBaked = true;
-	hdFrameTags |= TagLutBake;
+	if(cfgHitchDiag){ hdFrameTags |= TagLutBake; }
 	DriverLog("FrameProcessor: baked distortion lut (%s, %d rows)", spline ? "spline" : "k1k2", rowCount);
 	return true;
 }
@@ -1049,7 +1051,7 @@ bool FrameProcessor::BakeMapIfNeeded(const StreamFrameConfig &config){
 		context->UpdateSubresource(dispTexture, D3D11CalcSubresource(0, eye, 1), nullptr, data.data(),
 			dispTexSize * 2 * sizeof(float), 0);
 	}
-	hdFrameTags |= TagLutBake;
+	if(cfgHitchDiag){ hdFrameTags |= TagLutBake; }
 	DriverLog("FrameProcessor: baked displacement map (%dx%d lattice -> %d texels, gain %.3f, max |disp| L=%.5f R=%.5f uv, source=%s)",
 		map.cols, map.rows, dispTexSize, config.distortion.gain, maxAbs[0], maxAbs[1], map.source.c_str());
 	return true;
@@ -1767,6 +1769,24 @@ bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::Sh
 	vr::SharedTextureHandle_t syncTexture, const FrameProcessSettings &settings){
 	std::lock_guard<std::mutex> guard(lock);
 
+	// 2026-09-26: OFF bypasses the diagnostic clocks/counters as well as
+	// logging. Discard the old window on either transition so re-enabling
+	// cannot attribute the disabled interval to a frame hitch.
+	if(cfgHitchDiag != settings.config.hitchDiag){
+		cfgHitchDiag = settings.config.hitchDiag;
+		hdLastFrameStartUs = 0;
+		hdWindowStartUs = 0;
+		hdFrames = 0;
+		hdGapSumMs = 0; hdGapMaxMs = 0;
+		hdAcqSumMs = 0; hdAcqMaxMs = 0;
+		hdWorkSumMs = 0; hdWorkMaxMs = 0;
+		hdOver16 = 0; hdOver33 = 0; hdSkips = 0;
+		hdCreates = 0; hdEvicts = 0; hdIdleBreaks = 0;
+		hdFrameTags = 0; hdPrevTags = 0;
+		hdPrevAcqMs = 0; hdPrevWorkMs = 0;
+		hdHitchLines = 0;
+	}
+
 	// zero-copy v3 arming follows the live-reloaded flag; frameCounter
 	// drives the shadow slot rotation (one advance per scene frame)
 	{
@@ -1788,7 +1808,7 @@ bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::Sh
 	if(nowMs - lastErrorResetMs > 300000){
 		lastErrorResetMs = nowMs;
 		errorCount = 0;
-		hdHitchLines = 0;
+		if(cfgHitchDiag){ hdHitchLines = 0; }
 	}
 
 	// ---- HITCHDIAG frame-start accounting. the gap between successive
@@ -1797,50 +1817,52 @@ bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::Sh
 	// because that is the frame whose cost shows up as this gap.
 	cfgDeferEvict = settings.config.deferredEviction;
 	cfgFxaaQuality = settings.config.fxaaMode == 2;
-	uint64_t tFrameUs = NowUs();
-	double gapMs = hdLastFrameStartUs ? (tFrameUs - hdLastFrameStartUs) / 1000.0 : 0.0;
-	hdLastFrameStartUs = tFrameUs;
-	if(hdWindowStartUs == 0){
-		hdWindowStartUs = tFrameUs;
-	}
-	if(gapMs > 1000.0){
-		// standby / disconnect / first frame of a new app: a session
-		// boundary, not a hitch - keep it out of the stats
-		hdIdleBreaks++;
-	}else if(gapMs > 0.0){
-		hdFrames++;
-		hdGapSumMs += gapMs;
-		if(gapMs > hdGapMaxMs){ hdGapMaxMs = gapMs; }
-		if(gapMs > 16.7){ hdOver16++; }
-		if(gapMs > 33.4){ hdOver33++; }
-		if(settings.config.hitchDiag && gapMs > 25.0 && hdHitchLines < 30){
-			hdHitchLines++;
-			DriverLog("FrameProcessor: HITCH gap=%.1fms prevAcq=%.2fms prevWork=%.2fms tags=%s%s%s%s%s",
-				gapMs, hdPrevAcqMs, hdPrevWorkMs,
-				hdPrevTags == 0 ? "none" : "",
-				(hdPrevTags & TagScratchCreate) ? "scratchCreate " : "",
-				(hdPrevTags & TagLutBake) ? "lutBake " : "",
-				(hdPrevTags & TagShaderCompile) ? "shaderCompile " : "",
-				(hdPrevTags & TagSyncSkip) ? "syncSkip" : "");
+	uint64_t tFrameUs = cfgHitchDiag ? NowUs() : 0;
+	if(cfgHitchDiag){
+		double gapMs = hdLastFrameStartUs ? (tFrameUs - hdLastFrameStartUs) / 1000.0 : 0.0;
+		hdLastFrameStartUs = tFrameUs;
+		if(hdWindowStartUs == 0){
+			hdWindowStartUs = tFrameUs;
 		}
-	}
-	// 2s summary window, the render-side KALDIAG
-	if(tFrameUs - hdWindowStartUs >= 2000000){
-		if(settings.config.hitchDiag && hdFrames > 0){
-			DriverLog("FrameProcessor: HITCHDIAG frames=%u dtMean=%.2fms dtMax=%.1fms over16=%u over33=%u acqMean=%.2fms acqMax=%.1fms workMean=%.2fms workMax=%.1fms skips=%u creates=%u evicts=%u pend=%zu idle=%u",
-				hdFrames, hdGapSumMs / hdFrames, hdGapMaxMs, hdOver16, hdOver33,
-				hdAcqSumMs / hdFrames, hdAcqMaxMs, hdWorkSumMs / hdFrames, hdWorkMaxMs,
-				hdSkips, hdCreates, hdEvicts, pendingEvictions.size(), hdIdleBreaks);
+		if(gapMs > 1000.0){
+			// standby / disconnect / first frame of a new app: a session
+			// boundary, not a hitch - keep it out of the stats
+			hdIdleBreaks++;
+		}else if(gapMs > 0.0){
+			hdFrames++;
+			hdGapSumMs += gapMs;
+			if(gapMs > hdGapMaxMs){ hdGapMaxMs = gapMs; }
+			if(gapMs > 16.7){ hdOver16++; }
+			if(gapMs > 33.4){ hdOver33++; }
+			if(gapMs > 25.0 && hdHitchLines < 30){
+				hdHitchLines++;
+				DriverLog("FrameProcessor: HITCH gap=%.1fms prevAcq=%.2fms prevWork=%.2fms tags=%s%s%s%s%s",
+					gapMs, hdPrevAcqMs, hdPrevWorkMs,
+					hdPrevTags == 0 ? "none" : "",
+					(hdPrevTags & TagScratchCreate) ? "scratchCreate " : "",
+					(hdPrevTags & TagLutBake) ? "lutBake " : "",
+					(hdPrevTags & TagShaderCompile) ? "shaderCompile " : "",
+					(hdPrevTags & TagSyncSkip) ? "syncSkip" : "");
+			}
 		}
-		hdWindowStartUs = tFrameUs;
-		hdFrames = 0;
-		hdGapSumMs = 0; hdGapMaxMs = 0;
-		hdAcqSumMs = 0; hdAcqMaxMs = 0;
-		hdWorkSumMs = 0; hdWorkMaxMs = 0;
-		hdOver16 = 0; hdOver33 = 0; hdSkips = 0;
-		hdCreates = 0; hdEvicts = 0; hdIdleBreaks = 0;
+		// 2s summary window, the render-side KALDIAG
+		if(tFrameUs - hdWindowStartUs >= 2000000){
+			if(hdFrames > 0){
+				DriverLog("FrameProcessor: HITCHDIAG frames=%u dtMean=%.2fms dtMax=%.1fms over16=%u over33=%u acqMean=%.2fms acqMax=%.1fms workMean=%.2fms workMax=%.1fms skips=%u creates=%u evicts=%u pend=%zu idle=%u",
+					hdFrames, hdGapSumMs / hdFrames, hdGapMaxMs, hdOver16, hdOver33,
+					hdAcqSumMs / hdFrames, hdAcqMaxMs, hdWorkSumMs / hdFrames, hdWorkMaxMs,
+					hdSkips, hdCreates, hdEvicts, pendingEvictions.size(), hdIdleBreaks);
+			}
+			hdWindowStartUs = tFrameUs;
+			hdFrames = 0;
+			hdGapSumMs = 0; hdGapMaxMs = 0;
+			hdAcqSumMs = 0; hdAcqMaxMs = 0;
+			hdWorkSumMs = 0; hdWorkMaxMs = 0;
+			hdOver16 = 0; hdOver33 = 0; hdSkips = 0;
+			hdCreates = 0; hdEvicts = 0; hdIdleBreaks = 0;
+		}
+		hdFrameTags = 0;
 	}
-	hdFrameTags = 0;
 
 	if(!EnsureDevice() || !EnsureShaders()){
 		return false;
@@ -1875,20 +1897,24 @@ bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::Sh
 		uint32_t escalated = (uint32_t)baseTimeout * 3;
 		timeout = escalated < 15 ? 15 : escalated;
 	}
-	uint64_t tAcqUs = NowUs();
+	uint64_t tAcqUs = cfgHitchDiag ? NowUs() : 0;
 	HRESULT hr = mutex->AcquireSync(0, timeout);
-	double acqMs = (NowUs() - tAcqUs) / 1000.0;
-	hdAcqSumMs += acqMs;
-	if(acqMs > hdAcqMaxMs){ hdAcqMaxMs = acqMs; }
+	double acqMs = cfgHitchDiag ? (NowUs() - tAcqUs) / 1000.0 : 0.0;
+	if(cfgHitchDiag){
+		hdAcqSumMs += acqMs;
+		if(acqMs > hdAcqMaxMs){ hdAcqMaxMs = acqMs; }
+	}
 	if(hr != S_OK){
 		// timeout or abandoned: skip this frame rather than stall the pipeline
 		consecutiveSyncSkips++;
 		mutex->Release();
-		hdSkips++;
-		hdFrameTags |= TagSyncSkip;
-		hdPrevTags = hdFrameTags;
-		hdPrevAcqMs = acqMs;
-		hdPrevWorkMs = (NowUs() - tFrameUs) / 1000.0;
+		if(cfgHitchDiag){
+			hdSkips++;
+			hdFrameTags |= TagSyncSkip;
+			hdPrevTags = hdFrameTags;
+			hdPrevAcqMs = acqMs;
+			hdPrevWorkMs = (NowUs() - tFrameUs) / 1000.0;
+		}
 		PROCESSOR_ERROR("FrameProcessor: AcquireSync returned 0x%08X, skipping frame (%d consecutive)", (unsigned)hr, consecutiveSyncSkips);
 		return false;
 	}
@@ -1988,12 +2014,14 @@ bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::Sh
 	// consume the frame - release cost here is invisible to the pipeline
 	DrainPendingEvictions(false);
 
-	double workMs = (NowUs() - tFrameUs) / 1000.0;
-	hdWorkSumMs += workMs;
-	if(workMs > hdWorkMaxMs){ hdWorkMaxMs = workMs; }
-	hdPrevTags = hdFrameTags;
-	hdPrevAcqMs = acqMs;
-	hdPrevWorkMs = workMs;
+	if(cfgHitchDiag){
+		double workMs = (NowUs() - tFrameUs) / 1000.0;
+		hdWorkSumMs += workMs;
+		if(workMs > hdWorkMaxMs){ hdWorkMaxMs = workMs; }
+		hdPrevTags = hdFrameTags;
+		hdPrevAcqMs = acqMs;
+		hdPrevWorkMs = workMs;
+	}
 	return ok;
 }
 

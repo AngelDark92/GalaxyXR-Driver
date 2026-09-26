@@ -236,7 +236,7 @@ const nativeDefaults = {
     "poseLogBurst": false,
     "syncTimeoutMs": 10,
     "reconLogger": false,
-    "hitchDiag": true,
+    "hitchDiag": false,
     "deferredEviction": true,
     "directRender": true,
     "zeroCopy": false,

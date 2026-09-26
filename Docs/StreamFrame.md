@@ -17,6 +17,7 @@ Toggle corrections (2026-09-25):
 - Zero-Copy v3 OFF, Image Enhancements OFF, or inactive eye processing stops texture redirection. Re-enabling waits for active eye processing.
 - vrlink Debug Overlay OFF writes both diagnostic flags false, even if they were previously true. Explicit advanced VRLink overrides remain authoritative; uninstall restores unchanged journal-owned values.
 - Pose Logging OFF silences pose diagnostics without disabling release latch or release rewind.
+- Hitch Diagnostics defaults to OFF (2026-09-26). OFF skips its timing samples, counters, event tags and logs. Enabling it starts a fresh measurement window; explicit saved choices remain supported.
 - Legacy encoder imports preserve explicit OFF choices for encoder switches, the headset profile, and CAS. Completed migrations are not repeated; settings already overwritten by an older version cannot be reconstructed automatically.
 
 ## Install
@@ -39,6 +40,8 @@ Galaxy XR page:
 Device pages: leave **Custom Shader disabled**. The Galaxy XR image processing replaces it for streamed HMDs, the page warns if both are active with color adjustments.
 
 After changing anything in the Headset section or the input profile, restart SteamVR.
+
+The [NVENC quality review (2026-09-26)](NvencQuality-2026-09-26.md) explains the retained encoder defaults, online sources, and quality features worth testing next. No universal maximum-quality preset is proven for every GPU and headset stream.
 
 ## Controllers
 

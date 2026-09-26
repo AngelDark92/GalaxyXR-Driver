@@ -45,6 +45,16 @@ beforeEach(() => { storage.files.clear(); });
 afterEach(() => { for (const service of services.splice(0)) service.dispose(); });
 
 describe('vendor defaults before info.json exists', () => {
+  it.each(['', 'galaxyxr'])('keeps Hitch Diagnostics off by default for %s and preserves opt-in on reload', async vendor => {
+    const service = await load(vendor);
+    expect(service.values()?.streamFrame?.hitchDiag).toBe(false);
+    service.values()!.streamFrame!.hitchDiag = true;
+    expect(await service.save(service.values()!)).toBe(true);
+    expect(JSON.parse(storage.files.get(filePath)!).streamFrame.hitchDiag).toBe(true);
+    expect(await service.loadSetting()).toBe(true);
+    expect(service.values()?.streamFrame?.hitchDiag).toBe(true);
+  });
+
   it.each([
     ['', false],
     ['galaxyxr', true],

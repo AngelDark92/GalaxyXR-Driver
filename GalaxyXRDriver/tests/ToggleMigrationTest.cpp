@@ -48,6 +48,9 @@ int main(int argc, char** argv) {
         if (scenario == 5) sf["postPack"] = {{"enable",false},{"casEnable",false}};
     } else if (scenario == 6) {
         sf["postPack"] = {{"casEnable",false},{"limitedRange",true}};
+    } else if (scenario >= 9 && scenario <= 11) {
+        sf["nvencSettingsVersion"] = 4;
+        if (scenario != 9) sf["hitchDiag"] = scenario == 11;
     } else return 2;
     const auto path = testFolder + "settings.json";
     { std::ofstream out(path); out << input.dump(); }
@@ -55,6 +58,7 @@ int main(int argc, char** argv) {
     auto checkExpected = [&] {
         const auto &s = driverConfig.streamFrame;
         Check(s.nvencSettingsVersion == 4, "version reaches current schema");
+        Check(s.hitchDiag == (scenario == 11), "hitch diagnostics defaults OFF and preserves explicit choices");
         if (scenario == 0 || scenario == 7 || scenario == 8) {
             Check(!s.nvencTap && !s.nvencFixLevel && !s.nvencForceCbr
                 && !s.nvencBitrateScale && !s.nvencPresetMerge, "all explicit encoder OFF choices preserved");

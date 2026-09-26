@@ -715,7 +715,8 @@ struct StreamFrameConfig{
 	// previous frame callback exceeds 25ms, tagged with what the previous
 	// frame did (scratch create, lut bake, shader compile, sync skip) so
 	// outliers self-attribute. cost is a few clock reads per frame.
-	bool hitchDiag = true;
+	// 2026-09-26: opt-in only; normal streaming skips diagnostic clocks and counters.
+	bool hitchDiag = false;
 	// scratch LRU evictions are moved to a deferred list and released a few
 	// frames later, one per frame, AFTER the keyed mutex is released - so a
 	// resolution/layer change never pays release cost inside the same
