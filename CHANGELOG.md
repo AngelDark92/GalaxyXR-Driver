@@ -6,6 +6,12 @@ New release entries are generated from commits on `main`: `fix:` bumps the patch
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.2.13] - 2026-09-26
+
+### Fixes
+
+- hitch diagnostics off by default (`2d34565`)
+
 ## [1.2.12] - 2026-09-25
 
 ### Fixes
