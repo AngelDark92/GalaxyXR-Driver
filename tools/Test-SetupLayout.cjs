@@ -101,7 +101,7 @@ function context(options = {}) {
       lastUninstallReport: { removedPaths: [], restoredSettings: 0, warnings: [] },
     }),
     startup: {
-      status: signal(installed ? { steamvrRunning: !!options.running, driverInitialized: !!options.initialized, detail: 'Runtime fixture' } : undefined),
+      status: signal(options.runtimeUnknown ? undefined : { steamvrRunning: !!options.running, driverInitialized: !!options.initialized, detail: 'Runtime fixture' }),
       error: signal(undefined), launching: signal(!!options.launching),
       refresh: async () => calls.push('runtime-refresh'), start: async () => calls.push('start'),
       invalidate: () => { calls.push('invalidate'); ctx.startup.status.set(undefined); },
@@ -118,7 +118,9 @@ function context(options = {}) {
     },
     dis: { values: signal(installed ? { driverVersion: '1.2.3' } : undefined) },
     dss: signals({ values: signal({}), readFileError: signal(undefined), writeFileError: signal(undefined) }),
-    appSetting: signals({ values: signal({ colorScheme: 'light', advanceMode: false }), readFileError: signal(undefined), writeFileError: signal(undefined) }),
+    appSetting: signals({ values: signal({ colorScheme: 'light', advanceMode: false, driverVerified: !!options.verified }),
+      save: async value => { calls.push('app-save'); ctx.appSetting.values.set(value); return true; },
+      readFileError: signal(undefined), writeFileError: signal(undefined) }),
     galaxy: signals({ imageEnhancementsEnabled: installed, baselineRequested: false, imageModeChanging: signal(false), imageModeError: signal(undefined), sections: signal({}) }),
     dialog: { message: async (title, message) => calls.push({ title, message }) },
   };
@@ -223,7 +225,16 @@ async function test(name, fn) {
   });
   for (const options of [{ busy: true }, { checking: true }, { launching: true }]) await test(`Actions are disabled while busy: ${JSON.stringify(options)}`, () => {
     const html = markup(render(SetupPage, context(options)).template);
-    for (const match of html.matchAll(/<button\b([^>]*)>/g)) assert.match(match[1], /\bdisabled\b/);
+    // Collapsible section headings only change layout, not driver state.
+    const actions=[...html.matchAll(/<button\b([^>]*)>/g)].filter(match=>!match[1].includes('section-title'));
+    assert.ok(actions.length>0);for (const match of actions) assert.match(match[1], /\bdisabled\b/);
+  });
+  for (const installed of [false,true]) for (const status of ['stopped','running','unknown']) await test(`Cleanup buttons require confirmed stopped SteamVR: installed=${installed}, ${status}`,()=>{
+    const ctx=context({installed,running:status==='running',runtimeUnknown:status==='unknown'});
+    const buttons=[...markup(render(SetupPage,ctx).template).matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)]
+      .filter(match=>['Clean Settings','Uninstall Driver'].includes(match[2].trim()));
+    assert.equal(buttons.length,installed?2:1);
+    for(const button of buttons)assert.equal(/\bdisabled\b/.test(button[1]),status!=='stopped',button[2]);
   });
   await test('A launch request is not displayed as verified initialization', () => {
     assert.doesNotMatch(markup(render(SetupPage, context({ running: true })).template), /Driver initialization verified in SteamVR\./);
@@ -336,16 +347,34 @@ async function test(name, fn) {
     const ctx = context(); ctx.sds.installDriver = async () => false; await render(SetupPage, ctx).page.installDriver(); assert.deepEqual(ctx.calls, []);
   });
   await test('Cleanup calls the existing safe service and refreshes state', async () => {
-    const ctx = context(); await render(SetupPage, ctx).page.cleanSettings();
-    assert.deepEqual(ctx.calls.slice(0, 4), ['clean', 'invalidate', 'clear', 'check-refresh']);
-    assert.match(ctx.calls[4].message, /start SteamVR from Setup/);
+    const ctx = context({verified:true}); await render(SetupPage, ctx).page.cleanSettings();
+    assert.deepEqual(ctx.calls.slice(0, 6), ['runtime-refresh', 'clean', 'invalidate', 'clear', 'app-save', 'check-refresh']);
+    assert.equal(ctx.appSetting.values().driverVerified,false);
+    assert.match(ctx.calls[6].message, /start SteamVR from Setup/);
   });
   await test('Uninstall removes its button, preserves Cleanup, and leaves Setup selected', async () => {
-    const ctx = context(); const { page } = render(SetupPage, ctx); const shell = new AppShell(); shell.ctx = ctx;
+    const ctx = context({verified:true}); const { page } = render(SetupPage, ctx); const shell = new AppShell(); shell.ctx = ctx;
     windowMock.location.hash = '#/setup'; await page.uninstallDriver(); shell.syncRoute();
     assert.equal(shell.route, 'setup'); assert.ok(buttonLabels(page.render()).includes('Install Driver'));
     assert.ok(buttonLabels(page.render()).includes('Clean Settings')); assert.ok(!buttonLabels(page.render()).includes('Uninstall Driver'));
-    assert.deepEqual(ctx.calls.slice(0, 3), ['uninstall', 'invalidate', 'clear']);
+    assert.deepEqual(ctx.calls.slice(0, 5), ['runtime-refresh', 'app-save', 'uninstall', 'invalidate', 'clear']);
+    assert.equal(ctx.appSetting.values().driverVerified,false);
+  });
+  for(const action of ['cleanSettings','uninstallDriver'])for(const status of ['running','unknown'])await test(`${action} rejects ${status} after fresh check and keeps verification`,async()=>{
+    const ctx=context({verified:true,running:status==='running',runtimeUnknown:status==='unknown'});
+    await render(SetupPage,ctx).page[action]();
+    assert.deepEqual(ctx.calls,['runtime-refresh']);assert.equal(ctx.appSetting.values().driverVerified,true);
+  });
+  for(const action of ['cleanSettings','uninstallDriver'])for(const status of ['running','unknown'])await test(`${action} rejects stale stopped state when async refresh becomes ${status}`,async()=>{
+    const ctx=context({verified:true});let release;
+    ctx.startup.refresh=()=>{ctx.calls.push('runtime-refresh');return new Promise(resolve=>{release=()=>{ctx.startup.status.set(status==='running'?{steamvrRunning:true,driverInitialized:false}:undefined);resolve();};});};
+    const pending=render(SetupPage,ctx).page[action]();assert.deepEqual(ctx.calls,['runtime-refresh']);
+    assert.equal(ctx.appSetting.values().driverVerified,true);release();await pending;
+    assert.deepEqual(ctx.calls,['runtime-refresh']);assert.equal(ctx.appSetting.values().driverVerified,true);
+  });
+  await test('Confirmed stopped permits Clean Settings before installation and without SteamVR path',async()=>{
+    const ctx=context({installed:false,steamvr:false});await render(SetupPage,ctx).page.cleanSettings();
+    assert.deepEqual(ctx.calls.slice(0,5),['runtime-refresh','clean','invalidate','clear','check-refresh']);assert.equal(ctx.sds.driverInstalled(),undefined);
   });
   await test('Only mounted Setup polls runtime; leaving it cancels polling', async () => {
     const ctx = context(); const setup = render(SetupPage, ctx).page;

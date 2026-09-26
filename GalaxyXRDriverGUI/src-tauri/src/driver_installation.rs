@@ -225,11 +225,15 @@ impl Context {
         Ok(Some(v))
     }
 }
+fn is_steamvr_process(name: &std::ffi::OsStr) -> bool {
+    ["vrserver.exe", "vrmonitor.exe", "vrcompositor.exe", "vrserver", "vrmonitor", "vrcompositor"]
+        .iter().any(|p| name.eq_ignore_ascii_case(p))
+}
 fn require_stopped() -> Result<()> {
     let mut system = System::new_all();
     system.refresh_processes(ProcessesToUpdate::All, false);
     for process in system.processes().values() {
-        if ["vrserver.exe", "vrmonitor.exe", "vrcompositor.exe", "vrserver", "vrmonitor", "vrcompositor"].iter().any(|p| process.name().eq_ignore_ascii_case(p)) {
+        if is_steamvr_process(process.name()) {
             return Err("Close SteamVR completely before changing driver installation or SteamVR settings".into());
         }
     }
@@ -749,18 +753,22 @@ fn legacy_reset(settings: &mut Value, journal: &Value) -> Result<usize> {
 fn legacy_config_reset(settings:&mut Value,journal:&Value,config:&Value,legacy_fork:bool,warnings:&mut Vec<String>) -> Result<usize> {
     let mut count=0;
     if let Some(extra)=config["galaxyXr"]["vrlinkExtraKeys"].as_object() {
+        // 2026-09-26: older installs mirrored encoder extras to each profile.
+        // Restore/remove them with the same exact-value ownership rule.
+        for section in std::iter::once("driver_vrlink").chain(COMPANION_PROFILE_SECTIONS.iter().copied()) {
         for (key,raw) in extra {
-            if journal["entries"]["driver_vrlink"].get(key).is_some() { continue; }
+            if journal["entries"][section].get(key).is_some() { continue; }
             let expected=if raw.is_boolean() || raw.is_number() { Some(raw.clone()) }
                 else if let Some(value)=raw.get("i").and_then(Value::as_i64) { Some(json!(value)) }
                 else if let Some(value)=raw.get("f").and_then(Value::as_f64) { Some(json!(value as f32)) }
                 else { raw.get("b").and_then(Value::as_bool).map(|v|json!(v)) };
-            let current=settings["driver_vrlink"].get(key);
+            let current=settings[section].get(key);
             if let Some(expected)=expected {
                 let matches=setting_equal(current,Some(&expected));
-                if matches { set_value(settings,"driver_vrlink",key,None)?;count+=1; }
-                else if current.is_some() { warnings.push(format!("Preserved differing legacy custom setting driver_vrlink.{key}")); }
-            } else if current.is_some() { warnings.push(format!("Preserved ambiguous legacy custom setting driver_vrlink.{key}")); }
+                if matches { set_value(settings,section,key,None)?;count+=1; }
+                else if current.is_some() { warnings.push(format!("Preserved differing legacy custom setting {section}.{key}")); }
+            } else if current.is_some() { warnings.push(format!("Preserved ambiguous legacy custom setting {section}.{key}")); }
+        }
         }
     }
     // Older fork installs disabled their old neutral driver section. Only
@@ -1098,6 +1106,48 @@ mod tests {
         assert!(f.ctx.registrations().unwrap().is_empty());assert_eq!(read_settings(&f.ctx.settings).unwrap(),baseline);
         let second=install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         assert!(Path::new(&second.registered_path).join("driver.vrdrivermanifest").exists());assert!(source.exists());
+    }
+    #[test]
+    fn install_preserves_encoder_opt_out_and_uninstall_restores_encoder_settings() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        let stock=json!({"nvencSettingsVersion":4,"nvencTap":false,"nvencForceCbr":false,
+            "postPack":{"enable":false,"casEnable":false}});
+        atomic_json(&f.ctx.data.join("settings.json"),&json!({"streamFrame":stock})).unwrap();
+        let baseline=json!({"driver_vrlink":{"targetBandwidth":123,"other":42}});
+        atomic_json(&f.ctx.settings,&baseline).unwrap();
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert_eq!(read_json(&f.ctx.data.join("settings.json")).unwrap()["streamFrame"],stock);
+        for section in std::iter::once("driver_vrlink").chain(COMPANION_PROFILE_SECTIONS.iter().copied()) {
+            apply_changes(&f.ctx,vec![
+                SettingChange{section:section.into(),key:"targetBandwidth".into(),present:true,value:json!(200)},
+                SettingChange{section:section.into(),key:"maxVideoQueueLatencyUs".into(),present:true,value:json!(10000)}]).unwrap();
+        }
+        uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert_eq!(read_settings(&f.ctx.settings).unwrap(),baseline);
+        assert!(!f.ctx.data.join("settings.json").exists());
+        assert!(f.ctx.registrations().unwrap().is_empty());
+    }
+    #[test]
+    fn legacy_encoder_extras_restore_all_profiles_without_claiming_external_edits() {
+        let mut settings=json!({});
+        for section in std::iter::once("driver_vrlink").chain(COMPANION_PROFILE_SECTIONS.iter().copied()) {
+            settings[section]=json!({"encoderExtra":12,"changed":99,"journaled":8,"unrelated":42});
+        }
+        let mut journal=json!({"entries":{}});
+        for section in COMPANION_PROFILE_SECTIONS {
+            journal["entries"][section]["journaled"]=json!({"present":true,"value":7,"lastPresent":true,"lastValue":8});
+        }
+        let config=json!({"galaxyXr":{"vrlinkExtraKeys":{"encoderExtra":{"i":12},"changed":4,"journaled":8}}});
+        let mut warnings=vec![];
+        let restored=legacy_config_reset(&mut settings,&journal,&config,false,&mut warnings).unwrap();
+        assert_eq!(restored,COMPANION_PROFILE_SECTIONS.len()+2);
+        for section in std::iter::once("driver_vrlink").chain(COMPANION_PROFILE_SECTIONS.iter().copied()) {
+            assert!(settings[section].get("encoderExtra").is_none());
+            assert_eq!(settings[section]["changed"],99);
+            assert_eq!(settings[section]["unrelated"],42);
+        }
+        for section in COMPANION_PROFILE_SECTIONS { assert_eq!(settings[section]["journaled"],8); }
+        assert_eq!(legacy_config_reset(&mut settings,&journal,&config,false,&mut warnings).unwrap(),0);
     }
     #[test]
     fn old_external_bundle_is_unregistered_but_never_deleted() {

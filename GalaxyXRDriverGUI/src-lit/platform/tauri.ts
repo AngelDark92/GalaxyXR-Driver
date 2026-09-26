@@ -77,6 +77,6 @@ export interface DriverRuntimeStatus {
 export function clean_galaxyxr_settings(steamvrPath?: string): Promise<CleanSettingsReport> {
     return invoke('clean_galaxyxr_settings', { steamvrPath: steamvrPath ?? null });
 }
-export function get_galaxyxr_runtime_status(steamvrPath: string, expectedVersion: string): Promise<DriverRuntimeStatus> {
-    return invoke('get_galaxyxr_runtime_status', { steamvrPath, expectedVersion });
+export function get_galaxyxr_runtime_status(steamvrPath: string | undefined, expectedVersion: string): Promise<DriverRuntimeStatus> {
+    return invoke('get_galaxyxr_runtime_status', { steamvrPath: steamvrPath ?? null, expectedVersion });
 }

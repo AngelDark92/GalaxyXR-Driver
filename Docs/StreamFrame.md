@@ -10,6 +10,10 @@ Image processing settings apply live within about a second. Identity, input prof
 
 Saved settings and their defaults apply on the first driver start after installation; no toggle cycle is needed. Missing JSON keys use the driver's defaults. Encoder options are published before the first encoder is created, and explicit advanced VRLink overrides are reapplied after profile, stream and resolution settings. Opening a GUI page preserves saved tuning, including values that fall between slider steps. Image processing still follows the Image Enhancements master and SDR10 consent rules below.
 
+Setup encoder lifecycle (2026-09-26): a fresh installation uses the reference NVENC defaults: Tap, automatic HEVC level, CBR, bitrate scaling and preset merge on; preset Auto, two-frame VBV, keyframe scale 2, 90 fps budgeting and automatic split. Reinstall preserves saved choices. Encoder toggles and reset arrows use this package's defaults even when an older `info.json` remains.
+
+**Clean Settings** and **Uninstall Driver** are available only after SteamVR is confirmed stopped, including its monitor and compositor processes. Clean Settings restores recorded SteamVR changes and explicitly leaves NVENC Tap, encoder override switches and post-pack processing off; restarting SteamVR keeps stock encoder passthrough. Other driver settings return to their defaults. Enable Tap and reset the individual encoder controls to restore the installation tuning. Uninstall removes the hook and driver configuration and restores recorded SteamVR values (or removes app-added keys). Later external edits are preserved. These operations do not edit NVIDIA Control Panel settings.
+
 Toggle corrections (2026-09-25):
 
 - Grip Touch From Grip Pressure OFF releases any synthesized touch and stops further synthesis. Controller Bypass also stops synthesis and skeleton offsets. Re-enabling synthesis works with an already connected controller.

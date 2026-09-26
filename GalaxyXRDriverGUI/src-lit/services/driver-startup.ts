@@ -28,20 +28,24 @@ export class DriverStartupService {
     this.running = (async () => {
       const path = this.system.steamVRinstalled();
       const version = this.system.driverInstalled();
-      if (!path || !version || this.system.installingDriver()) {
+      if (this.system.installingDriver()) {
         this._status.set(undefined);
         return;
       }
       try {
-        const result = await get_galaxyxr_runtime_status(path, version);
-        if (generation !== this.generation || this.system.installingDriver() || version !== this.system.driverInstalled()) return;
+        // Process status also protects Clean Settings before installation.
+        // An absent path/version must not imply that SteamVR is stopped.
+        const result = await get_galaxyxr_runtime_status(path || undefined, version ?? '');
+        if (generation !== this.generation || this.system.installingDriver()
+          || path !== this.system.steamVRinstalled() || version !== this.system.driverInstalled()) return;
         if (!result || typeof result.driverInitialized !== 'boolean' || typeof result.steamvrRunning !== 'boolean') {
           throw new Error('The backend returned an invalid runtime report. Rebuild and reinstall the complete package.');
         }
         this._status.set(result);
         this._error.set(undefined);
       } catch (error) {
-        if (generation !== this.generation) return;
+        if (generation !== this.generation || this.system.installingDriver()
+          || path !== this.system.steamVRinstalled() || version !== this.system.driverInstalled()) return;
         // Never keep an old green success indicator after an unsuccessful check.
         this._status.set(undefined);
         this._error.set(String(error));

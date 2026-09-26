@@ -51,6 +51,14 @@ int main(int argc, char** argv) {
     } else if (scenario >= 9 && scenario <= 11) {
         sf["nvencSettingsVersion"] = 4;
         if (scenario != 9) sf["hitchDiag"] = scenario == 11;
+    } else if (scenario == 12) {
+        // Clean Settings must survive both migrations and repeated loads.
+        sf["nvencSettingsVersion"] = 4;
+        for (auto key : toggles) sf[key] = false;
+        for (auto key : {"nvencVbvFrames", "nvencLowDelayKfScale", "nvencForceFps", "nvencSplitMode"}) sf[key] = 0;
+        sf["postPack"] = {{"enable",false},{"casEnable",false}};
+    } else if (scenario == 13) {
+        input = json::object(); // Fresh installation before any GUI/runtime save.
     } else return 2;
     const auto path = testFolder + "settings.json";
     { std::ofstream out(path); out << input.dump(); }
@@ -81,6 +89,17 @@ int main(int argc, char** argv) {
             Check(s.cas.enable && !s.postPack.enable && !s.postPack.casEnable, "explicit pre-encode choice retained");
         } else if (scenario == 6) {
             Check(!s.postPack.casEnable && s.postPack.limitedRange, "explicit post-pack sharpening OFF retained");
+        } else if (scenario == 12) {
+            Check(!s.nvencTap && !s.nvencFixLevel && !s.nvencForceCbr
+                && !s.nvencBitrateScale && !s.nvencPresetMerge, "cleaned encoder switches remain OFF");
+            Check(!s.postPack.enable && !s.postPack.casEnable, "cleanup does not revive post-pack");
+            Check(s.nvencVbvFrames == 0 && s.nvencLowDelayKfScale == 0
+                && s.nvencForceFps == 0 && s.nvencSplitMode == 0, "cleanup leaves encoder budgeting overrides off");
+        } else if (scenario == 13) {
+            Check(s.nvencTap && s.nvencFixLevel && s.nvencForceCbr
+                && s.nvencBitrateScale && s.nvencPresetMerge, "fresh install enables reference encoder switches");
+            Check(s.nvencPreset == 0 && s.nvencVbvFrames == 2 && s.nvencLowDelayKfScale == 2
+                && s.nvencForceFps == 90 && s.nvencSplitMode == 1, "fresh install uses reference encoder tuning");
         }
     };
     checkExpected();

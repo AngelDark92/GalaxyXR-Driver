@@ -73,6 +73,8 @@ Settings live in `%APPDATA%\GalaxyXR\CustomHeadset\settings.json` and are hot-re
 
 ## Tools
 
+For local builds and reclaiming generated files, see [Portable build cleanup](Docs/PortableBuildCleanup.md).
+
 `tools/` holds the camera calibration and distortion tuning scripts (`gxr_sweep.py`, `gxr_overlay.py`, `gxr_mirror.py`, and the ChArUco / chessboard camera calibration). Python 3.9+, `pip install -r requirements.txt`. See the [tuner guide](Docs/TunerUsage.md).
 
 ## Other headsets

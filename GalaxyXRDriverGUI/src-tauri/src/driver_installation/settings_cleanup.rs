@@ -137,12 +137,25 @@ where F: FnMut(&Path, &Option<Vec<u8>>) -> Result<()> {
     Ok(backup.to_string_lossy().into_owned())
 }
 
+fn clean_driver_config() -> Value {
+    // 2026-09-26: an empty object would enable the installation's NVENC
+    // defaults again. Persist stock passthrough, including the migration
+    // version, so neither the driver nor the GUI revives encoder overrides.
+    json!({"streamFrame":{
+        "nvencSettingsVersion":4, "nvencTap":false, "nvencFixLevel":false,
+        "nvencForceCbr":false, "nvencBitrateScale":false, "nvencPresetMerge":false,
+        "nvencVbvFrames":0, "nvencLowDelayKfScale":0, "nvencForceFps":0,
+        "nvencSplitMode":0, "postPack":{"enable":false,"casEnable":false}
+    }})
+}
+
 fn clean_settings_at(data: &Path, ctx: Option<&Context>) -> Result<CleanSettingsReport> {
     safe_chain(data)?;
     let mut warnings = vec![];
     // Capture each file BEFORE interpreting it. Planning from one snapshot and
     // later capturing a different baseline can overwrite a concurrent editor.
-    let config_change = FileChange::new(data.join("settings.json"), Some(b"{}\n".to_vec()))?;
+    let config_change = FileChange::new(data.join("settings.json"),
+        Some(serde_json::to_vec_pretty(&clean_driver_config()).map_err(|e| e.to_string())?))?;
     // gui-settings.json is app state (color scheme, update mode, advanced
     // mode) and is intentionally not reset: cleaning driver settings must
     // not change this app's appearance or behavior (2026-09-22).
@@ -188,8 +201,8 @@ fn clean_settings_at(data: &Path, ctx: Option<&Context>) -> Result<CleanSettings
         }
         warnings.push("SteamVR is not registered on this computer. Only driver configuration was reset; app preferences and SteamVR files were not changed.".into());
     }
-    // An empty object means use the driver's current defaults, not yesterday's
-    // info.json defaults. Named Distortion/ files are user data, not deleted.
+    // Other settings use current driver defaults. Named Distortion/ files are
+    // user data, not deleted. NVENC stays off until explicitly enabled again.
     changes.push(config_change);
     changes.push(info_change);
     changes.push(diagnostic_change);
@@ -297,7 +310,7 @@ mod tests {
         atomic_json(&data.join("Distortion/my-profile.json"),&json!({"keep":true})).unwrap();
         atomic_json(&data.join("info.json"),&json!({"driverVersion":"old"})).unwrap();
         let report=clean_settings_at(&data,None).unwrap();
-        assert_eq!(read_json(&data.join("settings.json")).unwrap(),json!({}));
+        assert_eq!(read_json(&data.join("settings.json")).unwrap(),clean_driver_config());
         assert_eq!(read_json(&data.join("gui-settings.json")).unwrap(),json!({"advanceMode":true}));
         assert!(data.join("Distortion/my-profile.json").exists());assert!(!data.join("info.json").exists());
         assert!(Path::new(&report.backup_path).join("manifest.json").exists());
@@ -334,7 +347,7 @@ mod tests {
             let report = clean_settings_at(&ctx.data, Some(&ctx)).unwrap();
             assert!(report.steamvr_cleaned);
             assert_eq!(read_json(&ctx.settings).unwrap(), before);
-            assert_eq!(read_json(&ctx.data.join("settings.json")).unwrap(), json!({}));
+            assert_eq!(read_json(&ctx.data.join("settings.json")).unwrap(), clean_driver_config());
             assert_eq!(read_json(&ctx.receipt()).unwrap()["keep"], "receipt");
             assert_eq!(read_json(&ctx.paths_file).unwrap()["external_drivers"][0], "unrelated");
         }

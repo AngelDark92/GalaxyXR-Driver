@@ -12,7 +12,15 @@ export class DriverSettingService extends JsonSettingServiceBase<Settings> {
   private readonly pathService: PathsService;
   constructor(paths: PathsService, driverInfoService: DriverInfoService, appSettingGetter: () => AppSetting | undefined) {
     super(paths.settingPath, paths.appDataDirPath, () => {
-      const defaults = deepMerge(getDriverDefaultsForVendor(vendor), driverInfoService.values()?.defaultSettings ?? {});
+      const bundled = getDriverDefaultsForVendor(vendor);
+      const defaults = deepMerge(structuredClone(bundled), driverInfoService.values()?.defaultSettings ?? {});
+      // 2026-09-26: telemetry can outlive an installed package. Encoder toggles
+      // and sparse saves must use that package's native defaults, otherwise an
+      // explicit Off can be pruned and return as On on the next native load.
+      if (defaults.streamFrame) {
+        Object.assign(defaults.streamFrame, Object.fromEntries(Object.entries(bundled.streamFrame ?? {})
+          .filter(([key]) => key.startsWith('nvenc') || key === 'postPack')));
+      }
       if (vendor === 'galaxyxr' && defaults.galaxyXr) {
         defaults.galaxyXr.nativeIdentity = true;
         defaults.galaxyXr.vrlinkHeadsetProfile = true;

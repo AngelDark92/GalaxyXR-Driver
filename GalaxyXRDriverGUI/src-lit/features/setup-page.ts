@@ -185,10 +185,13 @@ export class SetupPage extends BasePage {
   }
 
   private async cleanSettings(): Promise<void> {
+    await this.ctx.startup.refresh();
+    if (this.ctx.startup.status()?.steamvrRunning !== false) return;
     const report = await this.ctx.sds.cleanSettings(this.ctx.appSetting);
     if (!report) return;
     this.ctx.startup.invalidate();
     this.ctx.checks.clear();
+    await this.resetVerified();
     await this.ctx.checks.refresh();
     const details = `${report.resetFiles.length} files reset or refreshed. ${report.restoredSettings} recorded SteamVR settings restored. ${report.removedIdentityKeys.length} older identity settings removed.`;
     await this.ctx.dialog.message(t('Settings cleaned'), details
@@ -199,6 +202,8 @@ export class SetupPage extends BasePage {
   }
 
   private async uninstallDriver(): Promise<void> {
+    await this.ctx.startup.refresh();
+    if (this.ctx.startup.status()?.steamvrRunning !== false) return;
     // A successful uninstall leaves settings writes suspended, so the latch
     // must be cleared BEFORE it runs; a save afterwards would be rejected
     // (2026-09-23). gui-settings.json survives uninstall, so this sticks.
@@ -219,6 +224,7 @@ export class SetupPage extends BasePage {
   render() {
     const { sds, checks, startup } = this.ctx;
     const busy = sds.installingDriver() || checks.checking() || startup.launching();
+    const cleanupBlocked = busy || startup.status()?.steamvrRunning !== false;
     return this.sectionCardsFor([
       sectionHeading(t('Galaxy XR Companion')),
       noteRow(t('A standalone SteamVR vendor driver for the Samsung Galaxy XR over Steam Link. It gives the headset and its controllers their native identity, models and bindings in SteamVR, corrects controller tracking and throw velocity, and adds the ability to process the streamed image (color, sharpening, distortion correction) before it is encoded.')),
@@ -227,11 +233,15 @@ export class SetupPage extends BasePage {
       sectionHeading(t('Installation and settings check')),
       this.renderSettingsCheck(),
       sectionHeading(t('Cleanup')),
-      fieldRow(t('Settings'), html`<button type="button" ?disabled=${busy}
+      fieldRow(t('Settings'), html`<button type="button" ?disabled=${cleanupBlocked}
         @click=${() => this.cleanSettings()}>${t('Clean Settings')}</button>`),
       noteRow(t('Close SteamVR first. Resets the driver settings of the Driver Settings, Image Settings and Distortion Profile tabs to defaults and cleans recognized old identity settings, including the Quest Pro and PICO 4 Pro profiles used by patched Steam Link. App preferences, such as the color scheme, are kept. Recorded SteamVR overrides are restored safely; unrelated SteamVR preferences, room setup, bindings, driver enable/block choices and saved profile files are kept. A recovery backup is made first. Available even before installing the driver.')),
+      noteRow(t('Clean Settings leaves NVENC Tap and encoder overrides off for stock NVIDIA encoding. Other driver settings return to their defaults. Enable NVENC Tap and reset the encoder controls to use the installation defaults again.')),
+      ...(startup.status()?.steamvrRunning !== false ? [noteRow(startup.status()?.steamvrRunning
+        ? t('SteamVR is running. Close it completely before cleaning settings or uninstalling the driver.')
+        : t('Cleanup is unavailable until SteamVR is confirmed stopped. Use Check installation to retry.'))] : []),
       ...(sds.driverInstalled() ? [
-        fieldRow(t('Driver'), html`<button type="button" ?disabled=${busy}
+        fieldRow(t('Driver'), html`<button type="button" ?disabled=${cleanupBlocked}
           @click=${() => this.uninstallDriver()}>${t('Uninstall Driver')}</button>`),
         noteRow(t('Uninstall the driver and restore recorded SteamVR settings. Close SteamVR first.')),
       ] : []),

@@ -61,16 +61,35 @@ fn modified_ms(path: &Path) -> Result<u64> {
         .duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).map_err(|e| error(path, e))
 }
 
+// Cleanup needs process presence even before installation or when the running
+// SteamVR belongs to another location. Initialization still requires the
+// strictly matched server and fresh runtime files below (2026-09-26).
+fn process_status(running: bool, now: u64) -> RuntimeStatus {
+    if running {
+        status("waiting", "SteamVR is running. Close it completely before cleaning settings or uninstalling the driver.", true, now)
+    } else {
+        status("not-running", "Start SteamVR to initialize the driver and verify that it is running. Installation alone does not complete this step.", false, now)
+    }
+}
+
 #[tauri::command]
-pub fn get_galaxyxr_runtime_status(steamvr_path: String, expected_version: String) -> Result<RuntimeStatus> {
-    let ctx = Context::live(steamvr_path)?;
+pub fn get_galaxyxr_runtime_status(steamvr_path: Option<String>, expected_version: String) -> Result<RuntimeStatus> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis() as u64;
     let mut system = System::new_all();
     system.refresh_processes(ProcessesToUpdate::All, false);
+    let running = system.processes().values().any(|process| is_steamvr_process(process.name()));
+    if !running { return Ok(process_status(false, now)); }
+    let Some(steamvr_path) = steamvr_path.filter(|path| !path.trim().is_empty()) else {
+        return Ok(process_status(true, now));
+    };
+    // An uninstalled driver can still clean settings. Do not construct a
+    // runtime context or consult stale info.json merely to detect processes.
+    if expected_version.is_empty() { return Ok(process_status(true, now)); }
+    let ctx = Context::live(steamvr_path)?;
     let server = system.processes().iter().find(|(_, process)| process.name().eq_ignore_ascii_case("vrserver.exe")
         && process.exe().map(|exe| same_path(exe, &ctx.steamvr.join("bin/win64/vrserver.exe"))).unwrap_or(false));
     let Some((pid, process)) = server else {
-        return Ok(status("not-running", "Start SteamVR to initialize the driver and verify that it is running. Installation alone does not complete this step.", false, now));
+        return Ok(process_status(true, now));
     };
     let info_path = ctx.data.join("info.json");
     let diagnostic_path = ctx.data.join("diagnostic.json");
@@ -89,6 +108,27 @@ pub fn get_galaxyxr_runtime_status(steamvr_path: String, expected_version: Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_steamvr_process_blocks_cleanup_independent_of_path() {
+        for name in ["vrserver.exe", "VRMonitor.EXE", "vrcompositor.exe", "vrserver", "vrmonitor", "vrcompositor"] {
+            assert!(is_steamvr_process(std::ffi::OsStr::new(name)), "{name}");
+        }
+        for name in ["steam.exe", "game.exe", "not-vrserver.exe", "vrserver.exe.backup"] {
+            assert!(!is_steamvr_process(std::ffi::OsStr::new(name)), "{name}");
+        }
+    }
+    #[test]
+    fn process_presence_never_claims_driver_initialization() {
+        for running in [false, true] {
+            let report = process_status(running, 1234);
+            assert_eq!(report.steamvr_running, running);
+            assert!(!report.driver_initialized);
+            assert!(!report.headset_connected);
+            assert!(report.server_pid.is_none());
+            assert!(report.driver_version.is_none());
+            assert_eq!(report.checked_at, 1234);
+        }
+    }
     fn info() -> Value { json!({"driverName":DRIVER,"driverVersion":"1.2.0","connectedHeadset":0,"runtime":{"processId":42,"initialized":true,"lockedOut":false}}) }
     #[test] fn current_session_verifies() { assert!(assess_runtime(&info(),&json!({"vrserverPID":42}),42,1000,2000,9000,"1.2.0",10000).driver_initialized); }
     #[test] fn old_pid_never_verifies() { assert!(!assess_runtime(&info(),&json!({"vrserverPID":42}),43,1000,2000,9000,"1.2.0",10000).driver_initialized); }

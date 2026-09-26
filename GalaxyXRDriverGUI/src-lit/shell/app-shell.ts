@@ -22,7 +22,7 @@ export class AppShell extends LitElement {
     .header { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 8px 16px 0; background: var(--colorNeutralBackground1); border-bottom: 1px solid var(--colorNeutralStroke2); }
     .brand-icon { width: 48px; height: 40px; object-fit: contain; flex: 0 0 auto; }
     fluent-tablist { display: flex; flex: 1; min-width: 0; overflow-x: auto; }
-    fluent-tab { flex: 0 0 auto; white-space: nowrap; }
+    fluent-tab { flex: 1 0 0; min-width: max-content; white-space: nowrap; }
     .content { flex: 1; overflow: auto; min-height: 0; padding: 12px 8px; }
     .panel { max-width: 1500px; margin: 0 auto; outline-offset: -2px; }
     .status { padding: 8px 20px; background: var(--colorNeutralBackground3); border-bottom: 1px solid var(--colorNeutralStroke2); }

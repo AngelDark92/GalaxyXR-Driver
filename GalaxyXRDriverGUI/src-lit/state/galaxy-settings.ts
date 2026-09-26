@@ -21,6 +21,16 @@ import { baselineRequested, imageEnhancementsEnabled, changePictureMode } from '
 
 function defaultStreamFrame(): StreamFrameConfig { return structuredClone(driverDefaults.streamFrame!); }
 
+function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
+  const bundled = defaultStreamFrame();
+  const defaults = fillDefaults(infoDefaults ? structuredClone(infoDefaults) : undefined, bundled);
+  // 2026-09-26: reset arrows must share the encoder defaults used by sparse
+  // settings saves; an old info.json must not silently turn overrides back on.
+  Object.assign(defaults, Object.fromEntries(Object.entries(bundled)
+    .filter(([key]) => key.startsWith('nvenc') || key === 'postPack')));
+  return defaults;
+}
+
 function zeroHandOffsets(): HandOffsets {
   return {
     rotationOffsetDeg: { x: 0, y: 0, z: 0 },
@@ -125,7 +135,7 @@ export class GalaxySettingsBase {
     // update and the literals become a true last-resort fallback only.
     effect(() => {
       const infoDefaults = (this.dis.values()?.defaultSettings as any)?.streamFrame;
-      this.defaults = fillDefaults(infoDefaults ? JSON.parse(JSON.stringify(infoDefaults)) : undefined, defaultStreamFrame());
+      this.defaults = streamFrameDefaults(infoDefaults);
     });
     effect(() => {
       this.rootSetting = this.dss.values();
@@ -295,7 +305,7 @@ export class GalaxySettingsBase {
         this.controllerSettings = undefined;
       }
       const infoDefaults = (this.dis.values()?.defaultSettings as any)?.streamFrame;
-      this.defaults = fillDefaults(infoDefaults ? JSON.parse(JSON.stringify(infoDefaults)) : undefined, defaultStreamFrame());
+      this.defaults = streamFrameDefaults(infoDefaults);
       this.revision.update(x => x + 1);
     });
   }

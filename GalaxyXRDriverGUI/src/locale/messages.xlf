@@ -1702,6 +1702,15 @@ The reset covers color/brightness, sharpening, FXAA, dither, black-floor correct
       <trans-unit id="sdr10-opt-in-b32f1c26702ddc3b" datatype="html">
         <source>Accept the image-quality warning before enabling Image Enhancements with SDR 10-bit baseline.</source>
       </trans-unit>
+      <trans-unit id="encoder-cleanup-stock-20260926" datatype="html">
+        <source>Clean Settings leaves NVENC Tap and encoder overrides off for stock NVIDIA encoding. Other driver settings return to their defaults. Enable NVENC Tap and reset the encoder controls to use the installation defaults again.</source>
+      </trans-unit>
+      <trans-unit id="encoder-cleanup-running-20260926" datatype="html">
+        <source>SteamVR is running. Close it completely before cleaning settings or uninstalling the driver.</source>
+      </trans-unit>
+      <trans-unit id="encoder-cleanup-unknown-20260926" datatype="html">
+        <source>Cleanup is unavailable until SteamVR is confirmed stopped. Use Check installation to retry.</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>

@@ -27,13 +27,24 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 
 const filePath = '/settings/settings.json';
 const services: DriverSettingService[] = [];
+// Config.h in the user-selected CustomHeadsetOpenVrGxR reference, 2026-09-26.
+// Literal expectations pin parity independently of generated GUI defaults.
+const referenceEncoderDefaults = {
+  nvencTap: true, nvencFixLevel: true, nvencBitrateMbit: 0, nvencBandwidthOverrideMbit: 0,
+  nvencSettingsVersion: 0, nvencMaxQp: 0, nvencAqStrength: 0, nvencMinQp: 0,
+  nvencMinQpIntra: 0, nvencForceCbr: true, nvencLowDelayKfScale: 2,
+  nvencMaxBitrateHeadroomPct: 0, nvencVbvFrames: 2, nvencForceFps: 90,
+  nvencBitrateScale: true, nvencVrlinkClampMbit: 350, nvencPreset: 0,
+  nvencPresetMerge: true, nvencVuiFullRange: -1, nvencVuiMatrix: -1,
+  nvencVuiPrimaries: -1, nvencVuiTransfer: -1, nvencSplitMode: 1,
+  nvencQpFovea: 0, nvencQpPeriphery: 0, nvencVerbose: false,
+};
 
-async function load(vendor: string, stored: object = {}) {
+async function load(vendor: string, stored: object = {}, infoDefaults?: object) {
   storage.vendor = vendor;
   storage.files.set(filePath, JSON.stringify(stored));
   const paths = { settingPath: filePath, appDataDirPath: '/settings' } as PathsService;
-  // No info.json has been published: exercise the offline-default path.
-  const info = { values: () => undefined } as unknown as DriverInfoService;
+  const info = { values: () => infoDefaults ? { defaultSettings: infoDefaults } : undefined } as unknown as DriverInfoService;
   const service = new DriverSettingService(paths, info, () => ({ updateMode: 'rewrite' } as any));
   services.push(service);
   await service.initTask;
@@ -45,6 +56,95 @@ beforeEach(() => { storage.files.clear(); });
 afterEach(() => { for (const service of services.splice(0)) service.dispose(); });
 
 describe('vendor defaults before info.json exists', () => {
+  it.each(['', 'galaxyxr'])('initializes absent %s encoder controls with the reference defaults', async vendor => {
+    const service = await load(vendor);
+    expect(service.values()?.streamFrame).toMatchObject(referenceEncoderDefaults);
+    const state = new GalaxySettingsBase({ values: () => ({}) } as any, service, { values: () => undefined } as any);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    await service.flush();
+    expect(state.settings).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
+    expect(await service.loadSetting()).toBe(true);
+    expect(service.values()?.streamFrame).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
+  });
+
+  it.each(['', 'galaxyxr'])('uses the installed %s encoder defaults when runtime telemetry is stale', async vendor => {
+    const encoderDefaults = Object.fromEntries(Object.entries(driverDefaults.streamFrame!)
+      .filter(([key]) => key.startsWith('nvenc') || key === 'postPack'));
+    const stale = Object.fromEntries(Object.entries(encoderDefaults).map(([key, value]) => [key,
+      typeof value === 'boolean' ? !value : typeof value === 'number' ? value + 1 : { enable: false, casEnable: false, limitedRange: false },
+    ]));
+    const published = { streamFrame: { ...stale, saturation: 42 } };
+    const before = structuredClone(published);
+    const service = await load(vendor, {}, published);
+    expect(service.values()?.streamFrame).toMatchObject(encoderDefaults);
+    // Other driver-published defaults remain supported.
+    expect(service.values()?.streamFrame?.saturation).toBe(42);
+    expect(published).toEqual(before);
+  });
+
+  it('retains explicit encoder and post-pack Off choices against stale Off telemetry', async () => {
+    const stock = {
+      nvencSettingsVersion: 4, nvencTap: false, nvencFixLevel: false,
+      nvencForceCbr: false, nvencBitrateScale: false, nvencPresetMerge: false,
+      postPack: { enable: false, casEnable: false, limitedRange: false },
+    };
+    const service = await load('galaxyxr', { streamFrame: stock }, { streamFrame: stock });
+    expect(service.values()?.streamFrame).toMatchObject(stock);
+    expect(await service.save(service.values()!)).toBe(true);
+    expect(JSON.parse(storage.files.get(filePath)!).streamFrame).toMatchObject(stock);
+    expect(await service.loadSetting()).toBe(true);
+    expect(service.values()?.streamFrame).toMatchObject(stock);
+  });
+
+  it.each(['', 'galaxyxr'])('resets %s encoder controls through GalaxySettingsBase using package defaults', async vendor => {
+    const old = {
+      nvencTap: false, nvencFixLevel: false, nvencForceCbr: false, nvencPresetMerge: false,
+      nvencForceFps: 75, nvencSplitMode: 15,
+      postPack: { enable: false, casEnable: false, limitedRange: false },
+    };
+    const info = { values: () => ({ defaultSettings: { streamFrame: old } }) } as unknown as DriverInfoService;
+    const service = await load(vendor, {
+      streamFrame: { streamFrameSchema: 4, nvencSettingsVersion: 4, ...old },
+    }, { streamFrame: old });
+    const state = new GalaxySettingsBase({ values: () => ({}) } as any, service, info);
+    expect(state.defaults).toMatchObject(referenceEncoderDefaults);
+    expect(state.defaults.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: true });
+    for (const key of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencPresetMerge', 'nvencForceFps', 'nvencSplitMode', 'postPack'] as const) {
+      state.reset(key);
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    await service.flush();
+    expect(state.settings).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
+    expect(state.settings?.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: true });
+    expect(await service.loadSetting()).toBe(true);
+    expect(service.values()?.streamFrame).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
+    expect(service.values()?.streamFrame?.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: true });
+  });
+
+  it('keeps the cleaned stock encoder profile through GUI migrations, sparse saves and reloads', async () => {
+    const stock = {
+      nvencSettingsVersion: 4, nvencTap: false, nvencFixLevel: false,
+      nvencForceCbr: false, nvencBitrateScale: false, nvencPresetMerge: false,
+      nvencVbvFrames: 0, nvencLowDelayKfScale: 0, nvencForceFps: 0, nvencSplitMode: 0,
+      postPack: { enable: false, casEnable: false },
+    };
+    // Clean Settings leaves other schema versions absent: their migrations may
+    // save, but must never reactivate these explicit encoder choices.
+    const service = await load('galaxyxr', { streamFrame: stock });
+    const state = new GalaxySettingsBase({ values: () => ({}) } as any, service, { values: () => undefined } as any);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    await service.flush();
+    expect(state.settings).toMatchObject(stock);
+    expect(JSON.parse(storage.files.get(filePath)!).streamFrame).toMatchObject(stock);
+    expect(await service.save(service.values()!)).toBe(true);
+    expect(await service.loadSetting()).toBe(true);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    await service.flush();
+    expect(state.settings).toMatchObject(stock);
+    expect(service.values()?.streamFrame).toMatchObject(stock);
+    expect(JSON.parse(storage.files.get(filePath)!).streamFrame).toMatchObject(stock);
+  });
+
   it.each(['', 'galaxyxr'])('keeps Hitch Diagnostics off by default for %s and preserves opt-in on reload', async vendor => {
     const service = await load(vendor);
     expect(service.values()?.streamFrame?.hitchDiag).toBe(false);
