@@ -331,8 +331,6 @@ const nativeDefaults = {
     "kalmanProcessAngAccel": 400.0,
     "kalmanOriNoiseDeg": 1.25,
     "kalmanLeadMs": 0.0,
-    "poseTimeOffsetBiasMs": 60.0,
-    "poseTimeOffsetBiasEnabled": false,
     "kalmanReleaseRewindMs": 0.0,
     "kalmanRewindHoldMs": 100.0,
     "kalmanDirSmoothMs": 0.0,

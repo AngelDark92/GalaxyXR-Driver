@@ -27,6 +27,10 @@ export class DriverSettingService extends JsonSettingServiceBase<Settings> {
         defaults.galaxyXr.nativeIdentity = true;
         defaults.galaxyXr.vrlinkHeadsetProfile = true;
       }
+      // 2026-10-11: retired HAL timestamp compensation must not return from stale telemetry.
+      for (const key of DriverSettingService.retiredStreamFrameKeys) {
+        if (defaults.streamFrame) delete (defaults.streamFrame as any)[key];
+      }
       return defaults;
     }, false, true, appSettingGetter);
     this.pathService = paths;
@@ -45,7 +49,7 @@ export class DriverSettingService extends JsonSettingServiceBase<Settings> {
   // "velocityFix" bool for months; the default-diff serializer then
   // pruned the explicit velocityFixMode the moment it matched the new
   // published default, and the fossil took over mode selection.
-  private static readonly retiredStreamFrameKeys = ['velocityFix', 'kalmanDupSkip', 'kalmanAdaptiveBoost', 'gameLinkLinearVelocityCutoff', 'gameLinkAngularVelocityCutoffDeg'];
+  private static readonly retiredStreamFrameKeys = ['velocityFix', 'kalmanDupSkip', 'kalmanAdaptiveBoost', 'gameLinkLinearVelocityCutoff', 'gameLinkAngularVelocityCutoffDeg', 'poseTimeOffsetBiasMs', 'poseTimeOffsetBiasEnabled'];
   protected override migrateLoadedValues(values: Settings): Settings {
     const sf = (values as any)?.streamFrame;
     if (sf) {

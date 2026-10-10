@@ -4682,29 +4682,6 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 		}
 	}
 
-	// pose time stamp bias: shift the epoch vrserver extrapolates from
-	// (streamFrame.poseTimeOffsetBiasMs, live). clamped to +-200 ms so a
-	// typo cannot send the runtime a stamp seconds away.
-	{
-		double biasMs = driverConfig.streamFrame.poseTimeOffsetBiasEnabled
-			? driverConfig.streamFrame.poseTimeOffsetBiasMs : 0.0;
-		if(biasMs > 200.0){ biasMs = 200.0; }
-		if(biasMs < -200.0){ biasMs = -200.0; }
-		if(biasMs != 0.0 && openVRID != vr::k_unTrackedDeviceIndex_Hmd
-				&& pose.poseIsValid && IsStreamedController(openVRID)){
-			const double before = pose.poseTimeOffset;
-			pose.poseTimeOffset = before + biasMs / 1000.0;
-			static std::atomic<long long> lastBiasLogUs{0};
-			const long long nowUs = std::chrono::duration_cast<std::chrono::microseconds>(
-				std::chrono::steady_clock::now().time_since_epoch()).count();
-			long long last = lastBiasLogUs.load(std::memory_order_relaxed);
-			if(nowUs - last > 5000000 && lastBiasLogUs.compare_exchange_strong(last, nowUs)){
-				DriverLog("PoseTimeBias: id=%u stamp in=%.4f out=%.4f bias=%.1fms",
-					openVRID, before, pose.poseTimeOffset, biasMs);
-			}
-		}
-	}
-
 	if(driverConfig.streamFrame.poseLogging && openVRID != vr::k_unTrackedDeviceIndex_Hmd){
 		LogDevicePose(openVRID, pose);
 	}

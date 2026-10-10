@@ -314,3 +314,18 @@ describe('vendor defaults before info.json exists', () => {
     });
   });
 });
+
+describe('retired HAL timestamp compensation', () => {
+  it.each(['', 'galaxyxr'])('removes saved and stale telemetry bias for %s without changing tuning', async vendor => {
+    const retired = { poseTimeOffsetBiasMs: 30, poseTimeOffsetBiasEnabled: true };
+    const service = await load(vendor, { streamFrame: { ...retired, saturation: 1.23 } }, { streamFrame: retired });
+    for (const key of Object.keys(retired)) expect(service.values()?.streamFrame).not.toHaveProperty(key);
+    expect(service.values()?.streamFrame?.saturation).toBe(1.23);
+    expect(await service.save(service.values()!)).toBe(true);
+    const saved = JSON.parse(storage.files.get(filePath)!);
+    for (const key of Object.keys(retired)) expect(saved.streamFrame).not.toHaveProperty(key);
+    expect(saved.streamFrame.saturation).toBe(1.23);
+    expect(await service.loadSetting()).toBe(true);
+    for (const key of Object.keys(retired)) expect(service.values()?.streamFrame).not.toHaveProperty(key);
+  });
+});

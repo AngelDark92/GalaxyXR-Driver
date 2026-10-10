@@ -192,22 +192,6 @@ export class DriverSettingsPage extends BasePage {
           }),
         );
 
-        // HAL tracking, skip SteamVR prediction: the headset's controller HAL layer already predicts the
-        // pose by its own time ahead (60 ms); shifting vrlink's time stamp by the
-        // same amount stops vrserver from extrapolating that interval again.
-        body.push(
-          settingFieldRow('streamFrame.poseTimeOffsetBiasEnabled', html`
-            <app-switch .checked=${!!settings.poseTimeOffsetBiasEnabled} @change=${(e: CustomEvent) => { settings.poseTimeOffsetBiasEnabled = e.detail; save(); }}></app-switch>
-            <app-number .value=${settings.poseTimeOffsetBiasMs} step="5" min="-100" max="200" ?disabled=${!settings.poseTimeOffsetBiasEnabled} @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.poseTimeOffsetBiasMs = e.detail; save(); } }}></app-number>
-          `, {
-            tip: "Turn this on only with the Steam Link controller HAL tracking patch on the headset (Controller tracking from the controller HAL through Shizuku). That layer predicts the controller pose on the headset, about 60 ms ahead by default. With this on, the driver adds the same number of milliseconds to the time stamp vrlink puts on every controller pose, so SteamVR takes the pose as already current and does not extrapolate it a second time. Without the HAL layer the headset sends an unpredicted pose and this only adds lag: leave it off.\n\nHigher stamp shift = less prediction by SteamVR. Match it to the headset's debug.gxr.halpose.ahead (60 by default). Applies live; the vrserver log shows the stamps as PoseTimeBias lines.",
-            reset: {
-              can: settings.poseTimeOffsetBiasEnabled != defaults.poseTimeOffsetBiasEnabled || settings.poseTimeOffsetBiasMs != defaults.poseTimeOffsetBiasMs,
-              on: () => { galaxy.reset('poseTimeOffsetBiasEnabled'); galaxy.reset('poseTimeOffsetBiasMs'); },
-            },
-          }),
-        );
-
         if (advanced && (settings.velocityFixMode == 'kalman' || settings.velocityFixMode == 'kalmanCAM')) {
           body.push(
             fieldRow(t('Kalman Tuning (accel m/s², pos mm, ang accel, ori deg, lead ms)'), html`

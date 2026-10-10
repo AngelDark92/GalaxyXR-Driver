@@ -36,7 +36,6 @@ controllers('galaxyXr.nativeInputProfile', 'Official Controller Input Profile');
 controllers('galaxyXr.synthesizeGripTouch', 'Grip Touch From Grip Pressure', { gate: 'native-input-profile', vendorOnly: true });
 controllers('galaxyXr.officialComponents', 'Official Pose Components');
 group('driver-settings', ['Controllers', 'Controller Fix'], ['controllers', 'ctrlFix'], false, 'vendor')('galaxyXr.gripConvention', 'Grip Convention');
-group('driver-settings', ['Controllers', 'Controller Fix'], ['controllers', 'ctrlFix'])('streamFrame.poseTimeOffsetBiasEnabled', 'HAL tracking: skip SteamVR prediction (stamp shift ms)');
 group('driver-settings', ['Controllers', 'Game Link Layout'], ['controllers', 'gameLink'], false, 'vendor')('galaxyXr.gameLinkLayout', 'Game Link Layout');
 const kalman = group('driver-settings', ['Controllers', 'Controller Fix', 'Kalman Advanced Settings'], ['controllers', 'ctrlFix'], true, 'kalman');
 kalman('streamFrame.kalmanCaExactCov', 'Exact Covariance Transition (A/B)', { gate: 'kalman-ca' });

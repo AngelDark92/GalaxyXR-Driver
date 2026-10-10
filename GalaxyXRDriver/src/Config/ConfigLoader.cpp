@@ -1096,12 +1096,6 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["kalmanLeadMs"].is_number()){
 				newConfig.streamFrame.kalmanLeadMs = streamFrameData["kalmanLeadMs"].get<double>();
 			}
-			if(streamFrameData["poseTimeOffsetBiasMs"].is_number()){
-				newConfig.streamFrame.poseTimeOffsetBiasMs = streamFrameData["poseTimeOffsetBiasMs"].get<double>();
-			}
-			if(streamFrameData["poseTimeOffsetBiasEnabled"].is_boolean()){
-				newConfig.streamFrame.poseTimeOffsetBiasEnabled = streamFrameData["poseTimeOffsetBiasEnabled"].get<bool>();
-			}
 			if(streamFrameData["kalmanReleaseRewindMs"].is_number()){
 				newConfig.streamFrame.kalmanReleaseRewindMs = streamFrameData["kalmanReleaseRewindMs"].get<double>();
 			}
@@ -1993,8 +1987,6 @@ void ConfigLoader::WriteInfo(){
 				{"kalmanProcessAngAccel", defaultSettings.streamFrame.kalmanProcessAngAccel},
 				{"kalmanOriNoiseDeg", defaultSettings.streamFrame.kalmanOriNoiseDeg},
 				{"kalmanLeadMs", defaultSettings.streamFrame.kalmanLeadMs},
-				{"poseTimeOffsetBiasMs", defaultSettings.streamFrame.poseTimeOffsetBiasMs},
-				{"poseTimeOffsetBiasEnabled", defaultSettings.streamFrame.poseTimeOffsetBiasEnabled},
 				{"kalmanReleaseRewindMs", defaultSettings.streamFrame.kalmanReleaseRewindMs},
 				{"kalmanRewindHoldMs", defaultSettings.streamFrame.kalmanRewindHoldMs},
 				{"kalmanDirSmoothMs", defaultSettings.streamFrame.kalmanDirSmoothMs},

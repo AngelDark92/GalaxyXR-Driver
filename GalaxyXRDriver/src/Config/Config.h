@@ -1019,25 +1019,6 @@ struct StreamFrameConfig{
 	// optional fixed forward prediction of the reported state (native
 	// drivers do this to counter transport latency); 0 = off
 	double kalmanLeadMs = 0.0;
-	// pose time stamp bias (2026-10-06): vrlink stamps every streamed
-	// controller pose with poseTimeOffset, and vrserver extrapolates from
-	// that epoch to the application's photon time along the reported
-	// velocities. this many milliseconds are ADDED to the stamp of every
-	// streamed controller pose, in every velocityFixMode: positive moves
-	// the epoch later and shortens vrserver's extrapolation (the pose is
-	// then taken as fresher than vrlink says), negative lengthens it. with
-	// the headset already predicting (controller HAL layer, debug.gxr.
-	// halpose.ahead) a positive bias of about the photon horizon stops the
-	// PC from predicting the same interval a second time. 0 = off. live
-	// reloaded; the applied stamps are logged (PoseTimeBias) every 5 s.
-	// default 60 with the headset layer's 60 ms ahead: chosen by feel on
-	// 2026-10-06 (30/30, 60/10, 60/20, 60/40, 60/50 felt worse than 60/60).
-	double poseTimeOffsetBiasMs = 60.0;
-	// the switch for the bias above ("Use with HAL" in the Companion). the
-	// PC cannot tell whether the headset runs the controller HAL layer, and
-	// without that layer the streamed pose is not predicted on the headset,
-	// so the bias would only add lag there. off = bias ignored.
-	bool poseTimeOffsetBiasEnabled = false;
 	// EXPERIMENT B — fixed-skew release rewind (single-session test,
 	// default OFF). the input release event travels a slower path than the
 	// pose stream: it lands 50-150ms after the true release, so games

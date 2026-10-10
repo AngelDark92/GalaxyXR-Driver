@@ -284,8 +284,6 @@ export type StreamFrameConfig = {
   kalmanProcessAngAccel: number;
   kalmanOriNoiseDeg: number;
   kalmanLeadMs: number;
-  poseTimeOffsetBiasMs: number;
-  poseTimeOffsetBiasEnabled: boolean;
   kalmanReleaseRewindMs: number;
   kalmanRewindHoldMs: number;
   kalmanDirSmoothMs: number;
