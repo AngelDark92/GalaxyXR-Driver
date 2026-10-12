@@ -1,8 +1,8 @@
 [CmdletBinding()]
-param()
+param([switch]$UseCurrentEnvironment)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-. (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1')
+if (-not $UseCurrentEnvironment) { . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1') }
 $outputDirectory = Join-Path $repoRoot 'build/controller-pose-dispatch-test'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $source = Join-Path $repoRoot 'GalaxyXRDriver/tests/ControllerPoseDispatchTest.cpp'

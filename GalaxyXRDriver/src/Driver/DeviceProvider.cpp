@@ -8,6 +8,7 @@
 #include "FrameProcessor.h"
 
 #include "Hooking/InterfaceHookInjector.h"
+#include "Hooking/ControllerPoseVelocity.h"
 
 #include "../Headsets/GalaxyXR.h"
 #include "../Headsets/GenericHeadset.h"
@@ -94,6 +95,9 @@ vr::EVRInitError GalaxyXRDeviceProvider::Init(vr::IVRDriverContext *pDriverConte
 	WriteHasBeenRunSetting(driverName.c_str());
 	
 	driverConfigLoader.Start();
+#ifdef VENDOR_GALAXYXR
+	DriverLog("ControllerPoseEpoch: exact-repeat timing correction available in Controller Fix Off; 50ms bound; Controller Bypass disables it (2026-10-12).");
+#endif
 	{
 		// 2026-09-25: publish saved/default encoder options before installing
 		// hooks. The first encoder can initialize before any scene is submitted.
@@ -155,6 +159,8 @@ bool GalaxyXRDeviceProvider::ShouldBlockStandbyMode(){
 }
 void GalaxyXRDeviceProvider::Cleanup(){
 	driverConfigLoader.info.runtimeInitialized = false;
+	std::lock_guard<std::mutex> guard(controllerPoseEpochLock);
+	for(auto& epoch : controllerPoseEpochs){ epoch.Reset(); }
 }
 void GalaxyXRDeviceProvider::EnterStandby(){}
 void GalaxyXRDeviceProvider::LeaveStandby(){}
@@ -1288,6 +1294,36 @@ static void CaInit(double P[6], double p0Var, double v0Var, double a0Var){
 	P[0] = p0Var; P[1] = 0; P[2] = 0; P[3] = v0Var; P[4] = 0; P[5] = a0Var;
 }
 
+void GalaxyXRDeviceProvider::ResetControllerPoseEpoch(uint32_t openVRID){
+	if(openVRID >= controllerPoseEpochs.size()){ return; }
+	std::lock_guard<std::mutex> guard(controllerPoseEpochLock);
+	controllerPoseEpochs[openVRID].Reset();
+}
+
+void GalaxyXRDeviceProvider::CorrectControllerPoseEpoch(uint32_t openVRID,
+	const vr::DriverPose_t& source, vr::DriverPose_t& processed, double receipt, bool publishCorrections){
+	if(openVRID >= controllerPoseEpochs.size()){ return; }
+	bool eligible = false;
+#ifdef VENDOR_GALAXYXR
+	// Direct/native velocity path only. Existing estimators own their output
+	// epochs and must not be stamped with the epoch of an unfiltered source.
+	eligible = publishCorrections && !driverConfig.galaxyXr.controllerBypass
+		&& driverConfig.streamFrame.velocityFixMode == 0;
+#endif
+	vr::DriverPose_t timed = source;
+	gxr::ControllerPoseEpoch::Result result;
+	{
+		std::lock_guard<std::mutex> guard(controllerPoseEpochLock);
+		result = controllerPoseEpochs[openVRID].Apply(timed, receipt, eligible);
+	}
+	if(result == gxr::ControllerPoseEpoch::Result::Fresh
+		|| result == gxr::ControllerPoseEpoch::Result::Repeat){
+		// The offset is relative to the final host call, not time spent in
+		// classification, grip corrections or diagnostics. No other field changes.
+		processed.poseTimeOffset = timed.poseTimeOffset - (gxr::PoseCallbackTime() - receipt);
+	}
+}
+
 bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose){
 	// Native hand devices are published by vrlink with Controller class but
 	// are not physical Galaxy XR controllers. Their pose, tracking state,
@@ -1303,6 +1339,9 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 	// loss flag, not a formality.)
 	const bool rawPoseValid = pose.poseIsValid;
 	const int rawResult = (int)pose.result;
+	#ifdef VENDOR_GALAXYXR
+	const vr::DriverPose_t layoutSource = pose;
+	#endif
 	if(driverConfig.forceTracking){
 		pose.poseIsValid = true;
 		if(pose.result != vr::TrackingResult_Fallback_RotationOnly){
@@ -1444,6 +1483,14 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 			}
 		}
 	}
+	#ifdef VENDOR_GALAXYXR
+	// 2026-10-12: offsets above changed the point and local axes. Transport
+	// direct-source derivatives before diagnostics/legacy space overrides;
+	// derivative estimators below continue to own their existing outputs.
+	gxr::TransportControllerLayoutVelocity(layoutSource, pose, streamedController,
+		driverConfig.streamFrame.velocityFixMode, driverConfig.galaxyXr.controllerBypass,
+		driverConfig.controllers.spaceVelocityFixMode);
+	#endif
 	// capture the post-offset pose per hand for the controller aligner (the
 	// drawn tip marker must reflect the live working offsets)
 	if(openVRID == vr::k_unTrackedDeviceIndex_Hmd && pose.poseIsValid){

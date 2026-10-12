@@ -66,6 +66,19 @@ The [NVENC quality review (2026-09-26)](NvencQuality-2026-09-26.md) explains the
 
 ## Controllers
 
+Direct controller timing correction (2026-10-12): in the Galaxy XR build with
+Controller Fix Mode **Off**, exact repeated moving poses retain the epoch of the
+first received copy. Steam Link 2.0.20 was observed sending approximately 90 Hz
+pose payloads at 360 Hz with advancing packet timestamps; re-stamping these
+copies resets SteamVR prediction backwards. Only `poseTimeOffset` changes;
+positions, rotations, velocities, accelerations and tracking flags are preserved.
+All other fields participate in freshness detection, and stationary samples with
+zero derivatives pass through. A repeat run is limited to 50 ms; a longer freeze
+uses upstream timing until data changes. This preserves the first observed time,
+not the unavailable original sensor timestamp. Native hands, HMD, invalid tracking,
+other devices, the neutral build and estimator modes bypass this correction.
+**Controller Bypass** disables it. See [validation and limits](ControllerPoseEpoch-2026-10-12.md).
+
 With the official input profile on, SteamVR sees `galaxy_xr_controller`. Games that ship a native Galaxy XR binding use it, everything else falls back to Index controller bindings through the official remapping, so most titles will show Index controllers in their binding UI. Custom per-game bindings made before enabling the profile (when the controllers were Touch) do not carry over.
 
 Controller Fix Mode drives the pose filter. Kalman CA is the default, the tuning row below it shows the gains for whichever mode is selected, and Kalman Advanced Settings holds the rarely-touched knobs. Since 1.0.0 the reported angular velocity is in controller-local frame, which is what SteamVR's own prediction expects.

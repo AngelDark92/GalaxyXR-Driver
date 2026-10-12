@@ -1,6 +1,7 @@
 #pragma once
 
 #include "openvr_driver.h"
+#include "ControllerPoseEpoch.h"
 
 namespace gxr {
 
@@ -12,7 +13,9 @@ template<class Provider, class Submit>
 void DispatchControllerPoseUpdate(Provider& provider, uint32_t deviceId,
     const vr::DriverPose_t& source, uint32_t poseSize, Submit&& submit)
 {
+    const double receipt = PoseCallbackTime();
     if (poseSize != sizeof(vr::DriverPose_t)) {
+        provider.ResetControllerPoseEpoch(deviceId);
         submit(source, poseSize);
         return;
     }
@@ -27,7 +30,10 @@ void DispatchControllerPoseUpdate(Provider& provider, uint32_t deviceId,
 
     auto corrected = source;
     // Keep loss/reacquisition bookkeeping alive even when publishing raw.
-    if (provider.HandleDevicePoseUpdated(deviceId, corrected)) {
+    const bool accepted = provider.HandleDevicePoseUpdated(deviceId, corrected);
+    provider.CorrectControllerPoseEpoch(deviceId, source, corrected, receipt,
+        publishCorrections && accepted);
+    if (accepted) {
         submit(publishCorrections ? corrected : source, poseSize);
     }
 }
