@@ -6,6 +6,12 @@ New release entries are generated from commits on `main`: `fix:` bumps the patch
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.7.2] - 2026-10-12
+
+### Fixes
+
+- preserve repeated controller pose timing and layout velocities (`25c0ff8`)
+
 ## [1.7.1] - 2026-10-11
 
 ### Fixes
