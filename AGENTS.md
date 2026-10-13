@@ -127,7 +127,8 @@ Commands below run from the checkout root unless stated otherwise:
 | GUI unit tests | From `GalaxyXRDriverGUI/`: `npm test`; select relevant Vitest files when scope is narrow |
 | Frontend-only compilation | From `GalaxyXRDriverGUI/`: `npm run build:ui`; proves frontend compilation, not a complete package |
 | Service/UI regression checks | Relevant `node tools/Test-*.cjs`, for example `Test-GuiReadiness.cjs`, `Test-CompanionModes.cjs`, `Test-SteamVRSettingsDiff.cjs` |
-| Native logic tests | Relevant `powershell -NoProfile -ExecutionPolicy Bypass -File tools/Test-*.ps1`; standalone C++17 tests are in `GalaxyXRDriver/tests/` |
+| Native logic tests | Relevant `powershell -NoProfile -ExecutionPolicy Bypass -File tools/Test-*.ps1`; standalone C++17 tests are in `GalaxyXRDriver/tests/`. The NVENC, Game Link layout, controller-pose and other compile runners that release CI no longer runs are covered here |
+| Rust library tests | From `GalaxyXRDriverGUI/src-tauri`: `cargo test --locked --lib`; installation, cleanup and runtime-confirmation logic. No longer part of release CI, so run it for any change reaching that crate |
 | Build/migration path regression | `node --test tools/tests/external-build-paths.test.cjs`; choose other affected `tools/tests/*.test.cjs` as needed |
 | Build-source preflight | `node tools/verify-build-sources.cjs` (`--require-tracked` is for committed/fresh-checkout evidence) |
 | Local full portable fallback | `powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-Portable.ps1`; success requires exit 0, `Built test package: ...`, and complete driver DLL/manifest/Companion EXE |

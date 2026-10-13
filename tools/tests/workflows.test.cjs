@@ -61,6 +61,10 @@ test('release keeps version, package, and publication validation', () => {
   assert.match(release, /branches: \['\*\*'\]/);
   assert.match(release, /pull_request:/);
   assert.match(release, /\.zip\.sha256/);
+  // upload-artifact rejects '../' patterns; deliverables are staged in-workspace.
+  assert.doesNotMatch(release, /^\s+\.\.\//m);
+  assert.match(release, /path: ci-artifacts\//);
+  assert.match(release, /path: ci-diagnostics\/\*\*/);
 });
 
 test('packaging uses the changelog once and keeps attribution in the separate credits file', () => {

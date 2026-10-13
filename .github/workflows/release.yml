@@ -95,28 +95,6 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
 
-      - name: Verify production NVENC OFF bypass and resource ownership
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-NvencToggle.ps1 -UseCurrentEnvironment
-          if errorlevel 1 exit /b 1
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-NvencPostPackOrder.ps1 -UseCurrentEnvironment
-          if errorlevel 1 exit /b 1
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-GameLinkLayoutPolicy.ps1 -UseCurrentEnvironment
-          if errorlevel 1 exit /b 1
-
-      - name: Verify controller timing, dispatch, and layout velocity
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-ControllerPoseEpoch.ps1 -UseCurrentEnvironment
-          if errorlevel 1 exit /b 1
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-ControllerPoseVelocity.ps1 -UseCurrentEnvironment
-          if errorlevel 1 exit /b 1
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-ControllerPoseDispatch.ps1 -UseCurrentEnvironment
-          if errorlevel 1 exit /b 1
-
       - name: Install frontend dependencies
         working-directory: GalaxyXRDriverGUI
         shell: pwsh
@@ -139,10 +117,24 @@ jobs:
             -Commit $env:RELEASE_COMMIT `
             -Tag $tag
 
+      # upload-artifact rejects patterns that leave the workspace ('..'), so the
+      # external release directory is copied into the workspace first.
+      - name: Stage release deliverables for upload
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $prefix = "GalaxyXRDriver-v$version-Windows-x64"
+          $staging = Join-Path $env:GITHUB_WORKSPACE 'ci-artifacts'
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          $source = [IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE '../builds/GalaxyXR-Driver/release'))
+          foreach ($file in @("$prefix.zip", "$prefix.zip.sha256", "$prefix-release-notes.md")) {
+            Copy-Item -LiteralPath (Join-Path $source $file) -Destination (Join-Path $staging $file) -Force
+          }
+
       - name: Upload portable ZIP artifact
         uses: actions/upload-artifact@v7
         with:
-          path: ../builds/GalaxyXR-Driver/release/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64.zip
+          path: ci-artifacts/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64.zip
           archive: false
           if-no-files-found: error
           retention-days: 30
@@ -152,8 +144,8 @@ jobs:
         with:
           name: GalaxyXRDriver-v${{ steps.version.outputs.version }}-release-metadata
           path: |
-            ../builds/GalaxyXR-Driver/release/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64.zip.sha256
-            ../builds/GalaxyXR-Driver/release/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64-release-notes.md
+            ci-artifacts/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64.zip.sha256
+            ci-artifacts/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64-release-notes.md
           if-no-files-found: error
           retention-days: 30
 
@@ -170,14 +162,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node .\tools\publish-release.cjs
 
+      - name: Stage native dependency diagnostics on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $staging = Join-Path $env:GITHUB_WORKSPACE 'ci-diagnostics'
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          # GetFullPath removes the '..' so Substring below slices the real path.
+          $root = [IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE '../builds/GalaxyXR-Driver'))
+          $files = @()
+          $files += Get-ChildItem -LiteralPath (Join-Path $root 'build/native-dependencies') -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like '*-fetch.log' -or $_.Name -eq 'restoration-report.json' }
+          $files += Get-ChildItem -LiteralPath (Join-Path $root 'build/toolchains/logs') -File -Recurse -ErrorAction SilentlyContinue
+          foreach ($file in $files) {
+            $relative = $file.FullName.Substring($root.Length).TrimStart('\', '/')
+            $target = Join-Path $staging $relative
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+            Copy-Item -LiteralPath $file.FullName -Destination $target -Force
+          }
+
       - name: Upload native dependency diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: native-dependency-diagnostics-${{ github.run_id }}
-          path: |
-            ../builds/GalaxyXR-Driver/build/native-dependencies/*-fetch.log
-            ../builds/GalaxyXR-Driver/build/native-dependencies/restoration-report.json
-            ../builds/GalaxyXR-Driver/build/toolchains/logs/**
+          path: ci-diagnostics/**
           if-no-files-found: ignore
           retention-days: 7

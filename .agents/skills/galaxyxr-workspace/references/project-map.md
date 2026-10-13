@@ -147,6 +147,13 @@ external binary tree under `GalaxyXRDriver/bin/linux64/`.
 - Native logic: matching `tools/Test-*.ps1` wrappers compile standalone tests in
   `GalaxyXRDriver/tests/`. Inspect input sources/defines first; wrappers configure
   the compiler and external outputs. Journal tests deliberately omit live writes.
+  The NVENC (`Test-NvencToggle`, `Test-NvencPostPackOrder`), Game Link layout
+  (`Test-GameLinkLayoutPolicy`) and controller-pose (`Test-ControllerPoseEpoch`,
+  `Test-ControllerPoseVelocity`, `Test-ControllerPoseDispatch`) runners are now
+  local end-of-task checks; release CI no longer runs them.
+- Rust logic: from `GalaxyXRDriverGUI/src-tauri`, `cargo test --locked --lib`
+  covers installation, cleanup and runtime confirmation; run it locally when a
+  change reaches that crate.
 - Service/UI/build hooks: `tools/Test-GuiReadiness.cjs`, `Test-CompanionModes.cjs`,
   `Test-AboutSetup.cjs`, `Test-FluentBuildHooks.cjs`, `Test-SteamVRSettingsDiff.cjs`
   and affected `tools/tests/*.test.cjs`. `Test-CompanionBrowser.cjs` uses mocked
