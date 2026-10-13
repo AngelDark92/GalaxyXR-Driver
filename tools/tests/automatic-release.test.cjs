@@ -290,11 +290,11 @@ test('commit subjects remain literal changelog text', () => {
   const text = changelogEntry('1.3.0', '2026-09-23', [{ hash: 'a'.repeat(40), subject: 'fix: <script> and [link](bad) `code`' }]);
   assert.ok(text.includes('\\<script\\>')); assert.ok(text.includes('\\[link\\]')); assert.ok(text.includes('\\`code\\`'));
 });
-function remote(t, f) {
+function remote(t, f, branch = 'main') {
   const directory = fs.mkdtempSync(path.join(fixtureRoot(), 'GalaxyXR release remote '));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   f.git('init', '--quiet', '--bare', directory); f.git('remote', 'add', 'origin', directory);
-  f.git('push', '--quiet', 'origin', 'HEAD:refs/heads/main');
+  f.git('push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`);
   return directory;
 }
 test('verified metadata fast-forwards main once and persistence is idempotent', t => {
@@ -315,6 +315,86 @@ test('a newer main push suppresses stale publication and its next run includes e
   f.git('checkout', '--quiet', '--detach', newer);
   const next = prepareRelease(f.repo, f.env, {});
   assert.equal(next.version, '1.3.0'); assert.equal(next.commits.length, 2);
+});
+// Dev release channel (2026-10-13): dev publishes X.Y.Z-dev.N prereleases and
+// main promotes the merged dev series to the stable X.Y.Z release.
+test('dev prepares the first prerelease of a new series and tags it', t => {
+  const f = history(t);
+  const dev = { ...f.env, GITHUB_REF: 'refs/heads/dev' };
+  f.commit('feat: start the dev series');
+  const plan = planRelease(f.repo, dev, {});
+  assert.equal(plan.version, '1.3.0-dev.1'); assert.equal(plan.tag, 'v1.3.0-dev.1');
+  assert.equal(plan.baseTag, 'v1.2.4'); assert.equal(plan.publish, true);
+  const released = prepareRelease(f.repo, dev, {});
+  assert.equal(released.generated, true); assert.equal(released.publish, true);
+  assert.equal(verifyReleaseVersion(f.repo).version, '1.3.0-dev.1');
+  assert.match(fs.readFileSync(path.join(f.repo, 'CHANGELOG.md'), 'utf8'), /## \[1\.3\.0-dev\.1\]/);
+  assert.deepEqual(f.git('diff-tree', '--no-commit-id', '--name-only', '-r', released.commit).split('\n').sort(),
+    [...files, 'CHANGELOG.md'].sort());
+  f.git('tag', released.tag);
+});
+test('dev continuation increments the prerelease counter and skips unreleasable pushes', t => {
+  const f = history(t);
+  const dev = { ...f.env, GITHUB_REF: 'refs/heads/dev' };
+  f.commit('feat: start the dev series');
+  let plan = prepareRelease(f.repo, dev, {});
+  assert.equal(plan.version, '1.3.0-dev.1'); f.git('tag', plan.tag);
+  f.commit('fix: follow-up repair');
+  plan = prepareRelease(f.repo, dev, {});
+  assert.equal(plan.version, '1.3.0-dev.2'); assert.equal(plan.publish, true); assert.equal(plan.generated, true);
+  assert.equal(verifyReleaseVersion(f.repo).version, '1.3.0-dev.2');
+  f.git('tag', plan.tag);
+  const source = f.commit('docs: notes only');
+  const changelog = fs.readFileSync(path.join(f.repo, 'CHANGELOG.md'), 'utf8');
+  const skipped = prepareRelease(f.repo, dev, {});
+  assert.equal(skipped.publish, false); assert.equal(skipped.generated, false);
+  assert.equal(skipped.version, '1.3.0-dev.2');
+  assert.equal(f.git('rev-parse', 'HEAD'), source);
+  assert.equal(fs.readFileSync(path.join(f.repo, 'CHANGELOG.md'), 'utf8'), changelog);
+});
+test('a dev push without releasable commits keeps the stable version and files', t => {
+  const f = history(t);
+  const dev = { ...f.env, GITHUB_REF: 'refs/heads/dev' };
+  const source = f.commit('chore: refresh tooling notes');
+  const plan = prepareRelease(f.repo, dev, {});
+  assert.equal(plan.publish, false); assert.equal(plan.generated, false); assert.equal(plan.version, '1.2.4');
+  assert.equal(f.git('rev-parse', 'HEAD'), source);
+  assert.equal(verifyReleaseVersion(f.repo).version, '1.2.4');
+  assert.equal(f.git('status', '--porcelain'), '');
+});
+test('main promotes a merged dev series to the stable release and retries it intact', t => {
+  const f = history(t);
+  const dev = { ...f.env, GITHUB_REF: 'refs/heads/dev' };
+  f.commit('feat: start the dev series');
+  let plan = prepareRelease(f.repo, dev, {}); f.git('tag', plan.tag);
+  f.commit('fix: follow-up repair');
+  plan = prepareRelease(f.repo, dev, {}); f.git('tag', plan.tag);
+  f.commit('docs: notes only');
+  const promotion = planRelease(f.repo, f.env, {});
+  assert.equal(promotion.version, '1.3.0'); assert.equal(promotion.tag, 'v1.3.0'); assert.equal(promotion.publish, true);
+  const released = prepareRelease(f.repo, f.env, {});
+  assert.equal(released.version, '1.3.0'); assert.equal(released.generated, true);
+  assert.equal(verifyReleaseVersion(f.repo).version, '1.3.0');
+  assert.match(fs.readFileSync(path.join(f.repo, 'CHANGELOG.md'), 'utf8'), /## \[1\.3\.0\]/);
+  const retry = prepareRelease(f.repo, { ...f.env, GITHUB_EVENT_NAME: 'workflow_dispatch' }, { inputs: { publish: true } });
+  assert.equal(retry.publish, true); assert.equal(retry.generated, false); assert.equal(retry.commit, released.commit);
+});
+test('manual non-dev prereleases still refuse to republish their tagged version', t => {
+  const f = history(t); bumpVersion(f.repo, '2.0.0-rc.1'); f.commit('feat: preview feature');
+  const plan = prepareRelease(f.repo, f.env, {});
+  assert.equal(plan.version, '2.0.0-rc.1');
+  f.git('tag', plan.tag);
+  f.commit('fix: more preview changes');
+  assert.throws(() => prepareRelease(f.repo, f.env, {}), /already tagged prerelease/);
+});
+test('verified dev metadata fast-forwards the dev branch once and persistence is idempotent', t => {
+  const f = history(t); f.commit('fix: publish dev prerelease'); remote(t, f, 'dev');
+  const dev = { ...f.env, GITHUB_REF: 'refs/heads/dev' };
+  const plan = prepareRelease(f.repo, dev, {});
+  assert.equal(plan.version, '1.2.5-dev.1'); assert.equal(plan.publish, true); assert.equal(plan.generated, true);
+  assert.equal(persistRelease(f.repo, plan, dev.GITHUB_REF), true);
+  assert.equal(f.git('ls-remote', 'origin', 'refs/heads/dev').split(/\s/)[0], plan.commit);
+  assert.equal(persistRelease(f.repo, plan, dev.GITHUB_REF), true);
 });
 test('workflow CLI exports the prepared SHA and persists it through the separate post-build step', t => {
   const f = history(t);

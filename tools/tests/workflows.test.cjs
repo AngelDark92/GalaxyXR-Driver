@@ -67,6 +67,21 @@ test('release keeps version, package, and publication validation', () => {
   assert.match(release, /path: ci-diagnostics\/\*\*/);
 });
 
+test('release backmerges main into dev with a fast-forward-only best-effort sync', () => {
+  assert.match(release, /Backmerge/);
+  const backmerge = release.indexOf('Backmerge main into dev');
+  assert.ok(backmerge > release.indexOf('Publish GitHub Release'));
+  assert.ok(release.includes("if: steps.persist.outputs.publish == 'true' && github.ref == 'refs/heads/main'"));
+  assert.ok(release.includes('git fetch origin +refs/heads/dev:refs/remotes/origin/dev +refs/heads/main:refs/remotes/origin/main'));
+  assert.ok(release.includes('git checkout -B dev origin/dev'));
+  assert.ok(release.includes('git merge --ff-only origin/main'));
+  assert.ok(release.includes('git push origin dev'));
+  assert.match(release, /Write-Warning/);
+  assert.match(release, /exit 0/);
+  // The dev sync must not reintroduce pipeline gates into the build-only release job.
+  assertReleaseSeparation(release);
+});
+
 test('packaging uses the changelog once and keeps attribution in the separate credits file', () => {
   const packaging = read('tools/Package-GitHubRelease.ps1');
   assert.doesNotMatch(packaging, /Icon credits|Vilkka|Lux \/ Hekky|commitLines/);
