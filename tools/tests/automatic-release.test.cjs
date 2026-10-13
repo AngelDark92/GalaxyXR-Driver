@@ -20,6 +20,9 @@ function fixture(t) {
   fs.mkdirSync(repo);
   t.after(() => fs.rmSync(sandbox, { recursive: true, force: true }));
   for (const file of files) { fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true }); fs.copyFileSync(path.join(project, file), path.join(repo, file)); }
+  // Fixtures must be version-independent (2026-10-13): the dev branch carries
+  // the dev channel's -dev.N version, so pin a known stable baseline.
+  bumpVersion(repo, '1.2.4');
   return repo;
 }
 test('one bump updates all eight version fields without changing dependency versions', t => {
