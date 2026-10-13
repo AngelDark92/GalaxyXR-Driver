@@ -58,6 +58,8 @@ export type GalaxyXrConfig = {
   officialComponents?: boolean,
   // leave streamed controllers as vrlink presents them (Kalman excluded)
   controllerBypass?: boolean,
+  // Samsung Game Link placement and identity, Kalman CA motion
+  gameLinkLayout?: boolean,
   simulateTouch?: boolean,
   aimTrimXCm?: number,
   aimTrimYCm?: number,
@@ -76,6 +78,8 @@ export type ControllersConfig = {
   positionOffsetCm: { x: number, y: number, z: number },
   left?: HandOffsets,
   right?: HandOffsets,
+  // the Game Link layout's own offsets, mirrored for the right hand
+  gameLinkLayout?: HandOffsets,
   aligner: { enable: boolean },
 }
 export type HandOffsets = {

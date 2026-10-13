@@ -112,6 +112,43 @@ describe('schema migrations', () => {
     expect(stored.streamFrame.streamFrameSchema).toBe(5);
   });
 
+  it.each([
+    ['native', 'kalmanCA'], ['kalmanCAGameLink', 'kalmanCA'], ['nativeGameLink', 'off'],
+  ])('turns the old Game Link layout mode %s into mode %s with the layout toggle on', async (oldMode, mode) => {
+    const stored: any = { streamFrame: { velocityFixMode: oldMode, streamFrameSchema: 5 }, galaxyXr: { controllerBypass: true } };
+    const { saved, flush } = buildHarness(stored);
+    await flush();
+    expect(stored.streamFrame.velocityFixMode).toBe(mode);
+    expect(stored.galaxyXr.gameLinkLayout).toBe(true);
+    expect(stored.galaxyXr.controllerBypass).toBe(true);
+    expect(saved.length).toBeGreaterThan(0);
+  });
+
+  it('turns the removed velocityOnly mode into kalmanCA and leaves the layout toggle alone', async () => {
+    const stored: any = { streamFrame: { velocityFixMode: 'velocityOnly', streamFrameSchema: 5 }, galaxyXr: {} };
+    const { saved, flush } = buildHarness(stored);
+    await flush();
+    expect(stored.streamFrame.velocityFixMode).toBe('kalmanCA');
+    expect(stored.galaxyXr.gameLinkLayout).toBeFalsy();
+    expect(saved.length).toBeGreaterThan(0);
+  });
+
+  it.each(['off', 'kalman', 'kalmanCA'])('leaves mode %s as chosen and the layout off', async (mode) => {
+    const stored: any = { streamFrame: { velocityFixMode: mode, streamFrameSchema: 5 }, galaxyXr: {} };
+    const { flush } = buildHarness(stored);
+    await flush();
+    expect(stored.streamFrame.velocityFixMode).toBe(mode);
+    expect(stored.galaxyXr.gameLinkLayout).toBeFalsy();
+  });
+
+  it('fills the Game Link layout offsets with their defaults', async () => {
+    const stored: any = { streamFrame: { streamFrameSchema: 5 }, controllers: {} };
+    const { flush } = buildHarness(stored);
+    await flush();
+    expect(stored.controllers.gameLinkLayout.rotationOffsetDeg).toEqual({ x: 2, y: -5, z: -9 });
+    expect(stored.controllers.gameLinkLayout.positionOffsetCm).toEqual({ x: 0.5, y: -1.5, z: 0.5 });
+  });
+
   it('keeps custom kalmanCA tuning intact through schema 3/4', async () => {
     const stored: any = {
       streamFrame: {

@@ -10,6 +10,7 @@
 #include "StreamTiers.h"
 #include "SdrColorPolicy.h"
 #include "DebugModePolicy.h"
+#include "GameLinkLayoutPolicy.h"
 #include "../Distortion/DistortionProfileConstructor.h"
 #ifdef _WIN32
 #include "Windows.h"
@@ -490,6 +491,9 @@ void ConfigLoader::ParseConfig(){
 			}
 			if(galaxyXrData["controllerBypass"].is_boolean()){
 				newConfig.galaxyXr.controllerBypass = galaxyXrData["controllerBypass"].get<bool>();
+			}
+			if(galaxyXrData["gameLinkLayout"].is_boolean()){
+				newConfig.galaxyXr.gameLinkLayout = galaxyXrData["gameLinkLayout"].get<bool>();
 			}
 			if(galaxyXrData["meshOffsetXCm"].is_number()){
 				newConfig.galaxyXr.meshOffsetXCm = galaxyXrData["meshOffsetXCm"].get<double>();
@@ -979,7 +983,15 @@ void ConfigLoader::ParseConfig(){
 			}
 			if(streamFrameData["velocityFixMode"].is_string()){
 				std::string mode = streamFrameData["velocityFixMode"].get<std::string>();
-				newConfig.streamFrame.velocityFixMode = mode == "kalmanCA" ? 6 : (mode == "kalmanCAM" ? 5 : (mode == "kalman" ? 4 : (mode == "derive" ? 3 : (mode == "full" ? 2 : (mode == "classic" ? 1 : 0)))));
+				// the Game Link layout was a mode in its first builds; it is the
+				// galaxyXr.gameLinkLayout toggle now. Companion rewrites the file.
+				// "velocityOnly" (Kalman CA's velocities on the stream's pose) is
+				// removed; it is read as Kalman CA.
+				bool layoutKalmanCa = mode == "kalmanCAGameLink" || mode == "native";
+				if(layoutKalmanCa || mode == "nativeGameLink"){
+					newConfig.galaxyXr.gameLinkLayout = true;
+				}
+				newConfig.streamFrame.velocityFixMode = (mode == "kalmanCA" || layoutKalmanCa || mode == "velocityOnly") ? 6 : (mode == "kalmanCAM" ? 5 : (mode == "kalman" ? 4 : (mode == "derive" ? 3 : (mode == "full" ? 2 : (mode == "classic" ? 1 : 0)))));
 			}
 			// mode provenance (2x incident 2026-08-11): a round-trip
 			// preserved legacy "velocityFix" bool with no
@@ -1336,11 +1348,13 @@ void ConfigLoader::ParseConfig(){
 				}
 			}
 			// per-hand unmirrored trims: {"left": {"rotationOffsetDeg": {..}, "positionOffsetCm": {..}}, "right": {..}}
+			// and the Game Link layout's own offsets, same shape under "gameLinkLayout"
 			{
 				struct HandSlot{ const char* key; double* rot; double* pos; };
-				HandSlot slots[2] = {
+				HandSlot slots[3] = {
 					{"left", newConfig.controllers.leftRotationOffsetDeg, newConfig.controllers.leftPositionOffsetCm},
 					{"right", newConfig.controllers.rightRotationOffsetDeg, newConfig.controllers.rightPositionOffsetCm},
+					{"gameLinkLayout", newConfig.controllers.gameLinkRotationOffsetDeg, newConfig.controllers.gameLinkPositionOffsetCm},
 				};
 				for(HandSlot &slot : slots){
 					if(!controllersData[slot.key].is_object()){ continue; }
@@ -1573,6 +1587,7 @@ void ConfigLoader::ParseConfig(){
 			newConfig.streamFrame.streamFrameSchema = 5;
 		}
 		gxr::ApplyDebugModePolicy(newConfig);
+		gxr::ApplyGameLinkLayoutPolicy(newConfig);
 		// write to global config
 		{
 			std::lock_guard<std::mutex> lock(driverConfigLock);
@@ -1786,6 +1801,18 @@ void ConfigLoader::WriteInfo(){
 				{"right", {
 					{"rotationOffsetDeg", {{"x", 0.0}, {"y", 0.0}, {"z", 0.0}}},
 					{"positionOffsetCm", {{"x", 0.0}, {"y", 0.0}, {"z", 0.0}}},
+				}},
+				{"gameLinkLayout", {
+					{"rotationOffsetDeg", {
+						{"x", defaultSettings.controllers.gameLinkRotationOffsetDeg[0]},
+						{"y", defaultSettings.controllers.gameLinkRotationOffsetDeg[1]},
+						{"z", defaultSettings.controllers.gameLinkRotationOffsetDeg[2]},
+					}},
+					{"positionOffsetCm", {
+						{"x", defaultSettings.controllers.gameLinkPositionOffsetCm[0]},
+						{"y", defaultSettings.controllers.gameLinkPositionOffsetCm[1]},
+						{"z", defaultSettings.controllers.gameLinkPositionOffsetCm[2]},
+					}},
 				}},
 				{"aligner", {{"enable", defaultSettings.controllers.aligner.enable}}},
 			}},

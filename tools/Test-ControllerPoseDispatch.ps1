@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch]$UseCurrentEnvironment)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1')

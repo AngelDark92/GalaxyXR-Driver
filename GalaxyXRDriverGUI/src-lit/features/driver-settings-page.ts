@@ -162,8 +162,8 @@ export class DriverSettingsPage extends BasePage {
         if (vendor && galaxy.rootSetting?.galaxyXr) {
           body.push(
             settingFieldRow('galaxyXr.gripConvention', html`
-              <app-switch .checked=${!!gx.gripConvention} ?disabled=${!!gx.controllerBypass} @change=${(e: CustomEvent) => { gx.gripConvention = e.detail; save(); }}></app-switch>
-              ${gx.controllerBypass ? html`<span class="note-inline">controller bypass is on</span>` : html``}
+              <app-switch .checked=${!!gx.gripConvention} ?disabled=${!!gx.controllerBypass || !!gx.gameLinkLayout} @change=${(e: CustomEvent) => { gx.gripConvention = e.detail; save(); }}></app-switch>
+              ${gx.gameLinkLayout ? html`<span class="note-inline">Game Link layout is on</span>` : gx.controllerBypass ? html`<span class="note-inline">controller bypass is on</span>` : html``}
             `, {
               tip: "Adjust the grip-pose convention for games whose held objects look tilted or misplaced. Compare with a known-good game before changing other offsets.\n\nShifts the raw streamed controller pose (22° pitch, 5 cm) into SteamVR's grip convention so held objects sit where games expect them and the official pose components land on the right spots. Recommended on. Turn off only if a Steam Link build already reports a grip-convention pose and the controllers sit visibly wrong.",
               reset: { can: gx.gripConvention === false, on: () => { gx.gripConvention = true; save(); } },
@@ -171,6 +171,7 @@ export class DriverSettingsPage extends BasePage {
           );
         }
 
+        const caMode = settings.velocityFixMode == 'kalmanCA';
         // Controller Fix Mode (velocityFixMode) with retired-mode escape hatch
         const modeOptions = [
           { value: 'off', label: 'Off' },
@@ -209,7 +210,7 @@ export class DriverSettingsPage extends BasePage {
           );
         }
 
-        if (advanced && (settings.velocityFixMode == 'kalmanCA')) {
+        if (advanced && (caMode)) {
           body.push(
             fieldRow(t('Kalman CA Tuning (jerk m/s³, ang jerk, pos mm, ori deg, lead ms)'), html`
               <span>J</span><app-number .value=${settings.kalmanCaJerk} step="50" min="1" max="50000" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.kalmanCaJerk = e.detail; save(); } }}></app-number>
@@ -266,7 +267,7 @@ export class DriverSettingsPage extends BasePage {
           body.push(
             sectionGroup(t('Kalman Advanced Settings'), 2),
           );
-            if (advanced && (settings.velocityFixMode == 'kalmanCA')) {
+            if (advanced && (caMode)) {
               body.push(
                 fieldRow(t('Kalman CA Accel Decay τ (ms)'), html`
                   <span>τ</span><app-number .value=${settings.kalmanCaAccelTauMs} step="25" min="20" max="10000" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.kalmanCaAccelTauMs = e.detail; save(); } }}></app-number>
@@ -276,7 +277,7 @@ export class DriverSettingsPage extends BasePage {
                 }),
               );
             }
-            if (advanced && (settings.velocityFixMode == 'kalmanCA' || settings.velocityFixMode == 'kalmanCAM')) {
+            if (advanced && (caMode || settings.velocityFixMode == 'kalmanCAM')) {
               body.push(
                 settingFieldRow('streamFrame.kalmanCaExactCov', html`<app-switch .checked=${!!settings.kalmanCaExactCov} @change=${(e: CustomEvent) => { settings.kalmanCaExactCov = e.detail; save(); }}></app-switch>`, {
                   tip: "Try an experimental acceleration model with a matching noise calculation. Leave it off unless you are comparing filter behavior deliberately.\n\nExperiment: propagate the filter's uncertainty with the same Singer transition the state prediction actually uses, instead of the simpler approximation. Makes the filter's self-model consistent, which matters most at low Accel Decay tau values (in CA-Magnitude mode it applies to the fast magnitude channel). Changes effective gains slightly, so NIS and the J/P/O tuning shift a little; off reproduces the previously tuned behavior exactly.",
@@ -295,10 +296,14 @@ export class DriverSettingsPage extends BasePage {
                 tip: "Choose how controller rotation speed is reported. The wrong coordinate convention can change throwing or aiming behavior; use the default unless testing.\n\nFrame the reported angular velocity is expressed in. Body (default, field-verified 2026-08-24): SteamVR's motion prediction rotates about controller-local axes, so this is what it expects. World: the previous behaviour, which made horizontal sword swings pitch up at the peak of the swing. Zero: diagnostic only - no angular prediction, laggier rotation.",
                 reset: { can: (settings as any).kalmanAngularOutFrame != defaults.kalmanAngularOutFrame, on: () => galaxy.reset('kalmanAngularOutFrame' as any) },
               }),
+            );
+            body.push(
               fieldRow(t('Kalman Loss Coast (ms)'), html`<app-number .value=${settings.kalmanLossCoastMs} step="50" min="0" max="1000" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.kalmanLossCoastMs = e.detail; save(); } }}></app-number>`, {
                 tip: "Choose how long controller movement may continue briefly after tracking is lost. Longer coasting can hide interruptions but can also move the controller incorrectly.\n\nWhen the controller briefly leaves tracking (hand out of camera view), the stream freezes the hand in place with zero velocity until it is seen again. For up to this many ms of tracking loss, the driver instead keeps the hand moving along the filter's last known motion (with the usual acceleration decay so it cannot run away).",
                 reset: { can: settings.kalmanLossCoastMs != defaults.kalmanLossCoastMs, on: () => galaxy.reset('kalmanLossCoastMs') },
               }),
+            );
+            body.push(
               fieldRow(t('Kalman Duplicate-Sample Handling'), html`
                 <app-select .value=${settings.kalmanDupMode} .options=${[
                   { value: 'off', label: 'Off - repeats believed (smooth, slight drag)' },
@@ -327,6 +332,54 @@ export class DriverSettingsPage extends BasePage {
         }
       }
 
+      // ---------- Game Link Layout ----------
+      if (vendor && galaxy.rootSetting?.galaxyXr) {
+        body.push(
+          sectionRow(t('Game Link Layout'), this.section('gameLink'), 1, () => this.toggleSection('gameLink')),
+        );
+        if (this.section('gameLink')) {
+          body.push(
+            settingFieldRow('galaxyXr.gameLinkLayout', html`
+              <app-switch .checked=${!!gx.gameLinkLayout} @change=${(e: CustomEvent) => { gx.gameLinkLayout = e.detail; save(); }}></app-switch>
+              <span class="note-inline">restart SteamVR after switching</span>
+            `, {
+              tip: "Present the controllers the way Samsung's own PC driver (Game Link) does. An add-on to the selected Controller Fix Mode: the motion stays the mode's.\n\nThe controllers get Samsung's model at its authored size, Samsung's pose points and Samsung's input profile, on Steam Link's raw pose. While it is on, the Grip Convention, the Controller Offsets, the model scale and the aim trim are not applied; the Game Link Layout Offsets are used instead. Everything comes back when it goes off. With Controller Bypass on, the layout still applies, without this driver's other corrections. Requires a SteamVR restart.",
+              reset: { can: !!gx.gameLinkLayout, on: () => { gx.gameLinkLayout = false; save(); } },
+            }),
+          );
+          const gl = galaxy.controllerSettings?.gameLinkLayout;
+          const gd = galaxy.controllerDefaults.gameLinkLayout;
+          if (gl && gd) {
+            body.push(
+              sectionGroup(t('Game Link Layout Offsets'), 2),
+              noteRow(t('Set for the LEFT controller. The right controller gets the mirror image automatically: position X and rotation Y/Z flip sign.')),
+              fieldRow(t('Rotation Offset (deg)'), html`
+                <span>X</span><app-number .value=${gl.rotationOffsetDeg.x} step="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { gl.rotationOffsetDeg.x = e.detail; save(); } }}></app-number>
+                <span>Y</span><app-number .value=${gl.rotationOffsetDeg.y} step="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { gl.rotationOffsetDeg.y = e.detail; save(); } }}></app-number>
+                <span>Z</span><app-number .value=${gl.rotationOffsetDeg.z} step="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { gl.rotationOffsetDeg.z = e.detail; save(); } }}></app-number>
+              `, {
+                tip: "Rotate both controllers while Game Link Layout is on. Used instead of the Controller Offsets.\n\nLocal frame rotation on Steam Link's raw pose, authored for the LEFT controller and mirrored for the right, live reloaded. X = pitch, Y = yaw, Z = roll.",
+                reset: {
+                  can: gl.rotationOffsetDeg.x != gd.rotationOffsetDeg.x || gl.rotationOffsetDeg.y != gd.rotationOffsetDeg.y || gl.rotationOffsetDeg.z != gd.rotationOffsetDeg.z,
+                  on: () => galaxy.resetGameLinkOffsets('rotationOffsetDeg'),
+                },
+              }),
+              fieldRow(t('Position Offset (cm)'), html`
+                <span>X</span><app-number .value=${gl.positionOffsetCm.x} step="0.5" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { gl.positionOffsetCm.x = e.detail; save(); } }}></app-number>
+                <span>Y</span><app-number .value=${gl.positionOffsetCm.y} step="0.5" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { gl.positionOffsetCm.y = e.detail; save(); } }}></app-number>
+                <span>Z</span><app-number .value=${gl.positionOffsetCm.z} step="0.5" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { gl.positionOffsetCm.z = e.detail; save(); } }}></app-number>
+              `, {
+                tip: "Move both controllers while Game Link Layout is on. Used instead of the Controller Offsets.\n\nLocal frame position offset on Steam Link's raw pose, authored for the LEFT controller and mirrored for the right (X flips sign), live reloaded. Z = along the controller, Y = up/down, X = sideways.",
+                reset: {
+                  can: gl.positionOffsetCm.x != gd.positionOffsetCm.x || gl.positionOffsetCm.y != gd.positionOffsetCm.y || gl.positionOffsetCm.z != gd.positionOffsetCm.z,
+                  on: () => galaxy.resetGameLinkOffsets('positionOffsetCm'),
+                },
+              }),
+            );
+          }
+        }
+      }
+
       // ---------- Controllers Advanced ----------
       if (advanced) {
         body.push(
@@ -347,6 +400,9 @@ export class DriverSettingsPage extends BasePage {
               sectionRow(t('Controller Offsets'), this.section('ctrlOffsets'), 2, () => this.toggleSection('ctrlOffsets')),
             );
             if (this.section('ctrlOffsets')) {
+              if (gx?.gameLinkLayout) {
+                body.push(noteRow(t('Game Link Layout is on: these offsets are not applied, the offsets in the Game Link Layout section are.')));
+              }
               body.push(
                 fieldRow(t('Rotation Offset (deg)'), html`
                   <span>X</span><app-number .value=${cs.rotationOffsetDeg.x} step="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { cs.rotationOffsetDeg.x = e.detail; save(); } }}></app-number>

@@ -8,6 +8,7 @@
 #include <atomic>
 
 #include "openvr_driver.h"
+#include "Hooking/ControllerPoseEpoch.h"
 
 class ShimDefinition;
 
@@ -35,6 +36,9 @@ public:
 	bool HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose);
 	// Strict physical-controller classification shared with pose publication.
 	bool IsStreamedController(uint32_t openVRID);
+	void ResetControllerPoseEpoch(uint32_t openVRID);
+	void CorrectControllerPoseEpoch(uint32_t openVRID, const vr::DriverPose_t& source,
+		vr::DriverPose_t& processed, double receipt, bool publishCorrections);
 	// handle hook of TrackedDeviceAdded
 	bool HandleDeviceAdded(const char* &pchDeviceSerialNumber, vr::ETrackedDeviceClass &eDeviceClass, vr::ITrackedDeviceServerDriver* &pDriver);
 	// set of driver conexts collected by the hooking process
@@ -53,6 +57,8 @@ public:
 	// this allows them to have RunThread called
 	std::set<ShimDefinition*> shims;
 private:
+	std::array<gxr::ControllerPoseEpoch, vr::k_unMaxTrackedDeviceCount> controllerPoseEpochs{};
+	std::mutex controllerPoseEpochLock;
 	struct QueuedEvent {
 		vr::EVREventType eventType;
 		vr::VREvent_Data_t eventData;

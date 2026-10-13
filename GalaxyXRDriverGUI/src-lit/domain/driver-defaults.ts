@@ -37,6 +37,7 @@ const nativeDefaults = {
     "handAnchorRollDeg": 0.0,
     "officialComponents": true,
     "controllerBypass": false,
+    "gameLinkLayout": false,
     "simulateTouch": false,
     "aimTrimXCm": 0.0,
     "aimTrimYCm": -1.0,
@@ -129,6 +130,18 @@ const nativeDefaults = {
         "x": 0.0,
         "y": 0.0,
         "z": 0.0
+      }
+    },
+    "gameLinkLayout": {
+      "rotationOffsetDeg": {
+        "x": 2.0,
+        "y": -5.0,
+        "z": -9.0
+      },
+      "positionOffsetCm": {
+        "x": 0.5,
+        "y": -1.5,
+        "z": 0.5
       }
     },
     "aligner": {

@@ -199,6 +199,17 @@ describe('vendor defaults before info.json exists', () => {
     expect(driverDefaults.controllers?.positionOffsetCm).toEqual({ x: 0.5, y: 0, z: 0 });
   });
 
+  it('drops the removed Game Link velocity cutoff keys on load and save', async () => {
+    const service = await load('galaxyxr', { streamFrame: { gameLinkLinearVelocityCutoff: 0.1, gameLinkAngularVelocityCutoffDeg: 5, saturation: 1.1 } });
+    expect(service.values()?.streamFrame).not.toHaveProperty('gameLinkLinearVelocityCutoff');
+    expect(service.values()?.streamFrame).not.toHaveProperty('gameLinkAngularVelocityCutoffDeg');
+    expect(await service.save(service.values()!)).toBe(true);
+    const stored = JSON.parse(storage.files.get(filePath)!);
+    expect(stored.streamFrame).not.toHaveProperty('gameLinkLinearVelocityCutoff');
+    expect(stored.streamFrame).not.toHaveProperty('gameLinkAngularVelocityCutoffDeg');
+    expect(stored.streamFrame.saturation).toBe(1.1);
+  });
+
   it('retains an explicit true in the neutral build through save and reload', async () => {
     const service = await load('', { galaxyXr: { nativeIdentity: true } });
     expect(service.values()?.galaxyXr?.nativeIdentity).toBe(true);
@@ -301,5 +312,20 @@ describe('vendor defaults before info.json exists', () => {
       positionOffsetCm: { x: 0, y: 0, z: 0 },
       left,
     });
+  });
+});
+
+describe('retired HAL timestamp compensation', () => {
+  it.each(['', 'galaxyxr'])('removes saved and stale telemetry bias for %s without changing tuning', async vendor => {
+    const retired = { poseTimeOffsetBiasMs: 30, poseTimeOffsetBiasEnabled: true };
+    const service = await load(vendor, { streamFrame: { ...retired, saturation: 1.23 } }, { streamFrame: retired });
+    for (const key of Object.keys(retired)) expect(service.values()?.streamFrame).not.toHaveProperty(key);
+    expect(service.values()?.streamFrame?.saturation).toBe(1.23);
+    expect(await service.save(service.values()!)).toBe(true);
+    const saved = JSON.parse(storage.files.get(filePath)!);
+    for (const key of Object.keys(retired)) expect(saved.streamFrame).not.toHaveProperty(key);
+    expect(saved.streamFrame.saturation).toBe(1.23);
+    expect(await service.loadSetting()).toBe(true);
+    for (const key of Object.keys(retired)) expect(service.values()?.streamFrame).not.toHaveProperty(key);
   });
 });

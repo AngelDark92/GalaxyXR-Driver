@@ -458,6 +458,14 @@ struct GalaxyXrConfig{
 	// by this (it has its own mode switch). for A/B against stock and for
 	// people who only want the image processing.
 	bool controllerBypass = false;
+	// 2026-10-04 Game Link layout: place and identify the streamed
+	// controllers the way Samsung's own PC driver does it (vrlink's raw pose,
+	// Samsung's pose components and input profile, see
+	// Config/GameLinkLayoutPolicy.h). an add-on to any Controller Fix Mode:
+	// the motion stays the selected mode's. with controllerBypass it still
+	// applies, without the driver's own corrections. requires a SteamVR
+	// restart.
+	bool gameLinkLayout = false;
 	// controller identity experiment (2026-08-24): when true the driver
 	// adds an oculus_touch layout (priority 95, above knuckles) to the
 	// shipped remapping json at startup so Touch-authored game bindings
@@ -869,6 +877,10 @@ struct StreamFrameConfig{
 	// the ramp-lag magnitude deficit is removed by the model instead of
 	// rescaled away. both CA modes skip the legacy blend/peak-hold
 	// stack entirely (clean state reporting).
+	// the Game Link layout is not a mode: it is the galaxyXr.gameLinkLayout
+	// toggle, on top of whichever mode is selected. the mode strings of its
+	// first builds are still parsed: "kalmanCAGameLink" / "native" = 6 with
+	// the toggle on, "nativeGameLink" = 0 with the toggle on.
 	int velocityFixMode = 6; // kalmanCA: release default 2026-08-15
 	// (supersedes the 2026-08-11 CV consolidation — the CA campaign
 	// closed with relDirOff 4.3deg / relAngOff 3.8deg / rel/pk 1.00 at
@@ -1522,6 +1534,15 @@ struct ControllersConfig{
 	double leftPositionOffsetCm[3] = {0, 0, 0};
 	double rightRotationOffsetDeg[3] = {0, 0, 0};
 	double rightPositionOffsetCm[3] = {0, 0, 0};
+	// Game Link layout offsets (2026-10-04): the only pose offsets applied
+	// while galaxyXr.gameLinkLayout is on (Config/GameLinkLayoutPolicy.h
+	// drops the offsets above, they are measured against the grip
+	// convention frame). authored for the LEFT controller, always mirrored
+	// for the right; same axis conventions as the shared offsets. settings
+	// key controllers.gameLinkLayout, live reloaded. defaults = the field
+	// tuning on the Galaxy XR controllers under this layout.
+	double gameLinkRotationOffsetDeg[3] = {2, -5, -9};
+	double gameLinkPositionOffsetCm[3] = {0.5, -1.5, 0.5};
 	ControllerAlignerConfig aligner = {};
 };
 

@@ -68,9 +68,28 @@ The [NVENC quality review (2026-09-26)](NvencQuality-2026-09-26.md) explains the
 
 ## Controllers
 
+Direct controller timing correction (2026-10-12): in the Galaxy XR build with
+Controller Fix Mode **Off**, exact repeated moving poses retain the epoch of the
+first received copy. Steam Link 2.0.20 was observed sending approximately 90 Hz
+pose payloads at 360 Hz with advancing packet timestamps; re-stamping these
+copies resets SteamVR prediction backwards. Only `poseTimeOffset` changes;
+positions, rotations, velocities, accelerations and tracking flags are preserved.
+All other fields participate in freshness detection, and stationary samples with
+zero derivatives pass through. A repeat run is limited to 50 ms; a longer freeze
+uses upstream timing until data changes. This preserves the first observed time,
+not the unavailable original sensor timestamp. Native hands, HMD, invalid tracking,
+other devices, the neutral build and estimator modes bypass this correction.
+**Controller Bypass** disables it. See [validation and limits](ControllerPoseEpoch-2026-10-12.md).
+
 With the official input profile on, SteamVR sees `galaxy_xr_controller`. Games that ship a native Galaxy XR binding use it, everything else falls back to Index controller bindings through the official remapping, so most titles will show Index controllers in their binding UI. Custom per-game bindings made before enabling the profile (when the controllers were Touch) do not carry over.
 
 Controller Fix Mode drives the pose filter. Kalman CA is the default, the tuning row below it shows the gains for whichever mode is selected, and Kalman Advanced Settings holds the rarely-touched knobs. Since 1.0.0 the reported angular velocity is in controller-local frame, which is what SteamVR's own prediction expects.
+
+Game Link Layout has its own section under Controllers, next to Controller Fix: the switch and the layout's offsets. It presents the controllers the way Samsung's own PC driver (Game Link / XR Link) does: Steam Link's raw pose with no grip convention shift, Samsung's model at its authored size, Samsung's pose points (grip, aim, tip, base) as authored, and Samsung's input profile with the `samsung_touch` controller type, whose remapping tells Touch-authored games they talk to a Touch. It is an add-on to the selected Controller Fix Mode: the motion stays the mode's. With the mode Off the pose, velocities and accelerations go out as Steam Link delivers them; Samsung's driver zeroes small velocities and all accelerations, this one does not. Steam Link's own velocities sent that way made Half-Life: Alyx throws fly sideways, Kalman CA threw straight. Turning it on or off needs a SteamVR restart.
+
+While it is on, the Grip Convention, the Controller Offsets and per-hand trims, the model scale, the mesh offset, the hand anchor and the aim trim are not applied; they come back when it goes off. The layout has its own offsets instead, in the same section (`controllers.gameLinkLayout` in settings.json): authored for the left controller and mirrored for the right, rotation 2 / -5 / -9 deg and position 0.5 / -1.5 / 0.5 cm by default. With Controller Bypass also on, the controllers get Samsung's identity, model, pose points and input profile on the untouched Steam Link pose, without this driver's other corrections.
+
+Settings files from the builds where the layout was a mode are read as before: `kalmanCAGameLink` and `native` are Kalman CA with the switch on, `nativeGameLink` is Off with the switch on. `velocityOnly`, the removed Kalman CA (Velocity only) mode, is read as Kalman CA.
 
 Controller pose publication (2026-09-25): corrected pose, velocity and offsets reach SteamVR while a physical Galaxy XR controller is connected and reports valid `Running_OK` tracking. Native hands, unrecognized devices, and invalid/disconnected controller samples retain the original Steam Link pose and tracking flags. The estimator still processes loss/reacquisition internally, but loss-coast output and `forceTracking` status promotion are not published on those samples. This preserves the preceding hand-compatibility patch's loss behavior while restoring corrections during valid tracking; it does not restore synthetic tracking through a dropout.
 

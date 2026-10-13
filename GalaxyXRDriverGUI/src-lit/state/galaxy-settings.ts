@@ -118,7 +118,7 @@ export class GalaxySettingsBase {
 
   // Presentation-only section state; inline Advanced/source groups have no key.
   sections = signal({
-    headset: true, controllers: true, ctrlFix: true, ctrlOffsets: true, tipOffset: false,
+    headset: true, controllers: true, ctrlFix: true, gameLink: true, ctrlOffsets: true, tipOffset: false,
     processing: true, color: true, enhance: true, distortion: true, eyeAlign: false, share: false,
     debugImage: true, debugControllers: true, debugEncoder: true, graveyard: false,
   });
@@ -272,6 +272,22 @@ export class GalaxySettingsBase {
           rawSf.kalmanAngularOutFrame = frameNames[rawSf.kalmanAngularOutFrame] ?? 'body';
           queueMicrotask(() => this.save());
         }
+        // the Game Link layout was a Controller Fix Mode in its first builds
+        // ('native' / 'kalmanCAGameLink' on Kalman CA, 'nativeGameLink' with
+        // no filter); it is the galaxyXr.gameLinkLayout toggle now. mirrors
+        // the driver, which reads the old strings the same way.
+        const layoutModes: Record<string, string> = { native: 'kalmanCA', kalmanCAGameLink: 'kalmanCA', nativeGameLink: 'off' };
+        if (rawSf && canMigrate && typeof rawSf.velocityFixMode === 'string' && Object.hasOwn(layoutModes, rawSf.velocityFixMode)) {
+          rawSf.velocityFixMode = layoutModes[rawSf.velocityFixMode];
+          (this.rootSetting.galaxyXr ??= {} as any).gameLinkLayout = true;
+          queueMicrotask(() => this.save());
+        }
+        // 'velocityOnly' (Kalman CA's velocities on the stream's pose) is
+        // removed; the driver reads it as Kalman CA.
+        if (rawSf && canMigrate && rawSf.velocityFixMode === 'velocityOnly') {
+          rawSf.velocityFixMode = 'kalmanCA';
+          queueMicrotask(() => this.save());
+        }
         this.rootSetting.streamFrame = fillDefaults(this.rootSetting.streamFrame, defaultStreamFrame());
         this.rootSetting.controllers = fillDefaults(this.rootSetting.controllers, defaultControllers());
         this.controllerSettings = this.rootSetting.controllers;
@@ -315,6 +331,15 @@ export class GalaxySettingsBase {
   resetHandOffsets(hand: 'left' | 'right') {
     if (this.controllerSettings) {
       this.controllerSettings[hand] = zeroHandOffsets();
+      this.save();
+    }
+  }
+
+  resetGameLinkOffsets(group: 'rotationOffsetDeg' | 'positionOffsetCm') {
+    const gl = this.controllerSettings?.gameLinkLayout;
+    const gd = this.controllerDefaults.gameLinkLayout;
+    if (gl && gd) {
+      gl[group] = { ...gd[group] };
       this.save();
     }
   }
@@ -434,6 +459,9 @@ export class GalaxySettingsBase {
       }
       if (this.rootSetting.galaxyXr.controllerBypass === undefined) {
         this.rootSetting.galaxyXr.controllerBypass = false;
+      }
+      if (this.rootSetting.galaxyXr.gameLinkLayout === undefined) {
+        this.rootSetting.galaxyXr.gameLinkLayout = false;
       }
       if (this.rootSetting.galaxyXr.customEncodeWidth === undefined) {
         this.rootSetting.galaxyXr.customEncodeWidth = 3072;

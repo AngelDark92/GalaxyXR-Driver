@@ -37,6 +37,12 @@ struct FakeProvider {
     int classifications = 0;
     int handled = 0;
     uint32_t lastId = vr::k_unTrackedDeviceIndexInvalid;
+    int epochCalls = 0;
+    int epochResets = 0;
+    bool epochEligible = false;
+    void ResetControllerPoseEpoch(uint32_t) { ++epochResets; }
+    void CorrectControllerPoseEpoch(uint32_t, const vr::DriverPose_t&, vr::DriverPose_t&,
+        double, bool eligible) { ++epochCalls; epochEligible = eligible; }
 
     bool IsStreamedController(uint32_t id) {
         ++classifications;
@@ -110,6 +116,8 @@ void CheckPassthrough(vr::DriverPose_t source, uint32_t id, bool physical, const
           std::string(label) + ": flags and all pose bytes preserved");
     Check(std::memcmp(&source, &before, sizeof(before)) == 0, std::string(label) + ": source immutable");
     Check(provider.handled == 1 && provider.lastId == id, std::string(label) + ": handler bookkeeping retained");
+    Check(provider.epochCalls == 1 && !provider.epochEligible,
+          std::string(label) + ": epoch history reset on passthrough");
 }
 }
 
@@ -122,6 +130,7 @@ int main() {
     Submission submission{&source};
     gxr::DispatchControllerPoseUpdate(provider, controllerId, source, sizeof(source), submission);
     CheckCorrected(submission, "healthy physical controller");
+    Check(provider.epochCalls == 1 && provider.epochEligible, "healthy controller timing eligible");
     Check(provider.handled == 1 && provider.classifications == 1 && provider.lastId == controllerId,
           "healthy controller classified and handled exactly once");
     Check(std::memcmp(&source, &before, sizeof(before)) == 0, "correcting never writes caller pose");
@@ -155,6 +164,8 @@ int main() {
               "ABI mismatch forwards original object with original size");
         Check(incompatible.handled == 0 && incompatible.classifications == 0,
               "ABI mismatch never calls provider");
+        Check(incompatible.epochResets == 1 && incompatible.epochCalls == 0,
+              "ABI mismatch clears epoch without reading pose fields");
         Check(std::memcmp(&forwarded.output, &source, sizeof(source)) == 0, "ABI mismatch preserves bytes");
     }
 
@@ -165,6 +176,7 @@ int main() {
         Submission suppressed{&source};
         gxr::DispatchControllerPoseUpdate(rejecting, controllerId, source, sizeof(source), suppressed);
         Check(rejecting.handled == 1 && suppressed.count == 0, "handler false suppresses either output route");
+        Check(rejecting.epochCalls == 1 && !rejecting.epochEligible, "rejected pose clears timing history");
     }
 
     FakeProvider recovering;
