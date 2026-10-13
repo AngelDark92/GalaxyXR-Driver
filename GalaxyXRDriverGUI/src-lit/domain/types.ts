@@ -220,6 +220,8 @@ export type StreamFrameConfig = {
   directRender: boolean;
   zeroCopyV3: boolean;
   nvencTap: boolean;
+  // stream codec override: 0 HEVC default, 1 H.264, 2 AV1 experimental
+  nvencCodec?: number;
   nvencBandwidthOverrideMbit: number;
   nvencSettingsVersion: number;
   nvencFixLevel: boolean;

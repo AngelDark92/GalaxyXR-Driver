@@ -1,5 +1,9 @@
 # Portable local Windows x64 build
 
+All generated artifacts use `../builds/GalaxyXR-Driver/` outside the checkout (2026-10-08).
+Frontend catalogs/bundles/caches use `gui/`; compiler scratch and tools use `build/`;
+packages use `output/` and release archives use `release/` beneath that root.
+
 ## One command
 
 From the project root:
@@ -16,7 +20,7 @@ Or, from `tools`:
 
 Use a **64-bit Windows PowerShell 5.1 or PowerShell 7** session. The script locates the project relative to its own file, not your current working directory. The source layout must contain `GalaxyXRDriver`, `GalaxyXRDriverGUI`, and `build.js` together.
 
-The build now prepares missing dependencies before compilation. It does not assume that a developer's ignored `build/toolchains/msvc/VC/Tools/MSVC/14.44.35207` folder exists in your checkout. No Visual Studio IDE installation is performed.
+The build now prepares missing dependencies before compilation. It does not assume that a developer's ignored `../builds/GalaxyXR-Driver/build/toolchains/msvc/VC/Tools/MSVC/14.44.35207` folder exists in your checkout. No Visual Studio IDE installation is performed.
 
 ## What setup does
 
@@ -38,7 +42,7 @@ For a **new Microsoft toolchain download**, setup displays the license URL from 
 .\tools\Build-Portable.ps1 -AcceptToolchainLicense
 ```
 
-The acceptance receipt is local to `build/toolchains/microsoft-license.json`. Existing installed tools or a complete existing portable cache are reused without reinstalling them. This is not a license grant for redistributing Microsoft tools; the release package does **not** include the toolchain.
+The acceptance receipt is local to `../builds/GalaxyXR-Driver/build/toolchains/microsoft-license.json`. Existing installed tools or a complete existing portable cache are reused without reinstalling them. This is not a license grant for redistributing Microsoft tools; the release package does **not** include the toolchain.
 
 Tool downloads use HTTPS on an explicit publisher host allowlist, including validated redirect destinations. Executable/archive payloads must match SHA-256 checksums in Microsoft's catalog or the Node/Rust publisher checksum files. TLS certificate validation is not disabled. Interrupted downloads are retried up to three times and corrupt `.part` files are discarded; verified cache entries can be reused on retry. No remote PowerShell/Python script is fetched or executed.
 
@@ -51,7 +55,7 @@ SDK MSI packages are extracted using Windows Installer's administrative-image op
 Build-only dependencies, download receipts, and setup logs live under the ignored directory:
 
 ```text
-build/toolchains/
+../builds/GalaxyXR-Driver/build/toolchains/
 ├── node/               # Only if a local Node runtime was needed
 ├── msvc/               # Portable compiler/SDK, if no installed tools were usable
 ├── .msvc-new/          # Interrupted staging copy; may linger if antivirus holds a rename lock
@@ -91,7 +95,7 @@ After a successful setup, require the cached tools/dependencies instead of downl
 A user-selected output directory must remain inside the project `output` directory. For example:
 
 ```powershell
-.\tools\Build-Portable.ps1 -OutputDirectory "$PWD\output\GalaxyXRDriver-local-check"
+.\tools\Build-Portable.ps1 -OutputDirectory "$PWD\..\builds\GalaxyXR-Driver\output\GalaxyXRDriver-local-check"
 ```
 
 Do not combine `-DriverOnly` and `-GuiOnly`. Use a full build when deploying application/driver changes together.
@@ -99,7 +103,7 @@ Do not combine `-DriverOnly` and `-GuiOnly`. Use a full build when deploying app
 ## Output remains portable
 
 ```text
-output/GalaxyXRDriver-Test-<timestamp>/
+../builds/GalaxyXR-Driver/output/GalaxyXRDriver-Test-<timestamp>/
 ├── GalaxyXRDriverGUI/
 │   └── Galaxy XR Companion.exe
 └── GalaxyXRNative/
@@ -118,11 +122,11 @@ This local helper produces a portable folder; it does not deploy, register, laun
 - **Interrupted extraction:** retry the same command. A complete `.msvc-new` staging tree from an interrupted run is reused instead of re-downloading, and valid downloads are reused. An old/incomplete replaced toolchain is retained as `msvc.previous`; review this backup rather than deleting it blindly if it blocks a later repair.
 - **Leftover `.msvc-new`:** Windows SmartScreen or Defender can hold persistent locks on a freshly written tool tree, so the staging-to-`msvc` rename may fail. Setup then retries the rename, copies the tree into place instead, and may leave the now-redundant `.msvc-new` folder behind. Once `msvc/` is complete and a build succeeded, the leftover staging folder can be deleted manually; repeat builds do not use it.
 - **Stale declared size from the catalog:** reported as a WARNING (recorded as `sizeMismatch` in the download receipt). This is expected with Microsoft's current release-channel metadata; the SHA-256 check is what enforces payload integrity.
-- **MSI extraction failure:** read `build/toolchains/logs/<SDK installer>.log`. Close other installers and check enterprise Windows Installer policy. Keep the log when reporting a failure.
-- **Compiler/SDK validation failure:** inspect `build/toolchains/logs/compiler-probe.log`. A `cl.exe` file by itself is not a complete compiler/SDK installation.
+- **MSI extraction failure:** read `../builds/GalaxyXR-Driver/build/toolchains/logs/<SDK installer>.log`. Close other installers and check enterprise Windows Installer policy. Keep the log when reporting a failure.
+- **Compiler/SDK validation failure:** inspect `../builds/GalaxyXR-Driver/build/toolchains/logs/compiler-probe.log`. A `cl.exe` file by itself is not a complete compiler/SDK installation.
 - **Missing Git or submodule revisions:** use the complete project checkout with its recorded submodules. The script intentionally does not replace partial/unknown source with an arbitrary upstream release. Git itself is not automatically installed.
-- **Frontend dependencies:** inspect `build/toolchains/logs/npm-ci.log`. An inconsistent lockfile is an error, not a reason to rewrite it with `npm install`.
-- **Rust:** inspect `build/toolchains/logs/rustup-install.log`. Working user Rust is reused; project-local Rust is isolated through its recorded Cargo/Rustup homes.
+- **Frontend dependencies:** inspect `../builds/GalaxyXR-Driver/build/toolchains/logs/npm-ci.log`. An inconsistent lockfile is an error, not a reason to rewrite it with `npm install`.
+- **Rust:** inspect `../builds/GalaxyXR-Driver/build/toolchains/logs/rustup-install.log`. Working user Rust is reused; project-local Rust is isolated through its recorded Cargo/Rustup homes.
 
 ## Sources and implementation references
 

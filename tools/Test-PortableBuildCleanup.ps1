@@ -1,13 +1,13 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/portable-build-cleanup.ps1')
 $repo = Split-Path $PSScriptRoot -Parent
-$fixture = Join-Path $repo ('build/cleanup-test-' + [guid]::NewGuid().ToString('N'))
+$fixture = Join-Path $repo ('../builds/GalaxyXR-Driver/build/cleanup-test-' + [guid]::NewGuid().ToString('N') + '/repo')
 $name = 'portable-work-20260926-120000-' + [guid]::NewGuid().ToString('N')
-$work = Join-Path $fixture "build/$name"
-New-Item -ItemType Directory -Path "$work/native", "$fixture/build/toolchains", "$fixture/output", "$fixture/outside" -Force | Out-Null
+$work = Join-Path $fixture "../builds/GalaxyXR-Driver/build/$name"
+New-Item -ItemType Directory -Path "$work/native", "$fixture/../builds/GalaxyXR-Driver/build/toolchains", "$fixture/../builds/GalaxyXR-Driver/output", "$fixture/outside" -Force | Out-Null
 Set-Content -LiteralPath "$work/native/test.obj" -Value 'generated'
-Set-Content -LiteralPath "$fixture/build/toolchains/keep.txt" -Value 'compiler'
-Set-Content -LiteralPath "$fixture/output/keep.txt" -Value 'package'
+Set-Content -LiteralPath "$fixture/../builds/GalaxyXR-Driver/build/toolchains/keep.txt" -Value 'compiler'
+Set-Content -LiteralPath "$fixture/../builds/GalaxyXR-Driver/output/keep.txt" -Value 'package'
 Set-Content -LiteralPath "$fixture/outside/keep.txt" -Value 'unrelated'
 $checks = 0
 function Assert-Rejected([scriptblock]$Action) {
@@ -22,10 +22,10 @@ $checks++
 Remove-PortableBuildWork -Repository $fixture -WorkDirectory $work
 $checks++
 Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory "$fixture/outside" }
-Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory "$fixture/build/toolchains" }
-Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory "$fixture/output" }
-Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory "$fixture/build/../outside/$name" }
-Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory "$fixture/build/$name/child" }
+Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory "$fixture/../builds/GalaxyXR-Driver/build/toolchains" }
+Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory "$fixture/../builds/GalaxyXR-Driver/output" }
+Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory "$fixture/../builds/GalaxyXR-Driver/build/../outside/$name" }
+Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory "$fixture/../builds/GalaxyXR-Driver/build/$name/child" }
 Set-Content -LiteralPath $work -Value 'not a directory'
 Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory $work }
 Remove-Item -LiteralPath $work
@@ -39,9 +39,10 @@ Remove-PortableBuildWork -Repository $fixture -WorkDirectory $work
 New-Item -ItemType Junction -Path $work -Target "$fixture/outside" | Out-Null
 Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory $work }
 [IO.Directory]::Delete($work)
-foreach ($file in @('build/toolchains/keep.txt','output/keep.txt','outside/keep.txt')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $fixture $file))) { throw "Protected file removed: $file" }
+foreach ($file in @('build/toolchains/keep.txt','output/keep.txt','../../repo/outside/keep.txt')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $fixture ('../builds/GalaxyXR-Driver/' + $file)))) { throw "Protected file removed: $file" }
     $checks++
 }
-# No recursive fixture deletion: keep the tiny preservation evidence for review.
-Write-Output "Portable cleanup: $checks checks passed. Fixture: $fixture"
+. (Join-Path $PSScriptRoot 'lib/test-fixture-cleanup.ps1')
+Remove-TestFixture -Repository $repo -Fixture (Split-Path $fixture -Parent)
+Write-Output "Portable cleanup: $checks checks passed. Owned fixture removed."

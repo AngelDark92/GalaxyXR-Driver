@@ -22,6 +22,8 @@ For an OFF comparison, keep the same stream settings and scene, record the loade
 
 Setup encoder lifecycle (2026-09-26): first installation and installation after a completed uninstall use the reference NVENC defaults: Tap, automatic HEVC level, CBR, bitrate scaling and preset merge on; preset Auto, two-frame VBV, keyframe scale 2, 90 fps budgeting and automatic split. Native identity starts on. Direct upgrades preserve saved choices, including native identity off and custom encoder values. Hitch diagnostics remain off and the SDR 10-bit baseline keeps its current opt-in behavior. Encoder toggles and reset arrows use this package's defaults even when an older `info.json` remains. A file read started before a newer save cannot replace that edit with stale settings.
 
+Stream codec (2026-10-13): the Stream Frame Encoder group offers a **Stream codec** setting. **HEVC (default)** keeps Steam Link's own encoder behaviour; **H.264** and **AV1 (experimental)** are applied through the NVENC Tap override. Non-HEVC streams need the Steam Link client Codecs Support patch on the headset to decode, and the change requires a SteamVR restart.
+
 In **Setup → Restore or remove**, both actions require SteamVR to be confirmed stopped, including its monitor and compositor processes:
 
 - **Restore defaults** resets all driver tuning and app preferences, including appearance, Advanced Mode, and setup verification. Native Identity and NVENC Tap return to their defaults. The reset clears stale telemetry and migration state, restores unchanged journal-owned SteamVR tuning, and makes a recovery backup. The installed driver, registration, saved profiles, and backups stay in place. Start SteamVR afterwards to apply the driver defaults.

@@ -189,7 +189,7 @@ function Install-MicrosoftBuildTools {
     }
 
     $repo = Split-Path $PSScriptRoot -Parent
-    $root = Join-Path $repo 'build/toolchains'
+    $root = Join-Path $repo '../builds/GalaxyXR-Driver/build/toolchains'
     Assert-BuildToolsCachePath $root
     [IO.Directory]::CreateDirectory($root) | Out-Null
     try {

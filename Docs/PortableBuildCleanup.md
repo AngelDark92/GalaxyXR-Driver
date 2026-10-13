@@ -1,5 +1,38 @@
 # Workspace cleanup and output retention
 
+## Current artifact location (2026-10-08)
+
+Builds now use `../builds/GalaxyXR-Driver/` relative to the checkout. On this machine that
+is `D:\Angelo\Desktop\SteamLink-GalaxyXR-Windows-Toolkit-FULL\builds\GalaxyXR-Driver`.
+`build/` holds compiler scratch, toolchains and logs; `output/` holds Cargo targets
+and staged packages; `release/` holds release ZIPs and metadata; `gui/build/`,
+`gui/dist/` and `gui/cache/` hold generated frontend files and caches.
+Tauri metadata uses Cargo's external scratch context and stable `gui/schemas/`.
+Temporary tool fixtures use `build/test-fixtures/` and remove themselves after
+successful checks. Source archives default to `release/source/`.
+
+PowerShell builders and tests, MSBuild (including referenced MinHook), Cargo,
+Vite, packaging and CI artifact uploads use this external layout. Do not create
+new build folders inside the checkout. Vendored source folders named `build`
+remain in `ThirdParty`; they are source inputs, not disposable compiler outputs.
+
+`tools/Move-BuildFolders.ps1` previews the migration; `-Apply` moves known
+untracked artifact directories and verifies file names and sizes. Existing
+destination directories accept disjoint children only; collisions fail before
+moving anything. It preserves all packages and evidence, rejects links and
+tracked files, and checks active processes and SteamVR registrations.
+The migration receipt is `../builds/GalaxyXR-Driver/build-folder-migration.json`.
+
+For routine retention, `tools/Clean-Workspace.ps1 -KeepPackage output/<package>`
+interprets the package path relative to `../builds/GalaxyXR-Driver`. It retains its
+allowlist and protections, and still recognizes legacy artifacts during
+migration. Its receipt is `../builds/GalaxyXR-Driver/build/workspace-cleanup-last.json`.
+Preview before `-Apply`; a missing verified full package is never substituted
+with a frontend-only build. Other projects' unrecognized artifacts are preserved.
+
+The sections below record the historical 2026-09-26 audit; their paths and byte
+counts describe that audit, before external relocation.
+
 User policy, 2026-09-26: full builds run on GitHub. Keep only the latest verified
 complete local package and clean generated artifacts at the end of tasks. This
 replaces the previous policy of keeping every output package and historical cache.

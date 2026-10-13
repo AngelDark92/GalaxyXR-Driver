@@ -3,7 +3,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repo 'tools/Enter-PortableBuildEnvironment.ps1')
-$build = Join-Path $repo 'build/controller-toggle-test'
+$build = Join-Path $repo '../builds/GalaxyXR-Driver/build/controller-toggle-test'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
 function Get-CodeBlock([string]$source, [string]$signature) {

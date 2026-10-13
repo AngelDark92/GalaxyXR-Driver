@@ -12,7 +12,7 @@ if (-not (Test-Path -LiteralPath $CompilerPath -PathType Leaf)) {
     throw "Zig compiler missing: $CompilerPath. Supply -CompilerPath with the path to zig.exe."
 }
 $CompilerPath = (Resolve-Path -LiteralPath $CompilerPath).Path
-$outputDirectory = Join-Path $repoRoot 'build/vrlink-capabilities-test'
+$outputDirectory = Join-Path $repoRoot '../builds/GalaxyXR-Driver/build/vrlink-capabilities-test'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $source = Join-Path $repoRoot 'GalaxyXRDriver/tests/VrlinkCapabilitiesTest.cpp'
 $headers = Join-Path $repoRoot 'ThirdParty/openvr/headers'

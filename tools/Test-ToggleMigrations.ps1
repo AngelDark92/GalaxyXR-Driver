@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1')
-$build = Join-Path $repo 'build/toggle-migration-test'
+$build = Join-Path $repo '../builds/GalaxyXR-Driver/build/toggle-migration-test'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 $source = [IO.File]::ReadAllText((Join-Path $repo 'GalaxyXRDriver/src/Config/ConfigLoader.cpp'))
 $begin = $source.IndexOf('void ConfigLoader::ParseConfig(){')

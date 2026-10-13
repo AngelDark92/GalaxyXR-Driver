@@ -6,7 +6,7 @@ function Remove-PortableBuildWork {
         [Parameter(Mandatory=$true)][string]$WorkDirectory
     )
     $root = [IO.Path]::GetFullPath($Repository).TrimEnd('\', '/')
-    $build = Join-Path $root 'build'
+    $build = [IO.Path]::GetFullPath((Join-Path $root '../builds/GalaxyXR-Driver/build'))
     $target = [IO.Path]::GetFullPath($WorkDirectory).TrimEnd('\', '/')
     if (-not [string]::Equals((Split-Path $target -Parent), $build, [StringComparison]::OrdinalIgnoreCase) -or
         (Split-Path $target -Leaf) -notmatch '^portable-work-\d{8}-\d{6}-[0-9a-f]{32}$') {

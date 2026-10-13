@@ -258,6 +258,15 @@ struct Snapshot {
 	uint32_t hevcLevel = 0, hevcTier = 0, hevcRefs = 0;
 	NV_ENC_CONFIG_HEVC_VUI_PARAMETERS hevcVui{};
 	bool hevc = false;
+	// 2026-10-13 codec override: original GUIDs + a byte window of the
+	// codec-config union. 256 bytes covers every field of every union
+	// member in every SDK era (verified field offsets, all <= 216) and
+	// never exceeds the union of the runtime struct.
+	bool codecSwapped = false;
+	GUID codecGuid{};
+	GUID codecProfile{};
+	static constexpr size_t kCodecWindow = 256;
+	unsigned char codecWindow[kCodecWindow]{};
 };
 const GUID* PresetGuid(int p){
 	switch(p){ case 1: return &NV_ENC_PRESET_P1_GUID; case 2: return &NV_ENC_PRESET_P2_GUID; case 3: return &NV_ENC_PRESET_P3_GUID;
@@ -368,6 +377,55 @@ inline size_t WhatRem(const char* w, const char* what, size_t whatLen){
 	return w < what + whatLen ? (size_t)(what + whatLen - w) : 0;
 }
 
+// 2026-10-13 stream codec override: rewrite vrlink's HEVC session into
+// H.264 or AV1. Applied at init and every reconfigure; the caller params
+// are restored after each call (Restore), so each call re-derives from
+// vrlink's own state. Only fields inside kCodecWindow are cleared and
+// written; every HEVC-only override below skips itself because snap.hevc
+// is cleared here. H.264 and AV1 v1 force 8-bit output (NVENC rejects
+// 10-bit H.264; the client "Codecs Support" patch decodes both).
+bool ApplyCodecOverride(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapConfig &cfg, Snapshot &snap, char* &w, size_t whatLen, const char* what){
+	if(cfg.codec <= 0 || !p->encodeConfig){ return false; }
+	const GUID* codec = nullptr; const GUID* profile = nullptr; const char* name = nullptr;
+	if(cfg.codec == 1){ codec = &NV_ENC_CODEC_H264_GUID; profile = &NV_ENC_H264_PROFILE_HIGH_GUID; name = "H264"; }
+	else if(cfg.codec == 2){ codec = &NV_ENC_CODEC_AV1_GUID; profile = &NV_ENC_AV1_PROFILE_MAIN_GUID; name = "AV1"; }
+	else { return false; }
+	if(memcmp(&p->encodeGUID, codec, sizeof(GUID)) == 0){ return false; } // already the target
+	if(!IsHevc(p->encodeGUID)){
+		// only vrlink's HEVC sessions are rewritten; anything else is left alone
+		return false;
+	}
+	NV_ENC_CONFIG* c = p->encodeConfig;
+	// save everything the rewrite touches, for the post-call restore
+	snap.codecSwapped = true;
+	snap.codecGuid = p->encodeGUID;
+	snap.codecProfile = c->profileGUID;
+	memcpy(snap.codecWindow, &c->encodeCodecConfig, sizeof(snap.codecWindow));
+	p->encodeGUID = *codec;
+	c->profileGUID = *profile;
+	memset(&c->encodeCodecConfig, 0, sizeof(snap.codecWindow));
+	if(cfg.codec == 1){
+		NV_ENC_CONFIG_H264 &h = c->encodeCodecConfig.h264Config;
+		h.level = NV_ENC_LEVEL_AUTOSELECT;
+		h.entropyCodingMode = NV_ENC_H264_ENTROPY_CODING_MODE_CABAC;
+		h.repeatSPSPPS = 1;                 // SPS/PPS with every IDR: client resync
+		h.chromaFormatIDC = 1;
+		h.outputBitDepth = NV_ENC_BIT_DEPTH_8;
+		h.inputBitDepth = NV_ENC_BIT_DEPTH_8;
+	}else{
+		NV_ENC_CONFIG_AV1 &a = c->encodeCodecConfig.av1Config;
+		a.level = NV_ENC_LEVEL_AV1_AUTOSELECT;
+		a.tier = NV_ENC_TIER_AV1_0;              // MAIN tier
+		a.repeatSeqHdr = 1;                 // sequence header with every key frame
+		a.chromaFormatIDC = 1;
+		a.outputBitDepth = NV_ENC_BIT_DEPTH_8;
+		a.inputBitDepth = NV_ENC_BIT_DEPTH_8;
+	}
+	snap.hevc = false; // every HEVC-only override below must skip itself
+	w += snprintf(w, WhatRem(w, what, whatLen), "codec HEVC->%s (8-bit); ", name);
+	return true;
+}
+
 // returns true if anything was changed
 bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapConfig &cfg, Snapshot &snap, char* what, size_t whatLen){
 	snap = Snapshot{};
@@ -388,6 +446,7 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	}
 	bool changed = false;
 	char* w = what;
+	if(ApplyCodecOverride(encoder, p, cfg, snap, w, whatLen, what)){ changed = true; }
 	int presetWanted = cfg.preset;
 	if(presetWanted == 0 && cfg.presetAuto){
 		uint32_t engines; { std::lock_guard<std::mutex> g(statsLock); engines = stats.numEncoderEngines; }
@@ -574,6 +633,11 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 void Restore(const Snapshot &snap){
 	if(!snap.valid || !snap.cfgPtr){ return; }
 	snap.cfgPtr->rcParams = snap.rc;
+	if(snap.codecSwapped && snap.initPtr){
+		snap.initPtr->encodeGUID = snap.codecGuid;
+		snap.cfgPtr->profileGUID = snap.codecProfile;
+		memcpy(&snap.cfgPtr->encodeCodecConfig, snap.codecWindow, sizeof(snap.codecWindow));
+	}
 	if(snap.initPtr){ snap.initPtr->presetGUID = snap.preset; snap.initPtr->frameRateNum = snap.fpsNum; snap.initPtr->frameRateDen = snap.fpsDen; }
 	if(snap.split && snap.initPtr){
 		snap.initPtr->version = snap.initVer; snap.cfgPtr->version = snap.cfgVer; snap.cfgPtr->rcParams.version = snap.rcVer; // no-ops on the native path

@@ -1,0 +1,8 @@
+<Project>
+  <!-- External artifacts (2026-10-08): include referenced vendored projects
+       without changing their source or project files. -->
+  <PropertyGroup>
+    <GxrBuildRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\builds\GalaxyXR-Driver\'))</GxrBuildRoot>
+    <BaseIntermediateOutputPath>$(GxrBuildRoot)build\msbuild\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

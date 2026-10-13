@@ -859,6 +859,9 @@
       <trans-unit id="steamvrInstallNotFound" datatype="html">
         <source>The driver install needs a SteamVR installation. If SteamVR is already installed, launch it once (this registers its OpenVR paths) and then retry. You can also install SteamVR from the Driver Settings tab.</source>
       </trans-unit>
+      <trans-unit id="fluent-fix-f751a210dcb542ed" datatype="html">
+        <source>AV1 (experimental)</source>
+      </trans-unit>
       <trans-unit id="fluent-fix-eb2286ed0abbf29e" datatype="html">
         <source>Adaptive Direction Lead - EXPERIMENT A</source>
       </trans-unit>
@@ -942,6 +945,9 @@
       </trans-unit>
       <trans-unit id="fluent-fix-ec963ffc911b8401" datatype="html">
         <source>Checking…</source>
+      </trans-unit>
+      <trans-unit id="fluent-fix-db71f02ee461e9e9" datatype="html">
+        <source>Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 and AV1 run 8-bit. Requires a SteamVR restart and reconnect.</source>
       </trans-unit>
       <trans-unit id="fluent-fix-6b73191a0a4b6742" datatype="html">
         <source>Color</source>
@@ -1161,6 +1167,12 @@
       </trans-unit>
       <trans-unit id="fluent-fix-b52850be81a88a45" datatype="html">
         <source>Grip-Point Velocity Compensator</source>
+      </trans-unit>
+      <trans-unit id="fluent-fix-66023a8458aaae65" datatype="html">
+        <source>H.264</source>
+      </trans-unit>
+      <trans-unit id="fluent-fix-1ed826550a21931d" datatype="html">
+        <source>HEVC (default)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-b0e9d8b8165051d1" datatype="html">
         <source>Hand Anchor Pitch (deg)</source>
@@ -1500,6 +1512,9 @@
       </trans-unit>
       <trans-unit id="fluent-fix-8bd4c368c8dc7322" datatype="html">
         <source>Stream Quality Preset</source>
+      </trans-unit>
+      <trans-unit id="fluent-fix-d39c7b29903b6054" datatype="html">
+        <source>Stream codec</source>
       </trans-unit>
       <trans-unit id="fluent-fix-3589b7f5bc2b8a3e" datatype="html">
         <source>Strength Left</source>

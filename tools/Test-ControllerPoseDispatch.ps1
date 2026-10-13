@@ -3,7 +3,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1')
-$outputDirectory = Join-Path $repoRoot 'build/controller-pose-dispatch-test'
+$outputDirectory = Join-Path $repoRoot '../builds/GalaxyXR-Driver/build/controller-pose-dispatch-test'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $source = Join-Path $repoRoot 'GalaxyXRDriver/tests/ControllerPoseDispatchTest.cpp'
 $headers = Join-Path $repoRoot 'ThirdParty/openvr/headers'

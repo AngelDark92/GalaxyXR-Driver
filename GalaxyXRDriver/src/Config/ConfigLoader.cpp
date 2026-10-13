@@ -899,6 +899,9 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["nvencTap"].is_boolean()){
 				newConfig.streamFrame.nvencTap = streamFrameData["nvencTap"].get<bool>();
 			}
+			if(streamFrameData["nvencCodec"].is_number()){
+				newConfig.streamFrame.nvencCodec = streamFrameData["nvencCodec"].get<int>();
+			}
 			if(streamFrameData["nvencBandwidthOverrideMbit"].is_number()){
 				newConfig.streamFrame.nvencBandwidthOverrideMbit = streamFrameData["nvencBandwidthOverrideMbit"].get<int>();
 			}
@@ -1904,6 +1907,7 @@ void ConfigLoader::WriteInfo(){
 				}},
 				{"zeroCopyV3", defaultSettings.streamFrame.zeroCopyV3},
 				{"nvencTap", defaultSettings.streamFrame.nvencTap},
+				{"nvencCodec", defaultSettings.streamFrame.nvencCodec},
 				{"nvencBandwidthOverrideMbit", defaultSettings.streamFrame.nvencBandwidthOverrideMbit},
 				{"nvencSettingsVersion", 0}, // 0 on purpose: the GUI omits values equal to these defaults when saving; the real stamp (4) must differ or it is dropped
 				{"nvencFixLevel", defaultSettings.streamFrame.nvencFixLevel},

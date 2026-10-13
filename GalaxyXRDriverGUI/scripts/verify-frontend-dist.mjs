@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
-const distRoot = path.join(root, 'dist', 'fluent');
+const distRoot = path.join(root, '../../builds/GalaxyXR-Driver/gui/dist', 'fluent');
 const LOCALES = ['en-US', 'zh-Hant', 'ja'];
 
 let failures = 0;

@@ -20,6 +20,11 @@ concurrency:
   group: galaxy-xr-release-${{ github.ref }}
   cancel-in-progress: false
 
+# Build-only release pipeline (user policy, 2026-10-12): this workflow builds
+# both portable packages, packages the Galaxy XR ZIP and publishes it. Unit,
+# Rust, service and NVENC compile suites are deliberately NOT run here; run
+# them locally at the end of a task (AGENTS.md "Build and verification") and
+# see build-tools.yml for the CI tool/service suites.
 jobs:
   build-windows-release:
     name: Windows x64 portable release
@@ -62,6 +67,20 @@ jobs:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
 
+      # Both Tauri builds dominate this job. The registry cache holds the
+      # downloaded crate sources and saves the fetch phase; the compiled crate
+      # tree under the external output/GalaxyXRDriverGUI target dir is NOT
+      # cached, because actions/cache rejects relative '..' patterns and
+      # uploading the multi-GB tree costs more than the recompile it saves.
+      - name: Restore Cargo registry cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('GalaxyXRDriverGUI/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
+
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v3
         with:
@@ -76,33 +95,10 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
 
-      - name: Verify production NVENC OFF bypass and resource ownership
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-NvencToggle.ps1 -UseCurrentEnvironment
-          if errorlevel 1 exit /b 1
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-NvencPostPackOrder.ps1 -UseCurrentEnvironment
-          if errorlevel 1 exit /b 1
-
       - name: Install frontend dependencies
         working-directory: GalaxyXRDriverGUI
         shell: pwsh
         run: npm ci
-
-      - name: Run frontend tests
-        working-directory: GalaxyXRDriverGUI
-        shell: pwsh
-        run: npm test
-
-      - name: Run service and packaging regressions
-        shell: pwsh
-        run: |
-          foreach ($test in @('Test-FluentFixes', 'Test-CompanionModes', 'Test-EncoderRestore', 'Test-AboutSetup',
-            'Test-SectionCards', 'Test-FluentBuildHooks', 'Test-SourceUpdate')) {
-            node ".\tools\$test.cjs"
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
 
       - name: Build neutral portable package
         shell: pwsh
@@ -111,11 +107,6 @@ jobs:
       - name: Build Galaxy XR portable package
         shell: pwsh
         run: node .\build.js --vendor galaxyxr
-
-      - name: Test native installation, cleanup, and runtime confirmation
-        working-directory: GalaxyXRDriverGUI/src-tauri
-        shell: pwsh
-        run: cargo test --locked --lib
 
       - name: Create versioned ZIP, checksum, and release notes
         shell: pwsh
@@ -129,7 +120,7 @@ jobs:
       - name: Upload portable ZIP artifact
         uses: actions/upload-artifact@v7
         with:
-          path: release/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64.zip
+          path: ../builds/GalaxyXR-Driver/release/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64.zip
           archive: false
           if-no-files-found: error
           retention-days: 30
@@ -139,8 +130,8 @@ jobs:
         with:
           name: GalaxyXRDriver-v${{ steps.version.outputs.version }}-release-metadata
           path: |
-            release/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64.zip.sha256
-            release/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64-release-notes.md
+            ../builds/GalaxyXR-Driver/release/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64.zip.sha256
+            ../builds/GalaxyXR-Driver/release/GalaxyXRDriver-v${{ steps.version.outputs.version }}-Windows-x64-release-notes.md
           if-no-files-found: error
           retention-days: 30
 
@@ -163,8 +154,8 @@ jobs:
         with:
           name: native-dependency-diagnostics-${{ github.run_id }}
           path: |
-            build/native-dependencies/*-fetch.log
-            build/native-dependencies/restoration-report.json
-            build/toolchains/logs/**
+            ../builds/GalaxyXR-Driver/build/native-dependencies/*-fetch.log
+            ../builds/GalaxyXR-Driver/build/native-dependencies/restoration-report.json
+            ../builds/GalaxyXR-Driver/build/toolchains/logs/**
           if-no-files-found: ignore
           retention-days: 7

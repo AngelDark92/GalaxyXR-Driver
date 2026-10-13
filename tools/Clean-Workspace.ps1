@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 $repo = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent)).TrimEnd('\', '/')
+$artifacts = [IO.Path]::GetFullPath((Join-Path $repo '../builds/GalaxyXR-Driver')).TrimEnd('\', '/')
 $packagePattern = '^GalaxyXRDriver-(Neutral-)?Test-\d{8}-\d{6}$'
 $comparison = [StringComparison]::OrdinalIgnoreCase
 
@@ -25,7 +26,8 @@ function Assert-Ancestors([string]$Path) {
 }
 function Get-SafeTree([string]$Path) {
     $full = [IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
-    if (-not (Test-Within $full $repo) -or $full.Equals($repo, $comparison)) { throw "Path escapes cleanup boundary: $full" }
+    if ((-not (Test-Within $full $repo) -and -not (Test-Within $full $artifacts)) -or
+        $full.Equals($repo, $comparison) -or $full.Equals($artifacts, $comparison)) { throw "Path escapes cleanup boundary: $full" }
     Assert-Ancestors $full
     if (-not (Get-Item -LiteralPath $full -Force).PSIsContainer) { throw "Not a directory: $full" }
     $pending = New-Object 'System.Collections.Generic.Stack[string]'
@@ -39,7 +41,10 @@ function Get-SafeTree([string]$Path) {
         }
     }
 }
-function Get-Relative([string]$Path, [string]$Parent=$repo) { return $Path.Substring($Parent.Length + 1).Replace('\', '/') }
+function Get-Relative([string]$Path, [string]$Parent=$repo) {
+    if ($Parent -eq $repo -and (Test-Within $Path $artifacts)) { $Parent = $artifacts }
+    return $Path.Substring($Parent.Length + 1).Replace('\', '/')
+}
 function Get-TrackedPaths {
     $paths = @(& git -C $repo -c core.quotepath=false ls-files)
     if ($LASTEXITCODE -ne 0 -or -not $paths.Count) { throw 'Cannot establish tracked-file protection.' }
@@ -48,6 +53,7 @@ function Get-TrackedPaths {
     return ,$set
 }
 function Assert-Untracked([string]$Path) {
+    if (Test-Within $Path $artifacts) { return }
     $relative = Get-Relative $Path
     foreach ($tracked in $script:trackedPaths) {
         if ($tracked.Equals($relative, $comparison) -or $tracked.StartsWith($relative + '/', $comparison)) {
@@ -56,7 +62,7 @@ function Assert-Untracked([string]$Path) {
     }
 }
 function Get-PackageFiles([string]$Path, [switch]$ForDeletion) {
-    if ((Split-Path $Path -Parent) -ne (Join-Path $repo 'output') -or (Split-Path $Path -Leaf) -notmatch $packagePattern) {
+    if ((Split-Path $Path -Parent) -notin @((Join-Path $repo 'output'), (Join-Path $artifacts 'output')) -or (Split-Path $Path -Leaf) -notmatch $packagePattern) {
         throw 'Only a recognized direct-child test package is supported.'
     }
     $tree = @(Get-SafeTree $Path)
@@ -150,7 +156,7 @@ function Assert-Idle($Candidates) {
         if ($process.ProcessId -eq $PID) { continue }
         if ($process.Name -match '^(cl|link|msbuild|rustc|cargo|cmake|ninja)\.exe$') { throw "Build process active: $($process.Name) ($($process.ProcessId))" }
         if ($process.Name -match '^(node|powershell|pwsh)\.exe$' -and -not $process.CommandLine) { throw "Cannot inspect build-capable process $($process.ProcessId)." }
-        if ($process.CommandLine -match '(?i)(?:^|[\\/\s"''])(build\.js|Build-Portable\.ps1|vite(?:\.js)?)(?:[\s"'']|$)') {
+        if ($process.CommandLine -match '(?i)(?:node(?:\.exe)?["'']?\s+["'']?(?:[^\s"'']*[\\/])?(?:build\.js|vite(?:\.js)?)(?:[\s"'']|$)|-File\s+["'']?(?:[^\s"'']*[\\/])?Build-Portable\.ps1(?:[\s"'']|$))') {
             throw "Build command active: process $($process.ProcessId)"
         }
         foreach ($candidate in $Candidates) {
@@ -177,8 +183,11 @@ function Assert-Idle($Candidates) {
 }
 
 Assert-Ancestors $repo
-if ([IO.Path]::IsPathRooted($KeepPackage) -or $KeepPackage -match '(^|[\\/])\.\.([\\/]|$)') { throw 'KeepPackage must be repository-relative without parent traversal.' }
-$keep = [IO.Path]::GetFullPath((Join-Path $repo $KeepPackage)).TrimEnd('\', '/')
+Assert-Ancestors $artifacts
+if ([IO.Path]::IsPathRooted($KeepPackage) -or $KeepPackage -match '(^|[\\/])\.\.([\\/]|$)') { throw 'KeepPackage must be relative to builds/GalaxyXR-Driver without parent traversal.' }
+$keep = [IO.Path]::GetFullPath((Join-Path $artifacts $KeepPackage)).TrimEnd('\', '/')
+# Legacy packages remain reviewable during migration; new builds always use artifacts.
+if (-not (Test-Path -LiteralPath $keep)) { $keep = [IO.Path]::GetFullPath((Join-Path $repo $KeepPackage)).TrimEnd('\', '/') }
 $trackedPaths = Get-TrackedPaths
 $driverResources = @($trackedPaths | Where-Object { $_.StartsWith('GalaxyXRDriver/DriverFiles/', $comparison) } | ForEach-Object { $_.Substring('GalaxyXRDriver/DriverFiles/'.Length) })
 if ('driver.vrdrivermanifest' -notin $driverResources -or $driverResources.Count -lt 2) { throw 'Tracked driver resource inventory unavailable.' }
@@ -186,8 +195,9 @@ $keepHashes = Get-Hashes $keep
 $candidates = New-Object 'System.Collections.Generic.List[object]'
 $skipped = New-Object 'System.Collections.Generic.List[object]'
 $possible = New-Object 'System.Collections.Generic.List[object]'
+foreach ($base in @($artifacts, $repo)) {
 foreach ($parent in @('output','build')) {
-    $directory = Join-Path $repo $parent
+    $directory = Join-Path $base $parent
     Assert-Ancestors $directory
     if (-not (Test-Path -LiteralPath $directory)) { continue }
     foreach ($item in @(Get-ChildItem -LiteralPath $directory -Force)) {
@@ -200,8 +210,11 @@ foreach ($parent in @('output','build')) {
         elseif ($parent -eq 'output') { $skipped.Add([pscustomobject]@{path=(Get-Relative $item.FullName); reason='Unrecognized output; preserved.'}) }
     }
 }
+}
 $localCargo = Join-Path $repo 'GalaxyXRDriverGUI/src-tauri/target'
 if (Test-Path -LiteralPath $localCargo) { $possible.Add([pscustomobject]@{path=$localCargo; kind='cargo'}) }
+$movedCargo = Join-Path $artifacts 'gui/target'
+if (Test-Path -LiteralPath $movedCargo) { $possible.Add([pscustomobject]@{path=$movedCargo; kind='cargo'}) }
 foreach ($candidate in $possible) {
     try {
         $files = @(Get-CandidateFiles $candidate)
@@ -221,7 +234,7 @@ if (-not $Apply) { return }
 
 Assert-Idle $candidates
 Assert-KeptPackage
-$receiptPath = Join-Path $repo 'build/workspace-cleanup-last.json'
+$receiptPath = Join-Path $artifacts 'build/workspace-cleanup-last.json'
 Assert-Ancestors $receiptPath
 Assert-Untracked $receiptPath
 $receipt = [ordered]@{

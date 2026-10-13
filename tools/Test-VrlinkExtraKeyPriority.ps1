@@ -3,7 +3,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1')
-$outputDirectory = Join-Path $repoRoot 'build/vrlink-extra-key-priority-test'
+$outputDirectory = Join-Path $repoRoot '../builds/GalaxyXR-Driver/build/vrlink-extra-key-priority-test'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 
 function Get-FunctionBody([string]$source, [string]$signature) {

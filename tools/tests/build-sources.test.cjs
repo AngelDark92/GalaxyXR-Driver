@@ -1,4 +1,5 @@
 'use strict';
+const { fixtureRoot } = require('../lib/test-fixtures.cjs');
 
 // Real Git fixtures: exercise normal git add and a fresh local clone. No network,
 // npm installation, native compilation, or changes to the user's checkout.
@@ -39,7 +40,7 @@ function copy(root, relative) {
   fs.cpSync(path.join(project, relative), destination, { recursive: true });
 }
 function fixture(t, initGit = true) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'GalaxyXR build sources [fixture] '));
+  const root = fs.mkdtempSync(path.join(fixtureRoot(), 'GalaxyXR build sources [fixture] '));
   t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }));
   for (const relative of REQUIRED_BUILD_SOURCES) copy(root, relative);
   if (initGit) {
@@ -60,7 +61,7 @@ function ignored(root, file) { return git(root, 'check-ignore', '--no-index', '-
 function stage(root) { mustPass(git(root, 'add', '--all')); }
 function clone(t, root) {
   mustPass(git(root, 'commit', '--quiet', '-m', 'Fixture sources'));
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'GalaxyXR clone [fixture] '));
+  const parent = fs.mkdtempSync(path.join(fixtureRoot(), 'GalaxyXR clone [fixture] '));
   t.after(() => fs.rmSync(parent, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }));
   const destination = path.join(parent, 'fresh checkout');
   // No submodule or remote fetches. Clone only our own temporary fixture repo.

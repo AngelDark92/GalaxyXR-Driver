@@ -12,7 +12,7 @@ const before = fs.readFileSync(filename, 'utf8');
 const config = JSON.parse(before.replace(/^\uFEFF/, ''));
 config.productName = 'Galaxy XR Companion';
 config.build = { ...config.build,
-  frontendDist: '../dist/fluent', devUrl: 'http://127.0.0.1:5173',
+  frontendDist: '../../../builds/GalaxyXR-Driver/gui/dist/fluent', devUrl: 'http://127.0.0.1:5173',
   beforeDevCommand: 'npm run dev:ui', beforeBuildCommand: 'npm run build:ui',
 };
 config.app ??= {};

@@ -10,8 +10,8 @@ const http = require('node:http');
 const { createHash } = require('node:crypto');
 const { chromium } = require('playwright');
 const repo = path.resolve(__dirname, '..');
-const dist = path.join(repo, 'GalaxyXRDriverGUI/dist/fluent');
-const out = process.env.COMPANION_BROWSER_OUTPUT || path.join(repo, 'build/companion-ui-validation');
+const dist = path.join(repo, '../builds/GalaxyXR-Driver/gui/dist/fluent');
+const out = process.env.COMPANION_BROWSER_OUTPUT || path.join(repo, '../builds/GalaxyXR-Driver/build/companion-ui-validation');
 fs.mkdirSync(out, { recursive: true });
 
 function fixture() {

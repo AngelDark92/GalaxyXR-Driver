@@ -11,7 +11,7 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or
     throw 'Run the portable build in 64-bit Windows PowerShell 5.1 or PowerShell 7.'
 }
 $repo = Split-Path $PSScriptRoot -Parent
-$toolRoot = Join-Path $repo 'build/toolchains'
+$toolRoot = Join-Path $repo '../builds/GalaxyXR-Driver/build/toolchains'
 foreach ($required in @('build.js', 'GalaxyXRDriver/GalaxyXRDriver.vcxproj', 'GalaxyXRDriverGUI/package-lock.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $repo $required) -PathType Leaf)) {
         throw "Missing project source: $required. Apply the update at the project root."

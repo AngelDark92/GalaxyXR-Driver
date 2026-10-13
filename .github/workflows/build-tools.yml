@@ -19,7 +19,7 @@ jobs:
   build-tools:
     name: Windows build tool tests (PowerShell 5.1 and 7)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       REQUIRE_PORTABLE_POWERSHELL_TESTS: '1'
       REQUIRE_POWERSHELL_TESTS: '1'
@@ -61,6 +61,13 @@ jobs:
           if ($testFiles.Count -eq 0) { throw 'No build tool test files found' }
           node --test @testFiles
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # The GUI unit suite is not part of the release build (release.yml builds
+      # and packages only); it runs here and locally at the end of a task.
+      - name: Run frontend tests
+        if: ${{ !cancelled() }}
+        working-directory: GalaxyXRDriverGUI
+        run: npm test
 
       - name: Run service and packaging regressions
         if: ${{ !cancelled() }}

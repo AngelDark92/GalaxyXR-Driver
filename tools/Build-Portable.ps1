@@ -29,12 +29,12 @@ function Invoke-NativeLogged {
 if ($DriverOnly -and $GuiOnly) { throw 'Choose at most 1 partial-build switch.' }
 if ($InstallMicrosoftBuildTools -and $NoDownload) { throw '-InstallMicrosoftBuildTools cannot be combined with -NoDownload.' }
 $repo = Split-Path $PSScriptRoot -Parent
-$buildRoot = Join-Path $repo 'build'
+$buildRoot = Join-Path $repo '../builds/GalaxyXR-Driver/build'
 . (Join-Path $PSScriptRoot 'lib/portable-build-cleanup.ps1')
 $workDirectory = $null
-if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repo ('output/GalaxyXRDriver-Test-' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
+if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repo ('../builds/GalaxyXR-Driver/output/GalaxyXRDriver-Test-' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
-if (-not $OutputDirectory.StartsWith([IO.Path]::GetFullPath((Join-Path $repo 'output')) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Output must be inside repository output directory.' }
+if (-not $OutputDirectory.StartsWith([IO.Path]::GetFullPath((Join-Path $repo '../builds/GalaxyXR-Driver/output')) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Output must be inside the external builds/GalaxyXR-Driver/output directory.' }
 # The public build command restores this shell's environment even on failure.
 # Dot-sourcing Enter-PortableBuildEnvironment directly remains available for
 # developers who deliberately want a persistent current-session tool environment.

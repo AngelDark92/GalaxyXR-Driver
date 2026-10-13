@@ -1,7 +1,11 @@
 param()
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
-$fixture = Join-Path ([IO.Path]::GetTempPath()) ('galaxyxr-workspace-cleanup-test-' + [Guid]::NewGuid().ToString('N'))
+$repo = Split-Path $PSScriptRoot -Parent
+$fixtureParent = [IO.Path]::GetFullPath((Join-Path $repo '../builds/GalaxyXR-Driver/build/test-fixtures'))
+$fixture = Join-Path $fixtureParent ('galaxyxr-workspace-cleanup-test-' + [Guid]::NewGuid().ToString('N'))
+$sandbox = $fixture
+$fixture = Join-Path $sandbox 'repo'
 $originalLocalAppData = $env:LOCALAPPDATA
 $originalRegistryOverride = $env:VR_PATHREG_OVERRIDE
 $passed = $false
@@ -78,7 +82,7 @@ try {
     $env:LOCALAPPDATA = Join-Path $fixture 'fake-localappdata'
     $env:VR_PATHREG_OVERRIDE = $null
     Put 'fake-localappdata/openvr/openvrpaths.vrpath' '{"external_drivers":[]}'
-    $receipt = Join-Path $fixture 'build/workspace-cleanup-last.json'
+    $receipt = Join-Path $fixture '../builds/GalaxyXR-Driver/build/workspace-cleanup-last.json'
     $preview = Run-Cleanup
     Assert (Test-Path -LiteralPath (Join-Path $fixture $old)) 'Preview deleted a package.'
     Assert (-not (Test-Path -LiteralPath $receipt)) 'Preview wrote a receipt.'
@@ -153,8 +157,8 @@ try {
         # Remove only this known junction itself, never its target. Then inspect
         # every remaining descendant without following any link before cleanup.
         if ($junction -and (Test-Path -LiteralPath $junction)) { [IO.Directory]::Delete($junction) }
-        $full = [IO.Path]::GetFullPath($fixture).TrimEnd('\')
-        $temp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+        $full = [IO.Path]::GetFullPath($sandbox).TrimEnd('\')
+        $temp = $fixtureParent.TrimEnd('\')
         if ((Split-Path $full -Parent) -ne $temp -or (Split-Path $full -Leaf) -notmatch '^galaxyxr-workspace-cleanup-test-[0-9a-f]{32}$') { throw 'Unsafe fixture cleanup path.' }
         $ancestor = $full
         while ($ancestor) {

@@ -1,4 +1,5 @@
 'use strict';
+const { fixtureRoot } = require('../lib/test-fixtures.cjs');
 // Uses REAL local Git repositories, commits, shallow fetches, and object batches.
 // No HTTP, compiler installation, or third-party source download is performed.
 const { test, before, after } = require('node:test');
@@ -20,7 +21,7 @@ function runGit(root, args) {
 function write(root, file, data = '// test fixture\n') {
   const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, data); return target;
 }
-function tmp(t) { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'GXR native [fixture] ')); t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })); return root; }
+function tmp(t) { const root = fs.mkdtempSync(path.join(fixtureRoot(), 'n [x] ')); t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })); const project=path.join(root,'repo');fs.mkdirSync(project);return project; }
 function fixture(t, git = false) {
   const root = tmp(t);
   for (const dep of lock.dependencies) {
@@ -41,7 +42,7 @@ function sourceHash(root) {
   scan(path.join(root, 'ThirdParty')); return hash.digest('hex');
 }
 before(() => {
-  upstreamRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'GXR native upstream '));
+  upstreamRoot = fs.mkdtempSync(path.join(fixtureRoot(), 'up-'));
   lock = structuredClone(native.loadLock()); transports = {};
   for (const dep of lock.dependencies) {
     const directory = path.join(upstreamRoot, dep.name); fs.mkdirSync(directory); transports[dep.name] = directory;
@@ -149,7 +150,7 @@ test('Nested dependency clone objects repair deleted tracked headers without net
   assert.ok(native.existingObjectDirectory(root, dep, dep.revision));
   erase(root, 'ThirdParty/zlib/zconf.h'); const report = prepare(root, { noDownload: true });
   assert.equal(report.filesAdded, 1); assert.equal(missing(root).length, 0);
-  assert.equal(fs.existsSync(path.join(root, 'build/native-dependencies', `${dep.name}-${dep.revision}.git`)), false);
+  assert.equal(fs.existsSync(path.join(root, '../builds/GalaxyXR-Driver/build/native-dependencies', `${dep.name}-${dep.revision}.git`)), false);
 });
 test('Initialized submodule objects repair deleted tracked headers without network/cache', t => {
   const root = fixture(t, true), dep = lock.dependencies.find(d => d.name === 'zlib');
@@ -159,7 +160,7 @@ test('Initialized submodule objects repair deleted tracked headers without netwo
   assert.ok(native.existingObjectDirectory(root, dep, dep.revision));
   erase(root, 'ThirdParty/zlib/zconf.h'); const report = prepare(root, { noDownload: true });
   assert.equal(report.filesAdded, 1); assert.equal(missing(root).length, 0);
-  assert.equal(fs.existsSync(path.join(root, 'build/native-dependencies', `${dep.name}-${dep.revision}.git`)), false);
+  assert.equal(fs.existsSync(path.join(root, '../builds/GalaxyXR-Driver/build/native-dependencies', `${dep.name}-${dep.revision}.git`)), false);
 });
 test('Unavailable pinned revision fails without selecting latest or changing files', t => {
   const root = fixture(t); erase(root, 'ThirdParty/zlib/zconf.h'); const before = sourceHash(root); const bad = structuredClone(lock); bad.dependencies.find(d => d.name === 'zlib').revision = 'a'.repeat(40);
@@ -167,12 +168,12 @@ test('Unavailable pinned revision fails without selecting latest or changing fil
 });
 test('Failure releases setup lock and retains actionable Git logs', t => {
   const root = fixture(t); erase(root, 'ThirdParty/zlib/zconf.h'); assert.throws(() => prepare(root, { transports: { zlib: '/missing/fixture/remote' } }), /Git failed/);
-  assert.equal(fs.existsSync(path.join(root, 'build/native-dependencies/.prepare.lock')), false);
-  assert.match(fs.readFileSync(path.join(root, 'build/native-dependencies/zlib-fetch.log'), 'utf8'), /fetch/);
+  assert.equal(fs.existsSync(path.join(root, '../builds/GalaxyXR-Driver/build/native-dependencies/.prepare.lock')), false);
+  assert.match(fs.readFileSync(path.join(root, '../builds/GalaxyXR-Driver/build/native-dependencies/zlib-fetch.log'), 'utf8'), /fetch/);
 });
 test('A concurrent setup lock prevents conflicting writes', t => {
-  const root = fixture(t); erase(root, 'ThirdParty/zlib/zconf.h'); write(root, 'build/native-dependencies/.prepare.lock', 'another process');
-  assert.throws(() => prepare(root), /Another native dependency setup/); assert.equal(fs.readFileSync(path.join(root, 'build/native-dependencies/.prepare.lock'), 'utf8'), 'another process');
+  const root = fixture(t); erase(root, 'ThirdParty/zlib/zconf.h'); write(root, '../builds/GalaxyXR-Driver/build/native-dependencies/.prepare.lock', 'another process');
+  assert.throws(() => prepare(root), /Another native dependency setup/); assert.equal(fs.readFileSync(path.join(root, '../builds/GalaxyXR-Driver/build/native-dependencies/.prepare.lock'), 'utf8'), 'another process');
 });
 test('Checksum-verified Git batch preserves arbitrary binary bytes', () => {
   const bytes = Buffer.from([0, 10, 13, 255, 0]); const sha = crypto.createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
@@ -189,7 +190,7 @@ test('Write collision rolls back only this repair and preserves the existing fil
   assert.throws(() => native.applyPlan(root, [{ relative: 'ThirdParty/new.h', data: Buffer.from('new') }, { relative: 'ThirdParty/keep.h', data: Buffer.from('bad') }]), /EEXIST/);
   assert.equal(fs.existsSync(path.join(root, 'ThirdParty/new.h')), false); assert.equal(fs.readFileSync(path.join(root, 'ThirdParty/keep.h'), 'utf8'), 'preserve');
 });
-for (const relative of ['ThirdParty', 'build/native-dependencies']) test(`Rejects junction/symlink redirection at ${relative}`, t => {
+for (const relative of ['ThirdParty', '../builds/GalaxyXR-Driver/build/native-dependencies']) test(`Rejects junction/symlink redirection at ${relative}`, t => {
   const root = tmp(t), outside = tmp(t); fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
   // Directory junctions do not require Windows Developer Mode/admin privileges.
   fs.symlinkSync(outside, path.join(root, relative), process.platform === 'win32' ? 'junction' : 'dir');

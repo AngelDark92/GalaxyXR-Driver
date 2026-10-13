@@ -298,7 +298,7 @@ function probeRust(executable, env, run) {
 }
 async function setup(options) {
   if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('This portable build bootstrap requires 64-bit Windows and x64 Node.js.');
-  const repo = path.resolve(options.project), root = path.join(repo, 'build/toolchains');
+  const repo = path.resolve(options.project), root = path.join(repo, '../builds/GalaxyXR-Driver/build/toolchains');
   for (const file of ['build.js', 'GalaxyXRDriver/GalaxyXRDriver.vcxproj', 'GalaxyXRDriverGUI/package-lock.json']) {
     if (!isFile(path.join(repo, file))) throw new Error(`Missing project source: ${file}. Apply the update to the project root, not inside tools.`);
   }

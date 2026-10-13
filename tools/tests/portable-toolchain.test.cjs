@@ -1,4 +1,5 @@
 'use strict';
+const { fixtureRoot } = require('../lib/test-fixtures.cjs');
 // No network or real dependency install. Selection/planning use publisher-shaped
 // fixtures; Windows hosts additionally exercise the actual PowerShell I/O bridge.
 const { test } = require('node:test');
@@ -11,7 +12,7 @@ const { spawnSync } = require('node:child_process');
 const tools = require('../lib/portable-toolchain.cjs');
 const repo = path.resolve(__dirname, '../..');
 const sha = 'a'.repeat(64);
-function temp(t) { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'GalaxyXR tools [fixture] ')); t.after(() => fs.rmSync(root, { force: true, recursive: true, maxRetries: 4, retryDelay: 100 })); return root; }
+function temp(t) { const root = fs.mkdtempSync(path.join(fixtureRoot(), 'GalaxyXR tools [fixture] ')); t.after(() => fs.rmSync(root, { force: true, recursive: true, maxRetries: 4, retryDelay: 100 })); return root; }
 function file(root, relative, text = 'fixture') { const target = path.join(root, relative); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, text); return target; }
 function fixturePayload(name, extra = {}) { return { fileName: name, url: 'https://download.visualstudio.microsoft.com/test/' + encodeURIComponent(name), sha256: sha, ...extra }; }
 function catalog() {
@@ -150,7 +151,7 @@ function simulatedWindows(t, flags = {}) {
   const sandbox = { require: wrappedRequire, module, exports: module.exports, process: fakeProcess, Buffer, URL,
     console: { log: line => output.push(line), error: line => output.push(line) } };
   vm.runInNewContext(fs.readFileSync(path.join(repo, 'tools/lib/portable-toolchain.cjs'), 'utf8'), sandbox, { filename: 'portable-toolchain-simulated.cjs' });
-  const toolRoot = path.join(project, 'build/toolchains');
+  const toolRoot = path.join(project, '../builds/GalaxyXR-Driver/build/toolchains');
   const options = { project, powershell: 'fixture-powershell', acceptLicense: true, driverOnly: true };
   return { project, toolRoot, calls, output, process: fakeProcess, setup: overrides => module.exports.setup({ ...options, ...overrides }) };
 }

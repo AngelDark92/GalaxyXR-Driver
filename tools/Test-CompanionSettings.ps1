@@ -3,7 +3,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1')
-$outputDirectory = Join-Path $repoRoot 'build/companion-settings-test'
+$outputDirectory = Join-Path $repoRoot '../builds/GalaxyXR-Driver/build/companion-settings-test'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $source = Join-Path $repoRoot 'GalaxyXRDriver/tests/CompanionSettingsTest.cpp'
 $headers = Join-Path $repoRoot 'ThirdParty/openvr/headers'

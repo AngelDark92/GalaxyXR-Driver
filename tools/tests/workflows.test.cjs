@@ -12,6 +12,10 @@ const developer = read('.github/workflows/build-tools.yml');
 function assertReleaseSeparation(workflow) {
   assert.doesNotMatch(workflow, /node --test|REQUIRE_\w*POWERSHELL_TESTS|--require-tracked/);
   assert.doesNotMatch(workflow, /portable-toolchain\.test|toolchain-download\.test|Install-MicrosoftBuildTools/);
+  // Build-only release (user policy, 2026-10-12): the unit, Rust, service and
+  // NVENC compile suites run locally at the end of a task and in the
+  // developer workflow, never in the release pipeline.
+  assert.doesNotMatch(workflow, /run: npm test|cargo test --locked|Test-Nvenc/);
   assert.doesNotMatch(workflow, /^\s*(?:needs|workflow_run|continue-on-error):/m);
 }
 
@@ -21,7 +25,8 @@ test('release does not depend on portable installer self-tests or tracked-test a
 
 test('separation guard rejects accidentally reintroduced build-tool gates', () => {
   for (const gate of ['node --test tools/tests/portable-toolchain.test.cjs',
-    "REQUIRE_PORTABLE_POWERSHELL_TESTS: '1'", 'needs: build-tools', 'continue-on-error: true']) {
+    "REQUIRE_PORTABLE_POWERSHELL_TESTS: '1'", 'needs: build-tools', 'continue-on-error: true',
+    'run: npm test', 'cargo test --locked --lib']) {
     assert.throws(() => assertReleaseSeparation(`${release}\n  ${gate}\n`));
   }
 });
@@ -35,8 +40,6 @@ test('release still prepares pinned sources and builds the driver and GUI', () =
   assert.match(release, /uses: microsoft\/setup-msbuild@/);
   assert.match(release, /uses: dtolnay\/rust-toolchain@/);
   assert.match(release, /run: npm ci/);
-  assert.match(release, /run: npm test/);
-  assert.match(release, /cargo test --locked --lib/);
   assert.match(release, /node \.\\build\.js --vendor neutral/);
 });
 
@@ -51,7 +54,7 @@ test('release keeps version, package, and publication validation', () => {
   assert.match(release, /-Commit \$env:RELEASE_COMMIT/);
   assert.ok(release.indexOf('Prepare automatic version and changelog') < release.indexOf('Verify release version'));
   const persist = release.indexOf('node .\\tools\\release-policy.cjs --persist');
-  assert.ok(persist > release.indexOf('cargo test --locked --lib'));
+  assert.ok(persist > release.indexOf('Create versioned ZIP, checksum, and release notes'));
   assert.ok(persist > release.indexOf('Package-GitHubRelease.ps1'));
   assert.ok(persist < release.indexOf('node .\\tools\\publish-release.cjs'));
   assert.match(read('tools/publish-release.cjs'), /commit: process\.env\.RELEASE_COMMIT \|\| process\.env\.GITHUB_SHA/);
@@ -79,6 +82,8 @@ test('developer workflow runs both PowerShell hosts and all tool suites without 
   assert.match(developer, /-Filter '\*\.test\.cjs'/);
   assert.match(developer, /node --test @testFiles/);
   assert.match(developer, /if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/);
+  // The GUI unit suite moved here now that the release build is build-only.
+  assert.match(developer, /- name: Run frontend tests\s+if: \$\{\{ !cancelled\(\) \}\}\s+working-directory: GalaxyXRDriverGUI\s+run: npm test/);
   assert.doesNotMatch(developer, /continue-on-error|pull_request_target|workflow_run/);
   for (const suite of ['Test-FluentFixes', 'Test-CompanionModes', 'Test-AboutSetup',
     'Test-SectionCards', 'Test-FluentBuildHooks', 'Test-SourceUpdate']) assert.ok(developer.includes(suite), suite);

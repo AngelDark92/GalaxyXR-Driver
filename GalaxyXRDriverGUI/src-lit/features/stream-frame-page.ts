@@ -337,6 +337,11 @@ if (vendor) {
   tip: "Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.\n\nAn encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.",
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
+        parts.push(settingFieldRow('streamFrame.nvencCodec', html`
+      <app-select .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1 (experimental)' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; save(); }}></app-select>
+            `, {
+  tip: "Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 and AV1 run 8-bit. Requires a SteamVR restart and reconnect."
+            }));
         parts.push(fieldRow(t('Restore Steam Link encoder behaviour'), html`
           <fluent-button appearance="outline" ?disabled=${this.ctx.sds.installingDriver() || this.ctx.startup.status()?.steamvrRunning !== false}
             @click=${() => this.restoreEncoder()}>${t('Restore encoder behaviour')}</fluent-button>

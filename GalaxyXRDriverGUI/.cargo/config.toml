@@ -1,2 +1,2 @@
 [build]
-target-dir = "../output/GalaxyXRDriverGUI"
+target-dir = "../../builds/GalaxyXR-Driver/output/GalaxyXRDriverGUI"

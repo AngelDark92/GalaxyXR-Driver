@@ -3,7 +3,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1')
-$outputDirectory = Join-Path $repoRoot 'build/cas-activation-test'
+$outputDirectory = Join-Path $repoRoot '../builds/GalaxyXR-Driver/build/cas-activation-test'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 
 # The executable tests the real dispatcher. These source contracts additionally

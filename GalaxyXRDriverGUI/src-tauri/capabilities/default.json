@@ -1,5 +1,5 @@
 {
-  "$schema": "../gen/schemas/desktop-schema.json",
+  "$schema": "../../../../builds/GalaxyXR-Driver/gui/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [

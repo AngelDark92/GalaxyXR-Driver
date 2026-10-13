@@ -42,7 +42,7 @@ This project's rules use **patch** for fixes, **minor** for features, and **majo
 | `feat: add a feature` or `feat(gui): add a feature` | `1.3.0` |
 | `rework: redesign a feature` or `rework(gui): redesign a feature` | `2.0.0` |
 | Mixed prefixes in the unreleased commits | One bump at the highest level: `rework:` > `feat:` > `fix:` |
-| Only `docs:`, `chore:`, or other subjects | Build and test; no release |
+| Only `docs:`, `chore:`, or other subjects | Build; no release |
 
 Squash merges use the squash commit's subject, so give it the appropriate prefix.
 Normal merges retain the individual commit subjects; merge commits themselves are
@@ -53,7 +53,7 @@ Generated entries group reworks, features, fixes, and other changes, include sho
 IDs, and preserve existing changelog history. Icon attribution stays in `CREDITS.md`
 inside the ZIP and in the README; it is not appended to each release's notes.
 
-After the full build, tests, packaging, and artifact upload succeed, CI pushes a
+After both builds, packaging, and artifact upload succeed, CI pushes a
 `chore(release): v...` commit containing only the version files and changelog,
 then tags **that exact built commit** and publishes. Pull `main` before your next
 push to receive this metadata commit. The workflow uses `GITHUB_TOKEN` with
@@ -78,22 +78,27 @@ published baseline, or an explicit prerelease version, and
 generates its changelog entry if missing. Existing authored entries are retained.
 For a repository with no stable release tag, CI uses the push's base commit;
 if neither is available, create an initial stable `v<version>` tag first.
-Feature branches and pull requests build and test without changing versions or
+Feature branches and pull requests build without changing versions or
 publishing. Local builds never generate release commits or push anything.
 
 The Windows workflow:
 
 1. checks out the full repository and recursive submodules;
-2. installs Node.js, prepares automatic metadata, installs Rust and locates MSBuild;
+2. installs Node.js, prepares automatic metadata, installs Rust, restores the Cargo registry cache and locates MSBuild;
 3. verifies all release version fields (and the tag on tag-triggered runs);
-4. runs `npm ci` and the frontend test suite;
-5. runs `node build.js --vendor neutral` and `node build.js --vendor galaxyxr`, each building the native OpenVR driver and Tauri application, then runs the Rust library tests;
+4. installs the locked frontend dependencies with `npm ci`;
+5. runs `node build.js --vendor neutral` and `node build.js --vendor galaxyxr`, each building the native OpenVR driver and Tauri application;
 6. validates the staged executable, driver DLL, manifest and default settings;
 7. packages the complete Galaxy XR portable pair into `GalaxyXRDriver-v<version>-Windows-x64.zip`;
 8. creates a SHA-256 checksum;
 9. generates release notes from the version's changelog entry without duplicating its commit list;
 10. uploads the ZIP and metadata as Actions artifacts; and
 11. saves generated metadata to `main`, pins `v<version>` to the built commit, uploads the ZIP and checksum to a draft, and publishes after both uploads succeed. Prerelease versions are marked as prereleases.
+
+The release workflow builds and packages only. The GUI unit suite (`npm test`),
+the Rust library tests (`cargo test --locked --lib`), the service regressions
+(`tools/Test-*.cjs`) and the NVENC compile checks (`tools/Test-Nvenc*.ps1`) are
+not run there; run the relevant ones locally at the end of every task.
 
 A manual **Run workflow** invocation builds without publishing by default. To retry
 a failed publication, select **main** and enable **publish**. Reruns preserve an
@@ -102,7 +107,9 @@ after code changes, use a `fix:`/`feat:`/`rework:` commit or an explicit new ver
 Explicit `v*` tag pushes remain supported and build the tagged files without rewriting them.
 
 `build-tools.yml` separately installs the locked frontend dependencies and runs
-the service regressions plus build-tool tests under PowerShell 5.1 and 7.
+the frontend unit suite (`npm test`), the service regressions and the build-tool
+tests under PowerShell 5.1 and 7. It is the CI test workflow; the release
+workflow above stays build-only.
 Its automatic-release fixtures cover stale version metadata, missing published
 changelog history, docs-only changes, authored notes and deterministic retries.
 These checks stay independent of the release build's installed compiler path.

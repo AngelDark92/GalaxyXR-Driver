@@ -4,7 +4,7 @@ param(
     [switch]$AcceptToolchainLicense, [switch]$PrepareDependencies
 )
 $portableRepo = Split-Path $PSScriptRoot -Parent
-$portableToolRoot = Join-Path $portableRepo 'build/toolchains'
+$portableToolRoot = Join-Path $portableRepo '../builds/GalaxyXR-Driver/build/toolchains'
 $setup = @{
     DriverOnly = $DriverOnly; GuiOnly = $GuiOnly; NoDownload = $NoDownload
     AcceptToolchainLicense = $AcceptToolchainLicense; PrepareDependencies = $PrepareDependencies

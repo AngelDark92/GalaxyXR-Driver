@@ -14,16 +14,19 @@ $repo = Split-Path $PSScriptRoot -Parent
 if (-not $Commit) {
     $Commit = (& git -C $repo rev-parse HEAD).Trim()
 }
-if (-not $ReleaseDirectory) { $ReleaseDirectory = Join-Path $repo 'release' }
+if (-not $ReleaseDirectory) { $ReleaseDirectory = Join-Path $repo '../builds/GalaxyXR-Driver/release' }
 $ReleaseDirectory = [IO.Path]::GetFullPath($ReleaseDirectory)
+if (-not $ReleaseDirectory.StartsWith([IO.Path]::GetFullPath((Join-Path $repo '../builds/GalaxyXR-Driver')) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'ReleaseDirectory must be inside builds/GalaxyXR-Driver.'
+}
 New-Item -ItemType Directory -Force -Path $ReleaseDirectory | Out-Null
 
 if (-not $StagingDirectory) {
-    $preferred = Join-Path $repo "output/GalaxyXRDriver-STAGING-$Version-Galaxyxr-Windows"
+    $preferred = Join-Path $repo "../builds/GalaxyXR-Driver/output/GalaxyXRDriver-STAGING-$Version-Galaxyxr-Windows"
     if (Test-Path -LiteralPath $preferred -PathType Container) {
         $StagingDirectory = $preferred
     } else {
-        $matches = @(Get-ChildItem -LiteralPath (Join-Path $repo 'output') -Directory -ErrorAction SilentlyContinue |
+        $matches = @(Get-ChildItem -LiteralPath (Join-Path $repo '../builds/GalaxyXR-Driver/output') -Directory -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -like "GalaxyXRDriver-STAGING-$Version-*-Windows" -and (Test-Path -LiteralPath (Join-Path $_.FullName 'GalaxyXRNative')) })
         if ($matches.Count -ne 1) {
             throw "Could not uniquely locate the Galaxy XR staging directory for version $Version. Pass -StagingDirectory explicitly."
@@ -52,7 +55,7 @@ Get-Content -Raw -LiteralPath (Join-Path $StagingDirectory 'GalaxyXRNative/drive
 Get-Content -Raw -LiteralPath (Join-Path $StagingDirectory 'GalaxyXRNative/resources/settings/default.vrsettings') | ConvertFrom-Json | Out-Null
 
 $packageName = "GalaxyXRDriver-v$Version-Windows-x64"
-$workRoot = Join-Path $repo 'build/github-release'
+$workRoot = Join-Path $repo '../builds/GalaxyXR-Driver/build/github-release'
 $packageRoot = Join-Path $workRoot $packageName
 if (Test-Path -LiteralPath $packageRoot) { Remove-Item -LiteralPath $packageRoot -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null

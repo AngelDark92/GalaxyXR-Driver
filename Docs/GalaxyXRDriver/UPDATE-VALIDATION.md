@@ -42,7 +42,7 @@ cd GalaxyXRDriverGUI/src-tauri
 cargo test --locked --lib
 ```
 
-The GitHub release workflow runs this after the complete GUI/driver build and before publication. No Rust compiler/Cargo or Windows/PowerShell/MSVC toolchain was available here, so these native tests were reviewed but not compiled/executed.
+These are local end-of-task checks; the release workflow builds and packages only. No Rust compiler/Cargo or Windows/PowerShell/MSVC toolchain was available here, so these native tests were reviewed but not compiled/executed.
 
 ## Required Windows release checklist — NOT RUN
 

@@ -1,4 +1,5 @@
 'use strict';
+const { fixtureRoot } = require('../lib/test-fixtures.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -14,8 +15,10 @@ const project = path.resolve(__dirname, '../..');
 const files = ['GalaxyXRDriver/src/Config/Config.cpp', 'GalaxyXRDriver/DriverFiles/driver.vrdrivermanifest',
   ...['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock'].map(f => `GalaxyXRDriverGUI/${f}`)];
 function fixture(t) {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'GalaxyXR release '));
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const sandbox = fs.mkdtempSync(path.join(fixtureRoot(), 'GalaxyXR release '));
+  const repo = path.join(sandbox, 'repo');
+  fs.mkdirSync(repo);
+  t.after(() => fs.rmSync(sandbox, { recursive: true, force: true }));
   for (const file of files) { fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true }); fs.copyFileSync(path.join(project, file), path.join(repo, file)); }
   return repo;
 }
@@ -288,7 +291,7 @@ test('commit subjects remain literal changelog text', () => {
   assert.ok(text.includes('\\<script\\>')); assert.ok(text.includes('\\[link\\]')); assert.ok(text.includes('\\`code\\`'));
 });
 function remote(t, f) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'GalaxyXR release remote '));
+  const directory = fs.mkdtempSync(path.join(fixtureRoot(), 'GalaxyXR release remote '));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   f.git('init', '--quiet', '--bare', directory); f.git('remote', 'add', 'origin', directory);
   f.git('push', '--quiet', 'origin', 'HEAD:refs/heads/main');
@@ -354,12 +357,12 @@ test('PowerShell packages the generated changelog once and keeps icon credits in
   execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(f.repo, 'tools/Package-GitHubRelease.ps1'),
     '-Version', plan.version, '-Commit', plan.commit, '-StagingDirectory', staging], { cwd: f.repo, env: packageEnv, windowsHide: true });
   const prefix = `GalaxyXRDriver-v${plan.version}-Windows-x64`;
-  const notes = fs.readFileSync(path.join(f.repo, 'release', `${prefix}-release-notes.md`), 'utf8');
+  const notes = fs.readFileSync(path.join(f.repo, '../builds/GalaxyXR-Driver/release', `${prefix}-release-notes.md`), 'utf8');
   assert.equal((notes.match(/first click collapses/g) || []).length, 1);
   assert.doesNotMatch(notes, /Icon credits|Vilkka|Existing authored history/);
-  assert.match(fs.readFileSync(path.join(f.repo, 'build/github-release', prefix, 'CREDITS.md'), 'utf8'), /Vilkka/);
-  const zip = fs.readFileSync(path.join(f.repo, 'release', `${prefix}.zip`));
-  assert.equal(fs.readFileSync(path.join(f.repo, 'release', `${prefix}.zip.sha256`), 'utf8').trim(),
+  assert.match(fs.readFileSync(path.join(f.repo, '../builds/GalaxyXR-Driver/build/github-release', prefix, 'CREDITS.md'), 'utf8'), /Vilkka/);
+  const zip = fs.readFileSync(path.join(f.repo, '../builds/GalaxyXR-Driver/release', `${prefix}.zip`));
+  assert.equal(fs.readFileSync(path.join(f.repo, '../builds/GalaxyXR-Driver/release', `${prefix}.zip.sha256`), 'utf8').trim(),
     `${createHash('sha256').update(zip).digest('hex')}  ${prefix}.zip`);
 });
 function publishing(t, options = {}) {

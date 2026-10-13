@@ -101,16 +101,26 @@ if ($rootLines.Count -ne 1 -or -not $rootLines[0]) {
 }
 $root = [IO.Path]::GetFullPath($rootLines[0].Trim()).TrimEnd('\','/')
 $rootPrefix = $root + [IO.Path]::DirectorySeparatorChar
+$artifactRoot = [IO.Path]::GetFullPath((Join-Path $root '../builds/GalaxyXR-Driver')).TrimEnd('\','/')
 
 if (-not $Output) {
-    $parent = Split-Path $root -Parent
     $projectName = Split-Path $root -Leaf
-    $Output = Join-Path $parent ("$projectName-source-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip')
+    $Output = Join-Path $artifactRoot ("release/source/$projectName-source-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip')
 } elseif (-not [IO.Path]::IsPathRooted($Output)) {
     $Output = Join-Path (Get-Location).Path $Output
 }
 $outputPath = [IO.Path]::GetFullPath($Output)
 if ([IO.Path]::GetExtension($outputPath) -ine '.zip') { $outputPath += '.zip' }
+if (-not $outputPath.StartsWith($artifactRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Source archives must stay under $artifactRoot"
+}
+$ancestor = $outputPath
+while ($ancestor) {
+    if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "Linked archive destination: $ancestor"
+    }
+    $ancestor = Split-Path $ancestor -Parent
+}
 $checksumPath = $outputPath + '.sha256'
 
 if (Test-Path -LiteralPath $outputPath) {
@@ -192,7 +202,7 @@ if ($archiveFiles.Count -eq 0) { throw 'No non-ignored files were found to archi
 # 7-Zip accepts a UTF-8 newline-separated @listfile. Use repository-relative
 # names while running 7-Zip from the repository root, so the archive contains
 # the project directly rather than absolute drive paths.
-$listFile = Join-Path ([IO.Path]::GetTempPath()) ('GalaxyXRDriver-7zip-list-' + [Guid]::NewGuid().ToString('N') + '.txt')
+$listFile = Join-Path (Split-Path $outputPath -Parent) ('GalaxyXRDriver-7zip-list-' + [Guid]::NewGuid().ToString('N') + '.txt')
 $tempZip = $outputPath + '.partial-' + [Guid]::NewGuid().ToString('N')
 try {
     $entries = @($archiveFiles.Keys | Sort-Object | ForEach-Object { $_.Replace('/', '\') })

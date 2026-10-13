@@ -771,6 +771,12 @@ struct StreamFrameConfig{
 	// own params on failure, so worst case is stock behaviour + a log line.
 	// enable BEFORE launching SteamVR (the hook must precede connect).
 	bool nvencTap = true; // v3 master switch: off = stock streamer, tiers write only width + bandwidth
+	// 2026-10-13: stream codec override for the tap. 0 = leave (vrlink's HEVC),
+	// 1 = force H.264 (8-bit), 2 = force AV1 (8-bit, experimental). rewrites
+	// encodeGUID + profileGUID + the codec-config union at init and every
+	// reconfigure; requires the Steam Link client "Codecs Support" patch on
+	// the headset to decode. takes effect at the next SteamVR start.
+	int nvencCodec = 0;
 	// level=AUTOSELECT / tier=HIGH: cures "NVENC: Invalid Level" (every
 	// bitrate reconfigure rejected at >=3072-wide frames)
 	bool nvencFixLevel = true;

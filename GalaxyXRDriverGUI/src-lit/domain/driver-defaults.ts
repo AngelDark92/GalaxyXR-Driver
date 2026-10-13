@@ -262,6 +262,7 @@ const nativeDefaults = {
     },
     "zeroCopyV3": false,
     "nvencTap": true,
+    "nvencCodec": 0,
     "nvencBandwidthOverrideMbit": 0,
     "nvencSettingsVersion": 0,
     "nvencFixLevel": true,

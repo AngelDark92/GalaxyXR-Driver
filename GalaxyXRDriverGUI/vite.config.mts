@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const guiArtifacts = path.resolve(__dirname, '../../builds/GalaxyXR-Driver/gui');
 const LOCALES = ['en-US', 'zh-Hant', 'ja'];
 const envLocale = process.env.LOCALE;
 const locale = envLocale && LOCALES.includes(envLocale) ? envLocale : 'en-US';
@@ -39,14 +40,14 @@ function localeDevServer(): Plugin {
         }
 
         if (rest === 'locale.json') {
-          const p = path.join(__dirname, 'build', 'locale-json', `${loc}.json`);
+          const p = path.join(guiArtifacts, 'build', 'locale-json', `${loc}.json`);
           if (fs.existsSync(p)) {
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
             res.end(fs.readFileSync(p, 'utf8'));
             return;
           }
           res.statusCode = 404;
-          res.end('locale.json not found. Run: node scripts/xlf-to-locale.mjs src/locale build/locale-json');
+          res.end('locale.json not found. Run: npm run dev:ui');
           return;
         }
 
@@ -65,6 +66,7 @@ function localeDevServer(): Plugin {
 export default defineConfig({
   base: './',
   root: __dirname,
+  cacheDir: path.join(guiArtifacts, 'cache', 'vite'),
   publicDir: path.join(__dirname, 'public'),
   server: {
     host: '127.0.0.1',
@@ -72,7 +74,7 @@ export default defineConfig({
     strictPort: true,
   },
   build: {
-    outDir: path.join(__dirname, 'dist', 'fluent', locale),
+    outDir: path.join(guiArtifacts, 'dist', 'fluent', locale),
     emptyOutDir: true,
     target: 'es2022',
     rollupOptions: {

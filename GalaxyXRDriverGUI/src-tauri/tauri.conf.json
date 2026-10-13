@@ -4,7 +4,7 @@
   "version": "1.5.0",
   "identifier": "com.sboys3.custom-headset",
   "build": {
-    "frontendDist": "../dist/fluent",
+    "frontendDist": "../../../builds/GalaxyXR-Driver/gui/dist/fluent",
     "devUrl": "http://127.0.0.1:5173",
     "beforeDevCommand": "npm run dev:ui",
     "beforeBuildCommand": "npm run build:ui"

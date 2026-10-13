@@ -1711,6 +1711,8 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	NvencTapConfig tc;
 	tc.enabled = settings.config.nvencTap;
 	tc.fixLevel = settings.config.nvencFixLevel;
+	// 2026-10-13 stream codec override (0 HEVC default / 1 H.264 / 2 AV1)
+	tc.codec = settings.config.nvencCodec;
 	// encoder bitrate: the debug "separate" value if set, else the
 	// effective pacer bandwidth (tier/custom/Advanced override)
 	tc.bitrateMbit = settings.config.nvencBitrateMbit > 0 ? settings.config.nvencBitrateMbit : GalaxyXR_EffectiveBandwidthMbit();

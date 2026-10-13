@@ -1,4 +1,5 @@
 'use strict';
+const { fixtureRoot } = require('../lib/test-fixtures.cjs');
 
 // node --test tools/tests/release-version.test.cjs
 // No npm install required. PowerShell integration cases run when that host is
@@ -46,7 +47,7 @@ function seed(repo, legacy = false) {
   return { repo, gui, driver, crate, files };
 }
 function fixture(t, legacy = false) {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'GalaxyXRDriver release [fixture] '));
+  const repo = fs.mkdtempSync(path.join(fixtureRoot(), 'GalaxyXRDriver release [fixture] '));
   t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
   return seed(repo, legacy);
 }

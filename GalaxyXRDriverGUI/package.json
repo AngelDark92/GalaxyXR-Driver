@@ -4,9 +4,9 @@
   "scripts": {
     "start": "node scripts/configure-tauri.mjs && node generate-env.js && tauri dev",
     "build": "node scripts/configure-tauri.mjs && node generate-env.js && tauri build",
-    "dev:ui": "node generate-env.js && node scripts/xlf-to-locale.mjs src/locale build/locale-json && vite --config vite.config.mts",
-    "build:ui": "node generate-env.js && node scripts/xlf-to-locale.mjs src/locale build/locale-json && tsc --noEmit -p tsconfig.json && node scripts/build-frontend-dist.mjs && node scripts/verify-frontend-dist.mjs",
-    "test": "vitest run",
+    "dev:ui": "node generate-env.js && node scripts/xlf-to-locale.mjs src/locale ../../builds/GalaxyXR-Driver/gui/build/locale-json && vite --configLoader runner --config vite.config.mts",
+    "build:ui": "node generate-env.js && node scripts/xlf-to-locale.mjs src/locale ../../builds/GalaxyXR-Driver/gui/build/locale-json && tsc --noEmit -p tsconfig.json && node scripts/build-frontend-dist.mjs && node scripts/verify-frontend-dist.mjs",
+    "test": "vitest run --configLoader runner",
     "tauri": "tauri"
   },
   "private": true,

@@ -3,7 +3,7 @@ param([string]$ProcessorSource)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1')
-$outputDirectory = Join-Path $repoRoot 'build/hitch-diagnostics-test'
+$outputDirectory = Join-Path $repoRoot '../builds/GalaxyXR-Driver/build/hitch-diagnostics-test'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 
 # Exercise production frame-start behavior with real class state and fake

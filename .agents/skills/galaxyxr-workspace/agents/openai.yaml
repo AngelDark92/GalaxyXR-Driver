@@ -1,0 +1,4 @@
+interface:
+  display_name: "Galaxy XR Workspace"
+  short_description: "Locate Galaxy XR source, build paths and workflows"
+  default_prompt: "Use $galaxyxr-workspace to map this GalaxyXR-Driver task to its source, external artifacts and validation."

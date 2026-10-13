@@ -3,7 +3,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1')
-$outputDirectory = Join-Path $repoRoot 'build/sdr-color-policy-test'
+$outputDirectory = Join-Path $repoRoot '../builds/GalaxyXR-Driver/build/sdr-color-policy-test'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $source = Join-Path $repoRoot 'GalaxyXRDriver/tests/SdrColorPolicyTest.cpp'
 $configHeaders = Join-Path $repoRoot 'GalaxyXRDriver/src/Config'

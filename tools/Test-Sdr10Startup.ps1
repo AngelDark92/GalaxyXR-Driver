@@ -15,7 +15,7 @@ function Get-Function([string]$source, [string]$signature) {
     }
     throw "Unbalanced function: $signature"
 }
-$build = Join-Path $repo 'build/sdr10-startup-test'
+$build = Join-Path $repo '../builds/GalaxyXR-Driver/build/sdr10-startup-test'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 $source = Get-Content -Raw -LiteralPath (Join-Path $repo 'GalaxyXRDriver/src/Headsets/GalaxyXR.cpp')
 $functions = @(

@@ -1,4 +1,12 @@
 cmake_minimum_required(VERSION 3.12) # Specify a modern CMake version
+
+# External artifacts (2026-10-08): compiler state must stay outside source.
+get_filename_component(GXR_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." REALPATH)
+get_filename_component(GXR_BINARY_ROOT "${CMAKE_BINARY_DIR}" REALPATH)
+string(FIND "${GXR_BINARY_ROOT}/" "${GXR_SOURCE_ROOT}/" GXR_IN_SOURCE)
+if(GXR_IN_SOURCE EQUAL 0)
+    message(FATAL_ERROR "Use an external build directory: cmake -S GalaxyXRDriver -B ../builds/GalaxyXR-Driver/build/cmake")
+endif()
 project(MyProject LANGUAGES CXX)
 
 # Find all .cpp files in the src directory and store them in a variable
@@ -19,4 +27,5 @@ add_custom_command(TARGET driver_GalaxyXRDriver POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:driver_GalaxyXRDriver> GalaxyXRDriver/bin/linux64/driver_CustomHeadsetOpenVR.so
 )
 
-# cmake ../ ; make -j16 ; rsync -a --delete GalaxyXRDriver/ ~/.steam/steam/steamapps/common/SteamVR/drivers/GalaxyXRDriver/
+# cmake -S GalaxyXRDriver -B ../builds/GalaxyXR-Driver/build/cmake
+# cmake --build ../builds/GalaxyXR-Driver/build/cmake --parallel

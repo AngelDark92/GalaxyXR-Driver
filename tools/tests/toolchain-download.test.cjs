@@ -1,4 +1,5 @@
 'use strict';
+const { fixtureRoot } = require('../lib/test-fixtures.cjs');
 // Network-free tests. The catalog/bytes are real temporary files. Installer and
 // OS-signature unit tests never download or execute a Microsoft bootstrapper.
 const { test } = require('node:test');
@@ -12,7 +13,7 @@ const tools = require('../lib/portable-toolchain.cjs');
 const repo = path.resolve(__dirname, '../..');
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 function temp(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'GalaxyXR downloads [fixture] '));
+  const dir = fs.mkdtempSync(path.join(fixtureRoot(), 'GalaxyXR downloads [fixture] '));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   return dir;
 }

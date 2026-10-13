@@ -75,6 +75,6 @@ module.exports = { publishRelease };
 if (require.main === module) {
   (async () => console.log(await publishRelease({ repo: process.env.GITHUB_REPOSITORY,
     version: process.env.RELEASE_VERSION, commit: process.env.RELEASE_COMMIT || process.env.GITHUB_SHA,
-    directory: path.resolve(__dirname, '../release'), api: githubApi(process.env.GH_TOKEN) })))()
+    directory: path.resolve(__dirname, '../../builds/GalaxyXR-Driver/release'), api: githubApi(process.env.GH_TOKEN) })))()
     .catch(error => { console.error(error.message); process.exitCode = 1; });
 }

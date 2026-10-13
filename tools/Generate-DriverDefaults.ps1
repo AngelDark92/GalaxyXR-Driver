@@ -36,7 +36,7 @@ int main() {
     std::cout << defaults.dump(2) << std::endl;
 }
 "@
-$build = Join-Path $repo 'build/driver-defaults-generator'
+$build = Join-Path $repo '../builds/GalaxyXR-Driver/build/driver-defaults-generator'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 $cpp = Join-Path $build 'defaults.cpp'
 $exe = Join-Path $build 'defaults.exe'

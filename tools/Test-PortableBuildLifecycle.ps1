@@ -1,7 +1,7 @@
 # Exercise the actual build entrypoint with fixture compilers; no real build or deployment.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
-$fixture = Join-Path $repo ('build/lifecycle-test-' + [guid]::NewGuid().ToString('N'))
+$fixture = Join-Path $repo ('../builds/GalaxyXR-Driver/build/lifecycle-test-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixture | Out-Null
 $checks = 0
 $originalComSpec = $env:ComSpec
@@ -56,7 +56,7 @@ $originalFailure = $env:PORTABLE_LIFECYCLE_FAILURE
 try {
     $env:ComSpec = 'Invoke-FixtureNpm'
     foreach ($case in @('success','keep','native-failure','gui-failure','staging-failure','setup','driver-only','gui-only')) {
-        $caseRoot = Join-Path $fixture $case
+        $caseRoot = Join-Path $fixture "$case/repo"
         $caseTools = Join-Path $caseRoot 'tools'
         $driverFiles = Join-Path $caseRoot 'GalaxyXRDriver/DriverFiles'
         New-Item -ItemType Directory -Force -Path "$caseTools/lib", "$driverFiles/resources/settings", "$caseRoot/GalaxyXRDriverGUI" | Out-Null
@@ -74,7 +74,7 @@ $env:CARGO_TARGET_DIR = 'setup-target-must-be-overridden'
         $env:VENDOR = 'neutral'
         $env:PORTABLE_LIFECYCLE_FAILURE = ''
         if ($case.EndsWith('-failure')) { $env:PORTABLE_LIFECYCLE_FAILURE = $case.Replace('-failure','') }
-        $parameters = @{ OutputDirectory = "$caseRoot/output/package" }
+        $parameters = @{ OutputDirectory = "$caseRoot/../builds/GalaxyXR-Driver/output/package" }
         if ($case -eq 'keep') { $parameters.KeepBuildArtifacts = $true }
         if ($case -eq 'setup') { $parameters.SetupOnly = $true }
         if ($case -eq 'driver-only') { $parameters.DriverOnly = $true }
@@ -87,11 +87,11 @@ $env:CARGO_TARGET_DIR = 'setup-target-must-be-overridden'
         Assert-Condition ($env:VENDOR -eq 'neutral') "$case failed to restore vendor."
         $expectedFailure = $case.EndsWith('-failure')
         Assert-Condition (($null -ne $failure) -eq $expectedFailure) "$case unexpected outcome: $failure"
-        $work = @(Get-ChildItem -Path "$caseRoot/build/portable-work-*" -Directory -ErrorAction SilentlyContinue)
-        $logs = @(Get-ChildItem -Path "$caseRoot/build/portable-logs-*" -Directory -ErrorAction SilentlyContinue)
+        $work = @(Get-ChildItem -Path "$caseRoot/../builds/GalaxyXR-Driver/build/portable-work-*" -Directory -ErrorAction SilentlyContinue)
+        $logs = @(Get-ChildItem -Path "$caseRoot/../builds/GalaxyXR-Driver/build/portable-logs-*" -Directory -ErrorAction SilentlyContinue)
         if ($case -eq 'setup') {
             Assert-Condition ($work.Count -eq 0 -and $logs.Count -eq 0) 'Setup-only created run folders.'
-            Assert-Condition (-not (Test-Path "$caseRoot/output/package")) 'Setup-only staged a package.'
+            Assert-Condition (-not (Test-Path "$caseRoot/../builds/GalaxyXR-Driver/output/package")) 'Setup-only staged a package.'
             continue
         }
         Assert-Condition ($logs.Count -eq 1) "$case lost build logs."
@@ -109,8 +109,8 @@ $env:CARGO_TARGET_DIR = 'setup-target-must-be-overridden'
             continue
         }
         Assert-Condition ([bool]($messages -match '^Built test package:')) "$case lacked the success marker."
-        Assert-Condition ((Test-Path "$caseRoot/output/package/GalaxyXRNative/bin/win64/driver_GalaxyXRNative.dll") -eq ($case -ne 'gui-only')) "$case driver package mismatch."
-        Assert-Condition ((Test-Path "$caseRoot/output/package/GalaxyXRDriverGUI/Galaxy XR Companion.exe") -eq ($case -ne 'driver-only')) "$case GUI package mismatch."
+        Assert-Condition ((Test-Path "$caseRoot/../builds/GalaxyXR-Driver/output/package/GalaxyXRNative/bin/win64/driver_GalaxyXRNative.dll") -eq ($case -ne 'gui-only')) "$case driver package mismatch."
+        Assert-Condition ((Test-Path "$caseRoot/../builds/GalaxyXR-Driver/output/package/GalaxyXRDriverGUI/Galaxy XR Companion.exe") -eq ($case -ne 'driver-only')) "$case GUI package mismatch."
         if ($case -ne 'gui-only') {
             Assert-Condition (Test-Path (Join-Path $logs[0].FullName 'driver-exports.txt')) "$case lost export report."
             Assert-Condition (Test-Path (Join-Path $logs[0].FullName 'driver-dependencies.txt')) "$case lost dependency report."
@@ -123,5 +123,6 @@ $env:CARGO_TARGET_DIR = 'setup-target-must-be-overridden'
     $env:PORTABLE_LIFECYCLE_FAILURE = $originalFailure
     $global:LASTEXITCODE = $originalExitCode
 }
-# Leave the tiny fixture packages and failed-build evidence available for inspection.
-Write-Output "Portable build lifecycle: $checks checks passed. Fixture: $fixture"
+. (Join-Path $PSScriptRoot 'lib/test-fixture-cleanup.ps1')
+Remove-TestFixture -Repository $repo -Fixture $fixture
+Write-Output "Portable build lifecycle: $checks checks passed. Owned fixture removed."

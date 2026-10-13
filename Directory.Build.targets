@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <IntDir>$(GxrBuildRoot)build\msbuild\$(MSBuildProjectName)\$(Platform)\$(Configuration)\</IntDir>
+    <OutDir>$(GxrBuildRoot)output\$(MSBuildProjectName)\bin\win$(PlatformArchitecture)\</OutDir>
+  </PropertyGroup>
+</Project>

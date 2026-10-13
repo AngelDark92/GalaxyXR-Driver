@@ -34,6 +34,10 @@ uint32_t seenConfigVersion = 0;
 uint32_t seenRcVersion = 0;
 uint32_t seenLevel = 0;
 uint32_t seenBitrate = 0;
+GUID seenCodecGuid{};
+GUID seenProfileGuid{};
+uint32_t seenH264Level = 0, seenH264BitDepth = 0, seenH264RepeatSpsPps = 0;
+uint32_t seenAv1Level = 0, seenAv1BitDepth = 0, seenAv1RepeatSeqHdr = 0;
 int destroyCalls = 0;
 int capsCalls = 0;
 
@@ -55,6 +59,69 @@ void Configure(bool enabled, int splitMode){
 	config.enabled = enabled;
 	config.splitMode = splitMode;
 	NvencTap::Get().SetConfig(config);
+}
+
+void ConfigureCodec(bool enabled, int codec){
+	driverConfig.streamFrame.nvencTap = enabled;
+	driverConfig.streamFrame.nvencCodec = codec;
+	NvencTapConfig config;
+	config.enabled = enabled;
+	config.codec = codec;
+	NvencTap::Get().SetConfig(config);
+}
+
+void CheckCodecOverride(void* encoder){
+	// H.264 rewrite: GUID + profile + 8-bit + SPS/PPS repeat, full caller restore after
+	ConfigureCodec(true, 1);
+	NV_ENC_CONFIG cfg = {}; cfg.version = Tag111(7, true); cfg.rcParams.version = Tag111(1);
+	cfg.rcParams.averageBitRate = 42000000; cfg.rcParams.maxBitRate = 42000000;
+	cfg.gopLength = 60; cfg.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+	cfg.encodeCodecConfig.hevcConfig.level = NV_ENC_LEVEL_HEVC_61;
+	cfg.encodeCodecConfig.hevcConfig.tier = NV_ENC_TIER_HEVC_HIGH;
+	cfg.encodeCodecConfig.hevcConfig.outputBitDepth = NV_ENC_BIT_DEPTH_10;
+	const auto savedCfg = cfg;
+	NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag111(5, true);
+	init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init.encodeConfig = &cfg;
+	init.frameRateNum = 90; init.frameRateDen = 1;
+	const auto savedInit = init;
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS, "codec H264: init delegated");
+	Check(memcmp(&seenCodecGuid, &NV_ENC_CODEC_H264_GUID, sizeof(GUID)) == 0, "codec H264: encoder gets the H264 GUID");
+	Check(memcmp(&seenProfileGuid, &NV_ENC_H264_PROFILE_HIGH_GUID, sizeof(GUID)) == 0, "codec H264: profile is High");
+	Check(seenH264Level == NV_ENC_LEVEL_AUTOSELECT, "codec H264: level AUTOSELECT");
+	Check(seenH264BitDepth == NV_ENC_BIT_DEPTH_8, "codec H264: 8-bit output");
+	Check(seenH264RepeatSpsPps == 1, "codec H264: repeatSPSPPS");
+	Check(memcmp(&init, &savedInit, sizeof(init)) == 0, "codec H264: caller init fully restored");
+	Check(memcmp(&cfg, &savedCfg, sizeof(cfg)) == 0, "codec H264: caller config fully restored");
+
+	// AV1 rewrite
+	ConfigureCodec(true, 2);
+	NV_ENC_CONFIG cfg2 = {}; cfg2.version = Tag111(7, true); cfg2.rcParams.version = Tag111(1);
+	cfg2.rcParams.averageBitRate = 42000000; cfg2.gopLength = 60;
+	cfg2.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+	cfg2.encodeCodecConfig.hevcConfig.level = NV_ENC_LEVEL_HEVC_61;
+	cfg2.encodeCodecConfig.hevcConfig.outputBitDepth = NV_ENC_BIT_DEPTH_10;
+	const auto savedCfg2 = cfg2;
+	NV_ENC_INITIALIZE_PARAMS init2 = {}; init2.version = Tag111(5, true);
+	init2.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init2.encodeConfig = &cfg2;
+	init2.frameRateNum = 90; init2.frameRateDen = 1;
+	Check(NvencTapShims::InitializeEncoder(encoder, &init2) == NV_ENC_SUCCESS, "codec AV1: init delegated");
+	Check(memcmp(&seenCodecGuid, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0, "codec AV1: encoder gets the AV1 GUID");
+	Check(memcmp(&seenProfileGuid, &NV_ENC_AV1_PROFILE_MAIN_GUID, sizeof(GUID)) == 0, "codec AV1: profile is Main");
+	Check(seenAv1Level == NV_ENC_LEVEL_AV1_AUTOSELECT, "codec AV1: level AUTOSELECT");
+	Check(seenAv1BitDepth == NV_ENC_BIT_DEPTH_8, "codec AV1: 8-bit output");
+	Check(seenAv1RepeatSeqHdr == 1, "codec AV1: repeatSeqHdr");
+	Check(memcmp(&cfg2, &savedCfg2, sizeof(cfg2)) == 0, "codec AV1: caller config fully restored");
+
+	// default: HEVC sessions are not rewritten by the codec override
+	ConfigureCodec(true, 0);
+	NV_ENC_CONFIG cfg3 = {}; cfg3.version = Tag111(7, true); cfg3.rcParams.version = Tag111(1);
+	cfg3.rcParams.averageBitRate = 42000000;
+	cfg3.encodeCodecConfig.hevcConfig.level = NV_ENC_LEVEL_HEVC_61;
+	NV_ENC_INITIALIZE_PARAMS init3 = {}; init3.version = Tag111(5, true);
+	init3.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init3.encodeConfig = &cfg3;
+	init3.frameRateNum = 90; init3.frameRateDen = 1;
+	Check(NvencTapShims::InitializeEncoder(encoder, &init3) == NV_ENC_SUCCESS, "codec default: HEVC init delegated");
+	Check(memcmp(&seenCodecGuid, &NV_ENC_CODEC_HEVC_GUID, sizeof(GUID)) == 0, "codec default: HEVC GUID kept");
 }
 
 NVENCSTATUS NVENCAPI CaptureOpen(NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS* params, void** encoder){
@@ -86,6 +153,20 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 	seenRcVersion = params->encodeConfig->rcParams.version;
 	seenLevel = params->encodeConfig->encodeCodecConfig.hevcConfig.level;
 	seenBitrate = params->encodeConfig->rcParams.averageBitRate;
+	// 2026-10-13 codec override capture: GUID/profile always, codec fields
+	// per the GUID the encoder actually receives.
+	seenCodecGuid = params->encodeGUID;
+	seenProfileGuid = params->encodeConfig->profileGUID;
+	seenH264Level = 0xdeadbeefu; seenAv1Level = 0xdeadbeefu;
+	if(memcmp(&params->encodeGUID, &NV_ENC_CODEC_H264_GUID, sizeof(GUID)) == 0){
+		seenH264Level = params->encodeConfig->encodeCodecConfig.h264Config.level;
+		seenH264BitDepth = (uint32_t)params->encodeConfig->encodeCodecConfig.h264Config.outputBitDepth;
+		seenH264RepeatSpsPps = params->encodeConfig->encodeCodecConfig.h264Config.repeatSPSPPS;
+	}else if(memcmp(&params->encodeGUID, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0){
+		seenAv1Level = params->encodeConfig->encodeCodecConfig.av1Config.level;
+		seenAv1BitDepth = (uint32_t)params->encodeConfig->encodeCodecConfig.av1Config.outputBitDepth;
+		seenAv1RepeatSeqHdr = params->encodeConfig->encodeCodecConfig.av1Config.repeatSeqHdr;
+	}
 	return NV_ENC_SUCCESS;
 }
 
@@ -299,6 +380,7 @@ int main(){
 	int stockValue = 0;
 	NvencTapShims::GetEncodeCaps(stock, NV_ENC_CODEC_HEVC_GUID, &stockCaps, &stockValue);
 	Check(seenCapsVersion == Tag111(1), "new OFF session continues with stock ABI");
+	CheckCodecOverride(stock);
 
 	Configure(true, 0);
 	stock = OpenSession();

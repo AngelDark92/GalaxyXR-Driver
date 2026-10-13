@@ -247,7 +247,8 @@ function prepareNativeDependencies(repo, { noDownload = false, check = false, lo
   if (!missing.length) { log('All native headers, sources, MinHook VC17 project, and x64 OpenVR library are present.'); return { repaired: [], filesAdded: 0, inspected: inspection.length }; }
   if (check) throw new Error(`Native dependency checkout is incomplete:\n${missingSummary(inspection)}\nRun: node tools/prepare-native-dependencies.cjs`);
   log(`Missing native build inputs:\n${missingSummary(inspection)}`);
-  const root = safeTarget(repo, 'build/native-dependencies');
+  // External artifacts (2026-10-08): keep dependency snapshots and logs out of source.
+  const root = safeTarget(path.resolve(repo, '../builds/GalaxyXR-Driver'), 'build/native-dependencies');
   fs.mkdirSync(root, { recursive: true });
   const lockFile = path.join(root, '.prepare.lock');
   let fd;

@@ -80,8 +80,8 @@ switch (vendor) {
 // Define output directories
 let vendorTag = vendor ? `-${vendor.charAt(0).toUpperCase()}${vendor.slice(1)}` : ""
 let stagingFolder = `GalaxyXRDriver-STAGING-${version}${vendorTag}-Windows`
-let outputDir = path.join(__dirname, "output", stagingFolder)
-let defaultDriverOutput = path.join(__dirname, "output", "GalaxyXRDriver")
+let outputDir = path.join(__dirname, "../builds/GalaxyXR-Driver/output", stagingFolder)
+let defaultDriverOutput = path.join(__dirname, "../builds/GalaxyXR-Driver/output", "GalaxyXRDriver")
 
 console.log(`Output directory: ${outputDir}`)
 
@@ -174,7 +174,6 @@ function buildDriverTask() {
 			"/t:Rebuild",
 			"/p:Configuration=Release",
 			"/p:Platform=x64",
-			`/p:IntermediateOutputPath=GalaxyXRDriver\\x64\\Release\\staging\\`,
 			"/p:SkipPostBuild=true",
 			"/m",
 			"/v:minimal",
@@ -319,7 +318,7 @@ function buildGuiTask() {
 				return
 			}
 
-			let tauriBundleDir = path.join(__dirname, "output", "GalaxyXRDriverGUI", "release")
+			let tauriBundleDir = path.join(__dirname, "../builds/GalaxyXR-Driver/output", "GalaxyXRDriverGUI", "release")
             try {
                 console.log(`Staged ${stageCompanion(tauriBundleDir, guiOutput)}`)
             } catch (error) {
