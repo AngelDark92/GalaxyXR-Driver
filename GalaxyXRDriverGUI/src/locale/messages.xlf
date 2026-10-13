@@ -2483,6 +2483,12 @@ An encoder already created with the tap can retain its earlier parameters and AP
       <trans-unit id="debug-mode-20261001-6" datatype="html">
         <source>Show encoder, controller, and calibration controls. Hiding them keeps their values.</source>
       </trans-unit>
+      <trans-unit id="dev-updates-20261013-1" datatype="html">
+        <source>Dev Updates</source>
+      </trans-unit>
+      <trans-unit id="dev-updates-20261013-2" datatype="html">
+        <source>Also check for dev (pre-release) builds when checking for updates.</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>

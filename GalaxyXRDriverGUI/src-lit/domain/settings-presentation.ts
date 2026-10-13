@@ -48,6 +48,7 @@ group('app-settings', ['Application preferences'], ['heading:app-preferences'])(
   keys: ['streamFrame.enable', 'galaxyXr.sdr10Baseline', 'galaxyXr.sdr10AllowEnhancements'],
 });
 group('app-settings', ['Application preferences'], ['heading:app-preferences'])('advanceMode', 'Advanced Mode', { source: 'gui-settings.json' });
+group('app-settings', ['Application preferences'], ['heading:app-preferences'])('devUpdates', 'Dev Updates', { source: 'gui-settings.json' });
 group('app-settings', ['Application preferences'], ['heading:app-preferences'])('debugMode', 'Debug Mode');
 
 group('stream-frame', ['Image Processing', 'Color'], ['heading:image-processing', 'color'], false, 'enhancements')('streamFrame.contrastLinear', 'Linear Contrast');

@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getVersion } from '@tauri-apps/api/app';
 import { signal } from '../reactive';
 import { AppUpdateService } from './app-update';
+import type { AppSetting } from '../domain/types';
 import type { SystemDiagnosticService } from './system-diagnostic';
 
 vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn() }));
 
 const latestEndpoint = 'https://api.github.com/repos/AngelDark92/GalaxyXR-Driver/releases/latest';
+const releasesEndpoint = 'https://api.github.com/repos/AngelDark92/GalaxyXR-Driver/releases?per_page=30';
 const releaseUrl = 'https://github.com/AngelDark92/GalaxyXR-Driver/releases/tag/v1.3.0';
+const tagUrl = (tag: string) => `https://github.com/AngelDark92/GalaxyXR-Driver/releases/tag/${tag}`;
 const fetchMock = vi.fn<typeof fetch>();
 
 function release(tag = 'v1.3.0') {
@@ -17,10 +20,20 @@ function release(tag = 'v1.3.0') {
   });
 }
 
-function createService(installedVersion?: string) {
+function releaseList(tags: string[]) {
+  return new Response(JSON.stringify(tags.map(tag => ({ tag_name: tag, html_url: tagUrl(tag) }))), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/** Default-off getter mirrors the pre-Dev-Updates behavior exactly. */
+function createService(installedVersion?: string, devUpdatesInitially = false) {
   const driverInstalled = signal<string | undefined>(installedVersion);
-  const service = new AppUpdateService({ driverInstalled } as unknown as SystemDiagnosticService);
-  return { service, driverInstalled };
+  const devUpdates = signal(devUpdatesInitially);
+  const service = new AppUpdateService({ driverInstalled } as unknown as SystemDiagnosticService,
+    () => ({ devUpdates: devUpdates() } as AppSetting));
+  return { service, driverInstalled, devUpdates };
 }
 
 beforeEach(() => {
@@ -141,5 +154,101 @@ describe('AppUpdateService release check', () => {
     await service.checkUpdate();
     await Promise.resolve();
     expect(service.updateInfo()).toMatchObject({ updateAvailable: true, installAvailable: false });
+  });
+});
+
+describe('AppUpdateService Dev Updates channel', () => {
+  it('reads the releases list and reports the newest dev build when Dev Updates is on', async () => {
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.9.0-dev.2', 'v1.9.0-dev.1', 'v1.8.0']));
+    const { service } = createService(undefined, true);
+
+    const result = await service.checkUpdate();
+
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(releasesEndpoint, expect.objectContaining({
+      signal: expect.any(AbortSignal),
+      headers: { accept: 'application/vnd.github+json' },
+    }));
+    expect(result).toMatchObject({
+      fetchSuccess: true,
+      currentVersion: '1.2.2',
+      latestVersion: 'v1.9.0-dev.2',
+      updateAvailable: true,
+      url: tagUrl('v1.9.0-dev.2'),
+    });
+    expect(service.updateInfo()).toEqual(result);
+  });
+
+  it('keeps a newer stable release ahead of dev builds', async () => {
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.10.0', 'v1.9.0-dev.5']));
+    const { service } = createService(undefined, true);
+
+    expect(await service.checkUpdate()).toMatchObject({
+      fetchSuccess: true,
+      latestVersion: 'v1.10.0',
+      updateAvailable: true,
+      url: tagUrl('v1.10.0'),
+    });
+  });
+
+  it('updates a running dev build to the next dev build', async () => {
+    vi.mocked(getVersion).mockResolvedValue('1.9.0-dev.2');
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.9.0-dev.3']));
+    const { service } = createService(undefined, true);
+
+    expect(await service.checkUpdate()).toMatchObject({
+      fetchSuccess: true,
+      currentVersion: '1.9.0-dev.2',
+      latestVersion: 'v1.9.0-dev.3',
+      updateAvailable: true,
+    });
+  });
+
+  it('updates a dev build to its matching stable release', async () => {
+    vi.mocked(getVersion).mockResolvedValue('1.9.0-dev.2');
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.9.0']));
+    const { service } = createService(undefined, true);
+
+    expect(await service.checkUpdate()).toMatchObject({
+      fetchSuccess: true,
+      latestVersion: 'v1.9.0',
+      updateAvailable: true,
+      url: tagUrl('v1.9.0'),
+    });
+  });
+
+  it('reports a failed releases list and allows another check', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 503 }));
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.9.0-dev.2']));
+    const { service } = createService(undefined, true);
+
+    expect(await service.checkUpdate()).toMatchObject({
+      fetchSuccess: false,
+      updateAvailable: false,
+      latestVersion: 'Unknown',
+      url: '',
+    });
+    expect(await service.checkUpdate()).toMatchObject({
+      fetchSuccess: true,
+      latestVersion: 'v1.9.0-dev.2',
+      updateAvailable: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reruns the check when Dev Updates flips after the first check settles', async () => {
+    fetchMock.mockResolvedValueOnce(release());
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.3.1']));
+    const { service, devUpdates } = createService();
+
+    await service.checkUpdate();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(latestEndpoint, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+
+    devUpdates.set(true);
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenLastCalledWith(releasesEndpoint, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    await vi.waitFor(() => expect(service.updateInfo()?.latestVersion).toBe('v1.3.1'));
+    expect(service.updateInfo()).toMatchObject({ fetchSuccess: true, updateAvailable: true, url: tagUrl('v1.3.1') });
   });
 });
