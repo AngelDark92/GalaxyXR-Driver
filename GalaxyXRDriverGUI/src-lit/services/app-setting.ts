@@ -9,6 +9,9 @@ const appDefaults: AppSetting = {
   colorScheme: 'dark',
   updateMode: 'rewrite',
   advanceMode: false,
+  // 2026-10-13: the dev (pre-release) update channel is opt-in; the stable
+  // release channel stays the default.
+  devUpdates: false,
   // A new installation or explicit reset requires fresh runtime verification.
   driverVerified: false
 };

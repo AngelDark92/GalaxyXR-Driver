@@ -60,6 +60,8 @@ PNVENCLOCKBITSTREAM origLockBitstream = nullptr;
 // for the canonical config of the target preset (see NvencTapConfig::presetMerge)
 PNVENCGETENCODEPRESETCONFIGEX origGetPresetConfigEx = nullptr;
 PNVENCGETENCODECAPS origGetEncodeCaps = nullptr;
+PNVENCGETLASTERROR origGetLastErrorString = nullptr;
+std::atomic<int> av1GateLogged{0};
 PNVENCOPENENCODESESSIONEX origOpenEncodeSessionEx = nullptr;
 PNVENCDESTROYENCODER origDestroyEncoder = nullptr;
 PNVENCGETENCODEPRESETCONFIG origGetPresetConfig = nullptr;
@@ -255,6 +257,8 @@ struct Snapshot {
 	// split experiment: the three version words and the init bitfield word
 	bool split = false;
 	uint32_t initVer = 0, cfgVer = 0, rcVer = 0, initFlags = 0;
+	uint32_t splitModeApplied = 0;   // the value written by the split branch (for the pristine retry)
+	uint32_t tuning = 0;             // original tuningInfo (the AV1 swap re-tunes ULL->LL)
 	uint32_t hevcLevel = 0, hevcTier = 0, hevcRefs = 0;
 	NV_ENC_CONFIG_HEVC_VUI_PARAMETERS hevcVui{};
 	bool hevc = false;
@@ -263,6 +267,7 @@ struct Snapshot {
 	// member in every SDK era (verified field offsets, all <= 216) and
 	// never exceeds the union of the runtime struct.
 	bool codecSwapped = false;
+	int codecTarget = 0;
 	GUID codecGuid{};
 	GUID codecProfile{};
 	static constexpr size_t kCodecWindow = 256;
@@ -346,10 +351,10 @@ const NV_ENC_PRESET_CONFIG* FetchPresetConfig(void* encoder, const NV_ENC_INITIA
 
 void Describe(const char* tag, const NV_ENC_INITIALIZE_PARAMS* p, bool full){
 	const NV_ENC_CONFIG* c = p->encodeConfig;
-	DriverLog("NvencTap: %s api=%u v=%u %ux%u dar=%ux%u fps=%u/%u codec=%s preset=%s tuning=%u async=%u ptd=%u vidmem=%u",
+	DriverLog("NvencTap: %s api=%u v=%u %ux%u dar=%ux%u fps=%u/%u codec=%s preset=%s tuning=%u async=%u ptd=%u vidmem=%u bf=%x",
 		tag, ApiMajor(p->version), StructVer(p->version), p->encodeWidth, p->encodeHeight, p->darWidth, p->darHeight,
 		p->frameRateNum, p->frameRateDen, IsHevc(p->encodeGUID) ? "HEVC" : IsH264(p->encodeGUID) ? "H264" : "?",
-		PresetName(p->presetGUID), (unsigned)p->tuningInfo, p->enableEncodeAsync, p->enablePTD, p->enableOutputInVidmem);
+		PresetName(p->presetGUID), (unsigned)p->tuningInfo, p->enableEncodeAsync, p->enablePTD, p->enableOutputInVidmem, (unsigned)p->bufferFormat);
 	if(!c){ DriverLog("NvencTap:   encodeConfig = null (preset defaults)"); return; }
 	const NV_ENC_RC_PARAMS &rc = c->rcParams;
 	DriverLog("NvencTap:   cfg v=%u gop=%u intervalP=%d rc=%s avg=%.1fM max=%.1fM vbv=%.2fMbit init=%u minQP=%u/%u maxQP=%u/%u AQ=%u(%u) tAQ=%u lookahead=%u(%u) multipass=%u zeroReorder=%u nonRefP=%u",
@@ -384,12 +389,78 @@ inline size_t WhatRem(const char* w, const char* what, size_t whatLen){
 // written; every HEVC-only override below skips itself because snap.hevc
 // is cleared here. H.264 and AV1 v1 force 8-bit output (NVENC rejects
 // 10-bit H.264; the client "Codecs Support" patch decodes both).
+// 2026-10-14 codec-swap fix: codec-specific fields, applied once onto the
+// hand-built window and re-applied after the merge seeds that window from
+// NVENC's own canonical preset config (valid by construction — the hand-built
+// AV1 window produced INVALID_PARAM on a live driver; the canonical seed
+// removes every hand-built-field risk).
+void ApplyCodecFields(NV_ENC_CONFIG* c, NV_ENC_INITIALIZE_PARAMS* p, int targetCodec, char* &w, size_t whatLen, const char* what){
+	if(targetCodec == 1){
+		NV_ENC_CONFIG_H264 &h = c->encodeCodecConfig.h264Config;
+		h.level = NV_ENC_LEVEL_AUTOSELECT;
+		h.entropyCodingMode = NV_ENC_H264_ENTROPY_CODING_MODE_CABAC;
+		h.repeatSPSPPS = 1;                 // SPS/PPS with every IDR: client resync
+		h.chromaFormatIDC = 1;
+		// Bit depths stay DEFAULT (0) like vrlink's own params: the depth
+		// follows the session's input surface class. H.264 needs the 8-bit
+		// class — steered in via the SUPPORT_10BIT_ENCODE caps shim below.
+	}else{
+		NV_ENC_CONFIG_AV1 &a = c->encodeCodecConfig.av1Config;
+		a.level = NV_ENC_LEVEL_AV1_AUTOSELECT;
+		a.tier = NV_ENC_TIER_AV1_0;              // MAIN tier
+		a.repeatSeqHdr = 1;                 // sequence header with every key frame
+		a.chromaFormatIDC = 1;
+		// ABI note (verified root cause, live 2026-10-14): the struct is
+		// stamped 12.1, where the bit depths are inputPixelBitDepthMinus8:3 /
+		// pixelBitDepthMinus8:3 INSIDE the flags word at +16, while the SDK 13
+		// tail enums (offsets 112/116) land on 12.1's reserved1[0..1] ("must
+		// be set to 0"). Writing the tail enums corrupts reserved words
+		// (INVALID_PARAM) and leaves the real bits reading 8-bit. Write the
+		// 12.1 bits directly: bits 12..14 = input, 15..17 = output, 0 = 8-bit,
+		// 2 = 10-bit (n12.1.14.0.h; nvEncodeAPI.h:2133-2136).
+		uint32_t* av1Flags = (uint32_t*)((unsigned char*)&a + 16);
+		switch(p->bufferFormat){
+			case NV_ENC_BUFFER_FORMAT_YUV420_10BIT:
+			case NV_ENC_BUFFER_FORMAT_YUV444_10BIT:
+			case NV_ENC_BUFFER_FORMAT_ARGB10:
+			case NV_ENC_BUFFER_FORMAT_ABGR10:
+			case NV_ENC_BUFFER_FORMAT_P210:
+				*av1Flags = (*av1Flags & ~(0x3Fu << 12)) | (2u << 12) | (2u << 15);
+				break;
+			case NV_ENC_BUFFER_FORMAT_NV12:
+			case NV_ENC_BUFFER_FORMAT_YV12:
+			case NV_ENC_BUFFER_FORMAT_IYUV:
+			case NV_ENC_BUFFER_FORMAT_YUV444:
+			case NV_ENC_BUFFER_FORMAT_ARGB:
+			case NV_ENC_BUFFER_FORMAT_AYUV:
+			case NV_ENC_BUFFER_FORMAT_ABGR:
+			case NV_ENC_BUFFER_FORMAT_NV16:
+				*av1Flags &= ~(0x3Fu << 12);   // 8-bit == minus8 = 0
+				break;
+			default:
+				break;
+		}
+		if(p->tuningInfo == NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY){
+			// the Application Note lists AV1 combos only at LL/HQ; ULL has
+			// no headroom for a 3200x8192@90 frame on 3 engines.
+			p->tuningInfo = NV_ENC_TUNING_INFO_LOW_LATENCY;
+			w += snprintf(w, WhatRem(w, what, whatLen), "tuning ULL->LL; ");
+		}
+	}
+}
+
 bool ApplyCodecOverride(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapConfig &cfg, Snapshot &snap, char* &w, size_t whatLen, const char* what){
 	if(cfg.codec <= 0 || !p->encodeConfig){ return false; }
 	const GUID* codec = nullptr; const GUID* profile = nullptr; const char* name = nullptr;
 	if(cfg.codec == 1){ codec = &NV_ENC_CODEC_H264_GUID; profile = &NV_ENC_H264_PROFILE_HIGH_GUID; name = "H264"; }
 	else if(cfg.codec == 2){ codec = &NV_ENC_CODEC_AV1_GUID; profile = &NV_ENC_AV1_PROFILE_MAIN_GUID; name = "AV1"; }
 	else { return false; }
+	if(cfg.codec == 2 && !Upgraded(encoder)){
+		// AV1 exists only from NVENC API 12.0 on; this session never got the
+		// 12.1 upgrade (split mode off), so its union has no AV1 member.
+		if(av1GateLogged.fetch_add(1) < 1){ DriverLog("NvencTap: codec AV1 needs the 12.1 session upgrade (split mode is off for this session) — leaving HEVC"); }
+		return false;
+	}
 	if(memcmp(&p->encodeGUID, codec, sizeof(GUID)) == 0){ return false; } // already the target
 	if(!IsHevc(p->encodeGUID)){
 		// only vrlink's HEVC sessions are rewritten; anything else is left alone
@@ -398,31 +469,16 @@ bool ApplyCodecOverride(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencT
 	NV_ENC_CONFIG* c = p->encodeConfig;
 	// save everything the rewrite touches, for the post-call restore
 	snap.codecSwapped = true;
+	snap.codecTarget = cfg.codec;
 	snap.codecGuid = p->encodeGUID;
 	snap.codecProfile = c->profileGUID;
 	memcpy(snap.codecWindow, &c->encodeCodecConfig, sizeof(snap.codecWindow));
 	p->encodeGUID = *codec;
 	c->profileGUID = *profile;
 	memset(&c->encodeCodecConfig, 0, sizeof(snap.codecWindow));
-	if(cfg.codec == 1){
-		NV_ENC_CONFIG_H264 &h = c->encodeCodecConfig.h264Config;
-		h.level = NV_ENC_LEVEL_AUTOSELECT;
-		h.entropyCodingMode = NV_ENC_H264_ENTROPY_CODING_MODE_CABAC;
-		h.repeatSPSPPS = 1;                 // SPS/PPS with every IDR: client resync
-		h.chromaFormatIDC = 1;
-		h.outputBitDepth = NV_ENC_BIT_DEPTH_8;
-		h.inputBitDepth = NV_ENC_BIT_DEPTH_8;
-	}else{
-		NV_ENC_CONFIG_AV1 &a = c->encodeCodecConfig.av1Config;
-		a.level = NV_ENC_LEVEL_AV1_AUTOSELECT;
-		a.tier = NV_ENC_TIER_AV1_0;              // MAIN tier
-		a.repeatSeqHdr = 1;                 // sequence header with every key frame
-		a.chromaFormatIDC = 1;
-		a.outputBitDepth = NV_ENC_BIT_DEPTH_8;
-		a.inputBitDepth = NV_ENC_BIT_DEPTH_8;
-	}
+	ApplyCodecFields(c, p, cfg.codec, w, whatLen, what);
 	snap.hevc = false; // every HEVC-only override below must skip itself
-	w += snprintf(w, WhatRem(w, what, whatLen), "codec HEVC->%s (8-bit); ", name);
+	w += snprintf(w, WhatRem(w, what, whatLen), "codec HEVC->%s; ", name);
 	return true;
 }
 
@@ -439,6 +495,7 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	// every SDK; splitEncodeMode occupies bits 5..8 from 12.1 on)
 	uint32_t* initFlags = (uint32_t*)&p->enablePTD + 1;
 	snap.initVer = p->version; snap.cfgVer = c->version; snap.rcVer = c->rcParams.version; snap.initFlags = *initFlags;
+	snap.tuning = (uint32_t)p->tuningInfo;
 	if(snap.hevc){
 		snap.hevcLevel = c->encodeCodecConfig.hevcConfig.level; snap.hevcTier = c->encodeCodecConfig.hevcConfig.tier;
 		snap.hevcRefs = c->encodeCodecConfig.hevcConfig.maxNumRefFramesInDPB;
@@ -481,6 +538,17 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 					if(prc.enableLookahead && prc.lookaheadDepth){
 						DriverLog("NvencTap: canonical P%d wants lookahead depth %u — NOT adopted (adds %u frames of latency)", presetWanted, prc.lookaheadDepth, prc.lookaheadDepth);
 					}
+				}
+				if(snap.codecSwapped){
+					// Seed the swapped codec's config window from NVENC's own
+					// canonical preset config for [target codec, preset,
+					// tuning] — valid by construction, so every hand-built
+					// field risk in the window disappears. The intentional
+					// deltas are re-applied immediately after.
+					memcpy(&c->encodeCodecConfig, &pcc.encodeCodecConfig, Snapshot::kCodecWindow);
+					ApplyCodecFields(c, p, snap.codecTarget, w, whatLen, what);
+					w += snprintf(w, WhatRem(w, what, whatLen), "seeded P%d@tuning%u; ", presetWanted, (unsigned)p->tuningInfo);
+					changed = true;
 				}
 				if(rc.multiPass != prc.multiPass){
 					w += snprintf(w, WhatRem(w, what, whatLen), "multipass %u->%u; ", (unsigned)rc.multiPass, (unsigned)prc.multiPass);
@@ -536,7 +604,15 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			h.level = NV_ENC_LEVEL_AUTOSELECT; h.tier = NV_ENC_TIER_HEVC_HIGH; changed = true;
 		}
 	}
-	if(cfg.splitMode > 0 && !splitRejected.load() && snap.hevc){
+	// The forced split bits must survive a codec swap: every tap-enabled
+	// session carries them (they are what lets the 3200x8192 stream frame
+	// encode split across the NVENC engines — the AUTO-selected P7 preset
+	// disqualifies the driver's implicit split, which vrlink's own P1..P4
+	// preset would have gotten). Gating this branch on snap.hevc made swapped
+	// sessions silently drop them, and NVENC then rejected the whole init
+	// with INVALID_PARAM — the 2026-10-13 H.264/AV1 wedges (status 8 on both
+	// attempts, the pristine retry included).
+	if(cfg.splitMode > 0 && !splitRejected.load()){
 		uint32_t mode = (uint32_t)(std::min)(15, cfg.splitMode);
 		if(mode > 4 && mode != 15){ mode = 1; }
 		if(ApiMajor(p->version) == 11){
@@ -550,7 +626,7 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			// native field (a future vrlink built against 12.1+)
 			w += snprintf(w, WhatRem(w, what, whatLen), "SPLIT %u->%u; ", p->splitEncodeMode, mode);
 			*initFlags = (snap.initFlags & ~(0xFu << 5)) | (mode << 5);
-			snap.split = true; changed = true;
+			snap.split = true; snap.splitModeApplied = mode; changed = true;
 		}
 	}
 	if(cfg.forceFps > 0 && (p->frameRateNum != (uint32_t)cfg.forceFps || p->frameRateDen != 1)){
@@ -638,7 +714,7 @@ void Restore(const Snapshot &snap){
 		snap.cfgPtr->profileGUID = snap.codecProfile;
 		memcpy(&snap.cfgPtr->encodeCodecConfig, snap.codecWindow, sizeof(snap.codecWindow));
 	}
-	if(snap.initPtr){ snap.initPtr->presetGUID = snap.preset; snap.initPtr->frameRateNum = snap.fpsNum; snap.initPtr->frameRateDen = snap.fpsDen; }
+	if(snap.initPtr){ snap.initPtr->presetGUID = snap.preset; snap.initPtr->frameRateNum = snap.fpsNum; snap.initPtr->frameRateDen = snap.fpsDen; snap.initPtr->tuningInfo = (NV_ENC_TUNING_INFO)snap.tuning; }
 	if(snap.split && snap.initPtr){
 		snap.initPtr->version = snap.initVer; snap.cfgPtr->version = snap.cfgVer; snap.cfgPtr->rcParams.version = snap.rcVer; // no-ops on the native path
 		*((uint32_t*)&snap.initPtr->enablePTD + 1) = snap.initFlags;
@@ -714,10 +790,33 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 			DriverLog("NvencTap: SPLIT-FRAME: %s REJECTED the 12.1-versioned structs (status %u%s) — latched off for this session; other overrides continue", tag, (unsigned)st,
 				st == NV_ENC_ERR_INVALID_VERSION ? " = INVALID_VERSION: the session is pinned to its 11.1 apiVersion, next step is bumping nvEncOpenEncodeSessionEx" : "");
 		}
+		if(origGetLastErrorString){
+			const char* le = origGetLastErrorString(encoder);
+			if(le && *le){ DriverLog("NvencTap: %s override failure detail: %s", tag, le); }
+		}
 		DriverLog("NvencTap: %s WITH override failed (%u) — retrying with vrlink's pristine params", tag, (unsigned)st);
+		// The retry should resemble a working session: every tap-enabled
+		// session carries the forced split bits. Keep them on the retry too,
+		// but only on the init path — a reconfigure retry runs with its outer
+		// 11.1 version restored, where those bits are reserved-and-zero.
+		uint32_t* retryFlags = (!outerVersion && snap.initPtr) ? ((uint32_t*)&snap.initPtr->enablePTD + 1) : nullptr;
+		if(snap.split && retryFlags && snap.splitModeApplied){
+			*retryFlags = (snap.initFlags & ~(0xFu << 5)) | (snap.splitModeApplied << 5);
+		}
 		NVENCSTATUS st2 = call();
-		std::lock_guard<std::mutex> g(statsLock);
-		if(st2 == NV_ENC_SUCCESS){ failedThenOk++; } else { failed++; }
+		if(snap.split && retryFlags){ *retryFlags = snap.initFlags; }
+		bool retryFailed;
+		{
+			std::lock_guard<std::mutex> g(statsLock);
+			if(st2 == NV_ENC_SUCCESS){ failedThenOk++; retryFailed = false; } else { failed++; retryFailed = true; }
+		}
+		if(retryFailed){
+			DriverLog("NvencTap: %s pristine retry ALSO failed (%u) — encoder left dead upstream, stream will wedge", tag, (unsigned)st2);
+			if(origGetLastErrorString){
+				const char* le = origGetLastErrorString(encoder);
+				if(le && *le){ DriverLog("NvencTap: %s pristine retry detail: %s", tag, le); }
+			}
+		}
 		return st2;
 	}
 	RecordLast(p);
@@ -882,6 +981,39 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 		}
 	}
 	uint32_t n = params->bitstreamSizeInBytes;
+	// Debug AU dump (overridden sessions only): full bytes for the first 4
+	// frames, then a size-only trace, to compare what NVENC produced against
+	// what the client's decoder receives. TEMP is writable from the SteamVR
+	// user session; missing env -> no dump.
+	{
+		static std::atomic<int> dumpFrames{0};
+		int df = dumpFrames.fetch_add(1);
+		if(df < 50 && NvencTap::Get().GetConfig().codec != 0){
+			const char* tmp = getenv("TEMP");
+			std::string path;
+			if(tmp){ path = std::string(tmp) + "\\gxr_au_dump.bin"; }
+			else {
+				const char* up = getenv("USERPROFILE");
+				if(up){ path = std::string(up) + "\\AppData\\Local\\Temp\\gxr_au_dump.bin"; }
+			}
+			if(!path.empty()){
+				FILE* f = fopen(path.c_str(), df == 0 ? "wb" : "ab");
+				if(f){
+					uint32_t dumpCap = df < 4 ? 98304u : 0u;
+					uint32_t m = n < dumpCap ? n : dumpCap;
+					uint32_t hdr[6] = { 0x31415547u /*GAU1*/, (uint32_t)df, (uint32_t)params->pictureType,
+						(uint32_t)params->frameIdx, n, m };
+					fwrite(hdr, 1, sizeof(hdr), f);
+					if(m && params->bitstreamBufferPtr){ fwrite(params->bitstreamBufferPtr, 1, m, f); }
+					fclose(f);
+					if(df < 8){
+						DriverLog("NvencTap: AUdump %d frameIdx=%u type=%u size=%u dumped=%u", df,
+							(uint32_t)params->frameIdx, (uint32_t)params->pictureType, n, m);
+					}
+				}
+			}
+		}
+	}
 	bool idr = params->pictureType == NV_ENC_PIC_TYPE_IDR || params->pictureType == NV_ENC_PIC_TYPE_I;
 	bool newMax = false;
 	{
@@ -936,6 +1068,22 @@ NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
 }
 NVENCSTATUS NVENCAPI NvencTapShims::GetEncodeCaps(void* encoder, GUID encodeGUID, NV_ENC_CAPS_PARAM* params, int* capsVal){
 	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
+	// 2026-10-13 fix: NVENC H.264 cannot encode 10-bit input. vrlink probes
+	// SUPPORT_10BIT_ENCODE once during startup and turns its whole session
+	// (input textures 0x20000000 ABGR10, config depths) 10-bit when the answer
+	// is yes; the H.264 session then dies at nvEncInitializeEncoder with
+	// INVALID_PARAM (observed live 16:42:15, status 8 on both attempts, the
+	// pristine retry included) and the stream wedges with the encoder dead.
+	// While H.264 is selected, answer no to that one probe so vrlink builds
+	// its 8-bit class instead: session, textures and depths then match H.264
+	// natively and the swap succeeds. AV1 (10-bit capable) and stock HEVC
+	// keep the true answer — the driver setting stays the only switch.
+	const NvencTapConfig capsCfg = NvencTap::Get().GetConfig();
+	if(capsCfg.enabled && capsCfg.codec == 1 && params && capsVal
+		&& params->capsToQuery == NV_ENC_CAPS_SUPPORT_10BIT_ENCODE){
+		*capsVal = 0;
+		return NV_ENC_SUCCESS;
+	}
 	return origGetEncodeCaps(encoder, encodeGUID, params, capsVal);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::GetEncodePresetConfig(void* encoder, GUID encodeGUID, GUID presetGUID, NV_ENC_PRESET_CONFIG* params){
@@ -1049,6 +1197,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::CreateInstance(NV_ENCODE_API_FUNCTION_LIST* 
 	WRAP(nvEncRegisterAsyncEvent, RegisterAsyncEvent, origRegisterAsyncEvent);
 	WRAP(nvEncUnregisterAsyncEvent, UnregisterAsyncEvent, origUnregisterAsyncEvent);
 	WRAP(nvEncMapInputResource, MapInputResource, origMapInputResource);
+	origGetLastErrorString = list->nvEncGetLastErrorString;   // capture only: the driver names the exact violated rule
 	WRAP(nvEncLockInputBuffer, LockInputBuffer, origLockInputBuffer);
 	WRAP(nvEncGetSequenceParams, GetSequenceParams, origGetSequenceParams);
 	WRAP(nvEncRunMotionEstimationOnly, RunMotionEstimationOnly, origRunMotionEstimationOnly);

@@ -38,7 +38,7 @@ export function createAppContext(paths: PathsService): AppContext {
   const dis = new DriverInfoService(paths, appSettingGetter);
   const dss = new DriverSettingService(paths, dis, appSettingGetter);
   const sds = new SystemDiagnosticService(dss, dis, dialog, paths, appSetting);
-  const aus = new AppUpdateService(sds);
+  const aus = new AppUpdateService(sds, appSettingGetter);
   const galaxy = new GalaxySettingsBase(appSetting, dss, dis);
   const checks = new SettingsCheckService(appSetting, dss, dis, sds);
   const startup = new DriverStartupService(sds);

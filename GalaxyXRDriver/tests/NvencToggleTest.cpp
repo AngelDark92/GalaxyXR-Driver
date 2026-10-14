@@ -32,12 +32,15 @@ uint32_t seenCapsVersion = 0;
 uint32_t seenInitVersion = 0;
 uint32_t seenConfigVersion = 0;
 uint32_t seenRcVersion = 0;
+uint32_t seenInitFlags = 0;
+uint32_t seenTuning = 0;
 uint32_t seenLevel = 0;
 uint32_t seenBitrate = 0;
 GUID seenCodecGuid{};
 GUID seenProfileGuid{};
 uint32_t seenH264Level = 0, seenH264BitDepth = 0, seenH264RepeatSpsPps = 0;
-uint32_t seenAv1Level = 0, seenAv1BitDepth = 0, seenAv1RepeatSeqHdr = 0;
+uint32_t seenAv1Level = 0, seenAv1BitDepth = 0, seenAv1InputBitDepth = 0, seenAv1RepeatSeqHdr = 0;
+uint32_t seenAv1Flags = 0;
 int destroyCalls = 0;
 int capsCalls = 0;
 
@@ -70,8 +73,11 @@ void ConfigureCodec(bool enabled, int codec){
 	NvencTap::Get().SetConfig(config);
 }
 
+void* OpenSession();
+
 void CheckCodecOverride(void* encoder){
-	// H.264 rewrite: GUID + profile + 8-bit + SPS/PPS repeat, full caller restore after
+	// H.264 rewrite: GUID + profile + SPS/PPS repeat, depths left DEFAULT,
+	// full caller restore after
 	ConfigureCodec(true, 1);
 	NV_ENC_CONFIG cfg = {}; cfg.version = Tag111(7, true); cfg.rcParams.version = Tag111(1);
 	cfg.rcParams.averageBitRate = 42000000; cfg.rcParams.maxBitRate = 42000000;
@@ -88,13 +94,20 @@ void CheckCodecOverride(void* encoder){
 	Check(memcmp(&seenCodecGuid, &NV_ENC_CODEC_H264_GUID, sizeof(GUID)) == 0, "codec H264: encoder gets the H264 GUID");
 	Check(memcmp(&seenProfileGuid, &NV_ENC_H264_PROFILE_HIGH_GUID, sizeof(GUID)) == 0, "codec H264: profile is High");
 	Check(seenH264Level == NV_ENC_LEVEL_AUTOSELECT, "codec H264: level AUTOSELECT");
-	Check(seenH264BitDepth == NV_ENC_BIT_DEPTH_8, "codec H264: 8-bit output");
+	Check(seenH264BitDepth == 0u, "codec H264: bit depth left DEFAULT (class decides)");
 	Check(seenH264RepeatSpsPps == 1, "codec H264: repeatSPSPPS");
 	Check(memcmp(&init, &savedInit, sizeof(init)) == 0, "codec H264: caller init fully restored");
 	Check(memcmp(&cfg, &savedCfg, sizeof(cfg)) == 0, "codec H264: caller config fully restored");
 
-	// AV1 rewrite
-	ConfigureCodec(true, 2);
+	// AV1 rewrite (needs an upgraded session: AV1 exists from NVENC API 12.0
+	// on, and the swap is only applied to 12.1-upgraded sessions — split on)
+	driverConfig.streamFrame.nvencTap = true;
+	driverConfig.streamFrame.nvencCodec = 2;
+	driverConfig.streamFrame.nvencSplitMode = 1;
+	NvencTapConfig av1Cfg; av1Cfg.enabled = true; av1Cfg.codec = 2; av1Cfg.splitMode = 1;
+	NvencTap::Get().SetConfig(av1Cfg);
+	void* av1Enc = OpenSession();
+	Check(Upgraded(av1Enc), "codec AV1: session upgraded for the 12.0+ AV1 union");
 	NV_ENC_CONFIG cfg2 = {}; cfg2.version = Tag111(7, true); cfg2.rcParams.version = Tag111(1);
 	cfg2.rcParams.averageBitRate = 42000000; cfg2.gopLength = 60;
 	cfg2.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
@@ -104,11 +117,16 @@ void CheckCodecOverride(void* encoder){
 	NV_ENC_INITIALIZE_PARAMS init2 = {}; init2.version = Tag111(5, true);
 	init2.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init2.encodeConfig = &cfg2;
 	init2.frameRateNum = 90; init2.frameRateDen = 1;
-	Check(NvencTapShims::InitializeEncoder(encoder, &init2) == NV_ENC_SUCCESS, "codec AV1: init delegated");
+	init2.bufferFormat = NV_ENC_BUFFER_FORMAT_YUV420_10BIT;
+	init2.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
+	Check(NvencTapShims::InitializeEncoder(av1Enc, &init2) == NV_ENC_SUCCESS, "codec AV1: init delegated");
 	Check(memcmp(&seenCodecGuid, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0, "codec AV1: encoder gets the AV1 GUID");
 	Check(memcmp(&seenProfileGuid, &NV_ENC_AV1_PROFILE_MAIN_GUID, sizeof(GUID)) == 0, "codec AV1: profile is Main");
 	Check(seenAv1Level == NV_ENC_LEVEL_AV1_AUTOSELECT, "codec AV1: level AUTOSELECT");
-	Check(seenAv1BitDepth == NV_ENC_BIT_DEPTH_8, "codec AV1: 8-bit output");
+	Check(seenAv1BitDepth == 0u && seenAv1InputBitDepth == 0u, "codec AV1: SDK13 tail depths untouched (reserved in the 12.1 ABI)");
+	Check((seenAv1Flags & 0x3F000u) == 0x12000u, "codec AV1: 12.1 flags depth bits set to 10-bit (2/2)");
+	Check(seenTuning == NV_ENC_TUNING_INFO_LOW_LATENCY, "codec AV1: ULL re-tuned to LL for the big frame");
+	Check(init2.tuningInfo == NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY, "codec AV1: caller tuning restored");
 	Check(seenAv1RepeatSeqHdr == 1, "codec AV1: repeatSeqHdr");
 	Check(memcmp(&cfg2, &savedCfg2, sizeof(cfg2)) == 0, "codec AV1: caller config fully restored");
 
@@ -122,6 +140,53 @@ void CheckCodecOverride(void* encoder){
 	init3.frameRateNum = 90; init3.frameRateDen = 1;
 	Check(NvencTapShims::InitializeEncoder(encoder, &init3) == NV_ENC_SUCCESS, "codec default: HEVC init delegated");
 	Check(memcmp(&seenCodecGuid, &NV_ENC_CODEC_HEVC_GUID, sizeof(GUID)) == 0, "codec default: HEVC GUID kept");
+
+	// caps shim: while H.264 is selected the SUPPORT_10BIT_ENCODE probe must
+	// answer no (vrlink then builds its 8-bit class and the H.264 session is
+	// valid); AV1 and stock HEVC keep the real GPU answer.
+	ConfigureCodec(true, 1);
+	NV_ENC_CAPS_PARAM caps = {}; caps.version = Tag111(1); caps.capsToQuery = NV_ENC_CAPS_SUPPORT_10BIT_ENCODE;
+	int capsValue = -1;
+	const int capsBefore = capsCalls;
+	Check(NvencTapShims::GetEncodeCaps(encoder, NV_ENC_CODEC_HEVC_GUID, &caps, &capsValue) == NV_ENC_SUCCESS,
+		"caps shim: H264 selection answers SUCCESS");
+	Check(capsValue == 0, "caps shim: H264 selection reports no 10-bit encode");
+	Check(capsCalls == capsBefore, "caps shim: driver not consulted for the H264 selection");
+	ConfigureCodec(true, 2);
+	capsValue = -1;
+	Check(NvencTapShims::GetEncodeCaps(encoder, NV_ENC_CODEC_HEVC_GUID, &caps, &capsValue) == NV_ENC_SUCCESS,
+		"caps shim: AV1 selection still consults the driver");
+	Check(capsValue == 1 && capsCalls == capsBefore + 1, "caps shim: AV1 keeps the real 10-bit answer");
+	ConfigureCodec(false, 1);
+	capsValue = -1;
+	Check(NvencTapShims::GetEncodeCaps(encoder, NV_ENC_CODEC_HEVC_GUID, &caps, &capsValue) == NV_ENC_SUCCESS,
+		"caps shim: disabled tap consults the driver");
+	Check(capsValue == 1 && capsCalls == capsBefore + 2, "caps shim: disabled tap keeps the real answer");
+	ConfigureCodec(true, 0);
+
+	// split forcing must survive the codec swap (2026-10-13 fix): with split
+	// enabled — the shipping default — a swapped session must still carry the
+	// forced split bits, or NVENC rejects the big stream frame (INVALID_PARAM).
+	driverConfig.streamFrame.nvencTap = true;
+	driverConfig.streamFrame.nvencCodec = 2;
+	driverConfig.streamFrame.nvencSplitMode = 1;
+	NvencTapConfig splitCfg; splitCfg.enabled = true; splitCfg.codec = 2; splitCfg.splitMode = 1;
+	NvencTap::Get().SetConfig(splitCfg);
+	void* upgraded2 = OpenSession();
+	Check(Upgraded(upgraded2), "codec+split: session upgraded for the 12.1 split bits");
+	NV_ENC_CONFIG scfg = {}; scfg.version = Tag111(7, true); scfg.rcParams.version = Tag111(1);
+	scfg.encodeCodecConfig.hevcConfig.level = NV_ENC_LEVEL_HEVC_61;
+	NV_ENC_INITIALIZE_PARAMS sinit = {}; sinit.version = Tag111(5, true);
+	sinit.encodeGUID = NV_ENC_CODEC_HEVC_GUID; sinit.encodeConfig = &scfg;
+	sinit.frameRateNum = 90; sinit.frameRateDen = 1;
+	Check(NvencTapShims::InitializeEncoder(upgraded2, &sinit) == NV_ENC_SUCCESS, "codec+split: init delegated");
+	Check(memcmp(&seenCodecGuid, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0, "codec+split: AV1 GUID applied");
+	Check(seenAv1BitDepth == 0u, "codec+split: unknown buffer format leaves depths unset");
+	Check((seenAv1Flags & 0x3F000u) == 0u, "codec+split: unknown buffer format leaves 12.1 depth bits at 8-bit");
+	Check(((seenInitFlags >> 5) & 0xFu) == 1, "codec+split: forced split bits present on the swapped session");
+	Check(*((uint32_t*)&sinit.enablePTD + 1) == 0, "codec+split: caller flags word restored");
+	Check(sinit.version == Tag111(5, true), "codec+split: caller version restored");
+	ConfigureCodec(true, 0);
 }
 
 NVENCSTATUS NVENCAPI CaptureOpen(NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS* params, void** encoder){
@@ -151,6 +216,8 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 	seenInitVersion = params->version;
 	seenConfigVersion = params->encodeConfig->version;
 	seenRcVersion = params->encodeConfig->rcParams.version;
+	seenInitFlags = *((uint32_t*)&params->enablePTD + 1);
+	seenTuning = (uint32_t)params->tuningInfo;
 	seenLevel = params->encodeConfig->encodeCodecConfig.hevcConfig.level;
 	seenBitrate = params->encodeConfig->rcParams.averageBitRate;
 	// 2026-10-13 codec override capture: GUID/profile always, codec fields
@@ -165,6 +232,8 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 	}else if(memcmp(&params->encodeGUID, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0){
 		seenAv1Level = params->encodeConfig->encodeCodecConfig.av1Config.level;
 		seenAv1BitDepth = (uint32_t)params->encodeConfig->encodeCodecConfig.av1Config.outputBitDepth;
+		seenAv1InputBitDepth = (uint32_t)params->encodeConfig->encodeCodecConfig.av1Config.inputBitDepth;
+		seenAv1Flags = *((uint32_t*)((unsigned char*)&params->encodeConfig->encodeCodecConfig.av1Config + 16));
 		seenAv1RepeatSeqHdr = params->encodeConfig->encodeCodecConfig.av1Config.repeatSeqHdr;
 	}
 	return NV_ENC_SUCCESS;

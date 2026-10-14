@@ -46,7 +46,7 @@ The source directories are now `GalaxyXRDriverGUI` and `GalaxyXRDriver`, with `G
 
 ## Updating
 
-Same as installing: extract the new zip, run the GUI, go to Setup and press Install (or Re-Install). The GUI checks this repository's latest stable release and tells you when a newer version is available. If the check fails, the About page shows a failure message; use Check for updates to retry.
+Same as installing: extract the new zip, run the GUI, go to Setup and press Install (or Re-Install). The GUI checks this repository's latest stable release and tells you when a newer version is available. If the check fails, the About page shows a failure message; use Check for updates to retry. Enable Dev Updates in App Settings to also see dev (pre-release) builds.
 
 ## Recommended settings
 

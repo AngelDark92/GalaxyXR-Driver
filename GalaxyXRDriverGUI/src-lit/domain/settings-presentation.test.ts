@@ -6,7 +6,7 @@ import { classifyBoolean, presentSettings, SETTINGS_PRESENTATION, settingPresent
 import { setLocale } from '../locale/i18n';
 import type { AppSetting } from './types';
 
-const app: AppSetting = { advanceMode: false, colorScheme: 'dark', updateMode: 'rewrite', driverVerified: false };
+const app: AppSetting = { advanceMode: false, colorScheme: 'dark', updateMode: 'rewrite', devUpdates: false, driverVerified: false };
 const context = () => ({ settings: structuredClone(driverDefaults), app: { ...app }, driverInstalled: true, vendor: true });
 
 describe('human-readable settings inspection', () => {

@@ -79,6 +79,11 @@ export class AppSettingsPage extends BasePage {
           .checked=${!!appSetting.values().advanceMode} @change=${(e: CustomEvent) => save({ advanceMode: e.detail })}></app-switch>
       `),
       noteRow(t('Show encoder, controller, and calibration controls. Hiding them keeps their values.')),
+      settingFieldRow('devUpdates', html`
+        <app-switch .known=${!appSetting.readFileError()} .disabled=${!!appSetting.readFileError()}
+          .checked=${!!appSetting.values().devUpdates} @change=${(e: CustomEvent) => save({ devUpdates: e.detail })}></app-switch>
+      `),
+      noteRow(t('Also check for dev (pre-release) builds when checking for updates.')),
       settingFieldRow('debugMode', html`
         <app-switch .known=${known} .disabled=${!installed || !known || busy}
           .checked=${galaxy.debugMode} @change=${async (e: CustomEvent<boolean>) => {

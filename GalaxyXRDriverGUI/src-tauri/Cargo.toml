@@ -1,6 +1,6 @@
 [package]
 name = "galaxyxrdriver-gui"
-version = "1.8.0"
+version = "1.9.0-dev.3"
 description = "Galaxy XR Companion"
 authors = ["hsin-yu chen"]
 license = ""

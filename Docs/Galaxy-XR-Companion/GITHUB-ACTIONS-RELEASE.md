@@ -16,7 +16,7 @@ The workflow verifies that the release version agrees across:
 
 A tagged release must use exactly `v<version>`.
 
-## Automatic release from main
+## Automatic releases from main and dev
 
 Commit your changes and push them to `main`. CI chooses the next version from
 commit subjects since the latest reachable stable release tag, updates all seven
@@ -66,6 +66,28 @@ If `main` advances while a build runs, that stale run does not overwrite it or
 publish its prepared version. The next main run considers all unreleased commits.
 Reruns recreate the same metadata commit; interrupted publication can reuse it.
 
+### Dev releases (dev branch)
+
+Pushing to `dev` publishes a prerelease of the next stable version. CI applies
+the same commit rules against the latest stable baseline (for example `1.3.0`
+after a `feat:`), appends the next counter of that dev series, and publishes
+`v<version>-dev.<n>` (for example `v1.3.0-dev.1`, then `v1.3.0-dev.2`). The same
+ZIP, checksum and notes are attached, and the release is marked as a
+prerelease. The publishing rules match `main`: only `fix:`, `feat:` or `rework:`
+commits since the last dev release create a new dev version, and `docs:`/`chore:`
+pushes build without publishing. The metadata commit lands on `dev`.
+
+Every `dev` push maintains the `dev` to `main` pull request. Merging it promotes
+the series: `main` publishes the stable `X.Y.Z`, and after a successful stable
+publication CI fast-forwards the release commit back to `dev` so the next dev
+series starts from the released version. A diverged `dev` is skipped with a
+warning instead of being overwritten. The pull request requires the repository
+setting that lets GitHub Actions create pull requests; the `Open a PR to main`
+workflow reports when that setting is disabled.
+
+Prereleases that are not part of a dev series keep the manual rule: change the
+version with `bump-version.js` before releasing more changes.
+
 Manual version overrides remain available, including patch and prerelease versions:
 
 ```powershell
@@ -78,8 +100,9 @@ published baseline, or an explicit prerelease version, and
 generates its changelog entry if missing. Existing authored entries are retained.
 For a repository with no stable release tag, CI uses the push's base commit;
 if neither is available, create an initial stable `v<version>` tag first.
-Feature branches and pull requests build without changing versions or
-publishing. Local builds never generate release commits or push anything.
+Feature branches and pull requests build without changing versions or publishing;
+only `main` and `dev` prepare releases. Local builds never generate release
+commits or push anything.
 
 The Windows workflow:
 
@@ -92,8 +115,9 @@ The Windows workflow:
 7. packages the complete Galaxy XR portable pair into `GalaxyXRDriver-v<version>-Windows-x64.zip`;
 8. creates a SHA-256 checksum;
 9. generates release notes from the version's changelog entry without duplicating its commit list;
-10. uploads the ZIP and metadata as Actions artifacts; and
-11. saves generated metadata to `main`, pins `v<version>` to the built commit, uploads the ZIP and checksum to a draft, and publishes after both uploads succeed. Prerelease versions are marked as prereleases.
+10. uploads the ZIP and metadata as Actions artifacts;
+11. saves generated metadata to the release branch (`main` or `dev`), pins `v<version>` to the built commit, uploads the ZIP and checksum to a draft, and publishes after both uploads succeed. Prerelease versions are marked as prereleases.
+12. after a stable `main` publication, backmerges the release commit into `dev` (fast-forward only; a diverged `dev` is skipped with a warning).
 
 The release workflow builds and packages only. The GUI unit suite (`npm test`),
 the Rust library tests (`cargo test --locked --lib`), the service regressions
@@ -101,10 +125,11 @@ the Rust library tests (`cargo test --locked --lib`), the service regressions
 not run there; run the relevant ones locally at the end of every task.
 
 A manual **Run workflow** invocation builds without publishing by default. To retry
-a failed publication, select **main** and enable **publish**. Reruns preserve an
-already published release and never move an existing tag to a different commit;
-after code changes, use a `fix:`/`feat:`/`rework:` commit or an explicit new version.
-Explicit `v*` tag pushes remain supported and build the tagged files without rewriting them.
+a failed publication, select the release branch (`main` or `dev`) and enable
+**publish**. Reruns preserve an already published release and never move an
+existing tag to a different commit; after code changes, use a `fix:`/`feat:`/`rework:`
+commit or an explicit new version. Explicit `v*` tag pushes remain supported and
+build the tagged files without rewriting them.
 
 `build-tools.yml` separately installs the locked frontend dependencies and runs
 the frontend unit suite (`npm test`), the service regressions and the build-tool

@@ -7,6 +7,9 @@ const { bumpVersion } = require('../bump-version.js');
 
 const stable = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const sha = /^[a-f\d]{40}$/;
+// The dev channel (2026-10-13): dev publishes X.Y.Z-dev.N prereleases and main
+// promotes a merged dev series. Both branches may prepare and persist releases.
+const releaseBranches = ['refs/heads/main', 'refs/heads/dev'];
 function git(repo, args, env = {}) {
   return execFileSync('git', args, { cwd: repo, encoding: 'utf8', windowsHide: true,
     env: { ...process.env, ...env } }).trim();
@@ -52,7 +55,7 @@ function planRelease(repo, env, event) {
   const initial = { version, source, commit: source, generated: false,
     ...releasePolicy({ eventName: env.GITHUB_EVENT_NAME, ref: env.GITHUB_REF,
       version, previousVersion: version, manualPublish }) };
-  if (env.GITHUB_REF !== 'refs/heads/main' ||
+  if (!releaseBranches.includes(env.GITHUB_REF) ||
       !(env.GITHUB_EVENT_NAME === 'push' || (env.GITHUB_EVENT_NAME === 'workflow_dispatch' && manualPublish))) return initial;
 
   // Published tags, including explicitly versioned prereleases, are immutable.
@@ -64,7 +67,10 @@ function planRelease(repo, env, event) {
     return { ...initial, publish: true };
   }
   const reachableTags = git(repo, ['tag', '--merged', source, '--list', 'v*']).split('\n');
-  if (!stable.test(version) && reachableTags.includes(`v${version}`)) {
+  // Dev-series prereleases are the dev channel's normal flow; every other
+  // prerelease stays immutable after its tag is published (2026-10-13).
+  const devSeries = /^(\d+\.\d+\.\d+)-dev\.(\d+)$/.exec(version);
+  if (!stable.test(version) && !devSeries && reachableTags.includes(`v${version}`)) {
     throw new Error('Change the already tagged prerelease version with bump-version.js before releasing more changes.');
   }
   const tags = reachableTags.filter(tag => stable.test(tag.slice(1))).sort((a, b) => compareVersions(b.slice(1), a.slice(1)));
@@ -78,21 +84,59 @@ function planRelease(repo, env, event) {
     base = event.before;
     previousVersion = JSON.parse(git(repo, ['show', `${base}:${layout.gui}/package.json`])).version;
   }
-  const commits = git(repo, ['log', '--no-merges', '--reverse', '--format=%H%x09%s', `${base}..${source}`])
+  const listCommits = range => git(repo, ['log', '--no-merges', '--reverse', '--format=%H%x09%s', range])
     .split('\n').filter(Boolean).map(line => ({ hash: line.slice(0, 40), subject: line.slice(41) }))
     .filter(c => !/^chore\(release\): v/.test(c.subject));
+  const commits = listCommits(`${base}..${source}`);
+  const noNewVersion = () => {
+    if (manualPublish && git(repo, ['rev-parse', `${base}^{commit}`]) !== source) {
+      throw new Error('No new release version: use a fix:/feat:/rework: commit or bump-version.js before publishing changed source.');
+    }
+    return { ...initial, publish: false };
+  };
+  // Dev channel (2026-10-13): dev publishes X.Y.Z-dev.N prereleases; main then
+  // promotes the merged series to the stable X.Y.Z release. Stable versions on
+  // main and manual non-dev prereleases keep their existing override rules.
+  const maxStable = (a, b) => (compareVersions(a, b) >= 0 ? a : b);
+  const devReleases = seriesBase => reachableTags
+    .map(tag => ({ tag, match: /^v(\d+\.\d+\.\d+)-dev\.(\d+)$/.exec(tag) }))
+    .filter(entry => entry.match && entry.match[1] === seriesBase)
+    .map(entry => ({ tag: entry.tag, n: Number(entry.match[2]) }))
+    .sort((a, b) => a.n - b.n);
+  if (devSeries && env.GITHUB_REF === 'refs/heads/dev') {
+    // Continuation: only commits after the last published dev tag are new.
+    const seriesBase = maxStable(devSeries[1], nextVersion(previousVersion, commits));
+    const released = devReleases(seriesBase);
+    const lastN = released.length ? released.at(-1).n : 0;
+    const lastDevTag = released.length ? released.at(-1).tag : undefined;
+    const n = Math.max(lastN + 1, Number(devSeries[2]) + 1);
+    const commitsSince = lastDevTag ? listCommits(`${lastDevTag}..${source}`) : commits;
+    if (!commitsSince.some(c => commitType(c.subject))) return { ...initial, publish: false };
+    return { ...initial, version: `${seriesBase}-dev.${n}`, tag: `v${seriesBase}-dev.${n}`, baseTag,
+      commits: commitsSince, publish: true };
+  }
+  if (devSeries && env.GITHUB_REF === 'refs/heads/main') {
+    // Promotion: a merged dev series becomes the stable release it targets.
+    const planned = maxStable(devSeries[1], nextVersion(previousVersion, commits));
+    if (planned === previousVersion) return noNewVersion();
+    return { ...initial, version: planned, tag: `v${planned}`, baseTag, commits, publish: true };
+  }
+  if (env.GITHUB_REF === 'refs/heads/dev') {
+    // First dev release of a new series that is still on the stable version.
+    const seriesBase = nextVersion(previousVersion, commits);
+    if (seriesBase === previousVersion) return { ...initial, publish: false };
+    const released = devReleases(seriesBase);
+    const n = (released.length ? released.at(-1).n : 0) + 1;
+    return { ...initial, version: `${seriesBase}-dev.${n}`, tag: `v${seriesBase}-dev.${n}`, baseTag,
+      commits, publish: true };
+  }
   // Release baseline repair (2026-09-26): source metadata can be reverted after
   // publication. Stable automatic bumps must advance the reachable release.
   const automatic = stable.test(version) && stable.test(previousVersion) && compareVersions(version, previousVersion) <= 0;
   const manualVersion = version !== previousVersion && !automatic;
   // Explicit higher versions and prereleases retain their existing override rules.
   const planned = manualVersion ? version : nextVersion(previousVersion, commits);
-  if (!manualVersion && planned === previousVersion) {
-    if (manualPublish && git(repo, ['rev-parse', `${base}^{commit}`]) !== source) {
-      throw new Error('No new release version: use a fix:/feat:/rework: commit or bump-version.js before publishing changed source.');
-    }
-    return { ...initial, publish: false };
-  }
+  if (!manualVersion && planned === previousVersion) return noNewVersion();
   return { ...initial, version: planned, tag: `v${planned}`, baseTag, commits,
     publish: manualVersion || planned !== previousVersion || manualPublish };
 }
@@ -147,7 +191,7 @@ function restoreChangelogHistory(current, published) {
 }
 function prepareRelease(repo, env, event) {
   const plan = planRelease(repo, env, event);
-  if (!plan.publish || env.GITHUB_REF !== 'refs/heads/main' || !plan.commits) return plan;
+  if (!plan.publish || !releaseBranches.includes(env.GITHUB_REF) || !plan.commits) return plan;
   if (git(repo, ['status', '--porcelain', '--untracked-files=normal'])) throw new Error('Release preparation requires a clean checkout.');
   const changelog = path.join(repo, 'CHANGELOG.md');
   const before = fs.readFileSync(changelog, 'utf8');
@@ -174,20 +218,22 @@ function prepareRelease(repo, env, event) {
 function persistRelease(repo, plan, ref) {
   if (!plan.publish) return false;
   if (!plan.generated) return true;
-  if (ref !== 'refs/heads/main' || !sha.test(plan.source) || !sha.test(plan.commit) ||
+  if (!releaseBranches.includes(ref) || !sha.test(plan.source) || !sha.test(plan.commit) ||
       git(repo, ['rev-parse', 'HEAD']) !== plan.commit) throw new Error('Invalid prepared release commit.');
-  git(repo, ['fetch', 'origin', 'refs/heads/main']);
+  const branch = ref.replace('refs/heads/', '');
+  // Persist to the same release branch that triggered the run (dev or main).
+  git(repo, ['fetch', 'origin', ref]);
   const remote = git(repo, ['rev-parse', 'FETCH_HEAD']);
   if (remote === plan.commit) return true;
   if (remote !== plan.source) {
     const ancestor = spawnSync('git', ['merge-base', '--is-ancestor', plan.commit, remote], { cwd: repo, windowsHide: true });
     if (ancestor.status === 0) return true;
-    if (ancestor.status !== 1) throw new Error('Cannot compare prepared release with remote main.');
-    console.log('Main advanced while building; the newer main run will prepare the release.');
+    if (ancestor.status !== 1) throw new Error(`Cannot compare prepared release with remote ${branch}.`);
+    console.log(`${branch[0].toUpperCase()}${branch.slice(1)} advanced while building; the newer ${branch} run will prepare the release.`);
     return false;
   }
   // Ordinary fast-forward only. A concurrent user push is never overwritten.
-  git(repo, ['push', 'origin', `${plan.commit}:refs/heads/main`]);
+  git(repo, ['push', 'origin', `${plan.commit}:${ref}`]);
   return true;
 }
 module.exports = { releasePolicy, planRelease, prepareRelease, persistRelease, nextVersion, changelogEntry, updateChangelog };

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish the current version (main only; use to retry a release)'
+        description: 'Publish the current version (main or dev; use to retry a release)'
         type: boolean
         default: false
 
@@ -149,7 +149,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Save verified version and changelog to main
+      - name: Save verified version and changelog to the release branch
         if: steps.policy.outputs.publish == 'true'
         id: persist
         shell: pwsh
@@ -161,6 +161,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node .\tools\publish-release.cjs
+
+      # Dev channel (2026-10-13): after a stable publication on main, sync the
+      # release commit back to dev. Best effort and fast-forward only: a
+      # diverged dev or a rejected push warns without failing the run.
+      - name: Backmerge main into dev
+        if: steps.persist.outputs.publish == 'true' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          git fetch origin +refs/heads/dev:refs/remotes/origin/dev +refs/heads/main:refs/remotes/origin/main
+          if ($LASTEXITCODE -ne 0) { Write-Warning 'Could not fetch dev and main; skipping the backmerge.'; exit 0 }
+          git checkout -B dev origin/dev
+          if ($LASTEXITCODE -ne 0) { Write-Warning 'Could not check out origin/dev; skipping the backmerge.'; exit 0 }
+          git merge --ff-only origin/main
+          if ($LASTEXITCODE -ne 0) { Write-Warning 'dev has diverged from main; resolve the divergence before the next dev release.'; exit 0 }
+          git push origin dev
+          if ($LASTEXITCODE -ne 0) { Write-Warning 'The backmerge push to dev was rejected; skipping.'; exit 0 }
+          exit 0
 
       - name: Stage native dependency diagnostics on failure
         if: failure()
