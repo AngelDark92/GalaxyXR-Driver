@@ -169,11 +169,16 @@ external binary tree under `GalaxyXRDriver/bin/linux64/`.
   every task. Read actual run results before claiming CI success; dispatch/push
   need authorization.
 - Measured on the hosted runners (2026-10-12): the release job ran 13.7 min with
-  every suite, 9.9 min build-only with a warm registry cache. The neutral build
-  is the largest single step (5-7 min, output not packaged); the Galaxy XR build
-  adds 2-3 min. `actions/cache` rejects `..` in cache paths, so the external
-  Cargo target tree cannot be cached relatively and is not worth caching
-  absolutely (multi-GB upload exceeds the recompile it saves).
+  every suite, 9.9 min build-only with a warm registry cache, 10.3 min after the
+  upload rework. The neutral build is the largest single step (5-7 min, output
+  not packaged); the Galaxy XR build adds 2-3 min. GitHub's own actions validate
+  paths against the workspace: `actions/cache` rejects `..` in `path`, and
+  `upload-artifact` rejects any pattern that leaves the workspace
+  (`Relative pathing '.' and '..' is not allowed`). The release job therefore
+  stages the external ZIP/checksum/notes into `ci-artifacts/` and the failure
+  diagnostics into `ci-diagnostics/` before uploading. In PowerShell, normalize
+  such paths with `[IO.Path]::GetFullPath` before slicing relative names — a
+  joined `../` string makes `Substring($root.Length)` cut the real path wrong.
 
 ## Migration and cleanup
 
