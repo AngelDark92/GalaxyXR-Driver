@@ -171,3 +171,26 @@ describe('isNewVersion', () => {
     expect(isNewVersion('1.0.0', '1.0.0-beta')).toBe(false);
   });
 });
+
+describe('isNewVersion dev channel ordering', () => {
+  it('ranks a same-base pre-release above its stable on the dev channel', () => {
+    expect(isNewVersion('1.9.0', '1.9.0-dev.8', true)).toBe(true);
+    expect(isNewVersion('1.9.0-dev.8', '1.9.0', true)).toBe(false);
+  });
+  it('keeps a higher base ahead of a lower-base pre-release', () => {
+    expect(isNewVersion('1.8.0-dev.99', '1.8.1', true)).toBe(true);
+    expect(isNewVersion('1.8.1', '1.8.0-dev.99', true)).toBe(false);
+  });
+  it('reports no update between equal versions on the dev channel', () => {
+    expect(isNewVersion('1.9.0-dev.8', '1.9.0-dev.8', true)).toBe(false);
+    expect(isNewVersion('1.9.0', '1.9.0', true)).toBe(false);
+  });
+  it('compares dev counters numerically on the dev channel', () => {
+    expect(isNewVersion('1.9.0-dev.8', '1.9.0-dev.10', true)).toBe(true);
+    expect(isNewVersion('1.9.0-dev.10', '1.9.0-dev.9', true)).toBe(false);
+  });
+  it('keeps strict semver with the channel off', () => {
+    expect(isNewVersion('1.9.0-dev.8', '1.9.0', false)).toBe(true);
+    expect(isNewVersion('1.9.0', '1.9.0-dev.8', false)).toBe(false);
+  });
+});

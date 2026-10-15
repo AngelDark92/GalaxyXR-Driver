@@ -293,6 +293,9 @@ private:
 	std::mutex installationLock;
 	std::mutex cfgLock;
 	NvencTapConfig cfg;
+	// 2026-10-15: true once SetConfig has published a live config; the caps
+	// shim's settings-file fallback applies only before that (pre-publish).
+	std::atomic<bool> cfgPublished{false};
 
 	friend struct NvencTapShims;
 };

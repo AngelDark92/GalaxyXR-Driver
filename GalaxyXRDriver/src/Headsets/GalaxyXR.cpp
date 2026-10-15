@@ -134,7 +134,13 @@ int GalaxyXR_EffectiveTileWidth(){
 	const auto &g = driverConfig.galaxyXr;
 	const GxrStreamTier* tier = FindGxrStreamTier(g.streamQuality);
 	int w = g.streamQuality == "custom" ? g.customStreamFormatWidth : (tier ? tier->width : 1536);
-	return std::max(512, std::min(2048, w));
+	const int cap = (driverConfig.streamFrame.nvencCodec == 1 && driverConfig.streamFrame.nvencTap) ? 1024 : 2048;
+	static std::atomic<bool> tileCapLogged{false};
+	if(driverConfig.streamFrame.nvencCodec == 1 && driverConfig.streamFrame.nvencTap && w > cap && !tileCapLogged.load()){
+		tileCapLogged.store(true);
+		DriverLog("GalaxyXR: tile capped to 1024 for H.264 (4x1024=4096 H.264 ceiling); requested %d", w);
+	}
+	return std::max(512, std::min(cap, w));
 }
 int GalaxyXR_EffectiveBandwidthMbit(){
 	const auto &g = driverConfig.galaxyXr;
@@ -337,9 +343,9 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 			RemoveIntIfOursIn(sec, "recommendedRenderWidth", {kGalaxyXrRenderWidth});
 			RemoveIntIfOursIn(sec, "recommendedRenderHeight", {kGalaxyXrRenderHeight});
 			RemoveIntIfOursIn(sec, "minStreamFormatWidth", {1024});
-			RemoveIntIfOursIn(sec, "maxStreamFormatWidth", {maxSfw, 1536, 2048, 3072, 3200, 3584, 4096});
+			RemoveIntIfOursIn(sec, "maxStreamFormatWidth", {maxSfw, 1024, 1536, 2048, 3072, 3200, 3584, 4096});
 			RemoveIntIfOursIn(sec, "minNonFoveatedStreamFormatWidth", {1024});
-			RemoveIntIfOursIn(sec, "maxNonFoveatedStreamFormatWidth", {maxSfw, 1536, 2048, 3072, 3200, 3584, 4096});
+			RemoveIntIfOursIn(sec, "maxNonFoveatedStreamFormatWidth", {maxSfw, 1024, 1536, 2048, 3072, 3200, 3584, 4096});
 		}
 	}
 	for(const auto& section : gxr::VrlinkTuningSections(g.vrlinkHeadsetProfile)){

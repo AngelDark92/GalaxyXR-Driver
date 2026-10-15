@@ -26,12 +26,15 @@ export type AppUpdateInfo = AppUpdateInfoSuccess;
 
 /** Dev Updates channel: the newest version-shaped tag of a releases list.
  * /releases/latest excludes pre-releases, so the list endpoint is used when
- * the channel is on; tags that are not version-shaped are skipped. */
-export function selectNewestRelease(releases: GitHubRelease[]): GitHubRelease | undefined {
+ * the channel is on; tags that are not version-shaped are skipped.
+ * devChannel applies the owner's dev ordering (2026-10-15): on an equal
+ * x.y.z base a pre-release ranks ABOVE its stable, so the newest dev build
+ * wins even when its stable release also exists. */
+export function selectNewestRelease(releases: GitHubRelease[], devChannel = false): GitHubRelease | undefined {
   let best: GitHubRelease | undefined;
   for (const candidate of releases) {
     if (!/^v?\d+\.\d+\.\d+/.test(candidate.tag_name)) continue;
-    if (!best || isNewVersion(best.tag_name, candidate.tag_name)) best = candidate;
+    if (!best || isNewVersion(best.tag_name, candidate.tag_name, devChannel)) best = candidate;
   }
   return best;
 }
@@ -51,14 +54,18 @@ export class AppUpdateService {
         if (next.installAvailable !== updateInfo.installAvailable) this._updateInfo.set(next);
       }
     });
-    // Dev Updates channel: rerun the check when the flag flips after the first
-    // observed value. checkUpdate() coalesces with a check that is still in
-    // flight (acceptable); the recheck reads the channel at the start of its
-    // own run.
+    // Dev Updates channel: a flip must take effect even when a check for the
+    // previous channel is still in flight (2026-10-15). Chain a fresh check
+    // after it settles instead of coalescing into a result for the old value.
     let observedDevUpdates: boolean | undefined;
     effect(() => {
       const devUpdates = !!this.appSettingGetter().devUpdates;
-      if (observedDevUpdates !== undefined && devUpdates !== observedDevUpdates) void this.checkUpdate();
+      if (observedDevUpdates !== undefined && devUpdates !== observedDevUpdates) {
+        const rerun = () => { void this.checkUpdate(); };
+        const pending = this.currentCheckTask;
+        if (pending) pending.then(rerun, rerun);
+        else rerun();
+      }
       observedDevUpdates = devUpdates;
     });
   }
@@ -94,13 +101,16 @@ export class AppUpdateService {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       if (useDevUpdates) {
         const releases: GitHubRelease[] = await response.json();
-        const release = selectNewestRelease(releases);
+        // Dev ordering: on an equal x.y.z base a pre-release outranks its
+        // stable, so a freshly promoted stable never reads as an update over
+        // the dev build the user already runs.
+        const release = selectNewestRelease(releases, true);
         result.fetchSuccess = true;
         // An empty (or fully non-version) list is a successful read with no
         // applicable release: no update and no URL.
         if (release) {
           result.latestVersion = release.tag_name
-          result.updateAvailable = isNewVersion(current, release.tag_name)
+          result.updateAvailable = isNewVersion(current, release.tag_name, true)
           result.url = release.html_url
         }
       } else {

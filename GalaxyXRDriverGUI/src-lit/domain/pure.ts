@@ -177,15 +177,19 @@ export const deepMerge = <TX extends IObject, TY extends IObject, TR = TX & TY>(
   return result as TR;
 };
 
-export function isNewVersion(current: string, latest: string): boolean {
+/** devChannel (Dev Updates on): a same-base pre-release ranks ABOVE its
+ * stable release, so the stable is never an "update" for a dev build
+ * (owner contract, 2026-10-15). Default false keeps strict semver:
+ * stable above pre-release. Higher bases win in both orderings. */
+export function isNewVersion(current: string, latest: string, devChannel = false): boolean {
   if(current.startsWith('v') || current.startsWith('V')){
     current = current.substring(1);
   }
   if(latest.startsWith('v') || latest.startsWith('V')){
     latest = latest.substring(1);
   }
-  const cParts = current.split(/[\.-]/g);
-  const lParts = latest.split(/[\.-]/g);
+  const cParts = current.split(/[.-]/g);
+  const lParts = latest.split(/[.-]/g);
   const maxLength = Math.max(cParts.length, lParts.length);
   for (let i = 0; i < maxLength; i++) {
     const cNum = parseInt(cParts[i] || '0', 10);
@@ -193,12 +197,14 @@ export function isNewVersion(current: string, latest: string): boolean {
     if(isNaN(parseInt(cParts[i])) && cParts[i] || isNaN(parseInt(lParts[i])) && lParts[i]){
       // compare strings
       if (!lParts[i]){
-        // if the text is missing from the latest then it is no longer a pre-release
-        return true;
+        // The latest dropped the pre-release text. Strict semver: the stable
+        // is newer. Dev channel: the same-base pre-release ranks above it.
+        return !devChannel;
       }
       if (!cParts[i]){
-        // if the text is missing from the current then latest it an older pre-release
-        return false;
+        // Mirror image: the latest carries pre-release text the current lacks.
+        // Strict semver: an older pre-release. Dev channel: an update.
+        return devChannel;
       }
       if (lParts[i] > cParts[i]) {
         return true;

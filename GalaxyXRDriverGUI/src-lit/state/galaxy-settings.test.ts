@@ -1,13 +1,14 @@
 // Unit tests for the Galaxy settings state (state/galaxy-settings.ts):
 // persisted-schema migrations (schema 2/3/4/5, NVENC v3/v4), defaults
-// resolution, tuner band/segment generation, matrix text parsing, CAS
-// mode switching, calibration lifecycle, and profile import semantics.
+// resolution, per-codec encoder defaults, tuner band/segment generation,
+// matrix text parsing, CAS mode switching, calibration lifecycle, and
+// profile import semantics.
 //
 // The class takes the three root services through its constructor, so the
 // tests use minimal fakes: the constructor's effects run synchronously and
 // migrated saves are queueMicrotask'd, flushed by a macrotask await.
 import { describe, it, expect } from 'vitest';
-import { GalaxySettingsBase } from './galaxy-settings';
+import { GalaxySettingsBase, applyCodecDefaults, codecEncoderDefaults } from './galaxy-settings';
 import { driverDefaults } from '../domain/driver-defaults';
 
 type Harness = {
@@ -735,5 +736,144 @@ describe('profile import/export', () => {
     }));
     gs.importProfile();
     expect(gs.settings!.distortion!.map).toEqual({ enable: true, cols: 2, rows: 2, left: [0, 1, 2, 3, 4, 5, 6, 7], right: [8, 9, 10, 11, 12, 13, 14, 15], source: 'cam' });
+  });
+});
+
+describe('per-codec encoder defaults', () => {
+  // each codec owns a default rate-control profile (galaxy-settings.ts):
+  // HEVC/AV1 default to CBR + 2-frame VBV; H.264 to VBR + 1-frame VBV
+  // (splitMode stays 1 everywhere — it also opens the 12.1 session; the
+  // tap skips the split bits for codec 1 itself). the codec switch and
+  // rows' reset arrows read this table, so the pure helpers are the
+  // subject here; each test seeds the opposite row first so the
+  // assertions prove the write actually happened.
+  it('applies the H.264 row for codec 1', () => {
+    const sf = structuredClone(driverDefaults.streamFrame!);
+    sf.nvencForceCbr = true;
+    sf.nvencVbvFrames = 2;
+    sf.nvencLowDelayKfScale = 2;
+    sf.nvencSplitMode = 3;
+    applyCodecDefaults(sf, 1);
+    expect(sf.nvencForceCbr).toBe(false);
+    expect(sf.nvencVbvFrames).toBe(1);
+    expect(sf.nvencLowDelayKfScale).toBe(2);
+    expect(sf.nvencSplitMode).toBe(1);
+  });
+
+  it.each([0, 2])('applies the HEVC/AV1 row for codec %s', codec => {
+    const sf = structuredClone(driverDefaults.streamFrame!);
+    sf.nvencForceCbr = false;
+    sf.nvencVbvFrames = 1;
+    sf.nvencLowDelayKfScale = 2;
+    sf.nvencSplitMode = 0;
+    applyCodecDefaults(sf, codec);
+    expect(sf.nvencForceCbr).toBe(true);
+    expect(sf.nvencVbvFrames).toBe(2);
+    expect(sf.nvencLowDelayKfScale).toBe(2);
+    expect(sf.nvencSplitMode).toBe(1);
+  });
+
+  it('falls back to the codec-0 row for an unknown codec', () => {
+    const sf = structuredClone(driverDefaults.streamFrame!);
+    sf.nvencForceCbr = false;
+    sf.nvencVbvFrames = 9;
+    sf.nvencLowDelayKfScale = 4;
+    sf.nvencSplitMode = 3;
+    applyCodecDefaults(sf, 7);
+    expect(sf.nvencForceCbr).toBe(true);
+    expect(sf.nvencVbvFrames).toBe(2);
+    expect(sf.nvencLowDelayKfScale).toBe(2);
+    expect(sf.nvencSplitMode).toBe(1);
+  });
+
+  it('writes only the four dependent keys, leaving the rest of the config untouched', () => {
+    const sf = structuredClone(driverDefaults.streamFrame!);
+    sf.nvencForceCbr = false;
+    sf.nvencVbvFrames = 9;
+    sf.nvencLowDelayKfScale = 4;
+    sf.nvencSplitMode = 3;
+    sf.nvencPreset = 7;
+    sf.nvencBitrateMbit = 123;
+    sf.gamma = 1.8;
+    sf.saturation = 42;
+    applyCodecDefaults(sf, 2);
+    expect(sf.nvencForceCbr).toBe(true);
+    expect(sf.nvencVbvFrames).toBe(2);
+    expect(sf.nvencLowDelayKfScale).toBe(2);
+    expect(sf.nvencSplitMode).toBe(1);
+    // encoder neighbours and non-nvenc keys keep their seeded values
+    expect(sf.nvencPreset).toBe(7);
+    expect(sf.nvencBitrateMbit).toBe(123);
+    expect(sf.gamma).toBe(1.8);
+    expect(sf.saturation).toBe(42);
+  });
+
+  it('keeps the defaults table internally consistent', () => {
+    expect(codecEncoderDefaults[2]).toEqual(codecEncoderDefaults[0]);
+    expect(codecEncoderDefaults[1].forceCbr).toBe(false);
+    expect(codecEncoderDefaults[1].vbvFrames).toBe(1);
+    expect(codecEncoderDefaults[1].splitMode).toBe(1); // split bits are skipped for codec 1 in the tap, but the key still opens the 12.1 session
+    expect(codecEncoderDefaults[1].lowDelayKfScale).toBe(codecEncoderDefaults[0].lowDelayKfScale);
+    // the codec-0 row must stay pinned to the GENERATED driver defaults:
+    // a Config.h default change + regeneration must desync loudly here,
+    // not silently in the reset arrows (streamFrameDefaults forces the
+    // nvenc* arrows onto the bundled row).
+    expect(codecEncoderDefaults[0].forceCbr).toBe(driverDefaults.streamFrame!.nvencForceCbr);
+    expect(codecEncoderDefaults[0].vbvFrames).toBe(driverDefaults.streamFrame!.nvencVbvFrames);
+    expect(codecEncoderDefaults[0].lowDelayKfScale).toBe(driverDefaults.streamFrame!.nvencLowDelayKfScale);
+    expect(codecEncoderDefaults[0].splitMode).toBe(driverDefaults.streamFrame!.nvencSplitMode);
+  });
+});
+
+describe('H.264 stored-profile migration', () => {
+  // a pre-wave stored codec-1 profile carries the codec-0 default shape (the
+  // codec switch never adapted it and the driver pins are gone): load stamps
+  // it to the H.264 row, persists, and is idempotent; any deviation (an
+  // explicit user choice, e.g. the CBR probe profile) stays untouched.
+  it('stamps a pre-wave H.264 profile to the H.264 row', async () => {
+    const stored: any = {
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1 },
+    };
+    const { gs, flush } = buildHarness(stored);
+    await flush();
+    expect(stored.streamFrame.nvencForceCbr).toBe(false);
+    expect(stored.streamFrame.nvencVbvFrames).toBe(1);
+    expect(gs.settings?.nvencForceCbr).toBe(false);
+    expect(gs.settings?.nvencVbvFrames).toBe(1);
+    const reopened = buildHarness(structuredClone(stored));
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
+    expect(reopened.gs.settings?.nvencForceCbr).toBe(false);
+    expect(reopened.gs.settings?.nvencVbvFrames).toBe(1);
+  });
+
+  it('keeps a deviated H.264 profile untouched (explicit user choices)', async () => {
+    const stored: any = {
+      streamFrame: {
+        streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1,
+        nvencForceCbr: true, nvencVbvFrames: 1,
+      },
+    };
+    const { gs, flush } = buildHarness(stored);
+    await flush();
+    expect(gs.settings?.nvencForceCbr).toBe(true);
+    expect(gs.settings?.nvencVbvFrames).toBe(1);
+    const reopened = buildHarness(structuredClone(stored));
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
+    expect(reopened.gs.settings?.nvencForceCbr).toBe(true);
+  });
+
+  it('leaves HEVC profiles untouched', async () => {
+    const stored: any = {
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0 },
+    };
+    const { gs, flush } = buildHarness(stored);
+    await flush();
+    expect(gs.settings?.nvencForceCbr).toBe(true);
+    expect(gs.settings?.nvencVbvFrames).toBe(2);
+    const reopened = buildHarness(structuredClone(stored));
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
   });
 });

@@ -10,6 +10,7 @@
 #include <map>
 #include <vector>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -88,22 +89,24 @@ struct RegInfo { void* texture; uint32_t fmt; uint32_t type; };
 std::map<void*, RegInfo> registered;   // NV_ENC_REGISTERED_PTR -> texture
 std::map<void*, void*> mappedToReg;    // NV_ENC_INPUT_PTR (mapped) -> NV_ENC_REGISTERED_PTR
 // ---- foveated QP delta map ----
-// one signed byte per 32x32 block (HEVC CTB), row-major, rebuilt when the
-// frame size or the deltas change. the frame is N stacked square tiles of
-// width w; fovea tiles are the even (or odd) ones.
+// one signed byte per block, row-major on the codec's own grid (HEVC 32x32
+// CTB, H.264 16x16 MB, AV1 64x64 SB - nvEncodeAPI.h qpDeltaMapSize), rebuilt
+// when the frame size, the codec or the deltas change. the frame is N stacked
+// square tiles of width w; fovea tiles are the even (or odd) ones.
 std::mutex qpLock;
 std::vector<int8_t> qpMap;
-uint32_t qpMapW = 0, qpMapH = 0; int qpMapFov = 0, qpMapPer = 0; float qpMapFall = -1; bool qpMapTop = true;
-const int8_t* GetQpMap(uint32_t w, uint32_t h, const NvencTapConfig &cfg, uint32_t* size){
+uint32_t qpMapW = 0, qpMapH = 0; int qpMapFov = 0, qpMapPer = 0, qpMapCodec = -1; float qpMapFall = -1; bool qpMapTop = true;
+const int8_t* GetQpMap(uint32_t w, uint32_t h, int codec, const NvencTapConfig &cfg, uint32_t* size){
 	std::lock_guard<std::mutex> g(qpLock);
-	if(w != qpMapW || h != qpMapH || cfg.qpFovea != qpMapFov || cfg.qpPeriphery != qpMapPer || cfg.qpEdgeFalloff != qpMapFall || cfg.qpFoveaTop != qpMapTop){
-		qpMapW = w; qpMapH = h; qpMapFov = cfg.qpFovea; qpMapPer = cfg.qpPeriphery; qpMapFall = cfg.qpEdgeFalloff; qpMapTop = cfg.qpFoveaTop;
-		const uint32_t bw = (w + 31) / 32, bh = (h + 31) / 32;
+	if(w != qpMapW || h != qpMapH || codec != qpMapCodec || cfg.qpFovea != qpMapFov || cfg.qpPeriphery != qpMapPer || cfg.qpEdgeFalloff != qpMapFall || cfg.qpFoveaTop != qpMapTop){
+		qpMapW = w; qpMapH = h; qpMapCodec = codec; qpMapFov = cfg.qpFovea; qpMapPer = cfg.qpPeriphery; qpMapFall = cfg.qpEdgeFalloff; qpMapTop = cfg.qpFoveaTop;
+		const uint32_t bs = (codec == 1) ? 16u : (codec == 2) ? 64u : 32u;
+		const uint32_t bw = (w + bs - 1) / bs, bh = (h + bs - 1) / bs;
 		qpMap.assign((size_t)bw * bh, 0);
 		const float tile = (float)w; // square tiles
 		for(uint32_t by = 0; by < bh; by++){
 			for(uint32_t bx = 0; bx < bw; bx++){
-				float px = bx * 32.f + 16.f, py = by * 32.f + 16.f;
+				float px = bx * (float)bs + bs / 2.f, py = by * (float)bs + bs / 2.f;
 				int t = (int)(py / tile);
 				bool fovea = ((t & 1) == 0) == cfg.qpFoveaTop;
 				float v = (float)cfg.qpPeriphery;
@@ -117,12 +120,79 @@ const int8_t* GetQpMap(uint32_t w, uint32_t h, const NvencTapConfig &cfg, uint32
 				qpMap[(size_t)by * bw + bx] = (int8_t)std::lround(v);
 			}
 		}
-		DriverLog("NvencTap: QP delta map rebuilt %ux%u blocks (fovea %d, periphery %d, ramp %.2f)", bw, bh, cfg.qpFovea, cfg.qpPeriphery, cfg.qpEdgeFalloff);
+		DriverLog("NvencTap: QP delta map rebuilt %ux%u blocks (fovea %d, periphery %d, ramp %.2f) bs=%u", bw, bh, cfg.qpFovea, cfg.qpPeriphery, cfg.qpEdgeFalloff, bs);
 	}
 	*size = (uint32_t)qpMap.size();
 	return qpMap.data();
 }
 inline bool QpMapWanted(const NvencTapConfig &cfg){ return cfg.enabled && (cfg.qpFovea != 0 || cfg.qpPeriphery != 0); }
+
+// ---- delta-map adaptation (per frame; codec==1 H264, codec==2 AV1) ----
+// vrlink attaches its per-frame qpDeltaMap on the HEVC 32x32-CTB grid
+// (SteamFrame-Advanced-Options legacy_api_bridge.cpp:232-254 converts the
+// same map for both codecs). The driver validates the map per codec
+// (nvEncodeAPI.h qpDeltaMapSize: per MB for H264, per SB for AV1); the
+// HEVC-sized map makes nvEncEncodePicture fail with
+// NV_ENC_ERR_NOT_ENOUGH_BUFFER (14). H.264: replicate each 32x32 block 2x2,
+// clamp [-51,51], pin the bottom-left timing tile (the MB rows covered by
+// the last HEVC CTB row, first two columns) to -51. AV1: per 64x64 SB take
+// the min of the 2x2 source block, x4, clamp [-128,124], pin the
+// bottom-left SB to -128.
+std::mutex deltaMapLock;
+std::vector<int8_t> deltaMap;
+std::atomic<int> deltaMapDropLogged{0};
+struct MapOverride { bool set = false; const int8_t* p = nullptr; uint32_t n = 0; };
+MapOverride ConvertDeltaMap(const int8_t* src, uint32_t srcSize, uint32_t w, uint32_t h, int codec){
+	MapOverride ov;
+	if(!src || !srcSize || !w || !h){ return ov; }              // nothing to adapt
+	const uint32_t ctbW = (w + 31) / 32, ctbH = (h + 31) / 32;
+	const uint32_t block = codec == 2 ? 64u : 16u;
+	const uint32_t cols = (w + block - 1) / block, rows = (h + block - 1) / block;
+	const uint32_t entries = cols * rows;
+	if(srcSize == entries){ return ov; }                        // already the target grid
+	if(srcSize != ctbW * ctbH){
+		// a map we cannot interpret would fail the encode (status 14);
+		// dropping it keeps the session alive without foveation
+		if(deltaMapDropLogged.fetch_add(1) < 3){
+			DriverLog("NvencTap: delta map size %u matches neither the %s grid (%u) nor the CTB-32 grid (%u) - dropped for this frame", srcSize, codec == 2 ? "SB-64" : "MB-16", entries, ctbW * ctbH);
+		}
+		ov.set = true; ov.p = nullptr; ov.n = 0;
+		return ov;
+	}
+	std::lock_guard<std::mutex> g(deltaMapLock);
+	deltaMap.assign((size_t)entries, 0);
+	if(codec != 2){
+		for(uint32_t y = 0; y < rows; y++){
+			for(uint32_t x = 0; x < cols; x++){
+				int v = src[(size_t)(y / 2) * ctbW + (x / 2)];
+				if(v < -51){ v = -51; } else if(v > 51){ v = 51; }
+				deltaMap[(size_t)y * cols + x] = (int8_t)v;
+			}
+		}
+		// timing tile: the MB rows the last HEVC CTB row covers, first two
+		// columns (legacy_api_bridge.cpp:248-250)
+		for(uint32_t y = 2 * (ctbH - 1); y < rows; y++){
+			for(uint32_t x = 0; x < cols && x < 2; x++){ deltaMap[(size_t)y * cols + x] = -51; }
+		}
+	}else{
+		for(uint32_t y = 0; y < rows; y++){
+			for(uint32_t x = 0; x < cols; x++){
+				int v = 31;                                          // source sentinel
+				for(uint32_t yy = y * 2; yy < (std::min)(y * 2 + 2, ctbH); yy++){
+					for(uint32_t xx = x * 2; xx < (std::min)(x * 2 + 2, ctbW); xx++){
+						v = (std::min)(v, (int)src[(size_t)yy * ctbW + xx]);
+					}
+				}
+				int s = v * 4;
+				if(s < -128){ s = -128; } else if(s > 124){ s = 124; }
+				deltaMap[(size_t)y * cols + x] = (int8_t)s;
+			}
+		}
+		deltaMap[(size_t)(rows - 1) * cols] = -128;                  // bottom-left SB
+	}
+	ov.set = true; ov.p = deltaMap.data(); ov.n = entries;
+	return ov;
+}
 
 // Caller holds resLock through processing and the map call so another map,
 // unmap, or unregister cannot change ownership while the texture is written.
@@ -143,6 +213,11 @@ bool LookupUnmappedTexture(void* reg, void** texture, uint32_t* fmt){
 // fail-and-retry forever)
 std::atomic<bool> splitRejected{false};
 std::atomic<int> capsLogged{0};
+std::atomic<int> h264SplitSkipLogged{0};
+// one-shot log for the caps shim's H.264 WIDTH_MAX/HEIGHT_MAX answers
+std::atomic<int> h264CapsShimLogged{0};
+// one-shot log for the caps shim's pre-publish settings-file fallback
+std::atomic<int> h264FileSelLogged{0};
 // SDK 12.1 struct versions (NVENCAPI_VERSION 12|1<<24 = 0x0100000C)
 constexpr uint32_t kApi121 = 12u | (1u << 24);
 constexpr uint32_t kInit121 = kApi121 | (6u << 16) | (0x7u << 28) | (1u << 31);   // NV_ENC_INITIALIZE_PARAMS_VER 12.1
@@ -195,11 +270,77 @@ void RetagInitParams(Retag &r, NV_ENC_INITIALIZE_PARAMS* p){
 	r.add(&p->version, 6, true);
 	if(p->encodeConfig){ r.add(&p->encodeConfig->version, 8, true); r.add(&p->encodeConfig->rcParams.version, 1, false); }
 }
+
+// NV_ENC_PIC_PARAMS 11.1 -> 12.1 explicit field copy (the session retag
+// presents a 12.1 ABI to the driver). The old raw byte copy assumed the
+// caller's first kPicParams11Size bytes match the modern struct; they do
+// not: the AV1 union member grew codecPicParams (11.1 1536 -> 12.1 1552),
+// shifting every field from meHintCountsPerBlock on by +16 (qpDeltaMap
+// 1696 -> 1712), and the vendored 13.1 header disagrees with BOTH again
+// (union 1544: meHintCountsPerBlock/meExternalHints at 1624/1656).
+// Measured with the portable cl against the 11.1, 12.1 and vendored
+// headers (builds/GalaxyXR-Driver/build/picparams-geometry-20261015):
+//   * offsets 0..79 are identical in all three eras -> copy by name;
+//   * qpDeltaMap/qpDeltaMapSize: read at the 11.1 offsets (1696/1704; the
+//     reference repo's legacy_picture.cpp static_asserts 1696 the same
+//     way) and written through the vendored members — 13.1 and 12.1 agree
+//     exactly there (1712/1720), which is the slot the driver reads;
+//   * meHintCountsPerBlock/meExternalHints moved in every era, vrlink
+//     passes neither, and the old copy effectively delivered zeros for
+//     them: left zero;
+//   * codecPicParams (union content is era-specific) and every field after
+//     qpDeltaMapSize: left zero (the byte copy only ever misplaced those).
+constexpr size_t kQpDeltaMap11Offset = 1696;      // 11.1 layout, sizeof = 3344
+constexpr size_t kQpDeltaMapSize11Offset = kQpDeltaMap11Offset + 8; // 1704
+static_assert(offsetof(NV_ENC_PIC_PARAMS, inputWidth) == 4 && offsetof(NV_ENC_PIC_PARAMS, inputTimeStamp) == 24
+	&& offsetof(NV_ENC_PIC_PARAMS, inputBuffer) == 40 && offsetof(NV_ENC_PIC_PARAMS, bufferFmt) == 64
+	&& offsetof(NV_ENC_PIC_PARAMS, pictureStruct) == 68 && offsetof(NV_ENC_PIC_PARAMS, pictureType) == 72
+	&& offsetof(NV_ENC_PIC_PARAMS, codecPicParams) == 80, "PIC_PARAMS 11.1/12.1/13.1 common prefix moved");
+static_assert(offsetof(NV_ENC_PIC_PARAMS, qpDeltaMap) == 1712 && offsetof(NV_ENC_PIC_PARAMS, qpDeltaMapSize) == 1720,
+	"PIC_PARAMS 12.1/13.1 qpDeltaMap slot moved (the 11.1->12.1 copy assumes it)");
+
+NV_ENC_PIC_PARAMS* CopyPicParams111To121(const NV_ENC_PIC_PARAMS* caller, NV_ENC_PIC_PARAMS* out){
+	const unsigned char* raw = (const unsigned char*)caller;
+	*out = NV_ENC_PIC_PARAMS{}; // zero first: fields without an 11.1 counterpart stay 0
+	out->version = Tag121(6, true); // the existing 11.1 -> 12.1 retag
+	out->inputWidth = caller->inputWidth;
+	out->inputHeight = caller->inputHeight;
+	out->inputPitch = caller->inputPitch;
+	out->encodePicFlags = caller->encodePicFlags;
+	out->frameIdx = caller->frameIdx;
+	out->inputTimeStamp = caller->inputTimeStamp;
+	out->inputDuration = caller->inputDuration;
+	out->inputBuffer = caller->inputBuffer;         // stays null on the EOS/flush calls
+	out->outputBitstream = caller->outputBitstream; // ditto
+	out->completionEvent = caller->completionEvent;
+	out->bufferFmt = caller->bufferFmt;
+	out->pictureStruct = caller->pictureStruct;
+	out->pictureType = caller->pictureType;
+	out->qpDeltaMap = *(int8_t* const*)(raw + kQpDeltaMap11Offset);
+	out->qpDeltaMapSize = *(const uint32_t*)(raw + kQpDeltaMapSize11Offset);
+	return out;
+}
 std::atomic<bool> versionWarned{false};
 std::atomic<int> initLogged{0};
 std::atomic<int> reconfLogged{0};
 std::atomic<int> registerLogged{0};
 std::atomic<int> encodeLogged{0};
+// first-encode / first-lock instrumentation (no behavior change)
+std::atomic<long long> encFails{0}, lockCalls{0};
+std::atomic<uint32_t> lockLastSize{0};
+std::atomic<int> encFailLogged{0};
+std::atomic<int> firstLockLogged{0};
+// last encode-failure reason, kept for the heartbeat: the failure log lines
+// rotate out of vrserver.txt under a flood, the heartbeat is periodic
+std::atomic<uint32_t> lastEncFailStatus{0};
+char lastEncFailStr[96] = {0}; // guarded by statsLock
+// last per-frame delta-map sizes over the encode boundary (bytes; one byte
+// per block) - rotation-proof probe: H.264 wants the 16x16 MB grid count,
+// HEVC the 32x32 CTB count, AV1 the SB count
+std::atomic<uint32_t> lastMapInSize{0xFFFFFFFFu};
+std::atomic<uint32_t> lastMapUseSize{0xFFFFFFFFu};
+std::atomic<int> lastMapSel{-1};
+std::atomic<int> lastSessCodec{-1};   // live session codec seen by the last encode (-1: none)
 
 // NVENCAPI_STRUCT_VERSION(ver) = NVENCAPI_VERSION | (ver<<16) | (0x7<<28),
 // NVENCAPI_VERSION = MAJOR | (MINOR<<24). bits 0..15 carry the major.
@@ -209,6 +350,30 @@ bool ApiSupported(uint32_t major){ return major >= 9 && major <= 13; }
 
 bool IsHevc(const GUID &g){ return memcmp(&g, &NV_ENC_CODEC_HEVC_GUID, sizeof(GUID)) == 0; }
 bool IsH264(const GUID &g){ return memcmp(&g, &NV_ENC_CODEC_H264_GUID, sizeof(GUID)) == 0; }
+
+// Live codec of each encoder that last initialized/reconfigured SUCCESSFULLY
+// (0 HEVC / 1 H264 / 2 AV1). The per-frame map paths key off this, not the
+// tap config: a swap that fails and falls back to vrlink's pristine params
+// leaves an HEVC session live under a codec-1/2 config, and an MB/SB-grid
+// map would fail every one of its frames (status 14).
+std::map<void*, int> sessionCodecs;   // guarded by upgradedLock
+int CodecOfGuid(const GUID &g){
+	if(IsH264(g)){ return 1; }
+	if(memcmp(&g, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0){ return 2; }
+	if(IsHevc(g)){ return 0; }
+	return -1;
+}
+void SetSessionCodec(void* encoder, int codec){
+	if(!encoder || codec < 0){ return; }
+	std::lock_guard<std::mutex> g(upgradedLock);
+	sessionCodecs[encoder] = codec;
+}
+int SessionCodecOf(void* encoder){
+	if(!encoder){ return -1; }
+	std::lock_guard<std::mutex> g(upgradedLock);
+	std::map<void*, int>::const_iterator it = sessionCodecs.find(encoder);
+	return it == sessionCodecs.end() ? -1 : it->second;
+}
 
 const char* PresetName(const GUID &g){
 	if(memcmp(&g, &NV_ENC_PRESET_P1_GUID, sizeof(GUID)) == 0) return "P1";
@@ -272,6 +437,18 @@ struct Snapshot {
 	GUID codecProfile{};
 	static constexpr size_t kCodecWindow = 256;
 	unsigned char codecWindow[kCodecWindow]{};
+	bool maxEncodeClamped = false;
+	uint32_t maxEncodeW = 0, maxEncodeH = 0;
+	bool h264GopCaptured = false;
+	uint32_t h264GopLength = 0;
+	bool h264IdrCaptured = false;
+	uint32_t h264IdrPeriod = 0;
+	// 2026-10-15: the H.264 codec-window fields (refs/VUI/AUD/SPS-PPS/
+	// slices/entropy/filler) are group-captured before the first write:
+	// a swapped call restores the codecWindow union wholesale, a direct
+	// H.264 caller (no swap) relies on this copy in Restore, like idrPeriod.
+	bool h264CfgCaptured = false;
+	NV_ENC_CONFIG_H264 h264Cfg{};
 };
 const GUID* PresetGuid(int p){
 	switch(p){ case 1: return &NV_ENC_PRESET_P1_GUID; case 2: return &NV_ENC_PRESET_P2_GUID; case 3: return &NV_ENC_PRESET_P3_GUID;
@@ -303,6 +480,7 @@ struct PresetCache {
 std::atomic<int> presetDiffLogged{0};
 std::atomic<int> presetFetchFailLogged{0};
 std::atomic<int> presetAutoLogged{0};
+std::atomic<int> presetAutoH264Logged{0};
 
 const NV_ENC_PRESET_CONFIG* FetchPresetConfig(void* encoder, const NV_ENC_INITIALIZE_PARAMS* p, const NV_ENC_CONFIG* callerCfg, int preset){
 	const GUID* pg = PresetGuid(preset);
@@ -461,7 +639,17 @@ bool ApplyCodecOverride(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencT
 		if(av1GateLogged.fetch_add(1) < 1){ DriverLog("NvencTap: codec AV1 needs the 12.1 session upgrade (split mode is off for this session) — leaving HEVC"); }
 		return false;
 	}
-	if(memcmp(&p->encodeGUID, codec, sizeof(GUID)) == 0){ return false; } // already the target
+	if(memcmp(&p->encodeGUID, codec, sizeof(GUID)) == 0){ // already the target
+		if(cfg.codec == 1 && (p->maxEncodeWidth > 4096 || p->maxEncodeHeight > 4096)){
+			snap.maxEncodeClamped = true;
+			snap.maxEncodeW = p->maxEncodeWidth; snap.maxEncodeH = p->maxEncodeHeight;
+			if(p->maxEncodeWidth > 4096){ p->maxEncodeWidth = 4096; }
+			if(p->maxEncodeHeight > 4096){ p->maxEncodeHeight = 4096; }
+			w += snprintf(w, WhatRem(w, what, whatLen), "maxEncode %ux%u->%ux%u; ", snap.maxEncodeW, snap.maxEncodeH, p->maxEncodeWidth, p->maxEncodeHeight);
+			return true;
+		}
+		return false;
+	}
 	if(!IsHevc(p->encodeGUID)){
 		// only vrlink's HEVC sessions are rewritten; anything else is left alone
 		return false;
@@ -479,6 +667,13 @@ bool ApplyCodecOverride(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencT
 	ApplyCodecFields(c, p, cfg.codec, w, whatLen, what);
 	snap.hevc = false; // every HEVC-only override below must skip itself
 	w += snprintf(w, WhatRem(w, what, whatLen), "codec HEVC->%s; ", name);
+	if(cfg.codec == 1 && (p->maxEncodeWidth > 4096 || p->maxEncodeHeight > 4096)){
+		snap.maxEncodeClamped = true;
+		snap.maxEncodeW = p->maxEncodeWidth; snap.maxEncodeH = p->maxEncodeHeight;
+		if(p->maxEncodeWidth > 4096){ p->maxEncodeWidth = 4096; }
+		if(p->maxEncodeHeight > 4096){ p->maxEncodeHeight = 4096; }
+		w += snprintf(w, WhatRem(w, what, whatLen), "maxEncode %ux%u->%ux%u; ", snap.maxEncodeW, snap.maxEncodeH, p->maxEncodeWidth, p->maxEncodeHeight);
+	}
 	return true;
 }
 
@@ -506,10 +701,18 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	if(ApplyCodecOverride(encoder, p, cfg, snap, w, whatLen, what)){ changed = true; }
 	int presetWanted = cfg.preset;
 	if(presetWanted == 0 && cfg.presetAuto){
-		uint32_t engines; { std::lock_guard<std::mutex> g(statsLock); engines = stats.numEncoderEngines; }
-		presetWanted = engines >= 3 ? 7 : engines == 2 ? 5 : engines == 1 ? 4 : 0;
-		if(presetAutoLogged.fetch_add(1) < 1){
-			DriverLog("NvencTap: preset AUTO -> %s (%u NVENC engine%s)", presetWanted ? (presetWanted == 7 ? "P7" : presetWanted == 5 ? "P5" : "P4") : "leave vrlink's", engines, engines == 1 ? "" : "s");
+		if(cfg.codec == 1){
+			// H.264: canonical low-latency profile is P2 (P7's multipass raise wedged the ULL session)
+			presetWanted = 2;
+			if(presetAutoH264Logged.fetch_add(1) < 1){
+				DriverLog("NvencTap: preset AUTO (H264) -> P2 (low-latency H.264 profile)");
+			}
+		}else{
+			uint32_t engines; { std::lock_guard<std::mutex> g(statsLock); engines = stats.numEncoderEngines; }
+			presetWanted = engines >= 3 ? 7 : engines == 2 ? 5 : engines == 1 ? 4 : 0;
+			if(presetAutoLogged.fetch_add(1) < 1){
+				DriverLog("NvencTap: preset AUTO -> %s (%u NVENC engine%s)", presetWanted ? (presetWanted == 7 ? "P7" : presetWanted == 5 ? "P5" : "P4") : "leave vrlink's", engines, engines == 1 ? "" : "s");
+			}
 		}
 	}
 	if(const GUID* pg = PresetGuid(presetWanted)){
@@ -550,7 +753,10 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 					w += snprintf(w, WhatRem(w, what, whatLen), "seeded P%d@tuning%u; ", presetWanted, (unsigned)p->tuningInfo);
 					changed = true;
 				}
-				if(rc.multiPass != prc.multiPass){
+				if(cfg.codec == 1){
+					// 2026-10-15: H.264 runs pinned to multiPass=0 (single-pass). The canonical P2/P7@ULL reports 1, which wedged the first encode on 2026-10-15; SteamFrame's verified H.264 profile is single-pass as well.
+					if(rc.multiPass != 0){ w += snprintf(w, WhatRem(w, what, whatLen), "multipass %u->0 [h264]; ", (unsigned)rc.multiPass); rc.multiPass = (NV_ENC_MULTI_PASS)0; changed = true; }
+				}else if(rc.multiPass != prc.multiPass){
 					w += snprintf(w, WhatRem(w, what, whatLen), "multipass %u->%u; ", (unsigned)rc.multiPass, (unsigned)prc.multiPass);
 					rc.multiPass = prc.multiPass; changed = true;
 				}
@@ -612,7 +818,8 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	// sessions silently drop them, and NVENC then rejected the whole init
 	// with INVALID_PARAM — the 2026-10-13 H.264/AV1 wedges (status 8 on both
 	// attempts, the pristine retry included).
-	if(cfg.splitMode > 0 && !splitRejected.load()){
+	// H.264 is excluded (splitEncodeMode is not applicable to H264): codec==1 skips this branch.
+	if(cfg.splitMode > 0 && !splitRejected.load() && cfg.codec != 1){
 		uint32_t mode = (uint32_t)(std::min)(15, cfg.splitMode);
 		if(mode > 4 && mode != 15){ mode = 1; }
 		if(ApiMajor(p->version) == 11){
@@ -628,6 +835,44 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			*initFlags = (snap.initFlags & ~(0xFu << 5)) | (mode << 5);
 			snap.split = true; snap.splitModeApplied = mode; changed = true;
 		}
+	}else if(cfg.splitMode > 0 && !splitRejected.load() && cfg.codec == 1){
+		if(h264SplitSkipLogged.fetch_add(1) < 1){
+			DriverLog("NvencTap: split skipped: splitEncodeMode is not applicable to H264 (codec=1)");
+		}
+	}
+	if(cfg.codec == 1){
+		// H.264 GOP/IDR (SteamFrame-verified recipe): vrlink passes 0xFFFFFFFF (infinite) for both; use the frame rate.
+		NV_ENC_CONFIG_H264 &h = c->encodeCodecConfig.h264Config;
+		// codec-window group capture before the first write: a swapped call
+		// restores the 256-byte window wholesale; a direct H.264 caller
+		// (no swap) relies on this copy in Restore (h264CfgCaptured)
+		if(!snap.h264CfgCaptured){ snap.h264CfgCaptured = true; snap.h264Cfg = h; }
+		// effective rate: forceFps when set (vrlink's measured-rate
+		// reconfigures otherwise drift gop/idr per reconf - SteamFrame
+		// normalizes first), else the caller's rate.
+		const uint32_t fps = cfg.forceFps > 0 ? (uint32_t)cfg.forceFps : (p->frameRateNum ? p->frameRateNum : 90);
+		if(c->gopLength != fps){ snap.h264GopCaptured = true; snap.h264GopLength = c->gopLength; w += snprintf(w, WhatRem(w, what, whatLen), "gop %u->%u [h264]; ", c->gopLength, fps); c->gopLength = fps; changed = true; }
+		if(c->encodeCodecConfig.h264Config.idrPeriod != fps){ snap.h264IdrCaptured = true; snap.h264IdrPeriod = c->encodeCodecConfig.h264Config.idrPeriod; w += snprintf(w, WhatRem(w, what, whatLen), "idr %u->%u [h264]; ", c->encodeCodecConfig.h264Config.idrPeriod, fps); c->encodeCodecConfig.h264Config.idrPeriod = fps; changed = true; }
+		// the rest of the SteamFrame H.264 recipe: DPB refs, VUI bitstream
+		// restriction (client buffer allocation), AUD + SPS/PPS every IDR
+		// (client resync), numSlices-in-picture, entropy by session rate
+		// (CAVLC above ~200 Mbit), no filler, no VBV initial delay.
+		if(h.maxNumRefFrames != 3){ w += snprintf(w, WhatRem(w, what, whatLen), "refs %u->3 [h264]; ", h.maxNumRefFrames); h.maxNumRefFrames = 3; changed = true; }
+		if(h.h264VUIParameters.bitstreamRestrictionFlag != 1){ w += snprintf(w, WhatRem(w, what, whatLen), "vuiRestrict %u->1 [h264]; ", h.h264VUIParameters.bitstreamRestrictionFlag); h.h264VUIParameters.bitstreamRestrictionFlag = 1; changed = true; }
+		if(h.outputAUD != 1){ w += snprintf(w, WhatRem(w, what, whatLen), "aud %u->1 [h264]; ", h.outputAUD); h.outputAUD = 1; changed = true; }
+		if(h.repeatSPSPPS != 1){ w += snprintf(w, WhatRem(w, what, whatLen), "repeatSPS %u->1 [h264]; ", h.repeatSPSPPS); h.repeatSPSPPS = 1; changed = true; }
+		if(h.disableSPSPPS != 0){ w += snprintf(w, WhatRem(w, what, whatLen), "disableSPS %u->0 [h264]; ", h.disableSPSPPS); h.disableSPSPPS = 0; changed = true; }
+		if(h.sliceMode != 3){ w += snprintf(w, WhatRem(w, what, whatLen), "slice %u->3 [h264]; ", h.sliceMode); h.sliceMode = 3; changed = true; }
+		if(h.sliceModeData != 1){ w += snprintf(w, WhatRem(w, what, whatLen), "sliceData %u->1 [h264]; ", h.sliceModeData); h.sliceModeData = 1; changed = true; }
+		// entropy by session rate: deterministic from the configured target
+		// (cfg.bitrateMbit), not the caller's pre-override rc value — the
+		// avg-bitrate override below would otherwise leave init at CABAC and
+		// only a later reconfigure at CAVLC.
+		const uint32_t rateMbit = cfg.bitrateMbit > 0 ? (uint32_t)cfg.bitrateMbit : (uint32_t)(c->rcParams.averageBitRate / 1000000u);
+		const NV_ENC_H264_ENTROPY_CODING_MODE ent = rateMbit > 200u ? NV_ENC_H264_ENTROPY_CODING_MODE_CAVLC : NV_ENC_H264_ENTROPY_CODING_MODE_CABAC;
+		if(h.entropyCodingMode != ent){ w += snprintf(w, WhatRem(w, what, whatLen), "entropy %u->%u [h264]; ", (uint32_t)h.entropyCodingMode, (uint32_t)ent); h.entropyCodingMode = ent; changed = true; }
+		if(h.enableFillerDataInsertion != 0){ w += snprintf(w, WhatRem(w, what, whatLen), "filler %u->0 [h264]; ", h.enableFillerDataInsertion); h.enableFillerDataInsertion = 0; changed = true; }
+		if(c->rcParams.vbvInitialDelay != 0){ w += snprintf(w, WhatRem(w, what, whatLen), "vbvInitDelay %u->0 [h264]; ", c->rcParams.vbvInitialDelay); c->rcParams.vbvInitialDelay = 0; changed = true; }
 	}
 	if(cfg.forceFps > 0 && (p->frameRateNum != (uint32_t)cfg.forceFps || p->frameRateDen != 1)){
 		w += snprintf(w, WhatRem(w, what, whatLen), "fps %u/%u->%d/1; ", p->frameRateNum, p->frameRateDen, cfg.forceFps);
@@ -662,9 +907,10 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
 		// nominal rate, never vrlink's per-call estimate (see forceFps)
 		double fps = cfg.forceFps > 0 ? (double)cfg.forceFps : 90.0;
-		uint32_t vbv = (uint32_t)(std::min<double>)(rc.averageBitRate / fps * cfg.vbvFrames, 2000000000.0);
+		int vbvFr = cfg.vbvFrames;
+		uint32_t vbv = (uint32_t)(std::min<double>)(rc.averageBitRate / fps * vbvFr, 2000000000.0);
 		if(vbv && rc.vbvBufferSize != vbv){
-			w += snprintf(w, WhatRem(w, what, whatLen), "vbv %.2fM->%.2fM(%d fr); ", rc.vbvBufferSize / 1e6, vbv / 1e6, cfg.vbvFrames);
+			w += snprintf(w, WhatRem(w, what, whatLen), "vbv %.2fM->%.2fM(%d fr); ", rc.vbvBufferSize / 1e6, vbv / 1e6, vbvFr);
 			rc.vbvBufferSize = vbv; changed = true;
 		}
 	}
@@ -719,6 +965,15 @@ void Restore(const Snapshot &snap){
 		snap.initPtr->version = snap.initVer; snap.cfgPtr->version = snap.cfgVer; snap.cfgPtr->rcParams.version = snap.rcVer; // no-ops on the native path
 		*((uint32_t*)&snap.initPtr->enablePTD + 1) = snap.initFlags;
 	}
+	if(snap.maxEncodeClamped && snap.initPtr){
+		snap.initPtr->maxEncodeWidth = snap.maxEncodeW;
+		snap.initPtr->maxEncodeHeight = snap.maxEncodeH;
+	}
+	if(snap.h264GopCaptured){ snap.cfgPtr->gopLength = snap.h264GopLength; }
+	// idrPeriod lives inside the codecWindow union; a swapped call restores it wholesale
+	if(snap.h264IdrCaptured && !snap.codecSwapped){ snap.cfgPtr->encodeCodecConfig.h264Config.idrPeriod = snap.h264IdrPeriod; }
+	// the H.264 codec-window group; a swapped call restores the union wholesale
+	if(snap.h264CfgCaptured && !snap.codecSwapped){ snap.cfgPtr->encodeCodecConfig.h264Config = snap.h264Cfg; }
 	if(snap.hevc){
 		snap.cfgPtr->encodeCodecConfig.hevcConfig.level = snap.hevcLevel;
 		snap.cfgPtr->encodeCodecConfig.hevcConfig.tier = snap.hevcTier;
@@ -767,7 +1022,9 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 			DriverLog("NvencTap: unsupported NVENC API major %u (struct version 0x%08x) — observe only", ApiMajor(p->version), p->version);
 		}
 		RecordLast(p);
-		return call();
+		NVENCSTATUS stObserve = call();
+		if(stObserve == NV_ENC_SUCCESS){ SetSessionCodec(encoder, CodecOfGuid(p->encodeGUID)); }
+		return stObserve;
 	}
 	Snapshot snap; char what[256];
 	bool changed = cfg.enabled && ApplyOverrides(encoder, p, cfg, snap, what, sizeof(what));
@@ -776,10 +1033,12 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		RecordLast(p);
 		uint32_t outerSaved = 0;
 		if(snap.split && outerVersion){ outerSaved = *outerVersion; *outerVersion = kReconf121; }
+		const int effCodec = CodecOfGuid(p->encodeGUID);
 		NVENCSTATUS st = call();
 		Restore(snap);
 		if(snap.split && outerVersion){ *outerVersion = outerSaved; }
 		if(st == NV_ENC_SUCCESS){
+			SetSessionCodec(encoder, effCodec);
 			std::lock_guard<std::mutex> g(statsLock); overridden++;
 			if(snap.split){ stats.splitApplied++; if(stats.splitState != 1){ stats.splitState = 1; DriverLog("NvencTap: SPLIT-FRAME: 12.1-versioned structs ACCEPTED by the 11.1 session on %s — explicit split mode is live", tag); } }
 			return st;
@@ -803,6 +1062,7 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		if(snap.split && retryFlags && snap.splitModeApplied){
 			*retryFlags = (snap.initFlags & ~(0xFu << 5)) | (snap.splitModeApplied << 5);
 		}
+		const int retryCodec = CodecOfGuid(p->encodeGUID);
 		NVENCSTATUS st2 = call();
 		if(snap.split && retryFlags){ *retryFlags = snap.initFlags; }
 		bool retryFailed;
@@ -810,6 +1070,7 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 			std::lock_guard<std::mutex> g(statsLock);
 			if(st2 == NV_ENC_SUCCESS){ failedThenOk++; retryFailed = false; } else { failed++; retryFailed = true; }
 		}
+		if(st2 == NV_ENC_SUCCESS){ SetSessionCodec(encoder, retryCodec); }
 		if(retryFailed){
 			DriverLog("NvencTap: %s pristine retry ALSO failed (%u) — encoder left dead upstream, stream will wedge", tag, (unsigned)st2);
 			if(origGetLastErrorString){
@@ -820,7 +1081,9 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		return st2;
 	}
 	RecordLast(p);
+	const int stockCodec = CodecOfGuid(p->encodeGUID);
 	NVENCSTATUS st = call();
+	if(st == NV_ENC_SUCCESS){ SetSessionCodec(encoder, stockCodec); }
 	if(st != NV_ENC_SUCCESS){
 		std::lock_guard<std::mutex> g(statsLock);
 		if(failedStock){ (*failedStock)++; } else { failed++; }
@@ -903,10 +1166,9 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 	// 2026-09-30: OFF keeps only the ABI adapter required by live 12.1 sessions.
 	if(!NvencTap::Get().GetConfig().enabled){
 		if(params && Upgraded(encoder) && Is111(params->version)){
+			// explicit 11.1 -> 12.1 field copy (see CopyPicParams111To121)
 			alignas(16) unsigned char scratch[kScratch] = {};
-			memcpy(scratch, params, kPicParams11Size);
-			((NV_ENC_PIC_PARAMS*)scratch)->version = Tag121(6, true);
-			return origEncodePicture(encoder, (NV_ENC_PIC_PARAMS*)scratch);
+			return origEncodePicture(encoder, CopyPicParams111To121(params, (NV_ENC_PIC_PARAMS*)scratch));
 		}
 		return origEncodePicture(encoder, params);
 	}
@@ -925,27 +1187,103 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 	NVENCSTATUS st;
 	NvencTapConfig qcfg = NvencTap::Get().GetConfig();
 	const int8_t* qmap = nullptr; uint32_t qsize = 0;
+	// the per-frame map paths key off the LIVE session codec (0/1/2),
+	// falling back to the tap config while no init has been seen: a swap
+	// that failed and fell back to vrlink's pristine params leaves an
+	// HEVC session live under a codec-1/2 config, and an MB/SB-grid map
+	// would fail every one of its frames.
+	const int liveCodec = SessionCodecOf(encoder);
+	const int mapCodec = liveCodec >= 0 ? liveCodec : (int)qcfg.codec;
+	lastSessCodec.store(liveCodec);
 	if(params && params->inputBuffer && QpMapWanted(qcfg) && params->inputWidth && params->inputHeight){
-		qmap = GetQpMap(params->inputWidth, params->inputHeight, qcfg, &qsize);
+		qmap = GetQpMap(params->inputWidth, params->inputHeight, mapCodec, qcfg, &qsize);
+	}
+	// The caller's delta-map fields live at the 11.1 offsets whenever the
+	// struct it handed us is 11.1-versioned (vrlink) - the same raw offsets
+	// CopyPicParams111To121 reads for the upgraded path. Member access is
+	// only valid for a 12.1+ caller.
+	const int8_t* callerMap = params ? params->qpDeltaMap : nullptr;
+	uint32_t callerSize = params ? params->qpDeltaMapSize : 0;
+	if(params && Is111(params->version)){
+		callerMap = *(int8_t* const*)((const unsigned char*)params + kQpDeltaMap11Offset);
+		callerSize = *(const uint32_t*)((const unsigned char*)params + kQpDeltaMapSize11Offset);
+	}
+	// H.264 / AV1: adapt the caller's HEVC-grid (32x32 CTB) delta map to
+	// the grid the encoder validates (see ConvertDeltaMap). EOS frames
+	// carry no picture: detach the caller's map like SteamFrame does so a
+	// wrong-size surface cannot fail the flush. The tap's own foveation
+	// map wins when it is active.
+	MapOverride mapOv;
+	if(!qmap && params && (mapCodec == 1 || mapCodec == 2)){
+		if(params->inputBuffer){
+			mapOv = ConvertDeltaMap(callerMap, callerSize, params->inputWidth, params->inputHeight, mapCodec);
+		}else if(callerMap){
+			mapOv.set = true;
+		}
+	}
+	if(params && params->inputBuffer){
+		// one-shot detail probe + rotation-proof heartbeat pair: what the
+		// caller supplied vs what the encode call actually carries
+		const int8_t* useMap = qmap ? qmap : (mapOv.set ? mapOv.p : callerMap);
+		const uint32_t useSize = qmap ? qsize : (mapOv.set ? mapOv.n : callerSize);
+		lastMapInSize.store(callerSize); lastMapUseSize.store(useSize); lastMapSel.store(mapCodec);
+		static std::atomic<int> probeSel[3];
+		const int sel = (mapCodec >= 0 && mapCodec <= 2) ? mapCodec : 2;
+		if(probeSel[sel].fetch_add(1) < 2){
+			DriverLog("NvencTap: delta map probe sel=%d in=%p/%u use=%p/%u w=%u h=%u (ctb32=%u mb=%u sb64=%u)",
+				sel, (const void*)callerMap, callerSize, (const void*)useMap, useSize,
+				params->inputWidth, params->inputHeight,
+				((params->inputWidth + 31) / 32) * ((params->inputHeight + 31) / 32),
+				((params->inputWidth + 15) / 16) * ((params->inputHeight + 15) / 16),
+				((params->inputWidth + 63) / 64) * ((params->inputHeight + 63) / 64));
+		}
 	}
 	if(params && Upgraded(encoder) && Is111(params->version)){
-		// NV_ENC_PIC_PARAMS grew 11.1 -> 12.1: call with a zero-extended
-		// scratch copy so the driver never reads past vrlink's struct
+		// NV_ENC_PIC_PARAMS grew 11.1 -> 12.1: call with an explicitly
+		// copied 12.1 struct (see CopyPicParams111To121) so the driver
+		// never reads past vrlink's struct and every moved field lands in
+		// its 12.1 slot
 		alignas(16) unsigned char scratch[kScratch] = {};
-		memcpy(scratch, params, kPicParams11Size);
-		NV_ENC_PIC_PARAMS* sp = (NV_ENC_PIC_PARAMS*)scratch;
-		sp->version = Tag121(6, true);
+		NV_ENC_PIC_PARAMS* sp = CopyPicParams111To121(params, (NV_ENC_PIC_PARAMS*)scratch);
 		if(qmap){ sp->qpDeltaMap = (int8_t*)qmap; sp->qpDeltaMapSize = qsize; std::lock_guard<std::mutex> g(statsLock); stats.qpMapFrames++; }
+		else if(mapOv.set){ sp->qpDeltaMap = (int8_t*)mapOv.p; sp->qpDeltaMapSize = mapOv.n; }
 		st = origEncodePicture(encoder, sp);
 		{ std::lock_guard<std::mutex> g(statsLock); stats.retagCalls++; }
-	}else if(params && qmap){
-		int8_t* savedMap = params->qpDeltaMap; uint32_t savedSize = params->qpDeltaMapSize;
-		params->qpDeltaMap = (int8_t*)qmap; params->qpDeltaMapSize = qsize;
-		{ std::lock_guard<std::mutex> g(statsLock); stats.qpMapFrames++; }
+	}else if(params && (qmap || mapOv.set)){
+		// direct (non-upgraded) session: address the caller's map fields in
+		// ITS layout for the duration of the call, restore after
+		const bool c111 = Is111(params->version);
+		int8_t* savedMap; uint32_t savedSize;
+		const int8_t* setMap = qmap ? qmap : mapOv.p;
+		const uint32_t setSize = qmap ? qsize : mapOv.n;
+		if(c111){
+			savedMap = *(int8_t**)((unsigned char*)params + kQpDeltaMap11Offset);
+			savedSize = *(uint32_t*)((unsigned char*)params + kQpDeltaMapSize11Offset);
+			*(int8_t**)((unsigned char*)params + kQpDeltaMap11Offset) = (int8_t*)setMap;
+			*(uint32_t*)((unsigned char*)params + kQpDeltaMapSize11Offset) = setSize;
+		}else{
+			savedMap = params->qpDeltaMap; savedSize = params->qpDeltaMapSize;
+			params->qpDeltaMap = (int8_t*)setMap; params->qpDeltaMapSize = setSize;
+		}
+		if(qmap){ std::lock_guard<std::mutex> g(statsLock); stats.qpMapFrames++; }
 		st = origEncodePicture(encoder, params);
-		params->qpDeltaMap = savedMap; params->qpDeltaMapSize = savedSize;
+		if(c111){
+			*(int8_t**)((unsigned char*)params + kQpDeltaMap11Offset) = savedMap;
+			*(uint32_t*)((unsigned char*)params + kQpDeltaMapSize11Offset) = savedSize;
+		}else{
+			params->qpDeltaMap = savedMap; params->qpDeltaMapSize = savedSize;
+		}
 	}else{
 		st = origEncodePicture(encoder, params);
+	}
+	if(NvencTap::Get().GetConfig().enabled && params && st != NV_ENC_SUCCESS){
+		encFails.fetch_add(1);
+		lastEncFailStatus.store((uint32_t)st);
+		const char* le = origGetLastErrorString ? origGetLastErrorString(encoder) : "";
+		{ std::lock_guard<std::mutex> g(statsLock); snprintf(lastEncFailStr, sizeof(lastEncFailStr), "%s", le ? le : ""); }
+		if(encFailLogged.fetch_add(1) < 3){
+			DriverLog("NvencTap: nvEncEncodePicture -> failed (status %u) %s", (unsigned)st, le ? le : "");
+		}
 	}
 	double ms = (NowSecondsNv() - t0) * 1000.0;
 	if(params && params->inputBuffer){ // skip the EOS/flush calls (in=null)
@@ -972,6 +1310,16 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 		st = origLockBitstream(encoder, params);
 	}
 	if(!NvencTap::Get().GetConfig().enabled || st != NV_ENC_SUCCESS || !params){ return st; }
+	lockCalls.fetch_add(1);
+	lockLastSize.store(params->bitstreamSizeInBytes);
+	if(firstLockLogged.fetch_add(1) < 1){
+		// guard: read the 8 head bytes only when pointer and size allow
+		if(params->bitstreamBufferPtr && params->bitstreamSizeInBytes >= 8){
+			const unsigned char* p = (const unsigned char*)params->bitstreamBufferPtr;
+			DriverLog("NvencTap: first bitstream lock: %u bytes, head %02x %02x %02x %02x %02x %02x %02x %02x",
+				params->bitstreamSizeInBytes, (unsigned)p[0], (unsigned)p[1], (unsigned)p[2], (unsigned)p[3], (unsigned)p[4], (unsigned)p[5], (unsigned)p[6], (unsigned)p[7]);
+		}
+	}
 	double latMs = -1;
 	if(params->outputBitstream){
 		double now = NowSecondsNv();
@@ -1063,7 +1411,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSI
 	return origOpenEncodeSessionEx(params, encoder);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
-	{ std::lock_guard<std::mutex> g(upgradedLock); upgradedSessions.erase(encoder); }
+	{ std::lock_guard<std::mutex> g(upgradedLock); upgradedSessions.erase(encoder); sessionCodecs.erase(encoder); }
 	return origDestroyEncoder(encoder);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::GetEncodeCaps(void* encoder, GUID encodeGUID, NV_ENC_CAPS_PARAM* params, int* capsVal){
@@ -1079,9 +1427,67 @@ NVENCSTATUS NVENCAPI NvencTapShims::GetEncodeCaps(void* encoder, GUID encodeGUID
 	// natively and the swap succeeds. AV1 (10-bit capable) and stock HEVC
 	// keep the true answer — the driver setting stays the only switch.
 	const NvencTapConfig capsCfg = NvencTap::Get().GetConfig();
-	if(capsCfg.enabled && capsCfg.codec == 1 && params && capsVal
+	bool h264Sel = false;
+	if(capsCfg.enabled && capsCfg.codec == 1){
+		h264Sel = true;
+	}else if(!NvencTap::Get().cfgPublished.load()){
+		// 2026-10-15 fix: vrlink probes caps during its own init, which can
+		// run before the provider init publishes the tap config (load-order
+		// race), so capsCfg still reads codec=0 and the probe gets the TRUE
+		// 10-bit answer; vrlink then builds a 10-bit class and the forced
+		// H.264 session dies at nvEncInitializeEncoder. Until ANY live
+		// config is published, fall back to the on-disk setting
+		// (APPDATA/GalaxyXR/CustomHeadset/settings.json, nvencCodec=1 ->
+		// H.264), re-read on every use since the file can still change
+		// before publish; the log line stays one-shot. Once published, the
+		// live config is authoritative (codec != 1 or the tap off -> true
+		// caps).
+		bool sel = false;
+		const char* appdata = getenv("APPDATA");
+		if(appdata){
+			const std::string path = std::string(appdata) + "/GalaxyXR/CustomHeadset/settings.json";
+			FILE* f = fopen(path.c_str(), "rb");
+			if(f){
+				std::string content;
+				char chunk[512]; size_t n;
+				while((n = fread(chunk, 1, sizeof(chunk), f)) > 0){ content.append(chunk, n); }
+				fclose(f);
+				const size_t pos = content.find("\"nvencCodec\"");
+				if(pos != std::string::npos){
+					size_t p = pos + 12; // past "nvencCodec"
+					while(p < content.size() && ((unsigned char)content[p] <= ' ' || content[p] == ':')){ p++; }
+					int codec = 0;
+					while(p < content.size() && content[p] >= '0' && content[p] <= '9'){
+						codec = codec * 10 + (content[p] - '0'); p++;
+					}
+					if(codec == 1){ sel = true; }
+				}
+			}
+		}
+		if(h264FileSelLogged.fetch_add(1) < 1){
+			DriverLog(sel ? "NvencTap: caps shim: H.264 selection from settings file (nvencCodec=1)"
+				: "NvencTap: caps shim: H.264 selection from settings file unavailable/codec!=1");
+		}
+		h264Sel = sel;
+	}else{
+		// published config is authoritative: codec != 1 or the tap is off ->
+		// keep the real caps answer.
+		h264Sel = false;
+	}
+	if(h264Sel && params && capsVal
 		&& params->capsToQuery == NV_ENC_CAPS_SUPPORT_10BIT_ENCODE){
 		*capsVal = 0;
+		return NV_ENC_SUCCESS;
+	}
+	// 2026-10-15: report the H.264-selected limits in the caps (the driver
+	// caps the H.264 stream at 1024 wide, GalaxyXR.cpp) so vrlink cannot
+	// derive an H.264 class wider than the H.264 device path can carry.
+	if(h264Sel && params && capsVal
+		&& (params->capsToQuery == NV_ENC_CAPS_WIDTH_MAX || params->capsToQuery == NV_ENC_CAPS_HEIGHT_MAX)){
+		*capsVal = params->capsToQuery == NV_ENC_CAPS_WIDTH_MAX ? 1024 : 4096;
+		if(h264CapsShimLogged.fetch_add(1) < 1){
+			DriverLog("NvencTap: caps shim: H.264 WIDTH_MAX/HEIGHT_MAX answered 1024/4096");
+		}
 		return NV_ENC_SUCCESS;
 	}
 	return origGetEncodeCaps(encoder, encodeGUID, params, capsVal);
@@ -1220,6 +1626,9 @@ NvencTap& NvencTap::Get(){
 void NvencTap::SetConfig(const NvencTapConfig &c){
 	std::lock_guard<std::mutex> g(cfgLock);
 	cfg = c;
+	// 2026-10-15: the published snapshot is authoritative for the caps shim
+	// from here on; its settings-file fallback is pre-publish only.
+	cfgPublished.store(true);
 }
 NvencTapConfig NvencTap::GetConfig(){
 	std::lock_guard<std::mutex> g(cfgLock);
@@ -1292,11 +1701,20 @@ void NvencTap::MaybeHeartbeat(){
 	NvencTapStats s = GetStats();
 	NvencTapConfig c = GetConfig();
 	if(!installed.load() || (s.initCalls == 0 && s.reconfCalls == 0)){ return; }
-	DriverLog("NvencTap: heartbeat api=%u enabled=%d %ux%u avg=%.0fM max=%.0fM level=%u tier=%u bitDepth=%u | init %u (ovr %u, ovrFail->ok %u, fail %u) | reconf %u (ovr %u, ovrFail->ok %u, fail %u, stockFail %u) | register %u encode %u",
+	const long long hbLock = lockCalls.load();
+	const uint32_t hbLockLast = lockLastSize.load();
+	const long long hbEncFail = encFails.load();
+	const uint32_t hbLastEncFailStatus = lastEncFailStatus.load();
+	char errCopy[96];
+	{ std::lock_guard<std::mutex> g(statsLock); snprintf(errCopy, sizeof(errCopy), "%s", lastEncFailStr); }
+	DriverLog("NvencTap: heartbeat api=%u enabled=%d %ux%u avg=%.0fM max=%.0fM level=%u tier=%u bitDepth=%u | init %u (ovr %u, ovrFail->ok %u, fail %u) | reconf %u (ovr %u, ovrFail->ok %u, fail %u, stockFail %u) | register %u encode %u lock %lld (last %u bytes) encFail %lld | lastEncFail %u \"%s\"",
 		s.apiMajor, (int)c.enabled, s.lastWidth, s.lastHeight, s.lastAvgBitrate / 1e6, s.lastMaxBitrate / 1e6, s.lastLevel, s.lastTier, s.lastBitDepth,
 		s.initCalls, s.initOverridden, s.initFailedThenPristineOk, s.initFailed,
 		s.reconfCalls, s.reconfOverridden, s.reconfFailedThenPristineOk, s.reconfFailed, s.reconfFailedStock,
-		s.registerCalls, s.encodeCalls);
+		s.registerCalls, s.encodeCalls, hbLock, hbLockLast, hbEncFail, hbLastEncFailStatus, errCopy);
+	if(lastMapInSize.load() != 0xFFFFFFFFu){
+		DriverLog("NvencTap: delta map heartbeat: sel=%d in=%u use=%u sess=%d", (int)lastMapSel.load(), lastMapInSize.load(), lastMapUseSize.load(), (int)lastSessCodec.load());
+	}
 	if(s.presetFetchOk || s.presetFetchFail){
 		DriverLog("NvencTap: preset merge: fetch ok %u fail %u (cfgVer 0x%08x)", s.presetFetchOk, s.presetFetchFail, s.presetCfgVerUsed);
 	}
