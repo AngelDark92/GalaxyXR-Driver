@@ -89,17 +89,18 @@ struct RegInfo { void* texture; uint32_t fmt; uint32_t type; };
 std::map<void*, RegInfo> registered;   // NV_ENC_REGISTERED_PTR -> texture
 std::map<void*, void*> mappedToReg;    // NV_ENC_INPUT_PTR (mapped) -> NV_ENC_REGISTERED_PTR
 // ---- foveated QP delta map ----
-// one signed byte per 32x32 block (HEVC CTB), row-major, rebuilt when the
-// frame size or the deltas change. the frame is N stacked square tiles of
-// width w; fovea tiles are the even (or odd) ones.
+// one signed byte per block, row-major on the codec's own grid (HEVC 32x32
+// CTB, H.264 16x16 MB, AV1 64x64 SB - nvEncodeAPI.h qpDeltaMapSize), rebuilt
+// when the frame size, the codec or the deltas change. the frame is N stacked
+// square tiles of width w; fovea tiles are the even (or odd) ones.
 std::mutex qpLock;
 std::vector<int8_t> qpMap;
-uint32_t qpMapW = 0, qpMapH = 0; int qpMapFov = 0, qpMapPer = 0; float qpMapFall = -1; bool qpMapTop = true;
-const int8_t* GetQpMap(uint32_t w, uint32_t h, const NvencTapConfig &cfg, uint32_t* size){
+uint32_t qpMapW = 0, qpMapH = 0; int qpMapFov = 0, qpMapPer = 0, qpMapCodec = -1; float qpMapFall = -1; bool qpMapTop = true;
+const int8_t* GetQpMap(uint32_t w, uint32_t h, int codec, const NvencTapConfig &cfg, uint32_t* size){
 	std::lock_guard<std::mutex> g(qpLock);
-	if(w != qpMapW || h != qpMapH || cfg.qpFovea != qpMapFov || cfg.qpPeriphery != qpMapPer || cfg.qpEdgeFalloff != qpMapFall || cfg.qpFoveaTop != qpMapTop){
-		qpMapW = w; qpMapH = h; qpMapFov = cfg.qpFovea; qpMapPer = cfg.qpPeriphery; qpMapFall = cfg.qpEdgeFalloff; qpMapTop = cfg.qpFoveaTop;
-		const uint32_t bs = (cfg.codec == 1) ? 16u : 32u;
+	if(w != qpMapW || h != qpMapH || codec != qpMapCodec || cfg.qpFovea != qpMapFov || cfg.qpPeriphery != qpMapPer || cfg.qpEdgeFalloff != qpMapFall || cfg.qpFoveaTop != qpMapTop){
+		qpMapW = w; qpMapH = h; qpMapCodec = codec; qpMapFov = cfg.qpFovea; qpMapPer = cfg.qpPeriphery; qpMapFall = cfg.qpEdgeFalloff; qpMapTop = cfg.qpFoveaTop;
+		const uint32_t bs = (codec == 1) ? 16u : (codec == 2) ? 64u : 32u;
 		const uint32_t bw = (w + bs - 1) / bs, bh = (h + bs - 1) / bs;
 		qpMap.assign((size_t)bw * bh, 0);
 		const float tile = (float)w; // square tiles
@@ -125,6 +126,73 @@ const int8_t* GetQpMap(uint32_t w, uint32_t h, const NvencTapConfig &cfg, uint32
 	return qpMap.data();
 }
 inline bool QpMapWanted(const NvencTapConfig &cfg){ return cfg.enabled && (cfg.qpFovea != 0 || cfg.qpPeriphery != 0); }
+
+// ---- delta-map adaptation (per frame; codec==1 H264, codec==2 AV1) ----
+// vrlink attaches its per-frame qpDeltaMap on the HEVC 32x32-CTB grid
+// (SteamFrame-Advanced-Options legacy_api_bridge.cpp:232-254 converts the
+// same map for both codecs). The driver validates the map per codec
+// (nvEncodeAPI.h qpDeltaMapSize: per MB for H264, per SB for AV1); the
+// HEVC-sized map makes nvEncEncodePicture fail with
+// NV_ENC_ERR_NOT_ENOUGH_BUFFER (14). H.264: replicate each 32x32 block 2x2,
+// clamp [-51,51], pin the bottom-left timing tile (the MB rows covered by
+// the last HEVC CTB row, first two columns) to -51. AV1: per 64x64 SB take
+// the min of the 2x2 source block, x4, clamp [-128,124], pin the
+// bottom-left SB to -128.
+std::mutex deltaMapLock;
+std::vector<int8_t> deltaMap;
+std::atomic<int> deltaMapDropLogged{0};
+struct MapOverride { bool set = false; const int8_t* p = nullptr; uint32_t n = 0; };
+MapOverride ConvertDeltaMap(const int8_t* src, uint32_t srcSize, uint32_t w, uint32_t h, int codec){
+	MapOverride ov;
+	if(!src || !srcSize || !w || !h){ return ov; }              // nothing to adapt
+	const uint32_t ctbW = (w + 31) / 32, ctbH = (h + 31) / 32;
+	const uint32_t block = codec == 2 ? 64u : 16u;
+	const uint32_t cols = (w + block - 1) / block, rows = (h + block - 1) / block;
+	const uint32_t entries = cols * rows;
+	if(srcSize == entries){ return ov; }                        // already the target grid
+	if(srcSize != ctbW * ctbH){
+		// a map we cannot interpret would fail the encode (status 14);
+		// dropping it keeps the session alive without foveation
+		if(deltaMapDropLogged.fetch_add(1) < 3){
+			DriverLog("NvencTap: delta map size %u matches neither the %s grid (%u) nor the CTB-32 grid (%u) - dropped for this frame", srcSize, codec == 2 ? "SB-64" : "MB-16", entries, ctbW * ctbH);
+		}
+		ov.set = true; ov.p = nullptr; ov.n = 0;
+		return ov;
+	}
+	std::lock_guard<std::mutex> g(deltaMapLock);
+	deltaMap.assign((size_t)entries, 0);
+	if(codec != 2){
+		for(uint32_t y = 0; y < rows; y++){
+			for(uint32_t x = 0; x < cols; x++){
+				int v = src[(size_t)(y / 2) * ctbW + (x / 2)];
+				if(v < -51){ v = -51; } else if(v > 51){ v = 51; }
+				deltaMap[(size_t)y * cols + x] = (int8_t)v;
+			}
+		}
+		// timing tile: the MB rows the last HEVC CTB row covers, first two
+		// columns (legacy_api_bridge.cpp:248-250)
+		for(uint32_t y = 2 * (ctbH - 1); y < rows; y++){
+			for(uint32_t x = 0; x < cols && x < 2; x++){ deltaMap[(size_t)y * cols + x] = -51; }
+		}
+	}else{
+		for(uint32_t y = 0; y < rows; y++){
+			for(uint32_t x = 0; x < cols; x++){
+				int v = 31;                                          // source sentinel
+				for(uint32_t yy = y * 2; yy < (std::min)(y * 2 + 2, ctbH); yy++){
+					for(uint32_t xx = x * 2; xx < (std::min)(x * 2 + 2, ctbW); xx++){
+						v = (std::min)(v, (int)src[(size_t)yy * ctbW + xx]);
+					}
+				}
+				int s = v * 4;
+				if(s < -128){ s = -128; } else if(s > 124){ s = 124; }
+				deltaMap[(size_t)y * cols + x] = (int8_t)s;
+			}
+		}
+		deltaMap[(size_t)(rows - 1) * cols] = -128;                  // bottom-left SB
+	}
+	ov.set = true; ov.p = deltaMap.data(); ov.n = entries;
+	return ov;
+}
 
 // Caller holds resLock through processing and the map call so another map,
 // unmap, or unregister cannot change ownership while the texture is written.
@@ -266,6 +334,13 @@ std::atomic<int> firstLockLogged{0};
 // rotate out of vrserver.txt under a flood, the heartbeat is periodic
 std::atomic<uint32_t> lastEncFailStatus{0};
 char lastEncFailStr[96] = {0}; // guarded by statsLock
+// last per-frame delta-map sizes over the encode boundary (bytes; one byte
+// per block) - rotation-proof probe: H.264 wants the 16x16 MB grid count,
+// HEVC the 32x32 CTB count, AV1 the SB count
+std::atomic<uint32_t> lastMapInSize{0xFFFFFFFFu};
+std::atomic<uint32_t> lastMapUseSize{0xFFFFFFFFu};
+std::atomic<int> lastMapSel{-1};
+std::atomic<int> lastSessCodec{-1};   // live session codec seen by the last encode (-1: none)
 
 // NVENCAPI_STRUCT_VERSION(ver) = NVENCAPI_VERSION | (ver<<16) | (0x7<<28),
 // NVENCAPI_VERSION = MAJOR | (MINOR<<24). bits 0..15 carry the major.
@@ -275,6 +350,30 @@ bool ApiSupported(uint32_t major){ return major >= 9 && major <= 13; }
 
 bool IsHevc(const GUID &g){ return memcmp(&g, &NV_ENC_CODEC_HEVC_GUID, sizeof(GUID)) == 0; }
 bool IsH264(const GUID &g){ return memcmp(&g, &NV_ENC_CODEC_H264_GUID, sizeof(GUID)) == 0; }
+
+// Live codec of each encoder that last initialized/reconfigured SUCCESSFULLY
+// (0 HEVC / 1 H264 / 2 AV1). The per-frame map paths key off this, not the
+// tap config: a swap that fails and falls back to vrlink's pristine params
+// leaves an HEVC session live under a codec-1/2 config, and an MB/SB-grid
+// map would fail every one of its frames (status 14).
+std::map<void*, int> sessionCodecs;   // guarded by upgradedLock
+int CodecOfGuid(const GUID &g){
+	if(IsH264(g)){ return 1; }
+	if(memcmp(&g, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0){ return 2; }
+	if(IsHevc(g)){ return 0; }
+	return -1;
+}
+void SetSessionCodec(void* encoder, int codec){
+	if(!encoder || codec < 0){ return; }
+	std::lock_guard<std::mutex> g(upgradedLock);
+	sessionCodecs[encoder] = codec;
+}
+int SessionCodecOf(void* encoder){
+	if(!encoder){ return -1; }
+	std::lock_guard<std::mutex> g(upgradedLock);
+	std::map<void*, int>::const_iterator it = sessionCodecs.find(encoder);
+	return it == sessionCodecs.end() ? -1 : it->second;
+}
 
 const char* PresetName(const GUID &g){
 	if(memcmp(&g, &NV_ENC_PRESET_P1_GUID, sizeof(GUID)) == 0) return "P1";
@@ -748,7 +847,10 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		// restores the 256-byte window wholesale; a direct H.264 caller
 		// (no swap) relies on this copy in Restore (h264CfgCaptured)
 		if(!snap.h264CfgCaptured){ snap.h264CfgCaptured = true; snap.h264Cfg = h; }
-		const uint32_t fps = p->frameRateNum ? p->frameRateNum : 90;
+		// effective rate: forceFps when set (vrlink's measured-rate
+		// reconfigures otherwise drift gop/idr per reconf - SteamFrame
+		// normalizes first), else the caller's rate.
+		const uint32_t fps = cfg.forceFps > 0 ? (uint32_t)cfg.forceFps : (p->frameRateNum ? p->frameRateNum : 90);
 		if(c->gopLength != fps){ snap.h264GopCaptured = true; snap.h264GopLength = c->gopLength; w += snprintf(w, WhatRem(w, what, whatLen), "gop %u->%u [h264]; ", c->gopLength, fps); c->gopLength = fps; changed = true; }
 		if(c->encodeCodecConfig.h264Config.idrPeriod != fps){ snap.h264IdrCaptured = true; snap.h264IdrPeriod = c->encodeCodecConfig.h264Config.idrPeriod; w += snprintf(w, WhatRem(w, what, whatLen), "idr %u->%u [h264]; ", c->encodeCodecConfig.h264Config.idrPeriod, fps); c->encodeCodecConfig.h264Config.idrPeriod = fps; changed = true; }
 		// the rest of the SteamFrame H.264 recipe: DPB refs, VUI bitstream
@@ -926,7 +1028,9 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 			DriverLog("NvencTap: unsupported NVENC API major %u (struct version 0x%08x) — observe only", ApiMajor(p->version), p->version);
 		}
 		RecordLast(p);
-		return call();
+		NVENCSTATUS stObserve = call();
+		if(stObserve == NV_ENC_SUCCESS){ SetSessionCodec(encoder, CodecOfGuid(p->encodeGUID)); }
+		return stObserve;
 	}
 	Snapshot snap; char what[256];
 	bool changed = cfg.enabled && ApplyOverrides(encoder, p, cfg, snap, what, sizeof(what));
@@ -935,10 +1039,12 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		RecordLast(p);
 		uint32_t outerSaved = 0;
 		if(snap.split && outerVersion){ outerSaved = *outerVersion; *outerVersion = kReconf121; }
+		const int effCodec = CodecOfGuid(p->encodeGUID);
 		NVENCSTATUS st = call();
 		Restore(snap);
 		if(snap.split && outerVersion){ *outerVersion = outerSaved; }
 		if(st == NV_ENC_SUCCESS){
+			SetSessionCodec(encoder, effCodec);
 			std::lock_guard<std::mutex> g(statsLock); overridden++;
 			if(snap.split){ stats.splitApplied++; if(stats.splitState != 1){ stats.splitState = 1; DriverLog("NvencTap: SPLIT-FRAME: 12.1-versioned structs ACCEPTED by the 11.1 session on %s — explicit split mode is live", tag); } }
 			return st;
@@ -962,6 +1068,7 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		if(snap.split && retryFlags && snap.splitModeApplied){
 			*retryFlags = (snap.initFlags & ~(0xFu << 5)) | (snap.splitModeApplied << 5);
 		}
+		const int retryCodec = CodecOfGuid(p->encodeGUID);
 		NVENCSTATUS st2 = call();
 		if(snap.split && retryFlags){ *retryFlags = snap.initFlags; }
 		bool retryFailed;
@@ -969,6 +1076,7 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 			std::lock_guard<std::mutex> g(statsLock);
 			if(st2 == NV_ENC_SUCCESS){ failedThenOk++; retryFailed = false; } else { failed++; retryFailed = true; }
 		}
+		if(st2 == NV_ENC_SUCCESS){ SetSessionCodec(encoder, retryCodec); }
 		if(retryFailed){
 			DriverLog("NvencTap: %s pristine retry ALSO failed (%u) — encoder left dead upstream, stream will wedge", tag, (unsigned)st2);
 			if(origGetLastErrorString){
@@ -979,7 +1087,9 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		return st2;
 	}
 	RecordLast(p);
+	const int stockCodec = CodecOfGuid(p->encodeGUID);
 	NVENCSTATUS st = call();
+	if(st == NV_ENC_SUCCESS){ SetSessionCodec(encoder, stockCodec); }
 	if(st != NV_ENC_SUCCESS){
 		std::lock_guard<std::mutex> g(statsLock);
 		if(failedStock){ (*failedStock)++; } else { failed++; }
@@ -1083,8 +1193,56 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 	NVENCSTATUS st;
 	NvencTapConfig qcfg = NvencTap::Get().GetConfig();
 	const int8_t* qmap = nullptr; uint32_t qsize = 0;
+	// the per-frame map paths key off the LIVE session codec (0/1/2),
+	// falling back to the tap config while no init has been seen: a swap
+	// that failed and fell back to vrlink's pristine params leaves an
+	// HEVC session live under a codec-1/2 config, and an MB/SB-grid map
+	// would fail every one of its frames.
+	const int liveCodec = SessionCodecOf(encoder);
+	const int mapCodec = liveCodec >= 0 ? liveCodec : (int)qcfg.codec;
+	lastSessCodec.store(liveCodec);
 	if(params && params->inputBuffer && QpMapWanted(qcfg) && params->inputWidth && params->inputHeight){
-		qmap = GetQpMap(params->inputWidth, params->inputHeight, qcfg, &qsize);
+		qmap = GetQpMap(params->inputWidth, params->inputHeight, mapCodec, qcfg, &qsize);
+	}
+	// The caller's delta-map fields live at the 11.1 offsets whenever the
+	// struct it handed us is 11.1-versioned (vrlink) - the same raw offsets
+	// CopyPicParams111To121 reads for the upgraded path. Member access is
+	// only valid for a 12.1+ caller.
+	const int8_t* callerMap = params ? params->qpDeltaMap : nullptr;
+	uint32_t callerSize = params ? params->qpDeltaMapSize : 0;
+	if(params && Is111(params->version)){
+		callerMap = *(int8_t* const*)((const unsigned char*)params + kQpDeltaMap11Offset);
+		callerSize = *(const uint32_t*)((const unsigned char*)params + kQpDeltaMapSize11Offset);
+	}
+	// H.264 / AV1: adapt the caller's HEVC-grid (32x32 CTB) delta map to
+	// the grid the encoder validates (see ConvertDeltaMap). EOS frames
+	// carry no picture: detach the caller's map like SteamFrame does so a
+	// wrong-size surface cannot fail the flush. The tap's own foveation
+	// map wins when it is active.
+	MapOverride mapOv;
+	if(!qmap && params && (mapCodec == 1 || mapCodec == 2)){
+		if(params->inputBuffer){
+			mapOv = ConvertDeltaMap(callerMap, callerSize, params->inputWidth, params->inputHeight, mapCodec);
+		}else if(callerMap){
+			mapOv.set = true;
+		}
+	}
+	if(params && params->inputBuffer){
+		// one-shot detail probe + rotation-proof heartbeat pair: what the
+		// caller supplied vs what the encode call actually carries
+		const int8_t* useMap = qmap ? qmap : (mapOv.set ? mapOv.p : callerMap);
+		const uint32_t useSize = qmap ? qsize : (mapOv.set ? mapOv.n : callerSize);
+		lastMapInSize.store(callerSize); lastMapUseSize.store(useSize); lastMapSel.store(mapCodec);
+		static std::atomic<int> probeSel[3];
+		const int sel = (mapCodec >= 0 && mapCodec <= 2) ? mapCodec : 2;
+		if(probeSel[sel].fetch_add(1) < 2){
+			DriverLog("NvencTap: delta map probe sel=%d in=%p/%u use=%p/%u w=%u h=%u (ctb32=%u mb=%u sb64=%u)",
+				sel, (const void*)callerMap, callerSize, (const void*)useMap, useSize,
+				params->inputWidth, params->inputHeight,
+				((params->inputWidth + 31) / 32) * ((params->inputHeight + 31) / 32),
+				((params->inputWidth + 15) / 16) * ((params->inputHeight + 15) / 16),
+				((params->inputWidth + 63) / 64) * ((params->inputHeight + 63) / 64));
+		}
 	}
 	if(params && Upgraded(encoder) && Is111(params->version)){
 		// NV_ENC_PIC_PARAMS grew 11.1 -> 12.1: call with an explicitly
@@ -1094,14 +1252,33 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 		alignas(16) unsigned char scratch[kScratch] = {};
 		NV_ENC_PIC_PARAMS* sp = CopyPicParams111To121(params, (NV_ENC_PIC_PARAMS*)scratch);
 		if(qmap){ sp->qpDeltaMap = (int8_t*)qmap; sp->qpDeltaMapSize = qsize; std::lock_guard<std::mutex> g(statsLock); stats.qpMapFrames++; }
+		else if(mapOv.set){ sp->qpDeltaMap = (int8_t*)mapOv.p; sp->qpDeltaMapSize = mapOv.n; }
 		st = origEncodePicture(encoder, sp);
 		{ std::lock_guard<std::mutex> g(statsLock); stats.retagCalls++; }
-	}else if(params && qmap){
-		int8_t* savedMap = params->qpDeltaMap; uint32_t savedSize = params->qpDeltaMapSize;
-		params->qpDeltaMap = (int8_t*)qmap; params->qpDeltaMapSize = qsize;
-		{ std::lock_guard<std::mutex> g(statsLock); stats.qpMapFrames++; }
+	}else if(params && (qmap || mapOv.set)){
+		// direct (non-upgraded) session: address the caller's map fields in
+		// ITS layout for the duration of the call, restore after
+		const bool c111 = Is111(params->version);
+		int8_t* savedMap; uint32_t savedSize;
+		const int8_t* setMap = qmap ? qmap : mapOv.p;
+		const uint32_t setSize = qmap ? qsize : mapOv.n;
+		if(c111){
+			savedMap = *(int8_t**)((unsigned char*)params + kQpDeltaMap11Offset);
+			savedSize = *(uint32_t*)((unsigned char*)params + kQpDeltaMapSize11Offset);
+			*(int8_t**)((unsigned char*)params + kQpDeltaMap11Offset) = (int8_t*)setMap;
+			*(uint32_t*)((unsigned char*)params + kQpDeltaMapSize11Offset) = setSize;
+		}else{
+			savedMap = params->qpDeltaMap; savedSize = params->qpDeltaMapSize;
+			params->qpDeltaMap = (int8_t*)setMap; params->qpDeltaMapSize = setSize;
+		}
+		if(qmap){ std::lock_guard<std::mutex> g(statsLock); stats.qpMapFrames++; }
 		st = origEncodePicture(encoder, params);
-		params->qpDeltaMap = savedMap; params->qpDeltaMapSize = savedSize;
+		if(c111){
+			*(int8_t**)((unsigned char*)params + kQpDeltaMap11Offset) = savedMap;
+			*(uint32_t*)((unsigned char*)params + kQpDeltaMapSize11Offset) = savedSize;
+		}else{
+			params->qpDeltaMap = savedMap; params->qpDeltaMapSize = savedSize;
+		}
 	}else{
 		st = origEncodePicture(encoder, params);
 	}
@@ -1240,7 +1417,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSI
 	return origOpenEncodeSessionEx(params, encoder);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
-	{ std::lock_guard<std::mutex> g(upgradedLock); upgradedSessions.erase(encoder); }
+	{ std::lock_guard<std::mutex> g(upgradedLock); upgradedSessions.erase(encoder); sessionCodecs.erase(encoder); }
 	return origDestroyEncoder(encoder);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::GetEncodeCaps(void* encoder, GUID encodeGUID, NV_ENC_CAPS_PARAM* params, int* capsVal){
@@ -1541,6 +1718,9 @@ void NvencTap::MaybeHeartbeat(){
 		s.initCalls, s.initOverridden, s.initFailedThenPristineOk, s.initFailed,
 		s.reconfCalls, s.reconfOverridden, s.reconfFailedThenPristineOk, s.reconfFailed, s.reconfFailedStock,
 		s.registerCalls, s.encodeCalls, hbLock, hbLockLast, hbEncFail, hbLastEncFailStatus, errCopy);
+	if(lastMapInSize.load() != 0xFFFFFFFFu){
+		DriverLog("NvencTap: delta map heartbeat: sel=%d in=%u use=%u sess=%d", (int)lastMapSel.load(), lastMapInSize.load(), lastMapUseSize.load(), (int)lastSessCodec.load());
+	}
 	if(s.presetFetchOk || s.presetFetchFail){
 		DriverLog("NvencTap: preset merge: fetch ok %u fail %u (cfgVer 0x%08x)", s.presetFetchOk, s.presetFetchFail, s.presetCfgVerUsed);
 	}

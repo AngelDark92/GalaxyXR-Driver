@@ -42,8 +42,14 @@ uint32_t seenH264Level = 0, seenH264BitDepth = 0, seenH264RepeatSpsPps = 0;
 uint32_t seenAv1Level = 0, seenAv1BitDepth = 0, seenAv1InputBitDepth = 0, seenAv1RepeatSeqHdr = 0;
 uint32_t seenAv1Flags = 0;
 uint32_t seenMaxEncodeW = 0, seenMaxEncodeH = 0;
+const int8_t* seenEncodeMap = nullptr;
+uint32_t seenEncodeMapSize = 0;
+int8_t seenEncodeMapBytes[32] = {};
+uint32_t seenPictureVersion = 0, seenLockVersion = 0;
 int destroyCalls = 0;
 int capsCalls = 0;
+bool failNextInit = false;
+uint32_t seenH264Gop = 0, seenH264Idr = 0;
 
 void Check(bool condition, const char* label){
 	checks++;
@@ -237,6 +243,197 @@ void CheckCodecOverride(void* encoder){
 	ConfigureCodec(true, 0);
 }
 
+void CheckDeltaMapConversion(){
+	// H.264: vrlink's HEVC-grid (32x32 CTB) per-frame map must be adapted to
+	// the 16x16 MB grid (2x2 replication, clamp [-51,51], bottom-left timing
+	// tile pinned) - a smaller map fails the encode with status 14.
+	auto makePic = [](uint32_t w, uint32_t h, int8_t* map, uint32_t size) -> NV_ENC_PIC_PARAMS {
+		NV_ENC_PIC_PARAMS p = {};
+		p.version = Tag111(4, true);
+		p.inputBuffer = reinterpret_cast<void*>(9); p.outputBitstream = reinterpret_cast<void*>(10);
+		p.inputWidth = w; p.inputHeight = h;
+		*reinterpret_cast<int8_t**>(reinterpret_cast<unsigned char*>(&p) + kQpDeltaMap11Offset) = map;
+		*reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(&p) + kQpDeltaMapSize11Offset) = size;
+		return p;
+	};
+
+	// upgraded (12.1 ABI) session, H.264 selected
+	NvencTapConfig h264Cfg; h264Cfg.enabled = true; h264Cfg.codec = 1; h264Cfg.splitMode = 1;
+	NvencTap::Get().SetConfig(h264Cfg);
+	void* h264Enc = OpenSession();
+	Check(Upgraded(h264Enc), "delta map: H264 session upgraded");
+
+	// 64x64 frame: 32x32 grid = 4 caller entries, 16x16 grid = 16 entries.
+	// values exercise the clamp (10, -70 -> -51, 60 -> 51, 5) and the
+	// timing-tile pin (rows 2..3 x columns 0..1 = -51).
+	int8_t src[4] = { 10, -70, 60, 5 };
+	NV_ENC_PIC_PARAMS pic = makePic(64, 64, src, 4);
+	const auto savedPic = pic;
+	Check(NvencTapShims::EncodePicture(h264Enc, &pic) == NV_ENC_ERR_GENERIC, "delta map: H264 encode delegated");
+	Check(seenPictureVersion == Tag121(6, true), "delta map: converted call carries the 12.1 ABI");
+	Check(seenEncodeMapSize == 16u, "delta map: 4-entry CTB map converted to the 16-entry MB count");
+	{
+		const int8_t expected[16] = { 10, 10, -51, -51, 10, 10, -51, -51, -51, -51, 5, 5, -51, -51, 5, 5 };
+		bool same = seenEncodeMapSize == 16u;
+		for(int i = 0; same && i < 16; i++){ same = seenEncodeMapBytes[i] == expected[i]; }
+		Check(same, "delta map: 2x2 replication + clamp + timing-tile pin exact");
+	}
+	Check(memcmp(&pic, &savedPic, sizeof(pic)) == 0, "delta map: caller picture bytes unchanged");
+
+	// null map: nothing attached stays nothing
+	NV_ENC_PIC_PARAMS picNull = makePic(64, 64, nullptr, 0);
+	Check(NvencTapShims::EncodePicture(h264Enc, &picNull) == NV_ENC_ERR_GENERIC, "delta map: null-map encode delegated");
+	Check(seenEncodeMap == nullptr && seenEncodeMapSize == 0u, "delta map: null map stays unset");
+
+	// already on the H.264 grid: passed through untouched
+	int8_t mb16[16];
+	for(int i = 0; i < 16; i++){ mb16[i] = (int8_t)(i - 8); }
+	NV_ENC_PIC_PARAMS picMb = makePic(64, 64, mb16, 16);
+	Check(NvencTapShims::EncodePicture(h264Enc, &picMb) == NV_ENC_ERR_GENERIC, "delta map: MB-grid encode delegated");
+	Check(seenEncodeMap == mb16 && seenEncodeMapSize == 16u, "delta map: MB-grid map passes through untouched");
+
+	// unrecognized size: dropped (an unconvertible map would fail the encode)
+	NV_ENC_PIC_PARAMS picOdd = makePic(64, 64, src, 7);
+	Check(NvencTapShims::EncodePicture(h264Enc, &picOdd) == NV_ENC_ERR_GENERIC, "delta map: odd-size encode delegated");
+	Check(seenEncodeMap == nullptr && seenEncodeMapSize == 0u, "delta map: unrecognized size is dropped");
+
+	// EOS-style flush (no input buffer): the map is detached (no picture;
+	// a wrong-size surface must not fail the flush - SF skips it too)
+	NV_ENC_PIC_PARAMS picEos = makePic(64, 64, src, 4);
+	picEos.inputBuffer = nullptr; picEos.outputBitstream = nullptr;
+	Check(NvencTapShims::EncodePicture(h264Enc, &picEos) == NV_ENC_ERR_GENERIC, "delta map: EOS encode delegated");
+	Check(seenEncodeMap == nullptr && seenEncodeMapSize == 0u, "delta map: EOS frame map detached");
+
+	// HEVC keeps the caller map verbatim (regression guard), including on
+	// the EOS flush - the HEVC path is unmodified end to end
+	NvencTapConfig hevcCfg; hevcCfg.enabled = true; hevcCfg.codec = 0; hevcCfg.splitMode = 1;
+	NvencTap::Get().SetConfig(hevcCfg);
+	void* hevcEnc = OpenSession();
+	Check(Upgraded(hevcEnc), "delta map: HEVC session upgraded");
+	NV_ENC_PIC_PARAMS picHevc = makePic(64, 64, src, 4);
+	Check(NvencTapShims::EncodePicture(hevcEnc, &picHevc) == NV_ENC_ERR_GENERIC, "delta map: HEVC encode delegated");
+	Check(seenEncodeMap == src && seenEncodeMapSize == 4u, "delta map: HEVC map passed through verbatim");
+	NV_ENC_PIC_PARAMS picHevcEos = makePic(64, 64, src, 4);
+	picHevcEos.inputBuffer = nullptr; picHevcEos.outputBitstream = nullptr;
+	Check(NvencTapShims::EncodePicture(hevcEnc, &picHevcEos) == NV_ENC_ERR_GENERIC, "delta map: HEVC EOS encode delegated");
+	Check(seenEncodeMap == src && seenEncodeMapSize == 4u, "delta map: HEVC EOS map untouched (HEVC path unmodified)");
+
+	// AV1: 64x64 SB grid; per-SB min of the 2x2 source block, x4, clamp
+	// [-128,124]; bottom-left SB pinned to -128 (legacy_api_bridge.cpp:240-252)
+	NvencTapConfig av1Cfg; av1Cfg.enabled = true; av1Cfg.codec = 2; av1Cfg.splitMode = 1;
+	NvencTap::Get().SetConfig(av1Cfg);
+	void* av1Enc = OpenSession();
+	Check(Upgraded(av1Enc), "delta map: AV1 session upgraded");
+	// 128x128: source CTB grid 4x4 = 16 entries; SB grid 2x2 = 4 entries
+	int8_t av1src[16] = { 10, 10, 5, 7,  -70, 10, 5, 7,  31, 31, -32, 0,  31, 31, 0, -32 };
+	NV_ENC_PIC_PARAMS picAv1 = makePic(128, 128, av1src, 16);
+	Check(NvencTapShims::EncodePicture(av1Enc, &picAv1) == NV_ENC_ERR_GENERIC, "delta map: AV1 encode delegated");
+	Check(seenEncodeMapSize == 4u, "delta map: AV1 16-entry CTB map converted to the 4-entry SB count");
+	{
+		const int8_t expected[4] = { -128, 20, -128, -128 }; // SB00 min -70 x4 clamp; SB10 min 5 x4; SB01 pin; SB11 min -32 x4
+		bool same = seenEncodeMapSize == 4u;
+		for(int i = 0; same && i < 4; i++){ same = seenEncodeMapBytes[i] == expected[i]; }
+		Check(same, "delta map: AV1 min-aggregation + x4 + clamp + SB pin exact");
+	}
+	NV_ENC_PIC_PARAMS picAv1Eos = makePic(128, 128, av1src, 16);
+	picAv1Eos.inputBuffer = nullptr; picAv1Eos.outputBitstream = nullptr;
+	Check(NvencTapShims::EncodePicture(av1Enc, &picAv1Eos) == NV_ENC_ERR_GENERIC, "delta map: AV1 EOS encode delegated");
+	Check(seenEncodeMap == nullptr && seenEncodeMapSize == 0u, "delta map: AV1 EOS frame map detached");
+
+	// non-upgraded H.264 session: the direct path swaps the raw 11.1 fields
+	// for the call and restores them after
+	NvencTapConfig directCfg; directCfg.enabled = true; directCfg.codec = 1; directCfg.splitMode = 0;
+	NvencTap::Get().SetConfig(directCfg);
+	void* directEnc = OpenSession();
+	Check(!Upgraded(directEnc), "delta map: direct-mode session stays stock 11.1");
+	NV_ENC_PIC_PARAMS picDirect = makePic(64, 64, src, 4);
+	const auto savedDirect = picDirect;
+	Check(NvencTapShims::EncodePicture(directEnc, &picDirect) == NV_ENC_ERR_GENERIC, "delta map: direct-mode encode delegated");
+	Check(seenEncodeMapSize == 16u, "delta map: direct-mode conversion applies");
+	Check(memcmp(&picDirect, &savedDirect, sizeof(picDirect)) == 0, "delta map: direct-mode caller fields restored");
+
+	// the tap's own foveation map still wins over the caller's (codec-aware
+	// 16x16 grid), and its frames are counted
+	NvencTapConfig foveaCfg; foveaCfg.enabled = true; foveaCfg.codec = 1; foveaCfg.splitMode = 1;
+	foveaCfg.qpFovea = -8; foveaCfg.qpPeriphery = 4;
+	NvencTap::Get().SetConfig(foveaCfg);
+	NV_ENC_PIC_PARAMS picFov = makePic(64, 64, src, 4);
+	const auto qpFramesBefore = NvencTap::Get().GetStats().qpMapFrames;
+	Check(NvencTapShims::EncodePicture(h264Enc, &picFov) == NV_ENC_ERR_GENERIC, "delta map: fovea encode delegated");
+	Check(seenEncodeMap != src && seenEncodeMapSize == 16u, "delta map: tap foveation map replaces the caller map (16x16 grid)");
+	Check(NvencTap::Get().GetStats().qpMapFrames == qpFramesBefore + 1, "delta map: foveation frame counted");
+	ConfigureCodec(true, 0);
+}
+
+void CheckSessionCodecGating(){
+	// The per-frame map paths must key off the LIVE session codec, not the
+	// tap config: a swap that fails at init and falls back to vrlink's
+	// pristine params leaves an HEVC session live under a codec-1 config,
+	// and an MB-grid map would fail every one of its frames (status 14).
+	auto makePic = [](uint32_t w, uint32_t h, int8_t* map, uint32_t size) -> NV_ENC_PIC_PARAMS {
+		NV_ENC_PIC_PARAMS p = {};
+		p.version = Tag111(4, true);
+		p.inputBuffer = reinterpret_cast<void*>(9); p.outputBitstream = reinterpret_cast<void*>(10);
+		p.inputWidth = w; p.inputHeight = h;
+		*reinterpret_cast<int8_t**>(reinterpret_cast<unsigned char*>(&p) + kQpDeltaMap11Offset) = map;
+		*reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(&p) + kQpDeltaMapSize11Offset) = size;
+		return p;
+	};
+
+	// failed H.264 swap -> pristine HEVC retry succeeds: the live session
+	// is HEVC and the caller's CTB map must pass through verbatim
+	NvencTapConfig h264Cfg; h264Cfg.enabled = true; h264Cfg.codec = 1; h264Cfg.splitMode = 1;
+	NvencTap::Get().SetConfig(h264Cfg);
+	void* enc = OpenSession();
+	Check(Upgraded(enc), "session codec: fallback session upgraded");
+	NV_ENC_CONFIG cfg = {}; cfg.version = Tag111(7, true); cfg.rcParams.version = Tag111(1);
+	cfg.rcParams.averageBitRate = 42000000; cfg.gopLength = 60; cfg.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+	NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag111(5, true);
+	init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init.encodeConfig = &cfg;
+	init.frameRateNum = 90; init.frameRateDen = 1;
+	failNextInit = true;
+	const auto statsBefore = NvencTap::Get().GetStats();
+	Check(NvencTapShims::InitializeEncoder(enc, &init) == NV_ENC_SUCCESS, "session codec: pristine retry succeeds");
+	Check(NvencTap::Get().GetStats().initFailedThenPristineOk == statsBefore.initFailedThenPristineOk + 1,
+		"session codec: override-failed-then-pristine-ok counted");
+	int8_t src[4] = { 1, -2, 3, -4 };
+	NV_ENC_PIC_PARAMS pic = makePic(64, 64, src, 4);
+	Check(NvencTapShims::EncodePicture(enc, &pic) == NV_ENC_ERR_GENERIC, "session codec: fallback encode delegated");
+	Check(seenEncodeMap == src && seenEncodeMapSize == 4u,
+		"session codec: live-HEVC fallback keeps the caller map verbatim (no MB conversion)");
+	NV_ENC_PIC_PARAMS picEos = makePic(64, 64, src, 4);
+	picEos.inputBuffer = nullptr; picEos.outputBitstream = nullptr;
+	Check(NvencTapShims::EncodePicture(enc, &picEos) == NV_ENC_ERR_GENERIC, "session codec: fallback EOS delegated");
+	Check(seenEncodeMap == src && seenEncodeMapSize == 4u, "session codec: fallback EOS keeps the map (HEVC path)");
+
+	// a SUCCESSFUL swap records the live codec and drives the conversion;
+	// gop/idr follow forceFps, not the caller's drifting measured rate
+	NvencTapConfig swapCfg; swapCfg.enabled = true; swapCfg.codec = 1; swapCfg.splitMode = 1; swapCfg.forceFps = 90;
+	NvencTap::Get().SetConfig(swapCfg);
+	void* enc2 = OpenSession();
+	NV_ENC_CONFIG cfg2 = {}; cfg2.version = Tag111(7, true); cfg2.rcParams.version = Tag111(1);
+	cfg2.rcParams.averageBitRate = 42000000; cfg2.gopLength = 60; cfg2.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+	NV_ENC_INITIALIZE_PARAMS init2 = {}; init2.version = Tag111(5, true);
+	init2.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init2.encodeConfig = &cfg2;
+	init2.frameRateNum = 89; init2.frameRateDen = 1;   // measured-rate drift: forceFps must win
+	Check(NvencTapShims::InitializeEncoder(enc2, &init2) == NV_ENC_SUCCESS, "session codec: H264 swap init delegated");
+	Check(seenH264Gop == 90u && seenH264Idr == 90u, "session codec: gop/idr follow forceFps, not the drifting caller rate");
+	NV_ENC_PIC_PARAMS pic2 = makePic(64, 64, src, 4);
+	Check(NvencTapShims::EncodePicture(enc2, &pic2) == NV_ENC_ERR_GENERIC, "session codec: swapped-session encode delegated");
+	Check(seenEncodeMapSize == 16u, "session codec: live-codec record drives the MB conversion on the swapped session");
+
+	// the tap's own foveation map builds on the codec's grid: 64x64 SB for
+	// AV1 (a 32-grid map would be status-14 class on a live AV1 session)
+	NvencTapConfig fovAv1; fovAv1.enabled = true; fovAv1.codec = 2; fovAv1.splitMode = 1;
+	fovAv1.qpFovea = -8; fovAv1.qpPeriphery = 4;
+	NvencTap::Get().SetConfig(fovAv1);
+	void* av1Enc = OpenSession();
+	NV_ENC_PIC_PARAMS picFov = makePic(128, 128, nullptr, 0);
+	Check(NvencTapShims::EncodePicture(av1Enc, &picFov) == NV_ENC_ERR_GENERIC, "session codec: AV1 fovea encode delegated");
+	Check(seenEncodeMap != nullptr && seenEncodeMapSize == 4u, "session codec: AV1 foveation map on the 64x64 SB grid");
+	ConfigureCodec(true, 0);
+}
+
 NVENCSTATUS NVENCAPI CaptureOpen(NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS* params, void** encoder){
 	openApis.push_back(params->apiVersion);
 	openVersions.push_back(params->version);
@@ -261,6 +458,7 @@ NVENCSTATUS NVENCAPI CaptureCaps(void*, GUID, NV_ENC_CAPS_PARAM* params, int* va
 
 NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 	if(!params){ return NV_ENC_ERR_INVALID_PTR; }
+	if(failNextInit){ failNextInit = false; return NV_ENC_ERR_INVALID_PARAM; }
 	seenInitVersion = params->version;
 	seenConfigVersion = params->encodeConfig->version;
 	seenRcVersion = params->encodeConfig->rcParams.version;
@@ -278,6 +476,8 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 		seenH264Level = params->encodeConfig->encodeCodecConfig.h264Config.level;
 		seenH264BitDepth = (uint32_t)params->encodeConfig->encodeCodecConfig.h264Config.outputBitDepth;
 		seenH264RepeatSpsPps = params->encodeConfig->encodeCodecConfig.h264Config.repeatSPSPPS;
+		seenH264Gop = params->encodeConfig->gopLength;
+		seenH264Idr = params->encodeConfig->encodeCodecConfig.h264Config.idrPeriod;
 	}else if(memcmp(&params->encodeGUID, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0){
 		seenAv1Level = params->encodeConfig->encodeCodecConfig.av1Config.level;
 		seenAv1BitDepth = (uint32_t)params->encodeConfig->encodeCodecConfig.av1Config.outputBitDepth;
@@ -290,11 +490,26 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 
 int ordinaryCalls = 0;
 const void* seenOrdinary = nullptr;
-uint32_t seenPictureVersion = 0, seenLockVersion = 0;
 NVENCSTATUS NVENCAPI CaptureReconfigure(void*, NV_ENC_RECONFIGURE_PARAMS* p){ ++ordinaryCalls; seenOrdinary = p; return NV_ENC_ERR_GENERIC; }
 NVENCSTATUS NVENCAPI CaptureRegister(void*, NV_ENC_REGISTER_RESOURCE* p){ ++ordinaryCalls; seenOrdinary = p; return NV_ENC_ERR_GENERIC; }
 NVENCSTATUS NVENCAPI CaptureMap(void*, NV_ENC_MAP_INPUT_RESOURCE* p){ ++ordinaryCalls; seenOrdinary = p; return NV_ENC_ERR_GENERIC; }
-NVENCSTATUS NVENCAPI CaptureEncode(void*, NV_ENC_PIC_PARAMS* p){ ++ordinaryCalls; seenOrdinary = p; seenPictureVersion = p ? p->version : 0; return NV_ENC_ERR_GENERIC; }
+NVENCSTATUS NVENCAPI CaptureEncode(void*, NV_ENC_PIC_PARAMS* p){
+	++ordinaryCalls; seenOrdinary = p; seenPictureVersion = p ? p->version : 0;
+	// the delivered map lives at the 11.1 offsets when the call struct is
+	// 11.1-versioned (direct-path sessions), member offsets otherwise
+	if(p && Is111(p->version)){
+		seenEncodeMap = *reinterpret_cast<int8_t* const*>(reinterpret_cast<unsigned char*>(p) + kQpDeltaMap11Offset);
+		seenEncodeMapSize = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(p) + kQpDeltaMapSize11Offset);
+	}else{
+		seenEncodeMap = p ? p->qpDeltaMap : nullptr;
+		seenEncodeMapSize = p ? p->qpDeltaMapSize : 0;
+	}
+	std::memset(seenEncodeMapBytes, 0, sizeof(seenEncodeMapBytes));
+	if(seenEncodeMap){
+		for(uint32_t i = 0; i < seenEncodeMapSize && i < 32; i++){ seenEncodeMapBytes[i] = seenEncodeMap[i]; }
+	}
+	return NV_ENC_ERR_GENERIC;
+}
 NVENCSTATUS NVENCAPI CaptureLock(void*, NV_ENC_LOCK_BITSTREAM* p){ ++ordinaryCalls; seenOrdinary = p; seenLockVersion = p ? p->version : 0; if(p){ p->bitstreamSizeInBytes = 2000000; } return NV_ENC_SUCCESS; }
 
 void CheckOffPassthrough(void* encoder){
@@ -499,6 +714,8 @@ int main(){
 	NvencTapShims::GetEncodeCaps(stock, NV_ENC_CODEC_HEVC_GUID, &stockCaps, &stockValue);
 	Check(seenCapsVersion == Tag111(1), "new OFF session continues with stock ABI");
 	CheckCodecOverride(stock);
+	CheckDeltaMapConversion();
+	CheckSessionCodecGating();
 
 	Configure(true, 0);
 	stock = OpenSession();
