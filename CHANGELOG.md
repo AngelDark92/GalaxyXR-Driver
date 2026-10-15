@@ -6,6 +6,18 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.10.0] - 2026-10-15
+
+### Features
+
+- nvenctap: H.264 session support groundwork (`1cb8192`)
+
+### Fixes
+
+- gui: re-check updates when the dev channel flips mid-flight (`318a1cd`)
+- Enhance delta map handling and session codec management in NvencTap (`36c64b9`)
+- Refactor NVENC settings and update codec handling (`c3928cb`)
+
 ## [1.10.0-dev.8] - 2026-10-15
 
 ### Features

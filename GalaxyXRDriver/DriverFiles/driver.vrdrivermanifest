@@ -7,5 +7,5 @@
   "hmd_presence": [
     "*.*"
   ],
-  "version": "1.10.0-dev.8"
+  "version": "1.10.0"
 }
