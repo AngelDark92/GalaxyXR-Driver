@@ -41,6 +41,7 @@ GUID seenProfileGuid{};
 uint32_t seenH264Level = 0, seenH264BitDepth = 0, seenH264RepeatSpsPps = 0;
 uint32_t seenAv1Level = 0, seenAv1BitDepth = 0, seenAv1InputBitDepth = 0, seenAv1RepeatSeqHdr = 0;
 uint32_t seenAv1Flags = 0;
+uint32_t seenMaxEncodeW = 0, seenMaxEncodeH = 0;
 int destroyCalls = 0;
 int capsCalls = 0;
 
@@ -186,6 +187,53 @@ void CheckCodecOverride(void* encoder){
 	Check(((seenInitFlags >> 5) & 0xFu) == 1, "codec+split: forced split bits present on the swapped session");
 	Check(*((uint32_t*)&sinit.enablePTD + 1) == 0, "codec+split: caller flags word restored");
 	Check(sinit.version == Tag111(5, true), "codec+split: caller version restored");
+
+	// h264+split: with codec==1 the split application is skipped outright —
+	// even on the upgraded (12.1-ABI) session the forced split bits must stay
+	// ABSENT for H.264, and the caller's flags word must come back untouched.
+	driverConfig.streamFrame.nvencTap = true;
+	driverConfig.streamFrame.nvencCodec = 1;
+	driverConfig.streamFrame.nvencSplitMode = 1;
+	NvencTapConfig h264Cfg; h264Cfg.enabled = true; h264Cfg.codec = 1; h264Cfg.splitMode = 1;
+	NvencTap::Get().SetConfig(h264Cfg);
+	void* h264Enc = OpenSession();
+	Check(Upgraded(h264Enc), "h264+split: session upgraded for the split test");
+	sinit.maxEncodeWidth = 1024; sinit.maxEncodeHeight = 4096;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &sinit) == NV_ENC_SUCCESS, "h264+split: init delegated");
+	Check(memcmp(&seenCodecGuid, &NV_ENC_CODEC_H264_GUID, sizeof(GUID)) == 0, "h264+split: H264 GUID applied");
+	Check(((seenInitFlags >> 5) & 0xFu) == 0u, "h264+split: forced split bits ABSENT for H.264");
+	Check(*((uint32_t*)&sinit.enablePTD + 1) == 0, "h264+split: caller flags word restored");
+
+	// h264 clamp: maxEncode is clamped per-dimension and downward-only
+	// (3200 kept, 8192 -> 4096); caller values restored after the call.
+	sinit.maxEncodeWidth = 3200; sinit.maxEncodeHeight = 8192;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &sinit) == NV_ENC_SUCCESS, "h264 clamp: init delegated");
+	Check(seenMaxEncodeW == 3200u && seenMaxEncodeH == 4096u, "h264 clamp: width 3200 kept, height 8192 clamped to 4096");
+	Check(sinit.maxEncodeWidth == 3200u && sinit.maxEncodeHeight == 8192u, "h264 clamp: caller maxEncode restored");
+
+	// hevc+split regression: codec 0 keeps the forced split bits — the skip
+	// must only drop them for H.264.
+	driverConfig.streamFrame.nvencTap = true;
+	driverConfig.streamFrame.nvencCodec = 0;
+	driverConfig.streamFrame.nvencSplitMode = 1;
+	NvencTapConfig hevcCfg; hevcCfg.enabled = true; hevcCfg.codec = 0; hevcCfg.splitMode = 1;
+	NvencTap::Get().SetConfig(hevcCfg);
+	void* hevcEnc = OpenSession();
+	Check(NvencTapShims::InitializeEncoder(hevcEnc, &sinit) == NV_ENC_SUCCESS, "hevc+split: init delegated");
+	Check(((seenInitFlags >> 5) & 0xFu) == 1, "hevc+split: forced split bits still present for HEVC");
+	Check(*((uint32_t*)&sinit.enablePTD + 1) == 0, "hevc+split: caller flags word restored");
+
+	// h264 clamp (already-H264 caller): the caller hands over the H264 GUID
+	// directly, so the swap is skipped; the clamp and restore must still run.
+	driverConfig.streamFrame.nvencTap = true;
+	driverConfig.streamFrame.nvencCodec = 1;
+	driverConfig.streamFrame.nvencSplitMode = 1;
+	NvencTap::Get().SetConfig(h264Cfg);
+	sinit.encodeGUID = NV_ENC_CODEC_H264_GUID;
+	sinit.maxEncodeWidth = 8192; sinit.maxEncodeHeight = 8192;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &sinit) == NV_ENC_SUCCESS, "h264 clamp: already-H264 init delegated");
+	Check(seenMaxEncodeW == 4096u && seenMaxEncodeH == 4096u, "h264 clamp: already-H264 caller clamped to 4096");
+	Check(sinit.maxEncodeWidth == 8192u && sinit.maxEncodeHeight == 8192u, "h264 clamp: already-H264 caller restored");
 	ConfigureCodec(true, 0);
 }
 
@@ -223,6 +271,7 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 	// 2026-10-13 codec override capture: GUID/profile always, codec fields
 	// per the GUID the encoder actually receives.
 	seenCodecGuid = params->encodeGUID;
+	seenMaxEncodeW = params->maxEncodeWidth; seenMaxEncodeH = params->maxEncodeHeight;
 	seenProfileGuid = params->encodeConfig->profileGUID;
 	seenH264Level = 0xdeadbeefu; seenAv1Level = 0xdeadbeefu;
 	if(memcmp(&params->encodeGUID, &NV_ENC_CODEC_H264_GUID, sizeof(GUID)) == 0){
