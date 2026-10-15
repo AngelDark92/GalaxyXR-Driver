@@ -36,6 +36,7 @@ uint32_t seenInitFlags = 0;
 uint32_t seenTuning = 0;
 uint32_t seenLevel = 0;
 uint32_t seenBitrate = 0;
+uint32_t seenRcMode = 0, seenKfScale = 0, seenMaxBitrate = 0, seenVbvSize = 0;
 GUID seenCodecGuid{};
 GUID seenProfileGuid{};
 uint32_t seenH264Level = 0, seenH264BitDepth = 0, seenH264RepeatSpsPps = 0;
@@ -240,6 +241,56 @@ void CheckCodecOverride(void* encoder){
 	Check(NvencTapShims::InitializeEncoder(h264Enc, &sinit) == NV_ENC_SUCCESS, "h264 clamp: already-H264 init delegated");
 	Check(seenMaxEncodeW == 4096u && seenMaxEncodeH == 4096u, "h264 clamp: already-H264 caller clamped to 4096");
 	Check(sinit.maxEncodeWidth == 8192u && sinit.maxEncodeHeight == 8192u, "h264 clamp: already-H264 caller restored");
+
+	// h264 rc: forceCbr and vbvFrames honor the configured values for codec 1
+	// like for every codec (the codec-1 bypass is gone). forceCbr off: the
+	// caller's VBR, kf scale and max bitrate stay untouched; the VBV still
+	// follows the config. forceCbr on: CBR + lowDelayKeyFrameScale from the
+	// config, maxBitRate flattened to averageBitRate.
+	NvencTapConfig h264RcCfg; h264RcCfg.enabled = true; h264RcCfg.codec = 1; h264RcCfg.splitMode = 1; h264RcCfg.vbvFrames = 1;
+	NvencTap::Get().SetConfig(h264RcCfg);
+	NV_ENC_CONFIG rcOff = {}; rcOff.version = Tag111(7, true); rcOff.rcParams.version = Tag111(1);
+	rcOff.rcParams.averageBitRate = 90000000; rcOff.rcParams.maxBitRate = 100000000;
+	rcOff.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+	const auto savedRcOff = rcOff;
+	NV_ENC_INITIALIZE_PARAMS rcInitOff = {}; rcInitOff.version = Tag111(5, true);
+	rcInitOff.encodeGUID = NV_ENC_CODEC_H264_GUID; rcInitOff.encodeConfig = &rcOff;
+	rcInitOff.frameRateNum = 90; rcInitOff.frameRateDen = 1;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitOff) == NV_ENC_SUCCESS, "h264 rc: forceCbr off init delegated");
+	Check(seenRcMode == NV_ENC_PARAMS_RC_VBR && seenKfScale == 0u && seenMaxBitrate == 100000000u,
+		"h264 rc: forceCbr off leaves the caller's VBR, kf scale and max bitrate untouched");
+	Check(seenVbvSize == 1000000u, "h264 rc: configured 1-frame VBV applied (avg/90*1)");
+	Check(memcmp(&rcOff, &savedRcOff, sizeof(rcOff)) == 0, "h264 rc: forceCbr off caller config fully restored");
+
+	h264RcCfg.forceCbr = true; h264RcCfg.lowDelayKfScale = 2; h264RcCfg.vbvFrames = 2;
+	NvencTap::Get().SetConfig(h264RcCfg);
+	NV_ENC_CONFIG rcOn = {}; rcOn.version = Tag111(7, true); rcOn.rcParams.version = Tag111(1);
+	rcOn.rcParams.averageBitRate = 90000000; rcOn.rcParams.maxBitRate = 100000000;
+	rcOn.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+	const auto savedRcOn = rcOn;
+	NV_ENC_INITIALIZE_PARAMS rcInitOn = {}; rcInitOn.version = Tag111(5, true);
+	rcInitOn.encodeGUID = NV_ENC_CODEC_H264_GUID; rcInitOn.encodeConfig = &rcOn;
+	rcInitOn.frameRateNum = 90; rcInitOn.frameRateDen = 1;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitOn) == NV_ENC_SUCCESS, "h264 rc: forceCbr on init delegated");
+	Check(seenRcMode == NV_ENC_PARAMS_RC_CBR && seenKfScale == 2u, "h264 rc: forceCbr applies CBR + the configured kf scale");
+	Check(seenMaxBitrate == 90000000u, "h264 rc: maxBitRate flattened to averageBitRate");
+	Check(seenVbvSize == 2000000u, "h264 rc: configured 2-frame VBV applied (avg/90*2)");
+	Check(memcmp(&rcOn, &savedRcOn, sizeof(rcOn)) == 0, "h264 rc: forceCbr on caller config fully restored");
+
+	// vbvFrames=0 means "leave the streamer's value" (GUI tip promises it) — the
+	// codec-1 pin is gone, so 0 must stay a no-op for H.264 like for every codec.
+	h264RcCfg.forceCbr = false; h264RcCfg.vbvFrames = 0;
+	NvencTap::Get().SetConfig(h264RcCfg);
+	NV_ENC_CONFIG rcVbv0 = {}; rcVbv0.version = Tag111(7, true); rcVbv0.rcParams.version = Tag111(1);
+	rcVbv0.rcParams.averageBitRate = 90000000; rcVbv0.rcParams.maxBitRate = 100000000;
+	rcVbv0.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR; rcVbv0.rcParams.vbvBufferSize = 2500000;
+	const auto savedRcVbv0 = rcVbv0;
+	NV_ENC_INITIALIZE_PARAMS rcInitVbv0 = {}; rcInitVbv0.version = Tag111(5, true);
+	rcInitVbv0.encodeGUID = NV_ENC_CODEC_H264_GUID; rcInitVbv0.encodeConfig = &rcVbv0;
+	rcInitVbv0.frameRateNum = 90; rcInitVbv0.frameRateDen = 1;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS, "h264 rc: vbvFrames=0 init delegated");
+	Check(seenVbvSize == 2500000u, "h264 rc: vbvFrames=0 leaves the caller's VBV size untouched");
+	Check(memcmp(&rcVbv0, &savedRcVbv0, sizeof(rcVbv0)) == 0, "h264 rc: vbvFrames=0 caller config fully restored");
 	ConfigureCodec(true, 0);
 }
 
@@ -466,6 +517,10 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 	seenTuning = (uint32_t)params->tuningInfo;
 	seenLevel = params->encodeConfig->encodeCodecConfig.hevcConfig.level;
 	seenBitrate = params->encodeConfig->rcParams.averageBitRate;
+	seenRcMode = (uint32_t)params->encodeConfig->rcParams.rateControlMode;
+	seenKfScale = (uint32_t)params->encodeConfig->rcParams.lowDelayKeyFrameScale;
+	seenMaxBitrate = params->encodeConfig->rcParams.maxBitRate;
+	seenVbvSize = params->encodeConfig->rcParams.vbvBufferSize;
 	// 2026-10-13 codec override capture: GUID/profile always, codec fields
 	// per the GUID the encoder actually receives.
 	seenCodecGuid = params->encodeGUID;

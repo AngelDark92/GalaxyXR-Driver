@@ -908,7 +908,6 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		// nominal rate, never vrlink's per-call estimate (see forceFps)
 		double fps = cfg.forceFps > 0 ? (double)cfg.forceFps : 90.0;
 		int vbvFr = cfg.vbvFrames;
-		if(cfg.codec == 1){ vbvFr = 1; } // H.264: single-frame VBV (vbv = avg/fps; SteamFrame recipe)
 		uint32_t vbv = (uint32_t)(std::min<double>)(rc.averageBitRate / fps * vbvFr, 2000000000.0);
 		if(vbv && rc.vbvBufferSize != vbv){
 			w += snprintf(w, WhatRem(w, what, whatLen), "vbv %.2fM->%.2fM(%d fr); ", rc.vbvBufferSize / 1e6, vbv / 1e6, vbvFr);
@@ -935,16 +934,11 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	if(cfg.forceCbr){
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
 		uint8_t kf = (uint8_t)(std::max)(1, (std::min)(4, cfg.lowDelayKfScale));
-		if(cfg.codec != 1){
-			if(rc.rateControlMode != NV_ENC_PARAMS_RC_CBR || rc.lowDelayKeyFrameScale != kf){
-				w += snprintf(w, WhatRem(w, what, whatLen), "rc %s->CBR lowDelayKF %u->%u; ", RcName(rc.rateControlMode), rc.lowDelayKeyFrameScale, (unsigned)kf);
-				rc.rateControlMode = NV_ENC_PARAMS_RC_CBR; rc.lowDelayKeyFrameScale = kf;
-				if(rc.maxBitRate != rc.averageBitRate){ rc.maxBitRate = rc.averageBitRate; }
-				changed = true;
-			}
-		}else{
-			// 2026-10-15: H.264 (SteamFrame recipe) leaves vrlink's rate control mode and lowDelayKeyFrameScale exactly as the caller passed them.
-			w += snprintf(w, WhatRem(w, what, whatLen), "rc %s left [h264]; ", RcName(rc.rateControlMode));
+		if(rc.rateControlMode != NV_ENC_PARAMS_RC_CBR || rc.lowDelayKeyFrameScale != kf){
+			w += snprintf(w, WhatRem(w, what, whatLen), "rc %s->CBR lowDelayKF %u->%u; ", RcName(rc.rateControlMode), rc.lowDelayKeyFrameScale, (unsigned)kf);
+			rc.rateControlMode = NV_ENC_PARAMS_RC_CBR; rc.lowDelayKeyFrameScale = kf;
+			if(rc.maxBitRate != rc.averageBitRate){ rc.maxBitRate = rc.averageBitRate; }
+			changed = true;
 		}
 	}
 	if(cfg.aqStrength > 0){

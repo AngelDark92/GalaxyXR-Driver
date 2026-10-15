@@ -10,6 +10,7 @@ import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionHeadin
 import { t } from '../locale/i18n';
 import { pageIntro, statusMessage } from '../ui/presentation';
 import { encoderTapStatus } from '../domain/encoder-tap-status';
+import { applyCodecDefaults, codecEncoderDefaults } from '../state/galaxy-settings';
 import '../ui/controls';
 import './driver-banner';
 import './system-ready';
@@ -338,7 +339,7 @@ if (vendor) {
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
         parts.push(settingFieldRow('streamFrame.nvencCodec', html`
-      <app-select .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1 (experimental)' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; save(); }}></app-select>
+      <app-select .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1 (experimental)' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; applyCodecDefaults(settings, e.detail); save(); }}></app-select>
             `, {
   tip: "Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 and AV1 run 8-bit. Requires a SteamVR restart and reconnect."
             }));
@@ -360,7 +361,8 @@ if (vendor) {
           }
         }
 if (settings.nvencTap) {
-              parts.push(sectionGroup(t('Advanced'), 1));
+  const codecDef = codecEncoderDefaults[settings.nvencCodec ?? 0] ?? codecEncoderDefaults[0];
+  parts.push(sectionGroup(t('Advanced'), 1));
                 parts.push(fieldRow(t('Bandwidth Override (Mbit/s)'), html`
       <app-number .value=${settings.nvencBandwidthOverrideMbit} step="25" min="0" max="600" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBandwidthOverrideMbit = e.detail; } save(); }}></app-number>
                 `, {
@@ -371,31 +373,31 @@ if (settings.nvencTap) {
       <app-number .value=${settings.nvencVbvFrames} step="1" min="0" max="30" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVbvFrames = e.detail; } save(); }}></app-number>
                 `, {
   tip: "Set how much video the encoder may buffer. A smaller buffer can reduce delay but makes sudden complex scenes harder to encode cleanly.\n\nVBV = average bitrate per frame times this, which bounds how large any single frame can be. 2 caps vegetation peaks and reset key frames at about two frame budgets, far below the streamer's 2 MB send limit. 0 leaves the streamer's value.",
-  reset: { can: settings.nvencVbvFrames != defaults.nvencVbvFrames, on: () => { galaxy.reset('nvencVbvFrames'); } }
+  reset: { can: settings.nvencVbvFrames != codecDef.vbvFrames, on: () => { settings.nvencVbvFrames = codecDef.vbvFrames; save(); } }
                 }));
                 parts.push(fieldRow(t('Preset Override (P1-P7)'), html`
       <app-number .value=${settings.nvencPreset} step="1" min="0" max="7" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencPreset = e.detail; } save(); }}></app-number>
                 `, {
-  tip: "Choose the NVIDIA encoding preset. Keep automatic selection unless you are testing a specific quality or latency trade-off.\n\n0 = automatic by NVENC engine count (3 engines: P7, 2: P5, 1: P4; logged as 'preset AUTO'). Higher presets spend more encoder time for better quality at the same bitrate; P7 needs the split across three engines to hold 90 fps.",
+  tip: "Choose the NVIDIA encoding preset. Keep automatic selection unless you are testing a specific quality or latency trade-off.\n\n0 = automatic by NVENC engine count (3 engines: P7, 2: P5, 1: P4; logged as 'preset AUTO'). Higher presets spend more encoder time for better quality at the same bitrate; P7 needs the split across three engines to hold 90 fps. Auto resolves to P2 for H.264 (P7/P5/P4 by engine count otherwise).",
   reset: { can: settings.nvencPreset != defaults.nvencPreset, on: () => { galaxy.reset('nvencPreset'); } }
                 }));
                 parts.push(settingFieldRow('streamFrame.nvencForceCbr', html`
       <app-switch .checked=${!!settings.nvencForceCbr} @change=${(e: CustomEvent) => { settings.nvencForceCbr = e.detail; save(); }}></app-switch>
                 `, {
   tip: "Force constant-bitrate encoding. This changes how the encoder spends its bandwidth budget and can alter image quality and latency.\n\nSwitches rate control to constant bitrate with low-delay key-frame scaling. Every frame gets the same budget, so complex scenes get slightly coarser instead of larger and later. Recommended on.",
-  reset: { can: settings.nvencForceCbr != defaults.nvencForceCbr, on: () => { galaxy.reset('nvencForceCbr'); } }
+  reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
                 parts.push(fieldRow(t('CBR Key Frame Budget (x frames)'), html`
       <app-number .value=${settings.nvencLowDelayKfScale} step="1" min="1" max="4" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencLowDelayKfScale = e.detail; } save(); }}></app-number>
                 `, {
   tip: "Limit the size of keyframes, which refresh the whole video picture. Large keyframes can create brief network or decoding spikes.\n\nWith Force CBR: how many P-frame budgets the key frame after an encoder reset may spend (1-4). 2 fits inside VBV Frames 2 and gives a sharper key frame than 1.",
-  reset: { can: settings.nvencLowDelayKfScale != defaults.nvencLowDelayKfScale, on: () => { galaxy.reset('nvencLowDelayKfScale'); } }
+  reset: { can: settings.nvencLowDelayKfScale != codecDef.lowDelayKfScale, on: () => { settings.nvencLowDelayKfScale = codecDef.lowDelayKfScale; save(); } }
                 }));
                 parts.push(fieldRow(t('Split-Frame Encoding'), html`
       <app-number .value=${settings.nvencSplitMode} step="1" min="0" max="15" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencSplitMode = e.detail; } save(); }}></app-number>
                 `, {
-  tip: "Allow multiple NVIDIA encoder engines to share the work, where supported. Availability depends on the GPU and encoding mode.\n\nSpreads each frame across the GPU's NVENC engines. The driver only does this by itself for presets P1-P4; higher presets need it forced or they drop to ~50 fps. 1 = forced, driver picks the strip count (measured best); 2-4 force that many strips; 15 disables; 0 leaves the driver's choice. Nonzero opens the encoder session as API 12.1 (look for 'SESSION UPGRADE' in the log).",
-  reset: { can: settings.nvencSplitMode != defaults.nvencSplitMode, on: () => { galaxy.reset('nvencSplitMode'); } }
+  tip: "Allow multiple NVIDIA encoder engines to share the work, where supported. Availability depends on the GPU and encoding mode.\n\nSpreads each frame across the GPU's NVENC engines. The driver only does this by itself for presets P1-P4; higher presets need it forced or they drop to ~50 fps. 1 = forced, driver picks the strip count (measured best); 2-4 force that many strips; 15 disables; 0 leaves the driver's choice. Nonzero opens the encoder session as API 12.1 (look for 'SESSION UPGRADE' in the log). Not applicable to H.264. AV1 requires Split-Frame > 0 (session upgrade).",
+  reset: { can: settings.nvencSplitMode != codecDef.splitMode, on: () => { settings.nvencSplitMode = codecDef.splitMode; save(); } }
                 }));
                 parts.push(fieldRow(t('Foveated QP: Fovea / Periphery Delta'), html`
       <app-number .value=${settings.nvencQpFovea} step="1" min="-10" max="0" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencQpFovea = e.detail; } save(); }}></app-number>
@@ -625,7 +627,7 @@ if (vendor) {
             parts.push(fieldRow(t('NVENC (retired): AQ Strength'), html`
       <app-number .value=${settings.nvencAqStrength} step="1" min="0" max="15" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencAqStrength = e.detail; } save(); }}></app-number>
             `, {
-  tip: "Do not use spatial adaptive quantization for normal play in this build. It has caused encoder stalls in testing, and the driver's safety checks may reset it.\n\nDO NOT USE. Any spatial AQ, at any strength, makes nvEncEncodePicture block 4-6 ms per frame on these tall frames and trips the streamer's 10 ms watchdog (encoder resets, soft key frames, storms). Migration forces it to 0.",
+  tip: "Do not use spatial adaptive quantization for normal play in this build. It has caused encoder stalls in testing, and the driver's safety checks may reset it.\n\nDO NOT USE. Any spatial AQ, at any strength, makes nvEncEncodePicture block 4-6 ms per frame on these tall frames and trips the streamer's 10 ms watchdog (encoder resets, soft key frames, storms). No longer forced to 0; leave at 0 unless measuring.",
   reset: { can: settings.nvencAqStrength != defaults.nvencAqStrength, on: () => { galaxy.reset('nvencAqStrength'); } }
             }));
             parts.push(fieldRow(t('NVENC (retired): Max QP'), html`

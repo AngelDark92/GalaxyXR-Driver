@@ -31,6 +31,27 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
   return defaults;
 }
 
+// Per-codec encoder defaults (nvencCodec 0 HEVC / 1 H.264 / 2 AV1): each codec
+// owns its default rate-control profile — the H.264 row follows the retired
+// SteamFrame recipe the driver used to pin in code (VBR + 1-frame VBV).
+// splitMode stays 1 for H.264 too: the key also opens the API 12.1 session the
+// tap's verified H.264 path runs on, and the tap itself skips the split bits
+// for codec 1. The codec switch and the four dependent rows' reset arrows read
+// this table; the global defaults stay untouched.
+export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number }> = {
+  0: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1 },
+  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1 },
+  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1 },
+};
+
+export function applyCodecDefaults(streamFrame: StreamFrameConfig, codec: number): void {
+  const d = codecEncoderDefaults[codec] ?? codecEncoderDefaults[0];
+  streamFrame.nvencForceCbr = d.forceCbr;
+  streamFrame.nvencVbvFrames = d.vbvFrames;
+  streamFrame.nvencLowDelayKfScale = d.lowDelayKfScale;
+  streamFrame.nvencSplitMode = d.splitMode;
+}
+
 function zeroHandOffsets(): HandOffsets {
   return {
     rotationOffsetDeg: { x: 0, y: 0, z: 0 },
@@ -289,6 +310,23 @@ export class GalaxySettingsBase {
           queueMicrotask(() => this.save());
         }
         this.rootSetting.streamFrame = fillDefaults(this.rootSetting.streamFrame, defaultStreamFrame());
+        // 2026-10-15 per-codec defaults: a stored H.264 profile still carrying
+        // the exact codec-0 default shape (pre-wave profiles were never
+        // adapted, and the driver's codec-1 pins are gone from this build on)
+        // is stamped to the H.264 row. Any deviation from the shape is an
+        // explicit user choice and stays — the shape guard also makes this
+        // idempotent without a version key.
+        const sfCodec = this.rootSetting.streamFrame;
+        if (sfCodec?.nvencCodec === 1) {
+          const g = codecEncoderDefaults[0];
+          if (sfCodec.nvencForceCbr === g.forceCbr && sfCodec.nvencVbvFrames === g.vbvFrames
+            && sfCodec.nvencLowDelayKfScale === g.lowDelayKfScale && sfCodec.nvencSplitMode === g.splitMode) {
+            const h = codecEncoderDefaults[1];
+            sfCodec.nvencForceCbr = h.forceCbr;
+            sfCodec.nvencVbvFrames = h.vbvFrames;
+            if (canMigrate) queueMicrotask(() => this.save());
+          }
+        }
         this.rootSetting.controllers = fillDefaults(this.rootSetting.controllers, defaultControllers());
         this.controllerSettings = this.rootSetting.controllers;
         if (this.controllerSettings && this.controllerSettings.mirrorOffsetsForRightHand === undefined) {

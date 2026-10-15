@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getVersion } from '@tauri-apps/api/app';
 import { signal } from '../reactive';
-import { AppUpdateService } from './app-update';
+import { AppUpdateService, selectNewestRelease } from './app-update';
 import type { AppSetting } from '../domain/types';
 import type { SystemDiagnosticService } from './system-diagnostic';
 
 vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn() }));
 
 const latestEndpoint = 'https://api.github.com/repos/AngelDark92/GalaxyXR-Driver/releases/latest';
-const releasesEndpoint = 'https://api.github.com/repos/AngelDark92/GalaxyXR-Driver/releases?per_page=30';
+const releasesEndpoint = 'https://api.github.com/repos/AngelDark92/GalaxyXR-Driver/releases?per_page=100';
 const releaseUrl = 'https://github.com/AngelDark92/GalaxyXR-Driver/releases/tag/v1.3.0';
 const tagUrl = (tag: string) => `https://github.com/AngelDark92/GalaxyXR-Driver/releases/tag/${tag}`;
 const fetchMock = vi.fn<typeof fetch>();
@@ -203,16 +203,47 @@ describe('AppUpdateService Dev Updates channel', () => {
     });
   });
 
-  it('updates a dev build to its matching stable release', async () => {
+  it('does not update a dev build to its matching stable release', async () => {
     vi.mocked(getVersion).mockResolvedValue('1.9.0-dev.2');
     fetchMock.mockResolvedValueOnce(releaseList(['v1.9.0']));
     const { service } = createService(undefined, true);
 
+    // Owner contract (2026-10-15): with Dev Updates on, a same-base
+    // pre-release ranks above its stable, so the promoted stable is not
+    // an update for a dev build of the same base.
     expect(await service.checkUpdate()).toMatchObject({
       fetchSuccess: true,
+      currentVersion: '1.9.0-dev.2',
       latestVersion: 'v1.9.0',
-      updateAvailable: true,
+      updateAvailable: false,
       url: tagUrl('v1.9.0'),
+    });
+  });
+
+  it('defers to the newest dev build over its matching stable release', async () => {
+    vi.mocked(getVersion).mockResolvedValue('1.9.0-dev.7');
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.9.0', 'v1.9.0-dev.8']));
+    const { service } = createService(undefined, true);
+
+    expect(await service.checkUpdate()).toMatchObject({
+      fetchSuccess: true,
+      latestVersion: 'v1.9.0-dev.8',
+      updateAvailable: true,
+      url: tagUrl('v1.9.0-dev.8'),
+    });
+  });
+
+  it('reports no update when the newest dev build is already installed', async () => {
+    vi.mocked(getVersion).mockResolvedValue('1.9.0-dev.8');
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.9.0', 'v1.9.0-dev.8']));
+    const { service } = createService(undefined, true);
+
+    expect(await service.checkUpdate()).toMatchObject({
+      fetchSuccess: true,
+      currentVersion: '1.9.0-dev.8',
+      latestVersion: 'v1.9.0-dev.8',
+      updateAvailable: false,
+      url: tagUrl('v1.9.0-dev.8'),
     });
   });
 
@@ -290,5 +321,27 @@ describe('AppUpdateService Dev Updates channel', () => {
     expect(fetchMock).toHaveBeenLastCalledWith(latestEndpoint, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     await vi.waitFor(() => expect(service.updateInfo()?.latestVersion).toBe('v1.3.0'));
     expect(service.updateInfo()).toMatchObject({ fetchSuccess: true, updateAvailable: true, url: releaseUrl });
+  });
+});
+
+describe('selectNewestRelease', () => {
+  const rel = (tag: string) => ({ tag_name: tag, html_url: tagUrl(tag) });
+
+  it('prefers a same-base dev build over its stable on the dev channel', () => {
+    expect(selectNewestRelease([rel('v1.9.0'), rel('v1.9.0-dev.8')], true)?.tag_name).toBe('v1.9.0-dev.8');
+    expect(selectNewestRelease([rel('v1.9.0-dev.8'), rel('v1.9.0')], true)?.tag_name).toBe('v1.9.0-dev.8');
+  });
+
+  it('prefers the stable over a same-base dev build with the channel off', () => {
+    expect(selectNewestRelease([rel('v1.9.0-dev.8'), rel('v1.9.0')])?.tag_name).toBe('v1.9.0');
+  });
+
+  it('keeps a higher-base stable ahead of dev builds on either channel', () => {
+    expect(selectNewestRelease([rel('v1.8.0-dev.99'), rel('v1.8.1')], true)?.tag_name).toBe('v1.8.1');
+  });
+
+  it('skips tags that are not version-shaped', () => {
+    expect(selectNewestRelease([{ tag_name: 'nightly-42', html_url: tagUrl('nightly-42') }, rel('v1.9.0-dev.8')], true)?.tag_name).toBe('v1.9.0-dev.8');
+    expect(selectNewestRelease([{ tag_name: 'nightly-42', html_url: tagUrl('nightly-42') }], true)).toBeUndefined();
   });
 });
