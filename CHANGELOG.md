@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.10.0-dev.9] - 2026-10-15
+
+### Fixes
+
+- honesty pass 2 for real values in app (`4b45110`)
+
 ## [1.10.0-dev.8] - 2026-10-15
 
 ### Features
