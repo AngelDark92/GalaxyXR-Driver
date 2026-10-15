@@ -251,4 +251,44 @@ describe('AppUpdateService Dev Updates channel', () => {
     await vi.waitFor(() => expect(service.updateInfo()?.latestVersion).toBe('v1.3.1'));
     expect(service.updateInfo()).toMatchObject({ fetchSuccess: true, updateAvailable: true, url: tagUrl('v1.3.1') });
   });
+
+  it('a toggle flip during an in-flight check re-runs with the new channel', async () => {
+    let resolveFetch!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise(resolve => { resolveFetch = resolve; }));
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.3.1']));
+    const { service, devUpdates } = createService();
+
+    const first = service.checkUpdate();
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(latestEndpoint, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+
+    devUpdates.set(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    resolveFetch(release());
+    await first;
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, latestEndpoint, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, releasesEndpoint, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    await vi.waitFor(() => expect(service.updateInfo()?.latestVersion).toBe('v1.3.1'));
+    expect(service.updateInfo()).toMatchObject({ fetchSuccess: true, updateAvailable: true, url: tagUrl('v1.3.1') });
+  });
+
+  it('flipping the channel off re-runs against the latest endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.9.0-dev.2']));
+    const { service, devUpdates } = createService(undefined, true);
+
+    await service.checkUpdate();
+    expect(fetchMock).toHaveBeenLastCalledWith(releasesEndpoint, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+
+    fetchMock.mockResolvedValueOnce(release());
+    devUpdates.set(false);
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenLastCalledWith(latestEndpoint, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    await vi.waitFor(() => expect(service.updateInfo()?.latestVersion).toBe('v1.3.0'));
+    expect(service.updateInfo()).toMatchObject({ fetchSuccess: true, updateAvailable: true, url: releaseUrl });
+  });
 });

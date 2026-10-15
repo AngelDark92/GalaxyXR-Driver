@@ -51,14 +51,18 @@ export class AppUpdateService {
         if (next.installAvailable !== updateInfo.installAvailable) this._updateInfo.set(next);
       }
     });
-    // Dev Updates channel: rerun the check when the flag flips after the first
-    // observed value. checkUpdate() coalesces with a check that is still in
-    // flight (acceptable); the recheck reads the channel at the start of its
-    // own run.
+    // Dev Updates channel: a flip must take effect even when a check for the
+    // previous channel is still in flight (2026-10-15). Chain a fresh check
+    // after it settles instead of coalescing into a result for the old value.
     let observedDevUpdates: boolean | undefined;
     effect(() => {
       const devUpdates = !!this.appSettingGetter().devUpdates;
-      if (observedDevUpdates !== undefined && devUpdates !== observedDevUpdates) void this.checkUpdate();
+      if (observedDevUpdates !== undefined && devUpdates !== observedDevUpdates) {
+        const rerun = () => { void this.checkUpdate(); };
+        const pending = this.currentCheckTask;
+        if (pending) pending.then(rerun, rerun);
+        else rerun();
+      }
       observedDevUpdates = devUpdates;
     });
   }
