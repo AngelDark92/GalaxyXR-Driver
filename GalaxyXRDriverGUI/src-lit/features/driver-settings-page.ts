@@ -115,6 +115,9 @@ export class DriverSettingsPage extends BasePage {
       } else {
         body.push(noteRow(t('Enabling the baseline resets picture adjustments. Back up custom settings first; turning it off does not restore them.')));
       }
+      if (galaxy.baselineRequested && settings.nvencCodec === 1) {
+        body.push(statusMessage('info', t('H.264 is always 8-bit'), t('The 10-bit request is not applied to the H.264 codec. AV1 and HEVC honor it.')));
+      }
       if (galaxy.imageModeError()) body.push(statusMessage('error', t('Image mode could not be changed'), galaxy.imageModeError()!));
     }
 

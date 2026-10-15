@@ -341,8 +341,11 @@ if (vendor) {
         parts.push(settingFieldRow('streamFrame.nvencCodec', html`
       <app-select .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1 (experimental)' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; applyCodecDefaults(settings, e.detail); save(); }}></app-select>
             `, {
-  tip: "Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 and AV1 run 8-bit. Requires a SteamVR restart and reconnect."
+  tip: "Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). Requires a SteamVR restart and reconnect."
             }));
+        if (!settings.nvencTap) {
+          parts.push(noteRow(html`Needs the NVENC Tap — with the tap off the codec choice is saved but not applied.`));
+        }
         parts.push(fieldRow(t('Restore Steam Link encoder behaviour'), html`
           <fluent-button appearance="outline" ?disabled=${this.ctx.sds.installingDriver() || this.ctx.startup.status()?.steamvrRunning !== false}
             @click=${() => this.restoreEncoder()}>${t('Restore encoder behaviour')}</fluent-button>
@@ -396,20 +399,20 @@ if (settings.nvencTap) {
                 parts.push(fieldRow(t('Split-Frame Encoding'), html`
       <app-number .value=${settings.nvencSplitMode} step="1" min="0" max="15" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencSplitMode = e.detail; } save(); }}></app-number>
                 `, {
-  tip: "Allow multiple NVIDIA encoder engines to share the work, where supported. Availability depends on the GPU and encoding mode.\n\nSpreads each frame across the GPU's NVENC engines. The driver only does this by itself for presets P1-P4; higher presets need it forced or they drop to ~50 fps. 1 = forced, driver picks the strip count (measured best); 2-4 force that many strips; 15 disables; 0 leaves the driver's choice. Nonzero opens the encoder session as API 12.1 (look for 'SESSION UPGRADE' in the log). Not applicable to H.264. AV1 requires Split-Frame > 0 (session upgrade).",
+  tip: "Allow multiple NVIDIA encoder engines to share the work, where supported. Availability depends on the GPU and encoding mode.\n\nSpreads each frame across the GPU's NVENC engines. The driver only does this by itself for presets P1-P4; higher presets need it forced or they drop to ~50 fps. 1 = forced, driver picks the strip count (measured best); 2-4 force that many strips; 15 disables; 0 leaves the driver's choice. Nonzero opens the encoder session as API 12.1 (look for 'SESSION UPGRADE' in the log). The split bits are not applied to H.264, but a nonzero value still opens the API 12.1 session the H.264 path uses — keep it nonzero. AV1 requires Split-Frame > 0 (session upgrade).",
   reset: { can: settings.nvencSplitMode != codecDef.splitMode, on: () => { settings.nvencSplitMode = codecDef.splitMode; save(); } }
                 }));
                 parts.push(fieldRow(t('Foveated QP: Fovea / Periphery Delta'), html`
       <app-number .value=${settings.nvencQpFovea} step="1" min="-10" max="0" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencQpFovea = e.detail; } save(); }}></app-number>
       <app-number .value=${settings.nvencQpPeriphery} step="1" min="0" max="10" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencQpPeriphery = e.detail; } save(); }}></app-number>
                 `, {
-  tip: "Spend more encoding quality on the center of the image than on the edges. This advanced option can change artifacts in different areas.\n\nMoves bits within the same bitrate: a QP offset per block, negative for the gaze cut-out tile (finer, more bits) and positive for the periphery tile (coarser, fewer bits), blended over the same edge falloff as the sharpening. 0 / 0 = off. Small values (-2 / 2, -3 / 3) work; large ones starve the whole frame.",
+  tip: "Spend more encoding quality on the center of the image than on the edges. This advanced option can change artifacts in different areas.\n\nMoves bits within the same bitrate: a QP offset per block, negative for the gaze cut-out tile (finer, more bits) and positive for the periphery tile (coarser, fewer bits), blended over the same edge falloff as the sharpening. 0 / 0 = off. Small values (-2 / 2, -3 / 3) work; large ones starve the whole frame. The ramp shape and fovea-tile parity come from the Edge Falloff and fovea-top controls (shown with CAS in post-process mode) — one value drives both the sharpening and the encoder QP ramp.",
   reset: { can: settings.nvencQpFovea != 0 || settings.nvencQpPeriphery != 0, on: () => { settings.nvencQpFovea = 0; settings.nvencQpPeriphery = 0; save(); } }
                 }));
                 parts.push(settingFieldRow('streamFrame.postPack.limitedRange', html`
       <app-switch .checked=${!!settings.postPack.limitedRange} @change=${(e: CustomEvent) => { settings.postPack.limitedRange = e.detail; settings.postPack.enable = settings.postPack.enable || settings.postPack.limitedRange; save(); }}></app-switch>
                 `, {
-  tip: "Correct a mismatch between full-range and limited-range video levels. Use this only to diagnose washed-out blacks or crushed shadows; it requires the NVIDIA encoder adjustment path.\n\nSteam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap.",
+  tip: "Correct a mismatch between full-range and limited-range video levels. Use this only to diagnose washed-out blacks or crushed shadows; it requires the NVIDIA encoder adjustment path.\n\nSteam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.",
   reset: { can: settings.postPack.limitedRange != true, on: () => { settings.postPack.limitedRange = true; settings.postPack.enable = settings.postPack.enable || true; save(); } }
                 }));
 
@@ -621,7 +624,7 @@ if (vendor) {
             parts.push(settingFieldRow('streamFrame.zeroCopyV3', html`
       <app-switch .checked=${!!settings.zeroCopyV3} @change=${(e: CustomEvent) => { settings.zeroCopyV3 = e.detail; save(); }}></app-switch>
             `, {
-  tip: "Use an alternate texture-staging path for image processing. This is a performance and compatibility experiment, not a picture-quality control.\n\nPerformance: instead of writing the processed frame back into the layer, it is drawn into a shared shadow texture and the streamer's own per-frame staging copy is redirected to read it - roughly halving this driver's GPU memory traffic on top of Direct Render. Failure mode is benign: any miss ships one unprocessed frame (a brief ungraded flash), the same as a sync timeout skip. Test in a disposable session first: grep the log for 'zero-copy v3: redirect active' to confirm engagement, and 'passthrough' lines to see misses. Turn off if you see persistent unprocessed frames or flicker.",
+  tip: "Use an alternate texture-staging path for image processing. This is a performance and compatibility experiment, not a picture-quality control.\n\nPerformance: instead of writing the processed frame back into the layer, it is drawn into a shared shadow texture and the streamer's own per-frame staging copy is redirected to read it - roughly halving this driver's GPU memory traffic on top of Direct Render. Failure mode is benign: any miss ships one unprocessed frame (a brief ungraded flash), the same as a sync timeout skip. Test in a disposable session first: grep the log for 'zero-copy v3: redirect active' to confirm engagement, and 'passthrough' lines to see misses. Turn off if you see persistent unprocessed frames or flicker. Requires Image Enhancements on; with them off this is saved but not applied.",
   reset: { can: settings.zeroCopyV3 != defaults.zeroCopyV3, on: () => { galaxy.reset('zeroCopyV3'); } }
             }));
             parts.push(fieldRow(t('NVENC (retired): AQ Strength'), html`
@@ -651,7 +654,7 @@ if (vendor) {
             parts.push(settingFieldRow('streamFrame.nvencPresetMerge', html`
       <app-switch .checked=${!!settings.nvencPresetMerge} @change=${(e: CustomEvent) => { settings.nvencPresetMerge = e.detail; save(); }}></app-switch>
             `, {
-  tip: "Choose which encoder preset configuration is used as the starting point. This affects several low-level settings together.\n\nAdopts the canonical preset's multipass / AQ / ref settings besides the preset GUID. Left on; one A/B (P7 with it off) was never run.",
+  tip: "Choose which encoder preset configuration is used as the starting point. This affects several low-level settings together.\n\nAdopts the canonical preset's multipass / AQ / ref settings besides the preset GUID. Left on; one A/B (P7 with it off) was never run. For H.264 the multipass adoption is pinned to 0 regardless of this switch.",
   reset: { can: settings.nvencPresetMerge != defaults.nvencPresetMerge, on: () => { galaxy.reset('nvencPresetMerge'); } }
             }));
             parts.push(fieldRow(t('NVENC (retired): VUI Full Range / Matrix / Primaries / Transfer'), html`
@@ -660,7 +663,7 @@ if (vendor) {
       <app-number .value=${settings.nvencVuiPrimaries} step="1" min="-1" max="22" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVuiPrimaries = e.detail; } save(); }}></app-number>
       <app-number .value=${settings.nvencVuiTransfer} step="1" min="-1" max="18" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVuiTransfer = e.detail; } save(); }}></app-number>
             `, {
-  tip: "Override video color-range metadata. Leave automatic unless diagnosing a known mismatch; incompatible client handling can darken the image.\n\n-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated - the client mishandles explicit tags, so these stay inert until the APK changes."
+  tip: "Override video color-range metadata. Leave automatic unless diagnosing a known mismatch; incompatible client handling can darken the image.\n\n-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated - the client mishandles explicit tags, so these stay inert until the APK changes. The driver also forces full-range to 0 while post-pack limited range is active, and an active SDR 10-bit baseline leaves the pair at -1."
             }));
             parts.push(fieldRow(t('vrlink (retired): Encode Width'), html`
       <app-number .value=${galaxyXr.customEncodeWidth} step="256" min="512" max="8192" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxyXr.customEncodeWidth = e.detail; } save(); }}></app-number>

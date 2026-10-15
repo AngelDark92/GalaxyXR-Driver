@@ -77,7 +77,7 @@ export class DebugPage extends BasePage {
         parts.push(settingFieldRow('streamFrame.nvencFixLevel', html`
           <app-switch .checked=${!!settings.nvencFixLevel} @change=${(e: CustomEvent) => { settings.nvencFixLevel = e.detail; save(); }}></app-switch>
         `, {
-          tip: "Let the encoder choose an HEVC level and tier suitable for the stream. Incorrect manual choices can prevent a stream from starting.\n\nSets HEVC level to auto-select and tier to High on every encoder init and reconfigure. The streamer hardcodes level 6.1, which the 8192-row canvas exceeds at 90 Hz, so its reconfigures were being rejected. Keep on.",
+          tip: "Let the encoder choose an HEVC level and tier suitable for the stream. Incorrect manual choices can prevent a stream from starting.\n\nSets HEVC level to auto-select and tier to High on every encoder init and reconfigure. The streamer hardcodes level 6.1, which the 8192-row canvas exceeds at 90 Hz, so its reconfigures were being rejected. Keep on. Inert for H.264/AV1: those codec paths set level auto-select internally.",
           reset: { can: settings.nvencFixLevel != defaults.nvencFixLevel, on: () => { galaxy.reset('nvencFixLevel'); } }
         }));
         parts.push(fieldRow(t('Peak Headroom (%)'), html`
@@ -101,7 +101,7 @@ export class DebugPage extends BasePage {
         parts.push(settingFieldRow('streamFrame.nvencVerbose', html`
           <app-switch .checked=${!!settings.nvencVerbose} @change=${(e: CustomEvent) => { settings.nvencVerbose = e.detail; save(); }}></app-switch>
         `, {
-          tip: "Write detailed NVIDIA encoder diagnostics to the log. Use this for troubleshooting; extra logging can add overhead and large files.\n\nLogs every reconfigure and hex-dumps the encoder structs. For offline decoding of driver_vrlink's encoder setup; leave off.",
+          tip: "Write detailed NVIDIA encoder diagnostics to the log. Use this for troubleshooting; extra logging can add overhead and large files.\n\nLogs every reconfigure and hex-dumps the encoder structs. For offline decoding of driver_vrlink's encoder setup; leave off. Only published while Debug Mode is on; with it off the value is kept but not applied.",
           reset: { can: settings.nvencVerbose != defaults.nvencVerbose, on: () => { galaxy.reset('nvencVerbose'); } }
         }));
       }

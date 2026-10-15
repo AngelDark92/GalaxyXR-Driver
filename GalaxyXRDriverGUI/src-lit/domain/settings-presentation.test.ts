@@ -74,6 +74,12 @@ describe('human-readable settings inspection', () => {
     expect(reason('streamFrame.eyeGaze.debugGrid')).toMatch(/Force Calibration Grid/);
     c.settings.streamFrame!.distortion.tune.forceGrid = false;
     expect(reason('streamFrame.eyeGaze.debugGrid')).toBeUndefined();
+    // the codec selector is encoder-gated: with the tap off it is inert
+    c.settings.streamFrame!.nvencTap = true;
+    expect(reason('streamFrame.nvencCodec')).toBeUndefined();
+    c.settings.streamFrame!.nvencTap = false;
+    expect(reason('streamFrame.nvencCodec')).toMatch(/NVENC Tap is off/);
+    c.settings.streamFrame!.nvencTap = true;
     c.driverInstalled = false;
     expect(reason('streamFrame.nvencTap')).toMatch(/Install the driver/);
     expect(reason('advanceMode')).toBeUndefined();

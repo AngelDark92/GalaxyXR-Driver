@@ -71,7 +71,7 @@ const controllerDebug = group('debug', ['Controllers', 'Diagnostics'], ['debugCo
 controllerDebug('streamFrame.poseLogging', 'Pose Logging (diagnostic)');
 controllerDebug('streamFrame.poseLogBurst', 'Pose Logging: Burst Channel');
 group('stream-frame', ['Encoder'], ['heading:encoder'], true, 'vendor')('streamFrame.nvencTap', 'NVENC Tap');
-group('stream-frame', ['Encoder'], ['heading:encoder'], true, 'vendor')('streamFrame.nvencCodec', 'Stream codec');
+group('stream-frame', ['Encoder'], ['heading:encoder'], true, 'encoder', true)('streamFrame.nvencCodec', 'Stream codec');
 const encoder = group('stream-frame', ['Encoder', 'Advanced'], ['heading:encoder'], true, 'encoder', true);
 encoder('streamFrame.nvencForceCbr', 'Force CBR');
 encoder('streamFrame.postPack.limitedRange', 'Limited Range Video (fixes the black floor)');
