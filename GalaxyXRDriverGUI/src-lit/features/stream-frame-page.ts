@@ -98,13 +98,13 @@ if (vendor) {
           parts.push(fieldRow(t('Tile Width'), html`
       <app-number .value=${galaxyXr.customStreamFormatWidth} step="512" min="512" max="2048" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxyXr.customStreamFormatWidth = e.detail; } save(); }}></app-number>
           `, {
-  tip: "Video tile width in pixels. The stream is four stacked square tiles of this width per frame (per eye: the whole view downscaled plus a 1:1 gaze-tracked cut-out of the render target). 1536 keeps the encoder ahead of the streamer on a 3-engine GPU; 2048 is the hard ceiling (4 x 2048 = the codec's 8192-row limit) and is encode-limited on current GPUs. H.264 caps the tile to 1024 (its 4096-row NVENC ceiling); the encoder session follows automatically. Takes effect at the next SteamVR start or headset connect.",
+  tip: "Video tile width in pixels. The stream is four stacked square tiles of this width per frame (per eye: the whole view downscaled plus a 1:1 gaze-tracked cut-out of the render target).\n\n1536 keeps the encoder ahead of the streamer on a 3-engine GPU; 2048 is the hard ceiling (4 x 2048 = the codec's 8192-row limit) and is encode-limited on current GPUs. H.264 caps the tile to 1024 (its 4096-row NVENC ceiling); the encoder session follows automatically. Takes effect at the next SteamVR start or headset connect.",
   reset: { can: galaxyXr.customStreamFormatWidth != 1536, on: () => { galaxyXr.customStreamFormatWidth = 1536; save(); } }
           }));
           parts.push(fieldRow(t('Bandwidth (Mbit/s)'), html`
       <app-number .value=${galaxyXr.customBandwidthMbit} step="25" min="100" max="2000" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxyXr.customBandwidthMbit = e.detail; } save(); }}></app-number>
           `, {
-  tip: "Streaming bandwidth budget. Written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally. HEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.",
+  tip: "Streaming bandwidth budget, written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally.\n\nHEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.",
   reset: { can: galaxyXr.customBandwidthMbit != 350, on: () => { galaxyXr.customBandwidthMbit = 350; save(); } }
           }));
         parts.push(settingFieldRow('streamFrame.nvencTap', html`

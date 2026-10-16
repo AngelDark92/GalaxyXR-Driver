@@ -56,7 +56,7 @@ Settings live in `%APPDATA%\GalaxyXR\CustomHeadset\settings.json`, separate from
 
 Galaxy XR page:
 
-- **Headset**: Native Identity on, Native Render Resolution on (default), Stream Quality Preset: High.
+- **Headset**: Native Identity on, Native Render Resolution on (default), Stream Quality: Tile Width 1536, Bandwidth 350 Mbit/s (defaults).
 - **Controllers**: Official Controller Input Profile on. Controller Fix Mode: Kalman CA (default). Leave the offsets alone unless the controllers visibly sit wrong in your hand, the shipped values were measured against the official models.
 - **Image Processing**: Enable on.
 
