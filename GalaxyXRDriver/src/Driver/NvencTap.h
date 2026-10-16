@@ -3,6 +3,7 @@
 #include <atomic>
 #include <mutex>
 #include <cstdint>
+#include <string>
 
 // ============================================================================
 // NvencTap — hook on vrlink's NVENC usage (nvEncodeAPI64.dll), rebuilt
@@ -27,11 +28,10 @@
 //      after the call regardless of outcome. vrlink never sees its own
 //      config mutated; every reconfigure re-derives the override from
 //      whatever vrlink asked for (stateless).
-//   2. if the overridden call fails, the call is retried once with the
-//      pristine params and the failure is logged. so the tap's worst case
-//      is exactly stock behaviour plus a log line.
-//   3. unknown API major (outside 9..13) or unexpected struct versions ->
-//      observe-only, nothing modified, logged once.
+//   2. explicit overrides fail with their actual NVENC status. Never retry
+//      another codec or discard user settings after a rejection.
+//   3. unsupported structures with explicit settings fail visibly; disabled
+//      sessions remain passthrough except required lifetime ABI adaptation.
 //
 // Install timing: TryInstall() pre-loads nvEncodeAPI64.dll itself and hooks
 // it, so vrlink's later LoadLibrary finds the hooked export. Call it from
@@ -40,18 +40,25 @@
 
 struct NvencTapConfig {
 	bool enabled = false;
+	// Transient parser validation failure; never serialize this as a setting.
+	std::string requestError;
 	// set hevcConfig.level = AUTOSELECT and tier = HIGH on init and every
 	// reconfigure. fixes the Invalid Level reconfigure failures.
 	bool fixLevel = true;
 	// 2026-10-13: stream codec override. 0 = leave (vrlink's HEVC), 1 = H.264,
 	// 2 = AV1. applied at init and every reconfigure by
 	// rewriting encodeGUID / profileGUID / the codec config; H.264 gets the
-	// 8-bit session class via the caps shim (NVENC rejects 10-bit H.264)
+	// High-profile 8-bit client class via the caps shim
 	// while AV1 follows the session input depth (10-bit when the SDR 10-bit
 	// baseline is on); every HEVC-only override below skips itself via
 	// snap.hevc. paired with the Steam Link client "Codecs Support" patch and
 	// streamFrame.nvencCodec.
 	int codec = 0;
+	// Published geometry reference; never advertised as a device capability.
+	int effectiveTileWidth = 1536;
+	// Galaxy XR requires the exact four-tile negotiated geometry; neutral
+	// and legacy headset callers keep their existing geometry contract.
+	bool enforceTile = false;
 	// 0 = leave vrlink's bitrate alone. otherwise averageBitRate is
 	// replaced by this (Mbit/s), maxBitRate by 1.15x, vbvBufferSize scaled
 	// by the same ratio as the average. lifts the 350 Mbit/s clamp.
@@ -115,6 +122,21 @@ struct NvencTapConfig {
 	// the encoder ceiling vrlink applies to its own request (run 3: 600
 	// asked, 350 sent). the reference point for bitrateScale.
 	int vrlinkClampMbit = 350;
+	// Explicit filler bit for H.264/HEVC: false forces 0, true forces 1.
+	// A true request requires actual CBR and nonzero FPS or fails visibly.
+	// AV1 has no corresponding bit and remains untouched.
+	bool fillerData = false;
+	// 2026-10-16: explicit H.264 tuning; zero GOP/IDR derives rational fps,
+	// -1 preserves the caller. Other fields use their documented NVENC values.
+	int h264GopFrames = 0, h264IdrFrames = 0;
+	int h264RefFrames = 3, h264Entropy = 0;
+	int h264SliceMode = 3, h264SliceData = 1;
+	bool h264Aud = true, h264RepeatHeaders = true, h264DisableHeaders = false;
+	bool h264BitstreamRestriction = true;
+	int h264VbvInitialDelay = 0;
+	// -1 uses preset/codec defaults; explicit 0/1/2 always wins.
+	int multiPass = -1;
+	bool postPackEnabled = false, postPackLimitedRange = false;
 	// 0 = leave preset alone. 1..7 = NV_ENC_PRESET_P1..P7 (vrlink uses P2
 	// with ultra-low-latency tuning; VD-class quality at equal bitrate
 	// comes from higher presets). applied at init AND every reconfigure so
@@ -181,8 +203,8 @@ struct NvencTapConfig {
 	//     [out] lock struct) so the driver never touches memory past
 	//     vrlink's allocation. the function list version is presented as
 	//     12.1 too (same size; 12.1 only appends pointers).
-	//     if the upgraded open is rejected, the session is opened pristine
-	//     and the whole upgrade is latched off (stock behaviour).
+	//     if the required upgrade is rejected, return that error without an
+	//     older-API fallback. AV1 upgrades independently of split preference.
 	//   * split degrades quality a little (independent strips); the payoff
 	//     is P5..P7 at full frame rate, and possibly 3 strips instead of
 	//     the driver's implicit choice for P1..P4.
@@ -262,6 +284,13 @@ struct NvencTapRuntimeState {
 	bool enabled = false;
 	bool hookInstalled = false;
 	bool upgradedSessionsRemain = false;
+	int requestedCodec = 0, effectiveCodec = -1;
+	uint32_t lastStatus = 0;
+	std::string error;
+	uint32_t lastPictureStatus = 0;
+	std::string pictureError;
+	int effectiveFiller = -1, effectiveRateControl = -1, effectiveSplit = -1;
+	uint32_t encodeWidth = 0, encodeHeight = 0;
 };
 
 class NvencTap{
@@ -297,6 +326,8 @@ private:
 	NvencTapConfig cfg;
 	// 2026-10-15: true once SetConfig has published a live config; the caps
 	// shim's settings-file fallback applies only before that (pre-publish).
+	// Caps queries always use real selected-codec limits; only the explicit
+	// H.264 High 8-bit input profile restricts the advertised input depth.
 	std::atomic<bool> cfgPublished{false};
 
 	friend struct NvencTapShims;

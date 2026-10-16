@@ -418,13 +418,13 @@ function fixture() {
     await setup.getByText('Check settings', { exact: true }).click();
     await page.waitForFunction(() => !!window.appContext.checks.report() && !window.appContext.checks.checking());
     const primaryTable = setup.locator('table').first();
-    assert.match(await primaryTable.innerText(), /Driver Settings.*Headset.*Galaxy XR Native Identity/s);
+    assert.match(await primaryTable.innerText(), /Driver Settings.*Headset.*Galaxy XR Recognition/s);
     assert.doesNotMatch(await primaryTable.innerText(), /settings\.json|streamFrame\./);
     await primaryTable.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(out, 'settings-check-dark-1100.png'), animations: 'disabled' });
     const beforeLink = await mutations();
     const beforeInternalOpen = (await openerUrls()).length;
-    const settingLink = primaryTable.locator('tr').filter({ hasText: 'Galaxy XR Native Identity' }).getByText('Show setting');
+    const settingLink = primaryTable.locator('tr').filter({ hasText: 'Galaxy XR Recognition' }).getByText('Show setting');
     await focusLinkWithKeyboard(settingLink);
     assert.ok(await settingLink.evaluate(link => parseFloat(getComputedStyle(link).minHeight) >= 32));
     await page.keyboard.press('Enter');

@@ -57,16 +57,18 @@ export class AppSettingsPage extends BasePage {
       sectionHeading(t('Application preferences'), 0, 'app-preferences'),
       ...(appSetting.readFileError() ? [statusMessage('error', t('App preferences could not be read'), t('Check file permissions, then use Check Settings on Setup.'))] : []),
       ...(galaxy.imageModeError() ? [statusMessage('error', t('Image mode could not be changed'), galaxy.imageModeError()!)] : []),
-      fieldRow(t('Color Scheme'), html`
+      fieldRow(t('Theme'), html`
         <app-select .value=${appSetting.values().colorScheme} .options=${[
           { value: 'system', label: t('System') }, { value: 'dark', label: t('Dark') }, { value: 'light', label: t('Light') },
         ]} @change=${(e: CustomEvent) => save({ colorScheme: e.detail as AppSetting['colorScheme'] })}></app-select>
-      `),
+      `, {
+        tip: t("Light, dark, or follow your Windows theme.\n\nValue: colorScheme (gui-settings.json). GUI-only presentation preference.") }),
       settingFieldRow('image-enhancements', html`
         <app-switch .known=${known} .checked=${galaxy.imageEnhancementsEnabled}
           .disabled=${!installed || !known || this.warningPending || galaxy.imageModeChanging() || busy}
           @change=${(e: CustomEvent<boolean>) => { void this.setImageEnhancements(e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>
-      `),
+      `, {
+        tip: t("Master switch for the color, sharpening and lens-correction tools. Off restores the neutral picture without changing your saved values.\n\nValue: streamFrame.enable + galaxyXr.sdr10AllowEnhancements (settings.json). Driver side — the effective color-processing gate; the 10-bit quality warning applies when the baseline is on.") }),
       baseline ? statusMessage(galaxy.imageEnhancementsEnabled ? 'warning' : 'info',
         galaxy.imageEnhancementsEnabled ? t('SDR 10-bit with Image Enhancements') : t('SDR 10-bit baseline is on'),
         galaxy.imageEnhancementsEnabled ? t('Image processing may reduce quality. Turn enhancements off to use the neutral baseline; your adjustments are kept.')
@@ -77,12 +79,14 @@ export class AppSettingsPage extends BasePage {
       settingFieldRow('advanceMode', html`
         <app-switch .known=${!appSetting.readFileError()} .disabled=${!!appSetting.readFileError()}
           .checked=${!!appSetting.values().advanceMode} @change=${(e: CustomEvent) => save({ advanceMode: e.detail })}></app-switch>
-      `),
+      `, {
+        tip: t("Reveals the advanced and encoder controls. Hiding them never changes their values.\n\nValue: advanceMode (gui-settings.json). GUI-only visibility fence.") }),
       noteRow(t('Show encoder, controller, and calibration controls. Hiding them keeps their values.')),
       settingFieldRow('devUpdates', html`
         <app-switch .known=${!appSetting.readFileError()} .disabled=${!!appSetting.readFileError()}
           .checked=${!!appSetting.values().devUpdates} @change=${(e: CustomEvent) => save({ devUpdates: e.detail })}></app-switch>
-      `),
+      `, {
+        tip: t("Also offer pre-release developer builds when checking for updates.\n\nValue: devUpdates (gui-settings.json). GUI-only update-channel preference.") }),
       noteRow(t('Also check for dev (pre-release) builds when checking for updates.')),
       settingFieldRow('debugMode', html`
         <app-switch .known=${known} .disabled=${!installed || !known || busy}
@@ -95,15 +99,16 @@ export class AppSettingsPage extends BasePage {
             control.checked = galaxy.debugMode;
             this.requestUpdate();
           }}></app-switch>
-      `, { tip: t('Show the Debug tab and allow its selected diagnostic overlays and logging. Turning this off stops diagnostic effects while keeping their saved selections. Black-point correction and encoder compatibility/rate tuning remain active. Requires a SteamVR restart and reconnect for the vrlink Debug Overlay.') }),
+      `, { tip: t('Show the Debug tab and allow its selected diagnostic overlays and logging. Turning this off stops diagnostic effects while keeping their saved selections. Black-point correction and encoder compatibility/rate tuning remain active. Requires a SteamVR restart and reconnect for the Steam Link debug overlay.') }),
     ];
     if (appSetting.values().advanceMode || this.revealAdvanced) {
       body.push(sectionGroup(t('Advanced'), 1));
-      body.push(fieldRow(t('Update Mode'), html`
+      body.push(fieldRow(t('Update Install Style'), html`
         <app-select .value=${appSetting.values().updateMode} .options=${[
           { value: 'replace', label: t('Replace') }, { value: 'rewrite', label: t('Rewrite') },
         ]} @change=${(e: CustomEvent) => save({ updateMode: e.detail as AppSetting['updateMode'] })}></app-select>
-      `));
+      `, {
+        tip: t("How the updater installs a new build of the Companion app.\n\nValue: updateMode (gui-settings.json). GUI-only preference.\n\nValue: debugMode (settings.json). Driver side — unlocks the Debug tab's diagnostics and the SteamVR-side Steam Link debug keys.") }));
     }
     return this.sectionCardsFor(body);
   }

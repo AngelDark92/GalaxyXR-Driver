@@ -1,7 +1,7 @@
 [
   {
-    "source": "features/about-page.ts",
-    "originalLine": 247,
+    "source": "features/setup-page.ts",
+    "originalLine": 106,
     "summary": "Restart SteamVR's display process to try to fix display problems without closing the game. Your headset view may briefly disappear; save anything important first.",
     "details": "Restarting the compositor can fix some issues and allows changing various settings like refresh rate without restarting SteamVR or the game."
   },
@@ -9,649 +9,649 @@
     "source": "features/distortion-profile-page.ts",
     "originalLine": 65,
     "summary": "Choose how finely you can adjust the lens correction. Start with the two-number curve; use a spline for more control over different parts of the image.",
-    "details": "k1/k2 is a simple two value polynomial curve. Spline gives per radius control points. Convert from k1/k2 keeps the current shape as a starting point."
+    "details": "k1/k2 is a simple two value polynomial curve. Spline gives per radius control points. Convert from k1/k2 keeps the current shape as a starting point.\n\nValue: streamFrame.distortion.mode (settings.json). Driver side — selects the radial curve model evaluated per frame."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 70,
     "summary": "Adjust the left and right eye separately when one shared correction does not suit both eyes. Your current curve is copied before you start.",
-    "details": "Separate correction curves for the left and right eye. Existing curve is copied to both eyes as a starting point."
+    "details": "Separate correction curves for the left and right eye. Existing curve is copied to both eyes as a starting point.\n\nValue: streamFrame.distortion.perEye (settings.json). Driver side — separate left/right curve evaluation."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 75,
     "summary": "Adjust horizontal and vertical lens correction separately. Start with a shared curve unless you have measured a difference between the two directions.",
-    "details": "Separate horizontal and vertical curves blended around the ring, capturing elliptic error such as lens tilt. Existing curve is copied to both axes as a starting point."
+    "details": "Separate horizontal and vertical curves blended around the ring, capturing elliptic error such as lens tilt. Existing curve is copied to both axes as a starting point.\n\nValue: streamFrame.distortion.perAxis (settings.json). Driver side — separate horizontal/vertical curve evaluation."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 81,
     "summary": "Show the lens-correction controls inside the headset. Use the GxR Tuner and Scoring guide before changing a working profile.",
-    "details": "In-headset configurable distortion profile tuner. For usage refer to the GxR Tuner and Scoring guide."
+    "details": "In-headset configurable distortion profile tuner. For usage refer to the GxR Tuner and Scoring guide.\n\nValue: streamFrame.distortion.tune.enable (settings.json). Driver side — runs the in-headset tuner session."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 88,
     "summary": "Set how quickly the correction changes when you move the thumbstick. A lower speed makes small final adjustments easier.",
-    "details": "Scale change per second at full stick deflection (analog mode, used when Step Size is 0). The response is squared, so partial deflection is much slower for fine nulling. Lower it if the last bit of swim is hard to dial in."
+    "details": "Scale change per second at full stick deflection (analog mode, used when Step Size is 0). The response is squared, so partial deflection is much slower for fine nulling. Lower it if the last bit of swim is hard to dial in.\n\nValue: streamFrame.distortion.tune.rate (settings.json). Driver side — tuner stick-response rate."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 93,
     "summary": "Choose smooth thumbstick adjustment or fixed-size steps. Set this to 0 for smooth adjustment.",
-    "details": "0 = analog mode. For higher values apply this step per 0.1s while the joystick is deflected."
+    "details": "0 = analog mode. For higher values apply this step per 0.1s while the joystick is deflected.\n\nValue: streamFrame.distortion.tune.stepSize (settings.json). Driver side — fixed step per 0.1 s; 0 = analog."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 98,
     "summary": "Split each tuning ring into smaller areas for local corrections. Adjust the lens center first, then the rings, and only then these smaller areas.",
-    "details": "1 = classic radial tuning. 4 or 8 splits every band into angular segments with their own adjustment: in the headset, the X button walks ALL -> segment 0..N-1 -> ALL, and a joystick CLICK cycles the eye (linked/L/R) instead of X. ALL edits the whole band as before; a segment nudges only that sector (the band ring dims outside it). Positional correction for top/bottom or nasal/temporal asymmetry that radial bands cannot express. Tune segments LAST: center first, radial bands second - a wrong center masquerades as exactly the asymmetry segments would absorb. Applies when the tuner is next toggled on."
+    "details": "1 = classic radial tuning. 4 or 8 splits every band into angular segments with their own adjustment: in the headset, the X button walks ALL -> segment 0..N-1 -> ALL, and a joystick CLICK cycles the eye (linked/L/R) instead of X. ALL edits the whole band as before; a segment nudges only that sector (the band ring dims outside it). Positional correction for top/bottom or nasal/temporal asymmetry that radial bands cannot express. Tune segments LAST: center first, radial bands second - a wrong center masquerades as exactly the asymmetry segments would absorb. Applies when the tuner is next toggled on.\n\nValue: streamFrame.distortion.tune.segments (settings.json). Driver side — angular segment count per tuning band."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 103,
     "summary": "Give different tuning rings different numbers of adjustment areas. Leave the list empty to use the same number everywhere.",
-    "details": "Optional: a comma list of segment counts, one per band from INNER to OUTER (e.g. 4, 4, 8, 8, 12, 16, 16). Outer bands cover far more circumference, so they usually deserve more segments than inner ones. Empty = the uniform Band Segments value everywhere. Shorter than the band list = the last entry repeats. Counts 1-32. The X walk covers the current band's own segments; switching bands restarts at ALL. Applies when the tuner is next toggled on."
+    "details": "Optional: a comma list of segment counts, one per band from INNER to OUTER (e.g. 4, 4, 8, 8, 12, 16, 16). Outer bands cover far more circumference, so they usually deserve more segments than inner ones. Empty = the uniform Band Segments value everywhere. Shorter than the band list = the last entry repeats. Counts 1-32. The X walk covers the current band's own segments; switching bands restarts at ALL. Applies when the tuner is next toggled on.\n\nValue: streamFrame.distortion.tune.segmentLayout (settings.json). Driver side — per-band segment counts, inner to outer."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 108,
     "summary": "Set how visible the orange tuning ring is. Lower it when the marker distracts you from judging image movement; 0 hides it.",
-    "details": "Opacity of the orange ring marking the band being edited. 0 hides it entirely (the band position is still logged); lower it if the ring itself distracts from judging the swim."
+    "details": "Opacity of the orange ring marking the band being edited. 0 hides it entirely (the band position is still logged); lower it if the ring itself distracts from judging the swim.\n\nValue: streamFrame.distortion.tune.ringOpacity (settings.json). Driver side — band ring highlight opacity."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 115,
     "summary": "Choose how many rings the lens tuner uses and how much of the image they cover. More rings give finer control but take longer to tune.",
-    "details": "How many radius bands the tuner edits and where they start and end, spaced evenly (defaults: 7 bands, 0.15 to 0.65). More bands = finer control but a longer session. Edits regenerate the band list; the active session picks it up next time the tuner is toggled on."
+    "details": "How many radius bands the tuner edits and where they start and end, spaced evenly (defaults: 7 bands, 0.15 to 0.65). More bands = finer control but a longer session. Edits regenerate the band list; the active session picks it up next time the tuner is toggled on.\n\nValue: streamFrame.distortion.tune.bands (settings.json). Driver side — band count and radius span."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 120,
     "summary": "Automatically show the reference grid while using the lens tuner. Turn this off only when you want to control the overlays yourself.",
-    "details": "On (default): the tuner forces the angular grid + warped overlays on while active. Off: overlays follow your own toggles below."
+    "details": "On (default): the tuner forces the angular grid + warped overlays on while active. Off: overlays follow your own toggles below.\n\nValue: streamFrame.distortion.tune.forceGrid (settings.json). Driver side — forces grid overlays during tuner sessions."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 131,
     "summary": "Show reference lines to check whether the image bends or moves as your eyes move. This unwanted movement is often called pupil swim.",
-    "details": "Overlays straight reference lines for pupil swim tuning. Fixate a grid intersection, then move only your eyes around it: if the nearby lines bend or shift as your gaze moves, that's pupil swim."
+    "details": "Overlays straight reference lines for pupil swim tuning. Fixate a grid intersection, then move only your eyes around it: if the nearby lines bend or shift as your gaze moves, that's pupil swim.\n\nValue: streamFrame.eyeGaze.debugGrid, gridMode, gridAngularDeg (settings.json). Driver side — reference grid overlay, its mode and spacing."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 137,
     "summary": "Replace the game view with a colored calibration pattern for camera measurements. This is a measurement tool, not a normal-play setting.",
-    "details": "The sboys pattern draws per-axis angle lines whose COLOR encodes their angular index (hue = line number / 6), so the calibrated camera and the fit script can identify every line absolutely - no counting from center, and residual camera pose can be solved jointly with the distortion. This toggle replaces game content with a dim grey background so the camera sees only the pattern. Turn on Warped Overlays for measurement runs: the pattern must pass through the active distortion profile exactly like game content, so the camera reads the residual OF the correction, not the raw lens. Keep 2.5 deg spacing to match the reference tooling."
+    "details": "The sboys pattern draws per-axis angle lines whose COLOR encodes their angular index (hue = line number / 6), so the calibrated camera and the fit script can identify every line absolutely - no counting from center, and residual camera pose can be solved jointly with the distortion. This toggle replaces game content with a dim grey background so the camera sees only the pattern. Turn on Warped Overlays for measurement runs: the pattern must pass through the active distortion profile exactly like game content, so the camera reads the residual OF the correction, not the raw lens. Keep 2.5 deg spacing to match the reference tooling.\n\nValue: streamFrame.eyeGaze.gridOpaque (settings.json). Driver side — swaps game content for the camera calibration pattern."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 143,
     "summary": "Apply your lens correction to the calibration overlays too. Use this when checking how well the current correction works.",
-    "details": "Draws the calibration grid and the fixation dot in content space, so the active distortion profile warps them exactly like scene content. With the ANGULAR grid: a correct profile makes the lines look straight through the lens. With the fixation dot + swim probe: run probe sessions with profile off / A / B and let the fitter score which one flattens the residual. Leave off for plain measurement runs."
+    "details": "Draws the calibration grid and the fixation dot in content space, so the active distortion profile warps them exactly like scene content. With the ANGULAR grid: a correct profile makes the lines look straight through the lens. With the fixation dot + swim probe: run probe sessions with profile off / A / B and let the fitter score which one flattens the residual. Leave off for plain measurement runs.\n\nValue: streamFrame.eyeGaze.overlayWarped (settings.json). Driver side — draws the overlays through the active distortion profile."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 149,
     "summary": "Keep the reference grid fixed in the virtual world instead of moving it with your head. This only affects the angular grid.",
-    "details": "Draws the angular grid at fixed WORLD azimuth/elevation instead of head-locked lens angles. Angular grid mode only."
+    "details": "Draws the angular grid at fixed WORLD azimuth/elevation instead of head-locked lens angles. Angular grid mode only.\n\nValue: streamFrame.eyeGaze.gridWorldLocked (settings.json). Driver side — world-locked placement of the angular grid."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 156,
     "summary": "Find the center of each lens correction before tuning the surrounding rings. A gently pulsing image and a cross mark the point you are adjusting.",
-    "details": "Interactive tuning of the distortion CENTER offsets. While on: the image gently 'breathes' (pulses radially) around the currently configured center, an amber cross marks it, and the fine grid is shown. The lens's true center is the point where color fringing on the grid lines vanishes and sharpness peaks. Drag the breathing's still-point onto it with the stick. X cycles both-shift / both-mirrored(IPD) / left / right. Y resets, holding a grip 1.5s saves a centers profile + paste block. Do this BEFORE band tuning."
+    "details": "Interactive tuning of the distortion CENTER offsets. While on: the image gently 'breathes' (pulses radially) around the currently configured center, an amber cross marks it, and the fine grid is shown. The lens's true center is the point where color fringing on the grid lines vanishes and sharpness peaks. Drag the breathing's still-point onto it with the stick. X cycles both-shift / both-mirrored(IPD) / left / right. Y resets, holding a grip 1.5s saves a centers profile + paste block. Do this BEFORE band tuning.\n\nValue: streamFrame.distortion.centerTune.enable (settings.json). Driver side — the in-headset center-offset tuner."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 162,
     "summary": "Adjust the overall strength and direction of lens correction. 1 uses the saved curve, 0 disables it, and negative values reverse its direction.",
-    "details": "Multiplies the whole correction: 1 = curve as authored, 0 = off, -1 = opposite-sign correction, values between scale it. THE perceptual search knob: turn on Warped Overlays + the angular grid, fixate a grid intersection, slowly rotate your head, and sweep the gain until the lines swim least. Settles the correction's sign and strength in one pass, without trusting eye tracking."
+    "details": "Multiplies the whole correction: 1 = curve as authored, 0 = off, -1 = opposite-sign correction, values between scale it. THE perceptual search knob: turn on Warped Overlays + the angular grid, fixate a grid intersection, slowly rotate your head, and sweep the gain until the lines swim least. Settles the correction's sign and strength in one pass, without trusting eye tracking.\n\nValue: streamFrame.distortion.gain (settings.json). Driver side — global multiplier on the correction."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 169,
     "summary": "Adjust the broad lens-correction curve across the image. Make small changes and compare them using the reference grid.",
-    "details": "Quadratic radial term. Affects the whole field, growing with distance from the center."
+    "details": "Quadratic radial term. Affects the whole field, growing with distance from the center.\n\nValue: streamFrame.k1 (settings.json). Driver side — quadratic radial term of the curve."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 176,
     "summary": "Adjust lens correction mostly toward the image edges. Tune the broad correction first, then use this for the outer areas.",
-    "details": "Quartic radial term. Mostly affects the periphery."
+    "details": "Quartic radial term. Mostly affects the periphery.\n\nValue: streamFrame.k2 (settings.json). Driver side — quartic radial term of the curve."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 187,
     "summary": "Show the area of the image affected by a tuning ring. Turn this diagnostic display off for normal play.",
-    "details": "Diagnostic: limit the correction to a radius band so one region of the curve can be tuned against untouched surroundings. Disable for normal use, the band edges are intentionally not geometric."
+    "details": "Diagnostic: limit the correction to a radius band so one region of the curve can be tuned against untouched surroundings. Disable for normal use, the band edges are intentionally not geometric.\n\nValue: streamFrame.distortion.annulus.enable (settings.json). Driver side — limits the correction to a radius band."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 208,
     "summary": "Move the center around which the lens correction is applied. Small changes can affect both image sharpness and apparent movement.",
-    "details": "Moves the center the correction rings are anchored to, in uv units per eye. Use if the residual wobble is asymmetric."
+    "details": "Moves the center the correction rings are anchored to, in uv units per eye. Use if the residual wobble is asymmetric.\n\nValue: streamFrame.centerOffsetXLeft, centerOffsetXRight, centerOffsetY (settings.json). Driver side — per-eye uv-space center of the correction."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 217,
     "summary": "Move the left-eye image sideways for alignment. Change this carefully: a poor setting can affect comfort and depth perception.",
-    "details": "Prism correction: shifts the LEFT eye's whole image horizontally, in fractions of the image (positive = right). Corrects binocular misalignment when an eye sits off its lens axis. Use sparingly: horizontal shift also changes apparent depth. Typical useful values are within a few thousandths."
+    "details": "Prism correction: shifts the LEFT eye's whole image horizontally, in fractions of the image (positive = right). Corrects binocular misalignment when an eye sits off its lens axis. Use sparingly: horizontal shift also changes apparent depth. Typical useful values are within a few thousandths.\n\nValue: streamFrame.alignment.leftH (settings.json). Driver side — horizontal prism shift for the left eye (fractions of image width)."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 224,
     "summary": "Move the left-eye image up or down for alignment. A mismatch between the eyes can be uncomfortable; keep a known-good profile to restore.",
-    "details": "Prism correction: shifts the LEFT eye's whole image vertically, in fractions of the image (positive = up). Vertical misalignment between the eyes is can contribute to one-eye 'something is off' strain: fusional range is tiny vertically. Tune while alternately closing each eye against a horizontal line until the line does not jump."
+    "details": "Prism correction: shifts the LEFT eye's whole image vertically, in fractions of the image (positive = up). Vertical misalignment between the eyes is can contribute to one-eye 'something is off' strain: fusional range is tiny vertically. Tune while alternately closing each eye against a horizontal line until the line does not jump.\n\nValue: streamFrame.alignment.leftV (settings.json). Driver side — vertical prism shift for the left eye."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 230,
     "summary": "Move the right-eye image sideways for alignment. Change this carefully and compare both eyes together.",
-    "details": "Prism correction: shifts the RIGHT eye's whole image horizontally, in fractions of the image (positive = right)."
+    "details": "Prism correction: shifts the RIGHT eye's whole image horizontally, in fractions of the image (positive = right).\n\nValue: streamFrame.alignment.rightH (settings.json). Driver side — horizontal prism shift for the right eye."
   },
   {
     "source": "features/distortion-profile-page.ts",
     "originalLine": 236,
     "summary": "Move the right-eye image up or down for alignment. Use small changes and stop if the result is uncomfortable.",
-    "details": "Prism correction: shifts the RIGHT eye's whole image vertically, in fractions of the image (positive = up). Usually only ONE eye needs a vertical correction; pick the eye that feels off."
+    "details": "Prism correction: shifts the RIGHT eye's whole image vertically, in fractions of the image (positive = up). Usually only ONE eye needs a vertical correction; pick the eye that feels off.\n\nValue: streamFrame.alignment.rightV (settings.json). Driver side — vertical prism shift for the right eye."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 75,
     "summary": "Keep this on so SteamVR identifies the headset as Galaxy XR and uses its device icons. Turning it off can show Unknown or the identity provided by a patched Steam Link app instead. Restart SteamVR after changing it.",
-    "details": "Enabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link; a patched APK may report a different headset. The vrlink Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity."
+    "details": "Enabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link; a patched APK may report a different headset. The vrlink Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity.\n\nValue: galaxyXr.nativeIdentity (settings.json). Driver side — sets OpenVR model/manufacturer and device-icon properties; identity changes need a SteamVR restart."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 78,
     "summary": "Ask SteamVR to render at the Galaxy XR's native per-eye size. This improves the requested resolution but can increase GPU load. Restart SteamVR to apply it.",
-    "details": "Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With vrlink Headset Profile On, the same values are also copied to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved."
+    "details": "Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With vrlink Headset Profile On, the same values are also copied to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.\n\nValue: galaxyXr.nativeResolution (settings.json). SteamVR side — writes renderWidth, renderHeight, overrideRenderWidth and overrideRenderHeight into the vrlink section of steamvr.vrsettings."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 81,
     "summary": "Keep this on to keep settings copies under the supported Steam Link headset identities. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.",
-    "details": "Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also mirrors those settings and capability requests to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection. Recognized Quest Pro and PICO 4 Pro identities select VRLink's built-in capabilities; this SteamVR build bypasses their per-model capability sections. Profile copies alone therefore do not prove that capability requests were consumed. Off releases journal-owned tuning copies and preserves the original-model capability destination (xrvst2ue fallback); an active SDR 10-bit baseline can still request capabilities there. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings."
+    "details": "Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also mirrors those settings and capability requests to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection. Recognized Quest Pro and PICO 4 Pro identities select VRLink's built-in capabilities; this SteamVR build bypasses their per-model capability sections. Profile copies alone therefore do not prove that capability requests were consumed. Off releases journal-owned tuning copies and preserves the original-model capability destination (xrvst2ue fallback); an active SDR 10-bit baseline can still request capabilities there. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.\n\nValue: galaxyXr.vrlinkHeadsetProfile (settings.json). SteamVR side — journal-mirrors the vrlink tuning sections in steamvr.vrsettings."
   },
   {
     "source": "features/driver-settings-page.ts",
-    "originalLine": 101,
-    "summary": "Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. Turn the baseline off before enabling enhancements again. Restart SteamVR and reconnect after changing it.",
-    "details": "The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_<original model> destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1."
+    "originalLine": 97,
+    "summary": "Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. You can then enable Image Enhancements in App Settings after accepting the image-quality warning. Turning the baseline off disables its 10-bit request, including when vrlink Headset Profile is off. Requires a SteamVR restart and reconnect. Explicit advanced overrides still apply.",
+    "details": "The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_<original model> destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the driver's color policy; the encoder bit depth follows (H.264 stays 8-bit)."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 119,
     "summary": "Use the Galaxy XR controller button layout and default game bindings. Restart SteamVR after changing it; some games still use a compatible fallback layout.",
-    "details": "Uses the official Steam Link Galaxy XR input profile: real button layout in the bindings UI, official default and per-app bindings, and correct grip/aim/tip poses for held items. Games without a native Galaxy XR binding see the controllers as Index controllers. Requires a SteamVR restart."
+    "details": "Uses the official Steam Link Galaxy XR input profile: real button layout in the bindings UI, official default and per-app bindings, and correct grip/aim/tip poses for held items. Games without a native Galaxy XR binding see the controllers as Index controllers. Requires a SteamVR restart.\n\nValue: galaxyXr.nativeInputProfile (settings.json). Driver side — official Steam Link input profile and binding paths. SteamVR restart needed."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 128,
     "summary": "Treat a light grip press as touching the grip sensor. This helps games that expect a separate touch signal from controllers that do not supply one.",
-    "details": "Steam Link sends no capacitive state for the grip (only its pressure), so the official profile's grip touch never lit. On: the driver creates /input/grip/touch and drives it from the grip value. The threshold is the grip value that counts as touched (release at half of it); lower feels more like a touch sensor but resting fingers may trigger it."
+    "details": "Steam Link sends no capacitive state for the grip (only its pressure), so the official profile's grip touch never lit. On: the driver creates /input/grip/touch and drives it from the grip value. The threshold is the grip value that counts as touched (release at half of it); lower feels more like a touch sensor but resting fingers may trigger it.\n\nValue: galaxyXr.synthesizeGripTouch + galaxyXr.gripTouchThreshold (settings.json). Driver side — synthesizes the /input/grip/touch component from the grip pressure value."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 138,
     "summary": "Change the size of the controller model shown in VR. This affects its appearance, not tracking scale or the size of your hands.",
-    "details": "Uniform scale for the controller models. The official assets measure about 124x63mm while the physical controller is about 145x70mm; 1.15 (default) overlays the real shell in SteamVR Home. Scales the visible model only (geometry, button and stick pivots). Pose anchors, hand skeleton and game hand meshes are never scaled, so this cannot change hand size in games. Applied live within about a second. 1.0 = stock assets."
+    "details": "Uniform scale for the controller models. The official assets measure about 124x63mm while the physical controller is about 145x70mm; 1.15 (default) overlays the real shell in SteamVR Home. Scales the visible model only (geometry, button and stick pivots). Pose anchors, hand skeleton and game hand meshes are never scaled, so this cannot change hand size in games. Applied live within about a second. 1.0 = stock assets.\n\nValue: galaxyXr.renderModelScale (settings.json). Driver side — scales the controller render-model mesh only; applies live."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 141,
     "summary": "Use the official controller grip, aim, and tip positions. This changes how held objects and pointing rays line up with the controller.",
-    "details": "Use Samsung's official pose points (Game Link's render model: OpenXR grip/aim, dashboard laser tip, handgrip, base), rebased into our grip-convention frame so each named pose lands on the same physical spot as under Game Link. Only affects bindings that select a named pose (OpenXR games, the dashboard laser, /pose/handgrip bindings) - never raw, so SteamVR Home keeps the stock behavior."
+    "details": "Use Samsung's official pose points (Game Link's render model: OpenXR grip/aim, dashboard laser tip, handgrip, base), rebased into our grip-convention frame so each named pose lands on the same physical spot as under Game Link. Only affects bindings that select a named pose (OpenXR games, the dashboard laser, /pose/handgrip bindings) - never raw, so SteamVR Home keeps the stock behavior.\n\nValue: galaxyXr.officialComponents (settings.json). Driver side — rebases Samsung's pose points into the driver grip frame."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 157,
     "summary": "Adjust the grip-pose convention for games whose held objects look tilted or misplaced. Compare with a known-good game before changing other offsets.",
-    "details": "Shifts the raw streamed controller pose (22° pitch, 5 cm) into SteamVR's grip convention so held objects sit where games expect them and the official pose components land on the right spots. Recommended on. Turn off only if a Steam Link build already reports a grip-convention pose and the controllers sit visibly wrong."
+    "details": "Shifts the raw streamed controller pose (22° pitch, 5 cm) into SteamVR's grip convention so held objects sit where games expect them and the official pose components land on the right spots. Recommended on. Turn off only if a Steam Link build already reports a grip-convention pose and the controllers sit visibly wrong.\n\nValue: galaxyXr.gripConvention (settings.json). Driver side — shifts Steam Link's raw pose into SteamVR's grip convention."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 192,
     "summary": "Choose how controller motion is smoothed and predicted. Start with the normal defaults; advanced filter parameters can trade steadiness for lag or overshoot.",
-    "details": "For the Kalman velocity mode: a single estimator produces position, rotation, velocity and spin together, the same architecture native lighthouse controllers use. A adjusts the responsiveness: higher trusts your motion more (snappier throws, a bit noisier), lower trusts smoothness (calmer hands, slight lag). W does the same for rotation: responsiveness of the spin estimator. P/O are the sensor noise floors. L leads the reported position to counter streaming latency."
+    "details": "For the Kalman velocity mode: a single estimator produces position, rotation, velocity and spin together, the same architecture native lighthouse controllers use. A adjusts the responsiveness: higher trusts your motion more (snappier throws, a bit noisier), lower trusts smoothness (calmer hands, slight lag). W does the same for rotation: responsiveness of the spin estimator. P/O are the sensor noise floors. L leads the reported position to counter streaming latency.\n\nValue: streamFrame.kalmanProcessAccel, kalmanPosNoiseMm, kalmanProcessAngAccel, kalmanOriNoiseDeg, kalmanLeadMs (settings.json). Driver side — the Kalman filter's responsiveness and trust parameters (A/P/W/O/L)."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 210,
     "summary": "Use a motion filter that also estimates acceleration. It can change throwing behavior and responsiveness; compare carefully with the normal filter.",
-    "details": "The constant-acceleration state tracks a changing speed estimate rather than treating every speed change as noise. It can reduce lag in some motions but can also change overshoot and throwing behavior; compare it with the normal filter. J (jerk noise) adjusts responsiveness: higher follows faster changes, lower is calmer. Wj is the rotation equivalent. P/O are sensor-noise settings. L leads the report to compensate for timing delay."
+    "details": "The constant-acceleration state tracks a changing speed estimate rather than treating every speed change as noise. It can reduce lag in some motions but can also change overshoot and throwing behavior; compare it with the normal filter. J (jerk noise) adjusts responsiveness: higher follows faster changes, lower is calmer. Wj is the rotation equivalent. P/O are sensor-noise settings. L leads the report to compensate for timing delay.\n\nValue: streamFrame.kalmanCaJerk, kalmanCaAngJerk, kalmanCaPosNoiseMm, kalmanCaOriNoiseDeg, kalmanLeadMs (settings.json). Driver side — the constant-acceleration filter's parameters (J/Wj/P/O/L)."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 225,
     "summary": "Adjust how strongly the older acceleration-based mode contributes to reported speed. This only affects the filter modes described below.",
-    "details": "CA-Magnitude mode: everything about the standard Kalman mode stays identical (calm direction, the A/P/W/O/L tuning above, duplicate handling), except the fast magnitude channel becomes a constant-acceleration estimator. J (jerk) is its responsiveness: higher follows the throw ramp harder. The decay bounds phantom speed across repeated-sample coasts (~150ms matches a real throw's acceleration duration). Success looks like Throw Strength Trim converging to 1.0."
+    "details": "CA-Magnitude mode: everything about the standard Kalman mode stays identical (calm direction, the A/P/W/O/L tuning above, duplicate handling), except the fast magnitude channel becomes a constant-acceleration estimator. J (jerk) is its responsiveness: higher follows the throw ramp harder. The decay bounds phantom speed across repeated-sample coasts (~150ms matches a real throw's acceleration duration). Success looks like Throw Strength Trim converging to 1.0.\n\nValue: streamFrame.kalmanCaMagJerk, kalmanCaMagAccelTauMs (settings.json). Driver side — responsiveness and decay of the CA filter's fast magnitude channel."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 245,
     "summary": "Scale the controller speeds sent to games. 1 leaves the speed unchanged; other values can change throwing strength and rotational movement.",
-    "details": "Fixes weak throws at low Accel without giving up the calm direction. S/Sa globally scale reported speed. Leave at 1 unless a specific title needs it."
+    "details": "Fixes weak throws at low Accel without giving up the calm direction. S/Sa globally scale reported speed. Leave at 1 unless a specific title needs it.\n\nValue: streamFrame.kalmanMagSource, kalmanMagAccel, kalmanMagScale, kalmanAngMagScale (settings.json). Driver side — scaling of the reported speed and spin."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 264,
     "summary": "Set how quickly the filter stops trusting an earlier acceleration estimate. Shorter persistence can reduce overshoot but changes the feel of motion.",
-    "details": "The acceleration state decays toward zero with this time constant (Singer model). It bounds phantom speed during repeated-sample coasts and abrupt stops."
+    "details": "The acceleration state decays toward zero with this time constant (Singer model). It bounds phantom speed during repeated-sample coasts and abrupt stops.\n\nValue: streamFrame.kalmanCaAccelTauMs (settings.json). Driver side — time constant, in ms, of the acceleration state's decay (Singer model)."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 272,
     "summary": "Try an experimental acceleration model with a matching noise calculation. Leave it off unless you are comparing filter behavior deliberately.",
-    "details": "Experiment: propagate the filter's uncertainty with the same Singer transition the state prediction actually uses, instead of the simpler approximation. Makes the filter's self-model consistent, which matters most at low Accel Decay tau values (in CA-Magnitude mode it applies to the fast magnitude channel). Changes effective gains slightly, so NIS and the J/P/O tuning shift a little; off reproduces the previously tuned behavior exactly."
+    "details": "Experiment: propagate the filter's uncertainty with the same Singer transition the state prediction actually uses, instead of the simpler approximation. Makes the filter's self-model consistent, which matters most at low Acceleration Decay Time values (in CA-Magnitude mode it applies to the fast magnitude channel). Changes effective gains slightly, so NIS and the J/P/O tuning shift a little; off reproduces the previously tuned behavior exactly.\n\nValue: streamFrame.kalmanCaExactCov (settings.json). Driver side — covariance-propagation experiment."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 285,
     "summary": "Choose how controller rotation speed is reported. The wrong coordinate convention can change throwing or aiming behavior; use the default unless testing.",
-    "details": "Frame the reported angular velocity is expressed in. Body (default, field-verified 2026-08-24): SteamVR's motion prediction rotates about controller-local axes, so this is what it expects. World: the previous behaviour, which made horizontal sword swings pitch up at the peak of the swing. Zero: diagnostic only - no angular prediction, laggier rotation."
+    "details": "Frame the reported angular velocity is expressed in. Body (default, field-verified 2026-08-24): SteamVR's motion prediction rotates about controller-local axes, so this is what it expects. World: the previous behaviour, which made horizontal sword swings pitch up at the peak of the swing. Zero: diagnostic only - no angular prediction, laggier rotation.\n\nValue: streamFrame.kalmanAngularOutFrame (settings.json). Driver side — frame of the reported angular velocity (body/world/zero)."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 289,
     "summary": "Choose how long controller movement may continue briefly after tracking is lost. Longer coasting can hide interruptions but can also move the controller incorrectly.",
-    "details": "When the controller briefly leaves tracking (hand out of camera view), the stream freezes the hand in place with zero velocity until it is seen again. For up to this many ms of tracking loss, the driver instead keeps the hand moving along the filter's last known motion (with the usual acceleration decay so it cannot run away)."
+    "details": "When the controller briefly leaves tracking (hand out of camera view), the stream freezes the hand in place with zero velocity until it is seen again. For up to this many ms of tracking loss, the driver instead keeps the hand moving along the filter's last known motion (with the usual acceleration decay so it cannot run away).\n\nValue: streamFrame.kalmanLossCoastMs (settings.json). Driver side — coast duration in ms after tracking loss."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 301,
     "summary": "Choose how repeated tracking samples are handled. The default avoids treating a repeated sample as fresh movement.",
-    "details": "The streamer repeats the last pose when fresh tracking hasn't arrived, about 2 of 3 samples during fast throws. Soft (recommended): repeats are processed but distrusted by the scale below. Off: repeats are trusted fully, slight speed drag. Age: distrust grows with speed and time since the last fresh sample. Coast and Drop are not recommended. Sustained repeats are always treated as genuine stillness."
+    "details": "The streamer repeats the last pose when fresh tracking hasn't arrived, about 2 of 3 samples during fast throws. Soft (recommended): repeats are processed but distrusted by the scale below. Off: repeats are trusted fully, slight speed drag. Age: distrust grows with speed and time since the last fresh sample. Coast and Drop are not recommended. Sustained repeats are always treated as genuine stillness.\n\nValue: streamFrame.kalmanDupMode (settings.json). Driver side — duplicate-sample policy (off/coast/drop/soft/age)."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 305,
     "summary": "Set how little the filter trusts a repeated tracking sample. Larger values make duplicate samples have less influence.",
-    "details": "Only used when duplicate handling is Soft. A repeated sample is a true position of unknown age, so its honest uncertainty at hand speed is far above the sensor floor; this multiplies the measurement noise for detected repeats. 1 behaves exactly like Off; the default of 3 halves motion jitter with no measured cost; 6 and above re-create Coast's rejected snap character. Repeats sustained past the run cap are always accepted at full weight."
+    "details": "Only used when duplicate handling is Soft. A repeated sample is a true position of unknown age, so its honest uncertainty at hand speed is far above the sensor floor; this multiplies the measurement noise for detected repeats. 1 behaves exactly like Off; the default of 3 halves motion jitter with no measured cost; 6 and above re-create Coast's rejected snap character. Repeats sustained past the run cap are always accepted at full weight.\n\nValue: streamFrame.kalmanDupRScale (settings.json). Driver side — measurement-noise multiplier for repeated samples (Soft mode only)."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 309,
     "summary": "Use timestamps supplied with controller tracking rather than assuming every update is new. This can improve timing when sample delivery is uneven.",
-    "details": "The streamer stamps every hand pose with WHEN it was actually true (poseTimeOffset). When this is on, the filter uses the device's own timestamps for its time steps and quietly discards out-of-order samples. Leave on."
+    "details": "The streamer stamps every hand pose with WHEN it was actually true (poseTimeOffset). When this is on, the filter uses the device's own timestamps for its time steps and quietly discards out-of-order samples. Leave on.\n\nValue: streamFrame.kalmanDeviceTime (settings.json). Driver side — uses the streamer's poseTimeOffset timestamps for filter time steps."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 313,
     "summary": "Detect when controller position has stopped updating even if other tracking data still changes. This helps avoid treating a tracking freeze as real stillness.",
-    "details": "Detects the tracker's position-only loss: the position payload freezes while the quaternion keeps moving (fast or occluded hand falling back to IMU orientation). When detected, the stale position stays distrusted for the whole freeze instead of being adopted after the duplicate-run cap, and orientation keeps tracking live in every duplicate-handling mode. Fixes the hand parking a meter away while still rotating with the wrist, then teleporting back."
+    "details": "Detects the tracker's position-only loss: the position payload freezes while the quaternion keeps moving (fast or occluded hand falling back to IMU orientation). When detected, the stale position stays distrusted for the whole freeze instead of being adopted after the duplicate-run cap, and orientation keeps tracking live in every duplicate-handling mode. Fixes the hand parking a meter away while still rotating with the wrist, then teleporting back.\n\nValue: streamFrame.kalmanPosFreeze3dof (settings.json). Driver side — detects the position-only tracking freeze."
   },
   {
     "source": "features/driver-settings-page.ts",
-    "originalLine": 330,
+    "originalLine": 393,
     "summary": "Bypass this driver's controller adjustments while leaving the headset path active. Use this to compare with Steam Link's controller behavior.",
-    "details": "Leave the streamed controllers exactly as vrlink presents them: no Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, no offsets. Kalman is not part of the bypass; use Controller Fix Mode to turn it off. For A/B tests against stock, or if you only want the image processing. Identity and input profile changes take effect after a SteamVR restart."
+    "details": "Leave the streamed controllers exactly as vrlink presents them: no Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, no offsets. Kalman is not part of the bypass; use Controller Motion Filter to turn it off. For A/B tests against stock, or if you only want the image processing. Identity and input profile changes take effect after a SteamVR restart.\n\nValue: galaxyXr.controllerBypass (settings.json). Driver side — skips pose corrections and controller identity; the motion filter follows Controller Motion Filter."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 348,
     "summary": "Rotate both controller poses by the same adjustment. Use small changes to align virtual objects with how you hold the controllers.",
-    "details": "Local frame rotation added to both controllers' poses, live reloaded. X (pitch): positive tilts the top back toward you. Typical useful range 5-20. Y = yaw, Z = roll."
+    "details": "Local frame rotation added to both controllers' poses, live reloaded. X (pitch): positive tilts the top back toward you. Typical useful range 5-20. Y = yaw, Z = roll.\n\nValue: controllers.rotationOffsetDeg (settings.json). Driver side — local-frame rotation on both controllers (X pitch, Y yaw, Z roll), live."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 359,
     "summary": "Move both controller poses by the same adjustment. This shifts the virtual controller relative to the tracked hand position.",
-    "details": "Local frame position offset added to both controllers' poses, live reloaded. Use when the virtual grip point sits offset from where the controller feels like it is (beam parallel but displaced): Z = forward/back along the controller, Y = up/down, X = sideways."
+    "details": "Local frame position offset added to both controllers' poses, live reloaded. Use when the virtual grip point sits offset from where the controller feels like it is (beam parallel but displaced): Z = forward/back along the controller, Y = up/down, X = sideways.\n\nValue: controllers.positionOffsetCm (settings.json). Driver side — local-frame position (Z along the controller, Y up/down, X sideways), live."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 366,
     "summary": "Apply one controller alignment to both hands with left/right mirroring. Turn this off to tune each hand independently.",
-    "details": "Author the offsets above for the LEFT controller and mirror them for the right hand. Position X and rotations Y/Z flip sign. Pitch and position Y/Z stay the same. Turn it off if the hands need different corrections."
+    "details": "Author the offsets above for the LEFT controller and mirror them for the right hand. Position X and rotations Y/Z flip sign. Pitch and position Y/Z stay the same. Turn it off if the hands need different corrections.\n\nValue: controllers.mirrorOffsetsForRightHand (settings.json). Driver side — mirrors position X and rotation Y/Z for the right hand."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 377,
     "summary": "Rotate only the left controller's pose. Use this when the two hands need different alignment.",
-    "details": "Per-hand trim applied UNMIRRORED to the left controller only, after the shared offsets above. Use when the two hands need different corrections (the tracked origins are not exact mirror images). X = pitch, Y = yaw, Z = roll. Live reloaded."
+    "details": "Per-hand trim applied UNMIRRORED to the left controller only, after the shared offsets above. Use when the two hands need different corrections (the tracked origins are not exact mirror images). X = pitch, Y = yaw, Z = roll. Live reloaded.\n\nValue: controllers.left.rotationOffsetDeg (settings.json). Driver side — unmirrored left-hand trim after the shared offsets, live."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 385,
     "summary": "Move only the left controller's pose. The offsets change where held objects appear, not the tracking space itself.",
-    "details": "Per-hand position trim for the left controller only, unmirrored, applied after the shared offsets. Same axes as the shared Position Offset: Z = along the controller, Y = up/down, X = sideways."
+    "details": "Per-hand position trim for the left controller only, unmirrored, applied after the shared offsets. Same axes as the shared Position Offset: Z = along the controller, Y = up/down, X = sideways.\n\nValue: controllers.left.positionOffsetCm (settings.json). Driver side — same axes as the shared offset, left hand only, live."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 392,
     "summary": "Rotate only the right controller's pose. Use this when the two hands need different alignment.",
-    "details": "Per-hand trim applied UNMIRRORED to the right controller only, after the shared offsets above. Use when the two hands need different corrections (the tracked origins are not exact mirror images). X = pitch, Y = yaw, Z = roll. Live reloaded."
+    "details": "Per-hand trim applied UNMIRRORED to the right controller only, after the shared offsets above. Use when the two hands need different corrections (the tracked origins are not exact mirror images). X = pitch, Y = yaw, Z = roll. Live reloaded.\n\nValue: controllers.right.rotationOffsetDeg (settings.json). Driver side — unmirrored right-hand trim after the shared offsets, live."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 400,
     "summary": "Move only the right controller's pose. The offsets change where held objects appear, not the tracking space itself.",
-    "details": "Per-hand position trim for the right controller only, unmirrored, applied after the shared offsets. Same axes as the shared Position Offset: Z = along the controller, Y = up/down, X = sideways."
+    "details": "Per-hand position trim for the right controller only, unmirrored, applied after the shared offsets. Same axes as the shared Position Offset: Z = along the controller, Y = up/down, X = sideways.\n\nValue: controllers.right.positionOffsetCm (settings.json). Driver side — same axes as the shared offset, right hand only, live."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 412,
     "summary": "Move the controller's aiming tip sideways. The adjustment is mirrored between the left and right hand.",
-    "details": "Measured correction of the dashboard pointer origin (tip and OpenXR aim together). Sideways; mirrored for the right hand. Applies live."
+    "details": "Measured correction of the dashboard pointer origin (tip and OpenXR aim together). Sideways; mirrored for the right hand. Applies live.\n\nValue: galaxyXr.aimTrimXCm (settings.json). Driver side — pointer-origin correction, mirrored for the right hand, applies live."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 415,
     "summary": "Move the controller's aiming tip vertically. This adjusts the ray or tip position used by compatible games.",
-    "details": "Up/down correction of the pointer origin. If the pointer emanates 1 cm above the real tip, set -1."
+    "details": "Up/down correction of the pointer origin. If the pointer emanates 1 cm above the real tip, set -1.\n\nValue: galaxyXr.aimTrimYCm (settings.json). Driver side — vertical pointer correction, applies live."
   },
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 418,
     "summary": "Move the controller's aiming tip forward or backward. This adjusts the ray or tip position used by compatible games.",
-    "details": "Along-the-controller correction of the pointer origin. Positive moves it back toward the wrist: if the pointer starts 1 cm beyond the real tip, set +1."
+    "details": "Along-the-controller correction of the pointer origin. Positive moves it back toward the wrist: if the pointer starts 1 cm beyond the real tip, set +1.\n\nValue: galaxyXr.aimTrimZCm (settings.json). Driver side — along-controller pointer correction, applies live."
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 98,
-    "summary": "Video tile width in pixels. The stream is four stacked square tiles of this width per frame (per eye: the whole view downscaled plus a 1:1 gaze-tracked cut-out of the render target).",
-    "details": "1536 keeps the encoder ahead of the streamer on a 3-engine GPU; 2048 is the hard ceiling (4 x 2048 = the codec's 8192-row limit) and is encode-limited on current GPUs. H.264 caps the tile to 1024 (its 4096-row NVENC ceiling); the encoder session follows automatically. Takes effect at the next SteamVR start or headset connect."
+    "originalLine": 100,
+    "summary": "Tile width is sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. Requires a SteamVR restart.",
+    "details": "Value: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap's tile answers."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 104,
     "summary": "Streaming bandwidth budget, written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally.",
-    "details": "HEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect."
+    "details": "HEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; used as the encoder bitrate."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 110,
     "summary": "Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.",
-    "details": "An encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap."
+    "details": "An encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.\n\nValue: streamFrame.nvencTap (settings.json). Encoder side — hooks NVIDIA NVENC session creation and reconfiguration."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 363,
-    "summary": "Override the normal stream bandwidth budget. 0 follows the Bandwidth row above instead of forcing a separate value.",
-    "details": "0 uses the Tile Width and Bandwidth settings. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the Bandwidth row's value."
+    "summary": "Override the normal stream bandwidth budget. 0 follows the Bitrate row above instead of forcing a separate value.",
+    "details": "0 uses the Tile Width and Bandwidth settings. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the Bandwidth row's value.\n\nValue: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — nonzero writes the network pacer and the encoder bitrate, replacing the Bitrate row."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 92,
     "summary": "Set how much video the encoder may buffer. A smaller buffer can reduce delay but makes sudden complex scenes harder to encode cleanly.",
-    "details": "VBV = average bitrate per frame times this, which bounds how large any single frame can be. 2 caps vegetation peaks and reset key frames at about two frame budgets, far below the streamer's 2 MB send limit. 0 leaves the streamer's value."
+    "details": "VBV = average bitrate per frame times this, which bounds how large any single frame can be. 2 caps vegetation peaks and reset key frames at about two frame budgets, far below the streamer's 2 MB send limit. 0 leaves the streamer's value.\n\nValue: streamFrame.nvencVbvFrames (settings.json). Encoder side — VBV buffer sized as frame budgets; caps single-frame size."
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 98,
+    "originalLine": 395,
     "summary": "Choose the NVIDIA encoding preset. Keep automatic selection unless you are testing a specific quality or latency trade-off.",
-    "details": "0 = automatic by NVENC engine count (3 engines: P7, 2: P5, 1: P4; logged as 'preset AUTO'). Higher presets spend more encoder time for better quality at the same bitrate; P7 needs the split across three engines to hold 90 fps."
+    "details": "0 = automatic by NVENC engine count (3 engines: P7, 2: P5, 1: P4; logged as 'preset AUTO'). Higher presets spend more encoder time for better quality at the same bitrate; P7 needs the split across three engines to hold 90 fps. Auto resolves to P2 for H.264 (P7/P5/P4 by engine count otherwise).\n\nValue: streamFrame.nvencPreset (settings.json). Encoder side — NVENC preset selector; 0 = automatic by engine count."
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 104,
-    "summary": "Force constant-bitrate encoding. This changes how the encoder spends its bandwidth budget and can alter image quality and latency.",
-    "details": "Switches rate control to constant bitrate with low-delay key-frame scaling. Every frame gets the same budget, so complex scenes get slightly coarser instead of larger and later. Recommended on."
+    "originalLine": 401,
+    "summary": "Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is shown with the codec defaults; H.264 recommends Off.",
+    "details": "Value: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 110,
-    "summary": "Limit the size of keyframes, which refresh the whole video picture. Large keyframes can create brief network or decoding spikes.",
-    "details": "With Force CBR: how many P-frame budgets the key frame after an encoder reset may spend (1-4). 2 fits inside VBV Frames 2 and gives a sharper key frame than 1."
+    "originalLine": 469,
+    "summary": "With Force CBR, set the key-frame to P-frame budget ratio (0–255, NVENC byte field). The optimized recommendation is 2. Unsupported requests fail without rewriting the value.",
+    "details": "Value: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — keyframe budget in P-frame units under CBR."
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 116,
-    "summary": "Allow multiple NVIDIA encoder engines to share the work, where supported. Availability depends on the GPU and encoding mode.",
-    "details": "Spreads each frame across the GPU's NVENC engines. The driver only does this by itself for presets P1-P4; higher presets need it forced or they drop to ~50 fps. 1 = forced, driver picks the strip count (measured best); 2-4 force that many strips; 15 disables; 0 leaves the driver's choice. Nonzero opens the encoder session as API 12.1 (look for 'SESSION UPGRADE' in the log)."
+    "originalLine": 475,
+    "summary": "0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.",
+    "details": "Value: streamFrame.nvencSplitMode (settings.json). Encoder side — multi-engine split; nonzero opens the API 12.1 encoder session."
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 123,
+    "originalLine": 481,
     "summary": "Spend more encoding quality on the center of the image than on the edges. This advanced option can change artifacts in different areas.",
-    "details": "Moves bits within the same bitrate: a QP offset per block, negative for the gaze cut-out tile (finer, more bits) and positive for the periphery tile (coarser, fewer bits), blended over the same edge falloff as the sharpening. 0 / 0 = off. Small values (-2 / 2, -3 / 3) work; large ones starve the whole frame."
+    "details": "Moves bits within the same bitrate: a QP offset per block, negative for the gaze cut-out tile (finer, more bits) and positive for the periphery tile (coarser, fewer bits), blended over the same edge falloff as the sharpening. 0 / 0 = off. Small values (-2 / 2, -3 / 3) work; large ones starve the whole frame. The ramp shape and fovea-tile parity come from the Edge Falloff and fovea-top controls (shown with CAS in post-process mode) — one value drives both the sharpening and the encoder QP ramp.\n\nValue: streamFrame.nvencQpFovea + nvencQpPeriphery (settings.json). Encoder side — per-block QP offsets that move bits to the gaze tile."
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 129,
+    "originalLine": 488,
     "summary": "Correct a mismatch between full-range and limited-range video levels. Use this only to diagnose washed-out blacks or crushed shadows; it requires the NVIDIA encoder adjustment path.",
-    "details": "Steam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap."
+    "details": "Steam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.\n\nValue: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 137,
+    "source": "features/debug-page.ts",
+    "originalLine": 72,
     "summary": "Show the encoder's diagnostic overlay. Turn it off for normal play after collecting the information you need.",
-    "details": "Displays a coloured overlay on the foveated area and the streamer's advanced graphs (encode time, RFOV %). Diagnostic only; takes effect at the next connect."
+    "details": "Displays a coloured overlay on the foveated area and the streamer's advanced graphs (encode time, RFOV %). Diagnostic only; takes effect at the next connect.\n\nValue: galaxyXr.vrlinkDebugOverlay (settings.json). SteamVR side — writes the vrlink debug overlay keys; needs the NVENC Tap and a reconnect."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 142,
+    "source": "features/debug-page.ts",
+    "originalLine": 77,
     "summary": "Let the encoder choose an HEVC level and tier suitable for the stream. Incorrect manual choices can prevent a stream from starting.",
-    "details": "Sets HEVC level to auto-select and tier to High on every encoder init and reconfigure. The streamer hardcodes level 6.1, which the 8192-row canvas exceeds at 90 Hz, so its reconfigures were being rejected. Keep on."
+    "details": "Sets HEVC level to auto-select and tier to High on every encoder init and reconfigure. The streamer hardcodes level 6.1, which the 8192-row canvas exceeds at 90 Hz, so its reconfigures were being rejected. Keep on. Inert for H.264/AV1: those codec paths set level auto-select internally.\n\nValue: streamFrame.nvencFixLevel (settings.json). Encoder side — HEVC level/tier auto-selection at encoder init and reconfigure."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 148,
+    "source": "features/debug-page.ts",
+    "originalLine": 83,
     "summary": "Allow temporary bitrate peaks above the target budget. This mainly affects modes that are not strict constant bitrate.",
-    "details": "Peak bitrate over the average, in percent. Only meaningful without Force CBR (under CBR peak = average). 0 measured safe."
+    "details": "Peak bitrate over the average, in percent. Only meaningful without Force CBR (under CBR peak = average). 0 measured safe.\n\nValue: streamFrame.nvencMaxBitrateHeadroomPct (settings.json). Encoder side — peak bitrate over the average, in percent."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 154,
+    "source": "features/debug-page.ts",
+    "originalLine": 89,
     "summary": "Set the frame-rate value used for encoder budgeting. Match the intended stream rate; changing this alone does not change the headset refresh rate.",
-    "details": "Pins the encoder's frame rate so the per-frame budget is constant. Without it the streamer passes its momentary estimate (down to 12 fps while hitching) and under CBR the next key frame balloons. Recommended 90. 0 leaves the streamer's value."
+    "details": "Pins the encoder's frame rate so the per-frame budget is constant. Without it the streamer passes its momentary estimate (down to 12 fps while hitching) and under CBR the next key frame balloons. Recommended 90. 0 leaves the streamer's value.\n\nValue: streamFrame.nvencForceFps (settings.json). Encoder side — pinned encoder frame rate for the per-frame budget."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 160,
+    "source": "features/debug-page.ts",
+    "originalLine": 95,
     "summary": "Override only the encoder's bitrate budget. This does not automatically change network pacing, so mismatched values can cause problems.",
-    "details": "0 = the encoder bitrate equals the pacer bandwidth (normal). Nonzero sets only the encoder, for experiments where the pacer and the encoder should differ."
+    "details": "0 = the encoder bitrate equals the pacer bandwidth (normal). Nonzero sets only the encoder, for experiments where the pacer and the encoder should differ.\n\nValue: streamFrame.nvencBitrateMbit (settings.json). Encoder side — encoder-only bitrate override."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 166,
+    "source": "features/debug-page.ts",
+    "originalLine": 101,
     "summary": "Write detailed NVIDIA encoder diagnostics to the log. Use this for troubleshooting; extra logging can add overhead and large files.",
-    "details": "Logs every reconfigure and hex-dumps the encoder structs. For offline decoding of driver_vrlink's encoder setup; leave off."
+    "details": "Logs every reconfigure and hex-dumps the encoder structs. For offline decoding of driver_vrlink's encoder setup; leave off. Only published while Debug Mode is on; with it off the value is kept but not applied.\n\nValue: streamFrame.nvencVerbose (settings.json). Encoder side — per-reconfigure encoder struct dumps. Debug Mode gates the application."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 187,
     "summary": "Adjust the overall picture brightness. Lower values darken the image; this is a display preference, not a guarantee about panel lifespan.",
-    "details": "Scales output brightness in the host image-processing path. Compare against a known neutral setting and avoid compensating for a video-range mismatch with brightness alone. Panel wear depends on many factors; this control does not provide a measured or guaranteed lifespan improvement."
+    "details": "Scales output brightness in the host image-processing path. Compare against a known neutral setting and avoid compensating for a video-range mismatch with brightness alone. Panel wear depends on many factors; this control does not provide a measured or guaranteed lifespan improvement.\n\nValue: streamFrame.brightness (settings.json). Driver side — per-frame brightness scale in the host image pipeline."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 194,
     "summary": "Adjust the strength of colors. The neutral value keeps the original color saturation.",
-    "details": "Increase or decrease the variation of the colors. 50 is neutral, 0 is grayscale."
+    "details": "Increase or decrease the variation of the colors. 50 is neutral, 0 is grayscale.\n\nValue: streamFrame.saturation (settings.json). Driver side — per-frame color saturation; mirrored into the compositor-shader path."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 201,
     "summary": "Boost quieter colors without changing all colors equally. Use small adjustments to avoid an unnatural-looking picture.",
-    "details": "Smart saturation: changes muted colors the most and already vivid colors the least. Positive enriches dull colors with far less clipping and skin tone blowout than raw saturation; negative fades muted colors toward gray while vivid accents remain. 0 is off, stacks with Saturation."
+    "details": "Smart saturation: changes muted colors the most and already vivid colors the least. Positive enriches dull colors with far less clipping and skin tone blowout than raw saturation; negative fades muted colors toward gray while vivid accents remain. 0 is off, stacks with Saturation.\n\nValue: streamFrame.vibrance (settings.json). Driver side — selective saturation boost for muted colors."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 208,
     "summary": "Adjust the difference between light and dark areas. Stronger contrast can hide details in shadows or highlights.",
-    "details": "Contrast around the midpoint. 50 is neutral."
+    "details": "Contrast around the midpoint. 50 is neutral.\n\nValue: streamFrame.contrast (settings.json). Driver side — midpoint contrast; mirrored into the compositor-shader path."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 215,
     "summary": "Choose the brightness level around which contrast is adjusted. Change this only when the normal contrast control does not give the desired balance.",
-    "details": "The brightness level from 0 to 100 percent of white that the contrast pivots around."
+    "details": "The brightness level from 0 to 100 percent of white that the contrast pivots around.\n\nValue: streamFrame.contrastMidpoint (settings.json). Driver side — the brightness pivot of the contrast curve."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 221,
     "summary": "Apply contrast in linear light rather than the usual display-encoded space. This changes the effect of the contrast control.",
-    "details": "Apply the contrast in linear space instead of gamma space."
+    "details": "Apply the contrast in linear space instead of gamma space.\n\nValue: streamFrame.contrastLinear (settings.json). Driver side — applies contrast in linear light instead of gamma space."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 228,
     "summary": "Adjust midtone brightness without using the overall brightness control. The neutral pipeline value is 2.2.",
-    "details": "Gamma of the output. 2.2 is neutral, lower brightens midtones."
+    "details": "Gamma of the output. 2.2 is neutral, lower brightens midtones.\n\nValue: streamFrame.gamma (settings.json). Driver side — output gamma; 2.2 neutral."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 239,
     "summary": "Adjust the red, green, and blue channels separately to correct a color tint. 1 on every channel leaves the balance unchanged.",
-    "details": "Per channel tint multiplier applied to the image. 1 for each channel is neutral."
+    "details": "Per channel tint multiplier applied to the image. 1 for each channel is neutral.\n\nValue: streamFrame.colorMultiplier.r/g/b (settings.json). Driver side — per-channel tint multipliers."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 246,
     "summary": "Apply a nine-value color correction matrix. This is an advanced calibration tool; an incorrect matrix can strongly distort colors.",
-    "details": "Optional 3x3 linear rgb matrix, row major, 9 comma separated numbers. Used for gamut or white point correction. Leave empty to disable."
+    "details": "Optional 3x3 linear rgb matrix, row major, 9 comma separated numbers. Used for gamut or white point correction. Leave empty to disable.\n\nValue: streamFrame.srgbMatrix - 9 comma-separated values (settings.json). Driver side — 3x3 linear RGB matrix applied per frame; empty disables."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 255,
     "summary": "Reduce jagged edges with a post-processing filter. The quality mode does more work than the fast mode and may cost performance.",
-    "details": "FXAA applied BEFORE CAS so sharpening enhances resolved edges instead of amplifying jagged staircases. Best for titles with heavy edge shimmer (specular geometry, foliage, thin railings); slightly softens fine text - leave off for text-heavy apps. Fast: integrated into the main pass; CAS sharpens raw neighbors around the AA-resolved center (can faintly re-jag very strong edges at high CAS strength). Quality: a separate FXAA pre-pass, so CAS sees fully resolved edges - costs one extra full-frame pass and VRAM for an intermediate texture; falls back to Fast automatically (with a log line) if the pass shader or intermediate is unavailable. Check 'pixel shader ready (... fxaa: yes, fxaaPass: yes)' in the log after updating."
+    "details": "FXAA applied BEFORE CAS so sharpening enhances resolved edges instead of amplifying jagged staircases. Best for titles with heavy edge shimmer (specular geometry, foliage, thin railings); slightly softens fine text - leave off for text-heavy apps. Fast: integrated into the main pass; CAS sharpens raw neighbors around the AA-resolved center (can faintly re-jag very strong edges at high CAS strength). Quality: a separate FXAA pre-pass, so CAS sees fully resolved edges - costs one extra full-frame pass and VRAM for an intermediate texture; falls back to Fast automatically (with a log line) if the pass shader or intermediate is unavailable. Check 'pixel shader ready (... fxaa: yes, fxaaPass: yes)' in the log after updating.\n\nValue: streamFrame.fxaa (settings.json). Driver side — FXAA pass applied before CAS."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 261,
     "summary": "Choose where contrast-adaptive sharpening is applied. The modes use different processing paths; avoid adding the same sharpening twice.",
-    "details": "Contrast adaptive sharpening. POST-PACK (recommended, NVIDIA + NVENC Tap): runs on the frame the encoder actually sends - the foveated transport image - with separate strengths for the gaze region and the periphery; the periphery is sharpened after Steam Link downscales it, so it survives to the panel, at ~0.04 ms per frame. PRE-ENCODE: the older full-resolution pass on the eye textures; only for AMD GPUs or with the NVENC Tap off. Never run both."
+    "details": "Contrast adaptive sharpening. POST-PACK (recommended, NVIDIA + NVENC Tap): runs on the frame the encoder actually sends - the foveated transport image - with separate strengths for the gaze region and the periphery; the periphery is sharpened after Steam Link downscales it, so it survives to the panel, at ~0.04 ms per frame. PRE-ENCODE: the older full-resolution pass on the eye textures; only for AMD GPUs or with the NVENC Tap off. Never run both.\n\nValue: streamFrame.cas.enable + streamFrame.postPack.enable/casEnable (settings.json). Driver + encoder sides — post-pack sharpening runs on the encoded frame through the tap; pre-encode is the full-resolution driver pass."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 271,
     "summary": "Adjust sharpening in the high-detail center of the streamed image. Too much sharpening can create bright outlines or noise.",
-    "details": "Sharpening for the gaze cut-out tile (1:1 render-target pixels), 0 to 1. Under CBR sharpening costs bits: spend them here."
+    "details": "Sharpening for the gaze cut-out tile (1:1 render-target pixels), 0 to 1. Under CBR sharpening costs bits: spend them here.\n\nValue: streamFrame.postPack.foveaStrength (settings.json). Encoder side — post-pack sharpening of the gaze tile."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 278,
     "summary": "Adjust sharpening outside the high-detail center. This affects the lower-detail edges of the streamed image.",
-    "details": "Sharpening for the downscaled whole-view tile, 0 to 1. Applied after the downscale, so it is visible on the panel; keep it lower than the fovea to avoid haloing on the stretched periphery."
+    "details": "Sharpening for the downscaled whole-view tile, 0 to 1. Applied after the downscale, so it is visible on the panel; keep it lower than the fovea to avoid haloing on the stretched periphery.\n\nValue: streamFrame.postPack.peripheryStrength (settings.json). Encoder side — post-pack sharpening of the downscaled whole-view tile."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 285,
     "summary": "Smooth the transition between center and edge sharpening. Use this when a visible boundary appears around the sharp region.",
-    "details": "Fraction of the fovea tile (0 to 0.5) over which its sharpening ramps down to the periphery strength at the tile border, so the seam where the headset composites the cut-out over the stretched periphery is not a sharpness step. 0 = hard edge. Raise if a halo is visible around the fovea region."
+    "details": "Fraction of the fovea tile (0 to 0.5) over which its sharpening ramps down to the periphery strength at the tile border, so the seam where the headset composites the cut-out over the stretched periphery is not a sharpness step. 0 = hard edge. Raise if a halo is visible around the fovea region.\n\nValue: streamFrame.postPack.edgeFalloff (settings.json). Encoder side — ramp width of the center-to-edge sharpening transition."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 291,
     "summary": "Adjust sharpening for the upper and lower center tiles. These values fine-tune the streamed image layout.",
-    "details": "Which tile of each eye's pair is the gaze cut-out. On = upper tile (what the streamer's shader indicates). If the wrong region looks sharpened - e.g. periphery crisp, fovea soft - flip this."
+    "details": "Which tile of each eye's pair is the gaze cut-out. On = upper tile (what the streamer's shader indicates). If the wrong region looks sharpened - e.g. periphery crisp, fovea soft - flip this.\n\nValue: streamFrame.postPack.foveaTop (settings.json). Encoder side — selects which tile is the gaze cut-out."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 298,
     "summary": "Use different sharpening values for the left and right eye. Leave linked unless you need an eye-specific correction.",
-    "details": "Sharpen each eye independently. Useful when one eye sits slightly off its lens axis (facial asymmetry) and only that eye needs extra sharpening to mask the mild off-axis blur; the other eye is spared the over-sharpening."
+    "details": "Sharpen each eye independently. Useful when one eye sits slightly off its lens axis (facial asymmetry) and only that eye needs extra sharpening to mask the mild off-axis blur; the other eye is spared the over-sharpening.\n\nValue: streamFrame.cas.perEye (settings.json). Driver side — independent pre-encode strengths per eye."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 305,
     "summary": "Set the overall sharpening strength. Higher values can improve apparent detail but may also amplify noise or create halos.",
-    "details": "Strength of the sharpening from 0 to 1."
+    "details": "Strength of the sharpening from 0 to 1.\n\nValue: streamFrame.cas.strength (settings.json). Driver side — pre-encode sharpening strength (0-1)."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 313,
     "summary": "Set sharpening strength for the left eye. Compare both eyes to avoid an uneven-looking image.",
-    "details": "Sharpening strength for the left eye only, 0 to 1."
+    "details": "Sharpening strength for the left eye only, 0 to 1.\n\nValue: streamFrame.cas.strengthLeft (settings.json). Driver side — per-eye pre-encode strength, left (0-1)."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 319,
     "summary": "Set sharpening strength for the right eye. Compare both eyes to avoid an uneven-looking image.",
-    "details": "Sharpening strength for the right eye only, 0 to 1."
+    "details": "Sharpening strength for the right eye only, 0 to 1.\n\nValue: streamFrame.cas.strengthRight (settings.json). Driver side — per-eye pre-encode strength, right (0-1)."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 326,
     "summary": "Add a small amount of noise to make color banding less obvious. It can improve smooth gradients but does not add real color detail.",
-    "details": "Adds a small amount of noise before the encode to reduce banding in dark gradients."
+    "details": "Adds a small amount of noise before the encode to reduce banding in dark gradients.\n\nValue: streamFrame.dither (settings.json). Driver side — pre-encode noise against banding."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 332,
     "summary": "Dim the picture when the headset is not moving. This reduces visible brightness during still periods rather than pausing the game.",
-    "details": "Fades the streamed image uniformly toward black when the headset has not moved for the configured time, then restores brightness on movement. This reduces time spent showing a bright stationary image; it does not guarantee protection from panel wear. Tracking and the game can continue while the picture is dimmed."
+    "details": "Fades the streamed image uniformly toward black when the headset has not moved for the configured time, then restores brightness on movement. This reduces time spent showing a bright stationary image; it does not guarantee protection from panel wear. Tracking and the game can continue while the picture is dimmed.\n\nValue: streamFrame.stationaryDimming.enable (settings.json). Driver side — fades the streamed image to black when the headset is still."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 341,
     "summary": "Set how long the headset must stay still before dimming starts and how quickly the picture fades.",
-    "details": "Seconds of stillness before dimming starts, and seconds to fade fully to black."
+    "details": "Seconds of stillness before dimming starts, and seconds to fade fully to black.\n\nValue: streamFrame.stationaryDimming.movementTime + dimSeconds (settings.json). Driver side — stillness threshold and fade duration, in seconds."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 354,
     "summary": "Skip a synchronization wait in the image-processing path. This is a latency experiment and can cause flashes or other display artifacts.",
-    "details": "How long to wait for the frame sync before letting a frame through unprocessed (a brief 'flash' of ungraded color). Higher values trade flashes under heavy load for slightly later frames. After a skipped frame the wait automatically escalates to break flash streaks. Default 10, sensible range 3-15."
+    "details": "How long to wait for the frame sync before letting a frame through unprocessed (a brief 'flash' of ungraded color). Higher values trade flashes under heavy load for slightly later frames. After a skipped frame the wait automatically escalates to break flash streaks. Default 10, sensible range 3-15.\n\nValue: streamFrame.syncTimeoutMs (settings.json). Driver side — frame-sync wait before passing a frame unprocessed, in ms."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 360,
     "summary": "Adjust how far ahead eye movement is predicted for processing. Too much prediction can place the correction ahead of your actual gaze.",
-    "details": "Leads the gaze point by extrapolating recent eye motion, compensating the capture-to-display latency that makes the ring trail your eyes. Raise if the ring lags behind saccades, lower if it overshoots. 0 disables."
+    "details": "Leads the gaze point by extrapolating recent eye motion, compensating the capture-to-display latency that makes the ring trail your eyes. Raise if the ring lags behind saccades, lower if it overshoots. 0 disables.\n\nValue: streamFrame.eyeGaze.predictionMs (settings.json). Driver side — gaze-point lead time, in ms; 0 disables."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 365,
     "summary": "Request a more direct rendering path. Performance and compatibility depend on the runtime; compare carefully before leaving it enabled.",
-    "details": "Performance: draws the processed frame directly into the layer texture instead of a scratch target plus copy-back (about a third less GPU memory traffic). Falls back automatically per texture if a layer refuses a render target view. Only turn off to A/B against the old path; the log line 'direct render path' / 'copy-back path' shows which is active per app."
+    "details": "Performance: draws the processed frame directly into the layer texture instead of a scratch target plus copy-back (about a third less GPU memory traffic). Falls back automatically per texture if a layer refuses a render target view. Only turn off to A/B against the old path; the log line 'direct render path' / 'copy-back path' shows which is active per app.\n\nValue: streamFrame.directRender (settings.json). Driver side — renders the processed frame directly into the layer texture."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 371,
     "summary": "Keep cached resources longer to try to reduce short stutters. This changes resource handling and may use more memory.",
-    "details": "Performance: when the scratch texture cache is full and a new resolution arrives, the old set's release is postponed a few frames and performed after the frame sync mutex is released, instead of inside the same frame that already pays the unavoidable creation stall. Spreads transition cost so resolution/app switches hitch less. Off restores the old synchronous eviction for A/B; score the difference with Hitch Diagnostics on ('creates'/'evicts' counters and HITCH tags mark the transitions)."
+    "details": "Performance: when the scratch texture cache is full and a new resolution arrives, the old set's release is postponed a few frames and performed after the frame sync mutex is released, instead of inside the same frame that already pays the unavoidable creation stall. Spreads transition cost so resolution/app switches hitch less. Off restores the old synchronous eviction for A/B; score the difference with Hitch Diagnostics on ('creates'/'evicts' counters and HITCH tags mark the transitions).\n\nValue: streamFrame.deferredEviction (settings.json). Driver side — postpones scratch-texture release past the frame-sync mutex."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 377,
     "summary": "Choose an alternate point in the rendering pipeline for image processing. This is a compatibility and performance experiment.",
-    "details": "Processes frames during SubmitLayer instead of Present. Only needed if processing at Present has no visible effect on your driver."
+    "details": "Processes frames during SubmitLayer instead of Present. Only needed if processing at Present has no visible effect on your driver.\n\nValue: streamFrame.processAtSubmitLayer (settings.json). Driver side — processes frames in SubmitLayer instead of Present."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 384,
     "summary": "Make the headset image black while keeping tracking and the game running. Use this for testing, not as a way to stop or pause the application.",
-    "details": "Black out the headset's screens to protect from burn in. Tracking, streaming and the game keep running; only the panels go black. Useful while developing or leaving the headset connected. Needs Enable Image Processing on."
+    "details": "Black out the headset's screens to protect from burn in. Tracking, streaming and the game keep running; only the panels go black. Useful while developing or leaving the headset connected. Needs Enable Image Processing on.\n\nValue: streamFrame.calib.blackout (settings.json). Driver side — renders black to the panels; tracking and streaming continue."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 393,
+    "source": "features/debug-page.ts",
+    "originalLine": 29,
     "summary": "Show grayscale ramps and near-black patches to help judge shadow detail and video levels. Turn the test pattern off for normal play.",
-    "details": "Draws two near-black test strips per eye (17 patches, sRGB codes 0 to 32 in steps of 2, white ticks over codes 0/8/16/24/32): one across screen center and one near the bottom."
+    "details": "Draws two near-black test strips per eye (17 patches, sRGB codes 0 to 32 in steps of 2, white ticks over codes 0/8/16/24/32): one across screen center and one near the bottom.\n\nValue: streamFrame.blackFloor.rampBar (settings.json). Driver side — near-black test-strip overlay draw."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 398,
+    "source": "features/debug-page.ts",
+    "originalLine": 34,
     "summary": "Remap the darkest part of the picture. Too much correction can erase shadow detail; compare against the near-black test patches.",
-    "details": "Adjustable black level: remaps [BP, 255] onto [0, 255], darkening blacks. Calibration recipe: turn the Ramp Bar on, raise BP until the two darkest patches just merge into one black, then back off one notch, that is maximum contrast with zero crushed detail."
+    "details": "Adjustable black level: remaps [BP, 255] onto [0, 255], darkening blacks. Calibration recipe: turn the Ramp Bar on, raise BP until the two darkest patches just merge into one black, then back off one notch, that is maximum contrast with zero crushed detail.\n\nValue: streamFrame.blackFloor.blackPointCode (settings.json). Driver side — near-black remap in sRGB code units."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 403,
+    "source": "features/debug-page.ts",
+    "originalLine": 39,
     "summary": "Record information about frame-time spikes. Enable it while reproducing stutters, then turn it off to limit log size and overhead.",
-    "details": "Render-side cadence instrumentation, the frame-path analog of KALDIAG. Every 2 seconds a HITCHDIAG log line summarizes the frame callback rhythm: mean/max gap between frames, counts over 16.7ms and 33ms, sync-mutex wait, this driver's own work time, and skip/scratch-create/evict counters. Any single gap over 25ms also logs a one-shot HITCH line tagged with what the previous frame did (scratch creation, distortion LUT bake, shader compile, sync skip) so stutters name their own cause."
+    "details": "Render-side cadence instrumentation, the frame-path analog of KALDIAG. Every 2 seconds a HITCHDIAG log line summarizes the frame callback rhythm: mean/max gap between frames, counts over 16.7ms and 33ms, sync-mutex wait, this driver's own work time, and skip/scratch-create/evict counters. Any single gap over 25ms also logs a one-shot HITCH line tagged with what the previous frame did (scratch creation, distortion LUT bake, shader compile, sync skip) so stutters name their own cause.\n\nValue: streamFrame.hitchDiag (settings.json). Driver side — HITCHDIAG frame-cadence logging."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 409,
+    "source": "features/debug-page.ts",
+    "originalLine": 45,
     "summary": "Show where eye tracking reports you are looking. Eye tracking and the appropriate Steam Link sharing setting must be available.",
-    "details": "Draws a small red ring where the eye tracker says you are looking (requires SteamVR's Steam Link tab's 'Share ET data with other apps' to be on)."
+    "details": "Draws a small red ring where the eye tracker says you are looking (requires SteamVR's Steam Link tab's 'Share ET data with other apps' to be on).\n\nValue: streamFrame.eyeGaze.debugRing (settings.json). Driver side — gaze ring overlay."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 415,
+    "source": "features/debug-page.ts",
+    "originalLine": 55,
     "summary": "Record tracking samples for troubleshooting or calibration. Logs can contain movement data and may become large.",
-    "details": "Writes throttled controller pose lines to vrserver.txt (positions, reported vs position-derived velocity, tracking state), with burst capture during fast motion. Only needed when collecting data for a report; leave off otherwise."
+    "details": "Writes throttled controller pose lines to vrserver.txt (positions, reported vs position-derived velocity, tracking state), with burst capture during fast motion. Only needed when collecting data for a report; leave off otherwise.\n\nValue: streamFrame.poseLogging (settings.json). Driver side — throttled pose lines in vrserver.txt."
   },
   {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 421,
+    "source": "features/debug-page.ts",
+    "originalLine": 61,
     "summary": "Record a short, high-detail burst of tracking samples. The extra work can itself cause stutters, so use it only for a focused test.",
-    "details": "High-rate diagnostic lines (up to 100/s per device) during fast motion, on top of Pose Logging. Log storms during hard throws can hitch the game/stream, so leave this off unless a session is specifically collecting throw diagnostics."
+    "details": "High-rate diagnostic lines (up to 100/s per device) during fast motion, on top of Pose Logging. Log storms during hard throws can hitch the game/stream, so leave this off unless a session is specifically collecting throw diagnostics.\n\nValue: streamFrame.poseLogBurst (settings.json). Driver side — high-rate burst lines during fast motion."
   },
   {
     "source": "features/stream-frame-page.ts",
@@ -835,15 +835,15 @@
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 631,
+    "originalLine": 700,
     "summary": "Use an alternate texture-staging path for image processing. This is a performance and compatibility experiment, not a picture-quality control.",
-    "details": "Performance: instead of writing the processed frame back into the layer, it is drawn into a shared shadow texture and the streamer's own per-frame staging copy is redirected to read it - roughly halving this driver's GPU memory traffic on top of Direct Render. Failure mode is benign: any miss ships one unprocessed frame (a brief ungraded flash), the same as a sync timeout skip. Test in a disposable session first: grep the log for 'zero-copy v3: redirect active' to confirm engagement, and 'passthrough' lines to see misses. Turn off if you see persistent unprocessed frames or flicker."
+    "details": "Performance: instead of writing the processed frame back into the layer, it is drawn into a shared shadow texture and the streamer's own per-frame staging copy is redirected to read it - roughly halving this driver's GPU memory traffic on top of Direct Render. Failure mode is benign: any miss ships one unprocessed frame (a brief ungraded flash), the same as a sync timeout skip. Test in a disposable session first: grep the log for 'zero-copy v3: redirect active' to confirm engagement, and 'passthrough' lines to see misses. Turn off if you see persistent unprocessed frames or flicker. Requires Image Enhancements on; with them off this is saved but not applied."
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 637,
+    "originalLine": 707,
     "summary": "Do not use spatial adaptive quantization for normal play in this build. It has caused encoder stalls in testing, and the driver's safety checks may reset it.",
-    "details": "DO NOT USE. Any spatial AQ, at any strength, makes nvEncEncodePicture block 4-6 ms per frame on these tall frames and trips the streamer's 10 ms watchdog (encoder resets, soft key frames, storms). Migration forces it to 0."
+    "details": "DO NOT USE. Any spatial AQ, at any strength, makes nvEncEncodePicture block 4-6 ms per frame on these tall frames and trips the streamer's 10 ms watchdog (encoder resets, soft key frames, storms). No longer forced to 0; leave at 0 unless measuring."
   },
   {
     "source": "features/stream-frame-page.ts",
@@ -865,15 +865,15 @@
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 661,
-    "summary": "Choose which encoder preset configuration is used as the starting point. This affects several low-level settings together.",
-    "details": "Adopts the canonical preset's multipass / AQ / ref settings besides the preset GUID. Left on; one A/B (P7 with it off) was never run."
+    "originalLine": 730,
+    "summary": "Preset merge adopts canonical preset settings. Explicit multipass and H.264 controls below remain authoritative. Automatic multipass uses the tested H.264 single-pass default or the HEVC/AV1 preset recommendation.",
+    "details": "Value: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset merge adoption on encoder session setup; the H.264 multipass adoption stays 0."
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 670,
+    "originalLine": 737,
     "summary": "Override video color-range metadata. Leave automatic unless diagnosing a known mismatch; incompatible client handling can darken the image.",
-    "details": "-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated - the client mishandles explicit tags, so these stay inert until the APK changes."
+    "details": "-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated - the client mishandles explicit tags, so these stay inert until the APK changes. The driver also forces full-range to 0 while post-pack limited range is active, and an active SDR 10-bit baseline leaves the pair at -1."
   },
   {
     "source": "features/stream-frame-page.ts",

@@ -1713,9 +1713,17 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	tc.fixLevel = settings.config.nvencFixLevel;
 	// 2026-10-13 stream codec override (0 HEVC default / 1 H.264 / 2 AV1)
 	tc.codec = settings.config.nvencCodec;
+	// 2026-10-16: publish the effective tile with the config, resolved under
+	// driverConfigLock here like the pacer bandwidth below; the caps shim
+	// answers its H.264 width limits from this published copy
+	tc.effectiveTileWidth = GalaxyXR_EffectiveTileWidth();
+#ifdef VENDOR_GALAXYXR
+	// Reject upstream negotiation that silently substitutes a smaller stream.
+	tc.enforceTile = true;
+#endif
 	// encoder bitrate: the debug "separate" value if set, else the
 	// effective pacer bandwidth (tier/custom/Advanced override)
-	tc.bitrateMbit = settings.config.nvencBitrateMbit > 0 ? settings.config.nvencBitrateMbit : GalaxyXR_EffectiveBandwidthMbit();
+	tc.bitrateMbit = settings.config.nvencBitrateMbit != 0 ? settings.config.nvencBitrateMbit : GalaxyXR_EffectiveBandwidthMbit();
 	tc.maxQp = settings.config.nvencMaxQp;
 	tc.aqStrength = settings.config.nvencAqStrength;
 	tc.maxBitrateHeadroomPct = settings.config.nvencMaxBitrateHeadroomPct;
@@ -1723,6 +1731,23 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	tc.forceFps = settings.config.nvencForceFps;
 	tc.bitrateScale = settings.config.nvencBitrateScale;
 	tc.vrlinkClampMbit = settings.config.nvencVrlinkClampMbit;
+	// 2026-10-16: user filler-data knob; every effective application logs
+	// in NvencTap's what buffer (H.264 pin/lift, HEVC lift, AV1 never)
+	tc.fillerData = settings.config.nvencFillerDataInsertion;
+	tc.requestError = settings.config.nvencValidationError;
+	if(tc.bitrateMbit <= 0){ tc.requestError = "Requested streaming bandwidth must be a positive integer."; }
+	tc.h264GopFrames = settings.config.nvencH264GopFrames;
+	tc.h264IdrFrames = settings.config.nvencH264IdrFrames;
+	tc.h264RefFrames = settings.config.nvencH264RefFrames;
+	tc.h264Entropy = settings.config.nvencH264Entropy;
+	tc.h264SliceMode = settings.config.nvencH264SliceMode;
+	tc.h264SliceData = settings.config.nvencH264SliceData;
+	tc.h264Aud = settings.config.nvencH264Aud;
+	tc.h264RepeatHeaders = settings.config.nvencH264RepeatHeaders;
+	tc.h264DisableHeaders = settings.config.nvencH264DisableHeaders;
+	tc.h264BitstreamRestriction = settings.config.nvencH264BitstreamRestriction;
+	tc.h264VbvInitialDelay = settings.config.nvencH264VbvInitialDelay;
+	tc.multiPass = settings.config.nvencMultiPass;
 	tc.preset = settings.config.nvencPreset;
 	tc.presetMerge = settings.config.nvencPresetMerge;
 	// the post-pack limited-range remap needs the VUI full-range flag
@@ -1731,10 +1756,14 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	// enable and the VUI pair are EFFECTIVE values — the baseline
 	// bypasses post-pack and leaves Valve's original pixel/metadata
 	// pair untouched (all -1)
-	tc.vuiFullRange = postPackEnabled && settings.config.postPack.limitedRange ? 0 : settings.policy.vuiFullRange;
-	tc.vuiMatrix = settings.policy.vuiMatrix;
-	tc.vuiPrimaries = settings.policy.vuiPrimaries;
-	tc.vuiTransfer = settings.policy.vuiTransfer;
+	// 2026-10-16: preserve explicit metadata requests. The tap validates
+	// pixel/range conflicts and reports them instead of replacing user values.
+	tc.vuiFullRange = settings.config.nvencVuiFullRange;
+	tc.vuiMatrix = settings.config.nvencVuiMatrix;
+	tc.vuiPrimaries = settings.config.nvencVuiPrimaries;
+	tc.vuiTransfer = settings.config.nvencVuiTransfer;
+	tc.postPackEnabled = postPackEnabled;
+	tc.postPackLimitedRange = settings.config.postPack.limitedRange;
 	tc.minQp = settings.config.nvencMinQp;
 	tc.minQpIntra = settings.config.nvencMinQpIntra;
 	tc.forceCbr = settings.config.nvencForceCbr;
@@ -1754,8 +1783,8 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 		NvencPostPack::SetConfig(pc);
 	}
 	tc.splitMode = settings.config.nvencSplitMode;
-	tc.qpFovea = (std::max)(-10, (std::min)(0, settings.config.nvencQpFovea));
-	tc.qpPeriphery = (std::max)(0, (std::min)(10, settings.config.nvencQpPeriphery));
+	tc.qpFovea = settings.config.nvencQpFovea;
+	tc.qpPeriphery = settings.config.nvencQpPeriphery;
 	tc.qpEdgeFalloff = (float)settings.config.postPack.edgeFalloff;
 	tc.qpFoveaTop = settings.config.postPack.foveaTop;
 	tc.verbose = settings.config.nvencVerbose;

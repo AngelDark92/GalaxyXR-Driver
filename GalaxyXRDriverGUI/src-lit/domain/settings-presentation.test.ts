@@ -26,7 +26,7 @@ describe('human-readable settings inspection', () => {
     expect(ids.sort()).toEqual(SETTINGS_PRESENTATION.map(setting => setting.id).sort());
     const rows = presentSettings([], context());
     expect(rows.find(row => row.id === 'streamFrame.nvencForceCbr')?.location)
-      .toEqual(['Image Settings', 'Encoder', 'Advanced', 'Force CBR']);
+      .toEqual(['Image Settings', 'Encoder Advanced', 'Constant Bitrate']);
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
   });
 
@@ -66,7 +66,7 @@ describe('human-readable settings inspection', () => {
     const before = structuredClone(c);
     expect(reason('streamFrame.dither')).toMatch(/Image Enhancements is off/);
     expect(reason('streamFrame.kalmanGripEnable')).toMatch(/Retired experiments/);
-    expect(reason('galaxyXr.synthesizeGripTouch')).toMatch(/Official Controller Input Profile is off/);
+    expect(reason('galaxyXr.synthesizeGripTouch')).toMatch(/Official Controller Layout is off/);
     expect(c).toEqual(before);
     c.settings.streamFrame!.enable = true;
     expect(reason('streamFrame.distortion.tune.forceGrid')).toMatch(/Interactive Tuner is off/);
@@ -85,9 +85,41 @@ describe('human-readable settings inspection', () => {
     expect(reason('advanceMode')).toBeUndefined();
   });
 
+  it('allows filler with upstream CBR and gates only codec and tap without changing saved values', () => {
+    const c = context();
+    const reason = (id: string) => settingUnavailable(settingPresentation(id)!, c);
+    const before = structuredClone(c);
+    c.settings.streamFrame!.nvencCodec = 0;
+    expect(reason('streamFrame.nvencFillerDataInsertion')).toBeUndefined();
+    c.settings.streamFrame!.nvencCodec = 2;
+    expect(reason('streamFrame.nvencFillerDataInsertion')).toBe('NVENC has no AV1 filler knob. Its saved value is kept.');
+    c.settings.streamFrame!.nvencCodec = 0;
+    c.settings.streamFrame!.nvencForceCbr = false;
+    expect(reason('streamFrame.nvencFillerDataInsertion')).toBeUndefined();
+    c.settings.streamFrame!.nvencCodec = 1;
+    expect(reason('streamFrame.nvencFillerDataInsertion')).toBeUndefined();
+    c.settings.streamFrame!.nvencCodec = 0;
+    // the gate override keeps the encoder group's NVENC Tap prerequisite
+    c.settings.streamFrame!.nvencForceCbr = true;
+    c.settings.streamFrame!.nvencTap = false;
+    expect(reason('streamFrame.nvencFillerDataInsertion')).toMatch(/NVENC Tap is off/);
+    c.settings.streamFrame!.nvencTap = true;
+    expect(c).toEqual(before);
+  });
+
   it('keeps target IDs stable when the display locale changes', () => {
+    const c = context();
+    c.settings.streamFrame!.nvencH264Aud = false;
+    const saved = structuredClone(c.settings);
+    for (const codec of [0, 2]) {
+      c.settings.streamFrame!.nvencCodec = codec;
+      expect(settingUnavailable(settingPresentation('streamFrame.nvencH264Aud')!, c)).toMatch(/Select H.264/);
+    }
+    c.settings.streamFrame!.nvencCodec = 1;
+    expect(settingUnavailable(settingPresentation('streamFrame.nvencH264Aud')!, c)).toBeUndefined();
+    expect(c.settings.streamFrame!.nvencH264Aud).toBe(saved.streamFrame!.nvencH264Aud);
     const before = presentSettings([], context()).map(row => row.href);
-    setLocale('ja', { 'Image Settings': '画像', 'Force CBR': '固定レート' });
+    setLocale('ja', { 'Image Settings': '画像', 'Constant Bitrate': '固定レート' });
     try { expect(presentSettings([], context()).map(row => row.href)).toEqual(before); }
     finally { setLocale('en-US', {}); }
   });
@@ -101,7 +133,7 @@ describe('human-readable settings inspection', () => {
     expect(setting.advanced).toBe(false);
     expect(settingUnavailable(setting, c)).toMatch(/Enable Debug Mode/);
     const row = presentSettings([], c).find(row => row.id === setting.id)!;
-    expect(row.location).toEqual(['Debug', 'Controllers', 'Diagnostics', 'Pose Logging (diagnostic)']);
+    expect(row.location).toEqual(['Debug', 'Controllers', 'Diagnostics', 'Motion Logging']);
     expect(row.state).toBe('On');
     expect(row.unavailableReason).toMatch(/Enable Debug Mode/);
     expect(c.settings).toEqual(before);

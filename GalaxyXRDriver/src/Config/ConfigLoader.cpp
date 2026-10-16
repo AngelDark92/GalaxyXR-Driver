@@ -261,6 +261,19 @@ void ConfigLoader::ParseConfig(){
 		// parse with support for comments
 		json data = json::parse(configFile, nullptr, true, true);
 		Config newConfig = {};
+		// 2026-10-16: an integer setting must never become a truncated number
+		// or an implicit native default. Keep disk data intact and fail the
+		// requested encoder configuration with a visible field-specific error.
+		auto validateInteger = [&](const char* section, const char* key){
+			if(!data.contains(section) || !data[section].is_object() || !data[section].contains(key)){ return; }
+			const auto& value = data[section][key];
+			if(!value.is_number_integer() || value.get<double>() < -2147483648.0 || value.get<double>() > 2147483647.0){
+				newConfig.streamFrame.nvencValidationError = std::string(section) + "." + key + " must be a 32-bit integer; requested " + value.dump();
+				DriverLog("Config: %s", newConfig.streamFrame.nvencValidationError.c_str());
+			}
+		};
+		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencVrlinkClampMbit", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
+		for(const char* key : {"customStreamFormatWidth", "customBandwidthMbit", "customEncodeWidth", "customStreamFormatWidthOverride"}){ validateInteger("galaxyXr", key); }
 		if(data["debugMode"].is_boolean()){
 			newConfig.debugMode = data["debugMode"].get<bool>();
 		}
@@ -939,6 +952,46 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["nvencVrlinkClampMbit"].is_number()){
 				newConfig.streamFrame.nvencVrlinkClampMbit = streamFrameData["nvencVrlinkClampMbit"].get<int>();
 			}
+			// 2026-10-16: absent key = false = current behavior; no migration
+			if(streamFrameData["nvencFillerDataInsertion"].is_boolean()){
+				newConfig.streamFrame.nvencFillerDataInsertion = streamFrameData["nvencFillerDataInsertion"].get<bool>();
+			}
+			if(streamFrameData["nvencH264GopFrames"].is_number_integer()){
+				newConfig.streamFrame.nvencH264GopFrames = streamFrameData["nvencH264GopFrames"].get<int>();
+			}
+			if(streamFrameData["nvencH264IdrFrames"].is_number_integer()){
+				newConfig.streamFrame.nvencH264IdrFrames = streamFrameData["nvencH264IdrFrames"].get<int>();
+			}
+			if(streamFrameData["nvencH264RefFrames"].is_number_integer()){
+				newConfig.streamFrame.nvencH264RefFrames = streamFrameData["nvencH264RefFrames"].get<int>();
+			}
+			if(streamFrameData["nvencH264Entropy"].is_number_integer()){
+				newConfig.streamFrame.nvencH264Entropy = streamFrameData["nvencH264Entropy"].get<int>();
+			}
+			if(streamFrameData["nvencH264SliceMode"].is_number_integer()){
+				newConfig.streamFrame.nvencH264SliceMode = streamFrameData["nvencH264SliceMode"].get<int>();
+			}
+			if(streamFrameData["nvencH264SliceData"].is_number_integer()){
+				newConfig.streamFrame.nvencH264SliceData = streamFrameData["nvencH264SliceData"].get<int>();
+			}
+			if(streamFrameData["nvencH264Aud"].is_boolean()){
+				newConfig.streamFrame.nvencH264Aud = streamFrameData["nvencH264Aud"].get<bool>();
+			}
+			if(streamFrameData["nvencH264RepeatHeaders"].is_boolean()){
+				newConfig.streamFrame.nvencH264RepeatHeaders = streamFrameData["nvencH264RepeatHeaders"].get<bool>();
+			}
+			if(streamFrameData["nvencH264DisableHeaders"].is_boolean()){
+				newConfig.streamFrame.nvencH264DisableHeaders = streamFrameData["nvencH264DisableHeaders"].get<bool>();
+			}
+			if(streamFrameData["nvencH264BitstreamRestriction"].is_boolean()){
+				newConfig.streamFrame.nvencH264BitstreamRestriction = streamFrameData["nvencH264BitstreamRestriction"].get<bool>();
+			}
+			if(streamFrameData["nvencH264VbvInitialDelay"].is_number_integer()){
+				newConfig.streamFrame.nvencH264VbvInitialDelay = streamFrameData["nvencH264VbvInitialDelay"].get<int>();
+			}
+			if(streamFrameData["nvencMultiPass"].is_number_integer()){
+				newConfig.streamFrame.nvencMultiPass = streamFrameData["nvencMultiPass"].get<int>();
+			}
 			if(streamFrameData["nvencPreset"].is_number()){
 				newConfig.streamFrame.nvencPreset = streamFrameData["nvencPreset"].get<int>();
 			}
@@ -1497,8 +1550,8 @@ void ConfigLoader::ParseConfig(){
 			bool nvencMigrated = false;
 			if(sf.nvencSettingsVersion < 3){
 				nvencMigrated = true;
-				if(g.customStreamFormatWidth > 2048 || g.customStreamFormatWidth < 512){ g.customStreamFormatWidth = 1536; }
-				g.force10bit = false; // profile and capability toggles retain the user's choice
+				// schema-3 preservation fix (2026-10-16): keep explicitly stored geometry; absent keys use native defaults.
+				// Preserve even retired explicit fields; absence uses native defaults.
 				sf.nvencSettingsVersion = 3;
 				DriverLog("Config: NVENC settings migrated to v3 (encoder tuning and toggles preserved); tier '%s'", g.streamQuality.c_str());
 			}
@@ -1542,7 +1595,7 @@ void ConfigLoader::ParseConfig(){
 			// version stamp back into settings.json once; the file watcher
 			// reloads it and the stamp stops this block from running again.
 			if(nvencMigrated){ migratedThisProcess = true; }
-			if(nvencMigrated && data.is_object()){
+			if(nvencMigrated && data.is_object() && sf.nvencValidationError.empty()){
 				try{
 					json &jsf = data["streamFrame"]; json &jg = data["galaxyXr"];
 					if(!jsf.is_object()){ jsf = json::object(); }
@@ -1566,7 +1619,7 @@ void ConfigLoader::ParseConfig(){
 						{"foveaTop", sf.postPack.foveaTop}, {"edgeFalloff", sf.postPack.edgeFalloff}, {"limitedRange", sf.postPack.limitedRange},
 					};
 					jg["streamQuality"] = g.streamQuality; jg["customStreamFormatWidth"] = g.customStreamFormatWidth; jg["customBandwidthMbit"] = g.customBandwidthMbit;
-					jg["force10bit"] = false; jg["profileSupports10bit"] = g.profileSupports10bit; jg["vrlinkHeadsetProfile"] = g.vrlinkHeadsetProfile;
+					jg["force10bit"] = g.force10bit; jg["profileSupports10bit"] = g.profileSupports10bit; jg["vrlinkHeadsetProfile"] = g.vrlinkHeadsetProfile;
 					configFile.close();
 					std::ofstream out(configPath, std::ios::trunc);
 					out << data.dump(2) << "\n";
@@ -1580,7 +1633,9 @@ void ConfigLoader::ParseConfig(){
 		// schema 2 (2026-09-25): retire only the old enabled compatibility
 		// default with baseline OFF. Like streamFrame schema migrations, this
 		// upgrades the runtime snapshot; Companion persists the version on save.
-		gxr::MigrateSdr10Settings(newConfig.galaxyXr);
+		gxr::MigrateSdr10Settings(newConfig.galaxyXr,
+			data.contains("galaxyXr") && data["galaxyXr"].is_object()
+			&& data["galaxyXr"].contains("profileSupports10bit"));
 		// schema-5 policy (2026-10-01): missing master is OFF; do not rewrite
 		// saved diagnostic selections or tuning. Match Companion's version stamp.
 		if(newConfig.streamFrame.streamFrameSchema < 5){
@@ -1946,6 +2001,20 @@ void ConfigLoader::WriteInfo(){
 				{"nvencForceFps", defaultSettings.streamFrame.nvencForceFps},
 				{"nvencBitrateScale", defaultSettings.streamFrame.nvencBitrateScale},
 				{"nvencVrlinkClampMbit", defaultSettings.streamFrame.nvencVrlinkClampMbit},
+				// 2026-10-16: default off written explicitly (GUI defaults parity: Generate-DriverDefaults regexes this block)
+				{"nvencFillerDataInsertion", defaultSettings.streamFrame.nvencFillerDataInsertion},
+				{"nvencH264GopFrames", defaultSettings.streamFrame.nvencH264GopFrames},
+				{"nvencH264IdrFrames", defaultSettings.streamFrame.nvencH264IdrFrames},
+				{"nvencH264RefFrames", defaultSettings.streamFrame.nvencH264RefFrames},
+				{"nvencH264Entropy", defaultSettings.streamFrame.nvencH264Entropy},
+				{"nvencH264SliceMode", defaultSettings.streamFrame.nvencH264SliceMode},
+				{"nvencH264SliceData", defaultSettings.streamFrame.nvencH264SliceData},
+				{"nvencH264Aud", defaultSettings.streamFrame.nvencH264Aud},
+				{"nvencH264RepeatHeaders", defaultSettings.streamFrame.nvencH264RepeatHeaders},
+				{"nvencH264DisableHeaders", defaultSettings.streamFrame.nvencH264DisableHeaders},
+				{"nvencH264BitstreamRestriction", defaultSettings.streamFrame.nvencH264BitstreamRestriction},
+				{"nvencH264VbvInitialDelay", defaultSettings.streamFrame.nvencH264VbvInitialDelay},
+				{"nvencMultiPass", defaultSettings.streamFrame.nvencMultiPass},
 				{"nvencPreset", defaultSettings.streamFrame.nvencPreset},
 				{"nvencPresetMerge", defaultSettings.streamFrame.nvencPresetMerge},
 				{"nvencVuiFullRange", defaultSettings.streamFrame.nvencVuiFullRange},
@@ -2083,7 +2152,18 @@ void ConfigLoader::WriteInfo(){
 	data["encoderTap"] = {{"enabled", tap.enabled}, {"hookInstalled", tap.hookInstalled},
 		{"upgradedSessionsRemain", tap.upgradedSessionsRemain},
 		{"configPath", std::filesystem::absolute(std::filesystem::u8path(GetConfigFolder() + "settings.json")).u8string()},
-		{"modulePath", modulePath}};
+		{"modulePath", modulePath}, {"pid", GetCurrentProcessId()},
+		{"observedAt", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
+		{"requestedCodec", tap.requestedCodec},
+		{"effectiveCodec", tap.effectiveCodec},
+		{"lastStatus", tap.lastStatus},
+		{"lastPictureStatus", tap.lastPictureStatus}, {"pictureError", tap.pictureError},
+		{"error", tap.error},
+		{"effectiveFiller", tap.effectiveFiller},
+		{"effectiveRateControl", tap.effectiveRateControl},
+		{"effectiveSplit", tap.effectiveSplit},
+		{"encodeWidth", tap.encodeWidth},
+		{"encodeHeight", tap.encodeHeight}};
 #endif
 	ordered_json& distortionProfilesJson = data["builtInDistortionProfiles"];
 	for(auto profilePair : builtInDistortionProfiles){
@@ -2217,10 +2297,14 @@ void ConfigLoader::WriteDiagnosticInfo(){
 }
 
 void ConfigLoader::WriteDiagnosticInfoThread(){
+	auto nextEncoderInfo = std::chrono::steady_clock::now();
 	while(started){
-		if(info.needToWrite){
+		// 2026-10-16: refresh live encoder evidence; stale files prove nothing.
+		const auto now = std::chrono::steady_clock::now();
+		if(info.needToWrite || now >= nextEncoderInfo){
 			// also handle writing info asynchronously
 			WriteInfo();
+			nextEncoderInfo = now + std::chrono::seconds(2);
 		}
 		WriteDiagnosticInfo();
 		std::this_thread::sleep_for(std::chrono::milliseconds(250));

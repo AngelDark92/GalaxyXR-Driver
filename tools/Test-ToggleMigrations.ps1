@@ -1,6 +1,8 @@
+[CmdletBinding()]
+param([switch]$NoDownload)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-. (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1')
+. (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1') -DriverOnly -NoDownload:$NoDownload
 $build = Join-Path $repo '../builds/GalaxyXR-Driver/build/toggle-migration-test'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 $source = [IO.File]::ReadAllText((Join-Path $repo 'GalaxyXRDriver/src/Config/ConfigLoader.cpp'))
@@ -15,7 +17,7 @@ $exe = Join-Path $build 'ToggleMigrationTest.exe'
 if ($LASTEXITCODE -ne 0) { throw 'Toggle migration test compilation failed.' }
 # Unique test-owned fixtures make the persisted migration marker repeatable.
 $fixtures = Join-Path $build ([Guid]::NewGuid().ToString('N'))
-foreach ($scenario in 0..19) {
+foreach ($scenario in 0..26) {
     & $exe (Join-Path $fixtures $scenario) $scenario
     if ($LASTEXITCODE -ne 0) { throw "Toggle migration scenario $scenario failed." }
 }

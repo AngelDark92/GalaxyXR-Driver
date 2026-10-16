@@ -76,12 +76,12 @@ struct PriorityShim {
 
 #include "VrlinkExtraKeysControlFlow.generated.h"
 
-void CheckOverrides(const char* label, double renderWidth = 4000) {
+void CheckOverrides(const char* label, double renderWidth = 4000, bool expectWrite = true) {
     Check(values["renderWidth"] == renderWidth, std::string(label) + ": explicit geometry wins");
     Check(values["targetBandwidth"] == 900, std::string(label) + ": explicit stream budget wins");
     Check(values["supports10bit"] == 0, std::string(label) + ": explicit profile value wins");
     Check(values.count("streamFormatWidth") == 0, std::string(label) + ": explicit removal wins");
-    Check(!calls.empty() && calls.back() == 'E', std::string(label) + ": extras applied last");
+    if(expectWrite) Check(!calls.empty() && calls.back() == 'E', std::string(label) + ": extras applied last");
 }
 
 void CheckOverlay(bool regions, bool graphs, const char* label) {
@@ -138,13 +138,13 @@ int main() {
 
     config.sdr10Baseline = true;
     calls.clear(); shim.RunFrameSettings();
-    Check(calls == "PE", "baseline ON reapplies unchanged explicit overrides");
-    CheckOverrides("profile reload");
+    Check(calls.empty(), "baseline ON retains the already effective explicit 10-bit request without rewriting");
+    CheckOverrides("profile reload", 4000, false);
 
     config.sdr10Baseline = false;
     calls.clear(); shim.RunFrameSettings();
-    Check(calls == "PE", "baseline OFF reapplies unchanged explicit overrides");
-    CheckOverrides("baseline off reload");
+    Check(calls.empty(), "baseline OFF retains the explicit 10-bit request without rewriting");
+    CheckOverrides("baseline off reload", 4000, false);
 
     config.customStreamFormatWidth = 2048;
     calls.clear(); shim.RunFrameSettings();

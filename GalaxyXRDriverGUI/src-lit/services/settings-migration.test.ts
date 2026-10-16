@@ -105,7 +105,7 @@ describe('first-load settings application', () => {
     expect(disk.attempts).toBe(1);
     const saved = JSON.parse(disk.content);
     expect(saved.galaxyXr.sdr10SettingsVersion).toBe(2);
-    expect(saved.galaxyXr.profileSupports10bit).toBe(false);
+    expect(saved.galaxyXr.profileSupports10bit ?? driverDefaults.galaxyXr!.profileSupports10bit).toBe(false);
     expect(saved.streamFrame.gamma).toBe(1.8);
     await service.loadSetting();
     await vi.advanceTimersByTimeAsync(1000);

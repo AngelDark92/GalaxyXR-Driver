@@ -49,9 +49,12 @@ loads for it — paste the full role contract into each `delegate_task` child:
   file or a full build, return `too-big.` with the missing owner instead of
   editing. Receipt: `path:line — change` plus `verified: exact check/outcome
   or limitation`."
-- **Reviewer** — `context`: "Read-only review of this diff: <git diff output>.
-  Report only concrete regressions in the changed paths and their consumers.
-  Do not run write-producing checks or edit anything. Findings:
+- **Reviewer** — `context`: "Read-only review of this diff: <inline git diff
+  output only when it is short AND free of backticks/angle brackets;
+  otherwise run the wave's git diff to the scratch dir and paste the FILE
+  path — a large diff's code fences break the delegate payload. Report only
+  concrete regressions in the changed paths and their consumers. Do not run
+  write-producing checks or edit anything. Findings:
   `path:line severity: problem. Fix direction.` plus totals; zero findings:
   `No issues.`"
 

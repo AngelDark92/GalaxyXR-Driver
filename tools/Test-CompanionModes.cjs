@@ -196,7 +196,12 @@ const writes = h => h.fixture.calls.filter(x => x.kind === 'write' && x.path ===
     assert.equal(await c.galaxy.setSdr10Baseline(false), true);
     assert.equal(c.galaxy.imageEnhancementsEnabled, false);
     assert.equal(c.dss.values().galaxyXr.profileSupports10bit, false);
-    assert.equal(JSON.parse(h.fixture.files.get(h.fixture.data + '/settings.json')).galaxyXr.profileSupports10bit, false);
+    const disk = JSON.parse(h.fixture.files.get(h.fixture.data + '/settings.json'));
+    const bundled = h.source('domain/driver-defaults').driverDefaults;
+    assert.equal(disk.galaxyXr?.profileSupports10bit ?? bundled.galaxyXr.profileSupports10bit, false,
+      'pruned compatibility OFF must remain effective through its native-derived default');
+    await c.checks.refresh();
+    assert.equal(c.dss.values().galaxyXr.profileSupports10bit, false);
     assert.equal(await c.galaxy.setImageEnhancements(true), true);
     assert.equal(c.galaxy.imageEnhancementsEnabled, true); assert.equal(c.galaxy.baselineRequested, false);
   }));

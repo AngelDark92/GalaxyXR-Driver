@@ -8,7 +8,7 @@
 // tests use minimal fakes: the constructor's effects run synchronously and
 // migrated saves are queueMicrotask'd, flushed by a macrotask await.
 import { describe, it, expect } from 'vitest';
-import { GalaxySettingsBase, applyCodecDefaults, codecEncoderDefaults } from './galaxy-settings';
+import { GalaxySettingsBase, codecEncoderDefaults } from './galaxy-settings';
 import { driverDefaults } from '../domain/driver-defaults';
 
 type Harness = {
@@ -33,7 +33,7 @@ function buildHarness(stored: Record<string, unknown> | undefined = {}, disValue
 }
 
 describe('schema migrations', () => {
-  it.each([false, true])('migrates SDR10 OFF with legacy compatibility=%s without changing tuning', async legacy10bit => {
+  it.each([false, true])('migrates SDR10 OFF preserving explicit compatibility=%s and tuning', async legacy10bit => {
     const stored = structuredClone(driverDefaults);
     stored.streamFrame!.streamFrameSchema = 5;
     stored.streamFrame!.nvencSettingsVersion = 4;
@@ -44,13 +44,42 @@ describe('schema migrations', () => {
     const { saved, flush } = buildHarness(stored);
     await flush();
     expect(stored.galaxyXr!.sdr10SettingsVersion).toBe(2);
-    expect(stored.galaxyXr!.profileSupports10bit).toBe(false);
+    expect(stored.galaxyXr!.profileSupports10bit).toBe(legacy10bit);
     expect(stored.galaxyXr!.customBandwidthMbit).toBe(177);
     expect(stored.streamFrame!.gamma).toBe(1.8);
     expect(saved.length).toBe(1);
     const reopened = buildHarness(JSON.parse(JSON.stringify(stored)));
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
+  });
+
+  it('retires only an absent SDR compatibility default after service default merging', async () => {
+    const raw: any = {
+      galaxyXr: { sdr10Baseline: false },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4 },
+    };
+    const merged = structuredClone(driverDefaults);
+    Object.assign(merged.galaxyXr!, raw.galaxyXr);
+    Object.assign(merged.streamFrame!, raw.streamFrame);
+    const { flush } = buildHarness(merged, undefined, raw);
+    await flush();
+    expect(merged.galaxyXr!.profileSupports10bit).toBe(false);
+    expect(merged.galaxyXr!.sdr10SettingsVersion).toBe(2);
+    expect(raw.galaxyXr.profileSupports10bit).toBeUndefined();
+  });
+
+  it('preserves explicit SDR compatibility true after service default merging', async () => {
+    const raw: any = {
+      galaxyXr: { sdr10Baseline: false, profileSupports10bit: true },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1 },
+    };
+    const merged = structuredClone(driverDefaults);
+    Object.assign(merged.galaxyXr!, raw.galaxyXr);
+    Object.assign(merged.streamFrame!, raw.streamFrame);
+    const { flush } = buildHarness(merged, undefined, raw);
+    await flush();
+    expect(merged.galaxyXr!.profileSupports10bit).toBe(true);
+    expect(merged.galaxyXr!.sdr10SettingsVersion).toBe(2);
   });
 
   it.each([false, true])('keeps active SDR10 and its legacy compatibility=%s during migration', async legacy10bit => {
@@ -222,6 +251,23 @@ describe('schema migrations', () => {
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
     expect(reopened.gs.settings).toMatchObject(off);
+  });
+
+  it.each([-64, 0, 3072])('preserves explicit pre-v3 tile %s for runtime validation', async tile => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, streamQuality: 'custom', customStreamFormatWidth: tile, customBandwidthMbit: 2500 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 2, nvencCodec: 1 },
+    };
+    const { gs, flush } = buildHarness(stored);
+    await flush();
+    expect(gs.galaxyXr.customStreamFormatWidth).toBe(tile);
+    expect(gs.galaxyXr.customBandwidthMbit).toBe(2500);
+    gs.save();
+    const reopened = buildHarness(JSON.parse(JSON.stringify(stored)));
+    await reopened.flush();
+    expect(reopened.gs.galaxyXr.customStreamFormatWidth).toBe(tile);
+    expect(reopened.gs.galaxyXr.customBandwidthMbit).toBe(2500);
+    expect(reopened.saved).toHaveLength(0);
   });
 
   it('fills missing legacy encoder toggle values from defaults', async () => {
@@ -583,25 +629,26 @@ describe('reset', () => {
 });
 
 describe('galaxyXr config', () => {
-  it('migrates legacy tier names to custom with the tier\'s concrete values', () => {
+  it('keeps legacy tier selections and fills only missing custom values', () => {
     const { gs } = buildHarness({ galaxyXr: { streamQuality: 'stable' } });
-    expect(gs.galaxyXr.streamQuality).toBe('custom');
+    expect(gs.galaxyXr.streamQuality).toBe('stable');
     expect(gs.galaxyXr.customStreamFormatWidth).toBe(1536);
     expect(gs.galaxyXr.customBandwidthMbit).toBe(300);
 
     const { gs: gs2 } = buildHarness({ galaxyXr: { streamQuality: 'ultra' } });
-    expect(gs2.galaxyXr.streamQuality).toBe('custom');
+    expect(gs2.galaxyXr.streamQuality).toBe('ultra');
     expect(gs2.galaxyXr.customStreamFormatWidth).toBe(2048);
     expect(gs2.galaxyXr.customBandwidthMbit).toBe(450);
 
     const { gs: gs3 } = buildHarness({ galaxyXr: { streamQuality: 'sharp' } });
-    expect(gs3.galaxyXr.streamQuality).toBe('custom');
+    expect(gs3.galaxyXr.streamQuality).toBe('sharp');
     expect(gs3.galaxyXr.customBandwidthMbit).toBe(450);
 
-    // while a tier was selected it was authoritative: a stale custom value
-    // in the file must not leak through the migration
+    // A legacy tier can remain authoritative at runtime without overwriting
+    // the user's saved values for a later explicit switch to custom.
     const { gs: gs4 } = buildHarness({ galaxyXr: { streamQuality: 'sharp', customStreamFormatWidth: 1536, customBandwidthMbit: 100 } });
-    expect(gs4.galaxyXr.customBandwidthMbit).toBe(450);
+    expect(gs4.galaxyXr.streamQuality).toBe('sharp');
+    expect(gs4.galaxyXr.customBandwidthMbit).toBe(100);
     expect(gs4.galaxyXr.customStreamFormatWidth).toBe(1536);
   });
 
@@ -754,83 +801,139 @@ describe('per-codec encoder defaults', () => {
   // each codec owns a default rate-control profile (galaxy-settings.ts):
   // HEVC/AV1 default to CBR + 2-frame VBV; H.264 to VBR + 1-frame VBV
   // (splitMode stays 1 everywhere — it also opens the 12.1 session; the
-  // tap skips the split bits for codec 1 itself). the codec switch and
-  // rows' reset arrows read this table, so the pure helpers are the
-  // subject here; each test seeds the opposite row first so the
-  // assertions prove the write actually happened.
-  it('applies the H.264 row for codec 1', () => {
-    const sf = structuredClone(driverDefaults.streamFrame!);
-    sf.nvencForceCbr = true;
-    sf.nvencVbvFrames = 2;
-    sf.nvencLowDelayKfScale = 2;
-    sf.nvencSplitMode = 3;
-    const gx: any = { customStreamFormatWidth: 2048, customBandwidthMbit: 600 };
-    applyCodecDefaults(sf, gx, 1);
-    expect(sf.nvencForceCbr).toBe(false);
-    expect(sf.nvencVbvFrames).toBe(1);
-    expect(sf.nvencLowDelayKfScale).toBe(2);
-    expect(sf.nvencSplitMode).toBe(1);
-    expect(gx.customStreamFormatWidth).toBe(1536);
-    expect(gx.customBandwidthMbit).toBe(500);
+  // tap skips the split bits for codec 1 itself). 2026-10-16 owner policy:
+  // the codec switch writes only nvencCodec — entered tile/bandwidth and
+  // encoder rows are authoritative and stay; each codec's optimized defaults
+  // surface in the Stream Frame page note and are applied only by the rows'
+  // reset arrows. The switch is simulated exactly as the page does it: set
+  // nvencCodec, then save.
+  it('switches to H.264 keeping the entered tile and bandwidth', async () => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 2048, customBandwidthMbit: 600 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0, nvencForceCbr: false, nvencVbvFrames: 9, nvencLowDelayKfScale: 3, nvencSplitMode: 2 },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0); // the load itself rewrites nothing
+    gs.settings!.nvencCodec = 1;
+    gs.save();
+    expect(gs.settings!.nvencCodec).toBe(1);
+    // the entered values stay untouched across the switch
+    expect(gs.settings!.nvencForceCbr).toBe(false);
+    expect(gs.settings!.nvencVbvFrames).toBe(9);
+    expect(gs.settings!.nvencLowDelayKfScale).toBe(3);
+    expect(gs.settings!.nvencSplitMode).toBe(2);
+    expect(gs.galaxyXr.customStreamFormatWidth).toBe(2048);
+    expect(gs.galaxyXr.customBandwidthMbit).toBe(600);
+    expect(saved).toHaveLength(1); // only the explicit switch save
+    const reopened = buildHarness(structuredClone(stored));
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
+    expect(reopened.gs.galaxyXr.customBandwidthMbit).toBe(600);
+    expect(reopened.gs.settings?.nvencForceCbr).toBe(false);
   });
 
-  it.each([[0, 350], [2, 400]])('applies the HEVC/AV1 row for codec %s', (codec, bandwidth) => {
-    const sf = structuredClone(driverDefaults.streamFrame!);
-    sf.nvencForceCbr = false;
-    sf.nvencVbvFrames = 1;
-    sf.nvencLowDelayKfScale = 2;
-    sf.nvencSplitMode = 0;
-    const gx: any = { customStreamFormatWidth: 1024, customBandwidthMbit: 600 };
-    applyCodecDefaults(sf, gx, codec);
-    expect(sf.nvencForceCbr).toBe(true);
-    expect(sf.nvencVbvFrames).toBe(2);
-    expect(sf.nvencLowDelayKfScale).toBe(2);
-    expect(sf.nvencSplitMode).toBe(1);
-    expect(gx.customStreamFormatWidth).toBe(1536);
-    expect(gx.customBandwidthMbit).toBe(bandwidth);
+  it.each([0, 2])('switches to codec %s keeping the entered tile and bandwidth', async codec => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 2048, customBandwidthMbit: 600 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1, nvencForceCbr: false, nvencVbvFrames: 1, nvencLowDelayKfScale: 3, nvencSplitMode: 2 },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0);
+    gs.settings!.nvencCodec = codec as number;
+    gs.save();
+    expect(gs.settings!.nvencCodec).toBe(codec as number);
+    // entered values — including the H.264 row the old switch used to overwrite — stay
+    expect(gs.settings!.nvencForceCbr).toBe(false);
+    expect(gs.settings!.nvencVbvFrames).toBe(1);
+    expect(gs.settings!.nvencLowDelayKfScale).toBe(3);
+    expect(gs.settings!.nvencSplitMode).toBe(2);
+    expect(gs.galaxyXr.customStreamFormatWidth).toBe(2048);
+    expect(gs.galaxyXr.customBandwidthMbit).toBe(600);
+    expect(saved).toHaveLength(1);
   });
 
-  it('falls back to the codec-0 row for an unknown codec', () => {
-    const sf = structuredClone(driverDefaults.streamFrame!);
-    sf.nvencForceCbr = false;
-    sf.nvencVbvFrames = 9;
-    sf.nvencLowDelayKfScale = 4;
-    sf.nvencSplitMode = 3;
-    const gx: any = { customStreamFormatWidth: 2048, customBandwidthMbit: 600 };
-    applyCodecDefaults(sf, gx, 7);
-    expect(sf.nvencForceCbr).toBe(true);
-    expect(sf.nvencVbvFrames).toBe(2);
-    expect(sf.nvencLowDelayKfScale).toBe(2);
-    expect(sf.nvencSplitMode).toBe(1);
-    expect(gx.customStreamFormatWidth).toBe(1536);
-    expect(gx.customBandwidthMbit).toBe(350);
+  it('changes only the codec key when a codec switch saves', () => {
+    const { gs } = buildHarness({});
+    const before = structuredClone(gs.rootSetting) as any;
+    gs.settings!.nvencCodec = 2;
+    gs.save();
+    const after = structuredClone(gs.rootSetting) as any;
+    expect(after.streamFrame.nvencCodec).toBe(2);
+    // normalize the one intended change; every other persisted key stays
+    before.streamFrame.nvencCodec = 2;
+    expect(after).toEqual(before);
   });
 
-  it('writes only the dependent keys, leaving the rest of the config untouched', () => {
-    const sf = structuredClone(driverDefaults.streamFrame!);
-    sf.nvencForceCbr = false;
-    sf.nvencVbvFrames = 9;
-    sf.nvencLowDelayKfScale = 4;
-    sf.nvencSplitMode = 3;
-    sf.nvencPreset = 7;
-    sf.nvencBitrateMbit = 123;
-    sf.gamma = 1.8;
-    sf.saturation = 42;
-    const gx: any = { customStreamFormatWidth: 2048, customBandwidthMbit: 600, renderModelScale: 1.5, streamQuality: 'custom' };
-    applyCodecDefaults(sf, gx, 2);
-    expect(sf.nvencForceCbr).toBe(true);
-    expect(sf.nvencVbvFrames).toBe(2);
-    expect(sf.nvencLowDelayKfScale).toBe(2);
-    expect(sf.nvencSplitMode).toBe(1);
-    expect(gx.customStreamFormatWidth).toBe(1536);
-    expect(gx.customBandwidthMbit).toBe(400);
-    // encoder neighbours and non-dependent keys keep their seeded values
-    expect(sf.nvencPreset).toBe(7);
-    expect(sf.nvencBitrateMbit).toBe(123);
-    expect(sf.gamma).toBe(1.8);
-    expect(sf.saturation).toBe(42);
-    expect(gx.renderModelScale).toBe(1.5);
-    expect(gx.streamQuality).toBe('custom');
+  it('preserves filler and explicit H.264 recipe across every codec switch and reopen', async () => {
+    const chosen = {
+      nvencFillerDataInsertion: true, nvencForceCbr: false,
+      nvencH264GopFrames: 144, nvencH264IdrFrames: 288, nvencH264RefFrames: 2,
+      nvencH264Entropy: 2, nvencH264SliceMode: 0, nvencH264SliceData: 12,
+      nvencH264Aud: false, nvencH264RepeatHeaders: false,
+      nvencH264DisableHeaders: true, nvencH264BitstreamRestriction: false,
+      nvencH264VbvInitialDelay: 12345, nvencMultiPass: 2,
+    };
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1, ...chosen },
+    };
+    let harness = buildHarness(stored);
+    await harness.flush();
+    expect(harness.saved).toHaveLength(0);
+    for (const codec of [0, 2, 1]) {
+      harness.gs.settings!.nvencCodec = codec;
+      harness.gs.save();
+      expect(harness.saved).toHaveLength(1);
+      const persisted = JSON.parse(JSON.stringify(harness.saved[0]));
+      expect(persisted.streamFrame).toMatchObject({ nvencCodec: codec, ...chosen });
+      harness = buildHarness(persisted);
+      await harness.flush();
+      expect(harness.saved).toHaveLength(0);
+      expect(harness.gs.settings).toMatchObject({ nvencCodec: codec, ...chosen });
+    }
+  });
+
+  it('preserves unsupported encoder inputs until runtime can report validation errors', async () => {
+    const chosen = {
+      nvencH264GopFrames: -8, nvencH264IdrFrames: -9, nvencH264RefFrames: 99,
+      nvencH264Entropy: 18, nvencH264SliceMode: 17, nvencH264SliceData: -4,
+      nvencH264VbvInitialDelay: -4, nvencMultiPass: 17, nvencSplitMode: 7,
+    };
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1, ...chosen },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0);
+    gs.save();
+    const persisted = JSON.parse(JSON.stringify(saved[0]));
+    expect(persisted.streamFrame).toMatchObject(chosen);
+    const reopened = buildHarness(persisted);
+    await reopened.flush();
+    expect(reopened.gs.settings).toMatchObject(chosen);
+    expect(reopened.saved).toHaveLength(0);
+  });
+
+  it('keeps entered tile/bandwidth and encoder rows through a codec-1 reload', async () => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 2048, customBandwidthMbit: 600 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1, nvencForceCbr: false, nvencVbvFrames: 9, nvencLowDelayKfScale: 3, nvencSplitMode: 2 },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0); // no stamp — the load rewrites nothing
+    expect(gs.galaxyXr.customStreamFormatWidth).toBe(2048);
+    expect(gs.galaxyXr.customBandwidthMbit).toBe(600);
+    expect(gs.settings?.nvencForceCbr).toBe(false);
+    expect(gs.settings?.nvencVbvFrames).toBe(9);
+    const reopened = buildHarness(structuredClone(stored));
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
+    expect(reopened.gs.galaxyXr.customBandwidthMbit).toBe(600);
+    expect(reopened.gs.settings?.nvencForceCbr).toBe(false);
   });
 
   it('keeps the defaults table internally consistent', () => {
@@ -860,29 +963,46 @@ describe('per-codec encoder defaults', () => {
 });
 
 describe('H.264 stored-profile migration', () => {
-  // a pre-wave stored codec-1 profile carries the codec-0 default shape (the
-  // codec switch never adapted it and the driver pins are gone): load stamps
-  // it to the H.264 row, persists, and is idempotent; any deviation (an
-  // explicit user choice, e.g. the CBR probe profile) stays untouched.
-  it('stamps a pre-wave H.264 profile to the H.264 row', async () => {
+  // 2026-10-16 (owner policy): the load stamp is retired — user-entered
+  // values are authoritative for every codec and nothing is rewritten
+  // silently on load. a pre-wave stored codec-1 profile carrying the
+  // codec-0 default shape (the codec switch no longer adapts it) loads as
+  // stored: the shipped codec-0-shaped values stay, and an explicit 2048
+  // tile stays too.
+  it('keeps a codec-0-shaped H.264 profile as stored (no 500 stamp); an explicit 2048 tile stays', async () => {
     const stored: any = {
-      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1 },
+      galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 1536, customBandwidthMbit: 350 },
+      streamFrame: {
+        streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1,
+        nvencForceCbr: true, nvencVbvFrames: 2, nvencLowDelayKfScale: 2, nvencSplitMode: 1,
+      },
     };
-    const { gs, flush } = buildHarness(stored);
+    const { gs, saved, flush } = buildHarness(stored);
     await flush();
-    expect(stored.streamFrame.nvencForceCbr).toBe(false);
-    expect(stored.streamFrame.nvencVbvFrames).toBe(1);
-    expect(gs.settings?.nvencForceCbr).toBe(false);
-    expect(gs.settings?.nvencVbvFrames).toBe(1);
-    expect(stored.galaxyXr.customBandwidthMbit).toBe(500);
-    expect(gs.galaxyXr.customBandwidthMbit).toBe(500);
+    expect(saved).toHaveLength(0); // the load rewrote nothing — no 500 stamp
+    expect(stored.galaxyXr.customBandwidthMbit).toBe(350);
+    expect(gs.galaxyXr.customBandwidthMbit).toBe(350);
     expect(gs.galaxyXr.customStreamFormatWidth).toBe(1536);
+    expect(gs.settings?.nvencForceCbr).toBe(true);
+    expect(gs.settings?.nvencVbvFrames).toBe(2);
+    expect(gs.settings?.nvencLowDelayKfScale).toBe(2);
+    expect(gs.settings?.nvencSplitMode).toBe(1);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
-    expect(reopened.gs.settings?.nvencForceCbr).toBe(false);
-    expect(reopened.gs.settings?.nvencVbvFrames).toBe(1);
-    expect(reopened.gs.galaxyXr.customBandwidthMbit).toBe(500);
+    expect(reopened.gs.galaxyXr.customBandwidthMbit).toBe(350);
+    expect(reopened.gs.settings?.nvencForceCbr).toBe(true);
+    // an explicit 2048 tile (and its entered bandwidth) under H.264 stays
+    const explicit: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 2048, customBandwidthMbit: 600 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1 },
+    };
+    const { gs: gsExplicit, saved: savedExplicit, flush: flushExplicit } = buildHarness(explicit);
+    await flushExplicit();
+    expect(savedExplicit).toHaveLength(0);
+    expect(gsExplicit.galaxyXr.customStreamFormatWidth).toBe(2048);
+    expect(gsExplicit.galaxyXr.customBandwidthMbit).toBe(600);
+    expect(gsExplicit.settings?.nvencCodec).toBe(1);
   });
 
   it('keeps a deviated H.264 profile untouched (explicit user choices)', async () => {
@@ -899,14 +1019,17 @@ describe('H.264 stored-profile migration', () => {
     expect(gs.galaxyXr.customBandwidthMbit).toBe(350);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();
-    expect(reopened.saved).toHaveLength(0);
+    // The first explicit getter read created a previously absent headset
+    // block. Its first reopen advances only the SDR migration marker.
+    expect(reopened.saved).toHaveLength(1);
+    expect(reopened.gs.galaxyXr.profileSupports10bit).toBe(false);
     expect(reopened.gs.settings?.nvencForceCbr).toBe(true);
+    const reopenedAgain = buildHarness(structuredClone(reopened.gs.rootSetting));
+    await reopenedAgain.flush();
+    expect(reopenedAgain.saved).toHaveLength(0);
   });
 
-  it('keeps a tier-migrated bandwidth as an explicit choice (no stamp)', async () => {
-    // streamQuality 'sharp' migrates to custom 1536/450; the 450 deviates
-    // from the codec-0 shape so the ALL-OR-NOTHING stamp must not fire:
-    // the 450 stays AND the codec-0 encoder shape stays (fill defaults)
+  it('keeps a legacy tier selection and its default bandwidth without a codec stamp', async () => {
     const stored: any = {
       galaxyXr: { streamQuality: 'sharp' },
       streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1 },
@@ -915,9 +1038,21 @@ describe('H.264 stored-profile migration', () => {
     await flush();
     expect(gs.galaxyXr.customBandwidthMbit).toBe(450);
     expect(gs.galaxyXr.customStreamFormatWidth).toBe(1536);
-    expect(gs.galaxyXr.streamQuality).toBe('custom');
+    expect(gs.galaxyXr.streamQuality).toBe('sharp');
     expect(gs.settings?.nvencForceCbr).toBe(true);
     expect(gs.settings?.nvencVbvFrames).toBe(2);
+  });
+
+  it.each(['width', 'bandwidth'] as const)('editing %s leaves the other displayed legacy-tier value unchanged', async key => {
+    const { gs, flush } = buildHarness({
+      galaxyXr: { streamQuality: 'max', customStreamFormatWidth: 1536, customBandwidthMbit: 350, sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4 }
+    });
+    await flush();
+    expect(gs.streamQualityValues).toEqual({ width: 2048, bandwidth: 450 });
+    gs.setStreamQualityValue(key, key === 'width' ? 768 : 600);
+    expect(gs.galaxyXr.streamQuality).toBe('custom');
+    expect(gs.streamQualityValues).toEqual(key === 'width' ? { width: 768, bandwidth: 450 } : { width: 2048, bandwidth: 600 });
   });
 
   it('leaves HEVC profiles untouched', async () => {

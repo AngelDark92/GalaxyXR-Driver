@@ -564,6 +564,51 @@ fn default_native_identity(config:&mut Value)->Result<()> {
     Ok(())
 }
 
+// 2026-10-16: first-install vrlink SteamVR seed. The values mirror the GalaxyXR
+// nativeResolution/streamQuality defaults in GalaxyXRDriver/src/Config/Config.h
+// (streamQuality "custom": customEncodeWidth, customStreamFormatWidth,
+// customBandwidthMbit) and src/Headsets/GalaxyXR.cpp (kGalaxyXrRenderWidth/
+// kGalaxyXrRenderHeight, capability min/max = tile width, automatics off),
+// so the FIRST stream after a fresh install already has them. They are
+// duplicated here because install must run before the driver does; the
+// driver's early-apply corrects any later drift on difference
+// (SetInt32IfDifferent). Seeding only ever goes through apply_changes so each
+// key records a present:false baseline (key absent before install) and
+// uninstall removes exactly what install introduced. Never write the settings
+// JSON directly for these keys.
+const VRLINK_SEED_RENDER_WIDTH: i64 = 3552;
+const VRLINK_SEED_RENDER_HEIGHT: i64 = 3840;
+const VRLINK_SEED_ENCODE_WIDTH: i64 = 3072;
+const VRLINK_SEED_STREAM_FORMAT_WIDTH: i64 = 1536;
+const VRLINK_SEED_BANDWIDTH_MBIT: i64 = 350;
+const VRLINK_SEED_TUNING_SECTIONS: [&str; 4] = ["driver_vrlink", "vrlink_xrvst2ue", "vrlink_Oculus Quest Pro", "vrlink_PICO 4 Pro"];
+const VRLINK_SEED_CAPABILITY_SECTIONS: [&str; 3] = ["vrlink_xrvst2ue", "vrlink_Oculus Quest Pro", "vrlink_PICO 4 Pro"];
+
+fn seed_vrlink_defaults(ctx: &Context) -> Result<()> {
+    let tuning: [(&str, Value); 12] = [
+        ("renderWidth", json!(VRLINK_SEED_RENDER_WIDTH)), ("renderHeight", json!(VRLINK_SEED_RENDER_HEIGHT)),
+        ("overrideRenderWidth", json!(VRLINK_SEED_RENDER_WIDTH)), ("overrideRenderHeight", json!(VRLINK_SEED_RENDER_HEIGHT)),
+        ("encodeWidth", json!(VRLINK_SEED_ENCODE_WIDTH)), ("streamFormatWidth", json!(VRLINK_SEED_STREAM_FORMAT_WIDTH)),
+        ("automaticStreamFormatWidth", json!(false)), ("automaticBandwidth", json!(false)),
+        ("recommendedBandwidthMbit", json!(VRLINK_SEED_BANDWIDTH_MBIT)), ("targetBandwidth", json!(VRLINK_SEED_BANDWIDTH_MBIT)),
+        ("debugRegionColoring", json!(false)), ("showAdvancedGraphs", json!(false)),
+    ];
+    let capability: [(&str, Value); 7] = [
+        ("supports10bit", json!(false)),
+        ("recommendedRenderWidth", json!(VRLINK_SEED_RENDER_WIDTH)), ("recommendedRenderHeight", json!(VRLINK_SEED_RENDER_HEIGHT)),
+        ("minStreamFormatWidth", json!(VRLINK_SEED_STREAM_FORMAT_WIDTH)), ("maxStreamFormatWidth", json!(VRLINK_SEED_STREAM_FORMAT_WIDTH)),
+        ("minNonFoveatedStreamFormatWidth", json!(VRLINK_SEED_STREAM_FORMAT_WIDTH)), ("maxNonFoveatedStreamFormatWidth", json!(VRLINK_SEED_STREAM_FORMAT_WIDTH)),
+    ];
+    let mut changes = Vec::new();
+    for &(key, ref value) in tuning.iter() {
+        for section in VRLINK_SEED_TUNING_SECTIONS { changes.push(SettingChange { section: section.into(), key: key.into(), present: true, value: value.clone() }); }
+    }
+    for &(key, ref value) in capability.iter() {
+        for section in VRLINK_SEED_CAPABILITY_SECTIONS { changes.push(SettingChange { section: section.into(), key: key.into(), present: true, value: value.clone() }); }
+    }
+    apply_changes(ctx, changes)
+}
+
 #[tauri::command]
 pub fn register_galaxyxr_driver(steamvr_path: String, driver_path: String) -> Result<InstallReport> {
     let _guard = platform::Lock::acquire()?;
@@ -592,6 +637,14 @@ fn install_driver(ctx:&Context,source:&Path,exe:&Path,mut register:impl FnMut(&P
         || (!ctx.journal().exists() && !previous.is_empty()) || journal["legacy"].as_bool().unwrap_or(false);
     journal["legacy"]=json!(legacy);
     let config_path=ctx.data.join("settings.json");
+    // 2026-10-16: the vrlink defaults are seeded only on a pristine first
+    // install: no GUI settings.json, and no prior-install evidence (receipt,
+    // journal, or legacy/previous packages) that existing user tuning could
+    // be present on either side. Those non-pristine states self-heal at the
+    // driver's first SteamVR start (early-apply writes on difference).
+    // Capture this before any data-dir write (receipt/config) can create
+    // the file.
+    let fresh_install=!config_path.exists() && receipt.is_none() && !ctx.journal().exists() && !legacy;
     let mut config=read_settings(&config_path)?;
     if legacy && journal.get("legacyKeys").is_none() {
         record_legacy_keys(&mut journal,&read_settings(&ctx.settings)?,&config,previous.iter().any(|p|fork_kind(p).ok().flatten()==Some(true)))?;
@@ -643,6 +696,10 @@ fn install_driver(ctx:&Context,source:&Path,exe:&Path,mut register:impl FnMut(&P
             SettingChange { section:"driver_GalaxyXRNative".into(),key:"enable".into(),present:true,value:json!(true) },
             SettingChange { section:"driver_GalaxyXRNative".into(),key:"blocked_by_safe_mode".into(),present:false,value:Value::Null },
         ])?;
+        // Second apply_changes: on a first install, seed the vrlink defaults
+        // (see seed_vrlink_defaults); a failure here aborts and rolls back
+        // the whole install transaction.
+        if fresh_install { seed_vrlink_defaults(ctx)?; }
         atomic_json(&ctx.receipt(),&json!({"schema":2,"driver":DRIVER,"packages":packages,"sourcePaths":sources,"legacyDetected":legacy,"retirements":retirements}))
     })();
     if let Err(e)=install {
@@ -1100,6 +1157,11 @@ mod tests {
         let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
         let original=legacy_identity();
         atomic_json(&f.ctx.settings,&json!({"vrlink_Oculus Quest Pro":original,"vrlink_xrvst2":{}})).unwrap();
+        // 2026-10-16: an existing GUI settings.json suppresses the fresh-install
+        // vrlink default seed, keeping this scenario focused on identity
+        // restore; seeded defaults would otherwise collide with the settings
+        // rewrite below as unrecorded external changes.
+        atomic_json(&f.ctx.data.join("settings.json"),&json!({})).unwrap();
         install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         let mut changes=original.as_object().unwrap().keys()
             .map(|key|change("vrlink_Oculus Quest Pro",key,None)).collect::<Vec<_>>();
@@ -1223,6 +1285,59 @@ mod tests {
         assert_eq!(read_settings(&f.ctx.settings).unwrap(),baseline);
         assert!(!f.ctx.data.join("settings.json").exists());
         assert!(f.ctx.registrations().unwrap().is_empty());
+    }
+    #[test]
+    fn fresh_install_seeds_vrlink_defaults_with_absent_baselines() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let settings=read_settings(&f.ctx.settings).unwrap();
+        for (key,value) in [("renderWidth",json!(3552)),("overrideRenderHeight",json!(3840)),("encodeWidth",json!(3072)),
+            ("streamFormatWidth",json!(1536)),("automaticBandwidth",json!(false)),("targetBandwidth",json!(350))] {
+            assert_eq!(settings["driver_vrlink"][key],value,"driver_vrlink.{key}");
+        }
+        for section in VRLINK_SEED_TUNING_SECTIONS { assert_eq!(settings[section]["renderWidth"],3552,"{section}.renderWidth"); }
+        assert_eq!(settings["vrlink_Oculus Quest Pro"]["supports10bit"],false);
+        assert_eq!(settings["vrlink_Oculus Quest Pro"]["maxStreamFormatWidth"],1536);
+        for section in VRLINK_SEED_CAPABILITY_SECTIONS { assert_eq!(settings[section]["minStreamFormatWidth"],1536,"{section}.minStreamFormatWidth"); }
+        let journal=load_journal(&f.ctx).unwrap();
+        assert_eq!(journal["entries"]["driver_vrlink"]["renderWidth"]["present"],false);
+        assert_eq!(journal["entries"]["driver_vrlink"]["renderWidth"]["lastValue"],3552);
+        assert_eq!(journal["entries"]["vrlink_Oculus Quest Pro"]["supports10bit"]["present"],false);
+        assert_eq!(journal["entries"]["vrlink_Oculus Quest Pro"]["maxStreamFormatWidth"]["present"],false);
+        assert_eq!(journal["entries"]["vrlink_PICO 4 Pro"]["targetBandwidth"]["lastPresent"],true);
+    }
+    #[test]
+    fn existing_settings_json_suppresses_install_vrlink_seeding() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        atomic_json(&f.ctx.data.join("settings.json"),&json!({"other":17})).unwrap();
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let settings=read_settings(&f.ctx.settings).unwrap();
+        assert!(settings.get("driver_vrlink").is_none());
+        for section in VRLINK_SEED_TUNING_SECTIONS { assert!(settings.get(section).is_none(),"{section}"); }
+        assert_eq!(settings["driver_GalaxyXRNative"]["enable"],true);
+    }
+    #[test]
+    fn prior_journal_evidence_suppresses_install_vrlink_seeding() {
+        // 2026-10-16: a missing GUI settings.json with a surviving installation
+        // journal means prior-install evidence on the machine; user tuning may
+        // exist on either side, so the fresh-install seed must not run.
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        atomic_json(&f.ctx.journal(),&json!({"schema":1,"driver":DRIVER,"settingsPath":f.ctx.settings,"legacy":false,"sectionPresence":{},"entries":{}})).unwrap();
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let settings=read_settings(&f.ctx.settings).unwrap();
+        assert!(settings.get("driver_vrlink").is_none());
+        for section in VRLINK_SEED_TUNING_SECTIONS { assert!(settings.get(section).is_none(),"{section}"); }
+        assert_eq!(settings["driver_GalaxyXRNative"]["enable"],true);
+    }
+    #[test]
+    fn uninstall_removes_fresh_install_seeded_vrlink_keys() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let report=uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert_eq!(report.outcome,"complete");assert!(report.warnings.is_empty());
+        let settings=read_settings(&f.ctx.settings).unwrap();
+        for section in VRLINK_SEED_TUNING_SECTIONS { assert!(settings.get(section).is_none(),"{section}"); }
+        assert_eq!(settings,json!({}));
     }
     #[test]
     fn legacy_encoder_extras_need_recorded_ownership_not_just_matching_values() {

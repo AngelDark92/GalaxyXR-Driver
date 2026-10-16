@@ -27,6 +27,20 @@ user tuning and journal-owned SteamVR settings intact. New GUI strings use
 `t(...)` and the source XLIFF catalog. A settings meaning change needs both C++
 and TypeScript migrations which upgrade exact old defaults only.
 
+## No silent settings (owner policy, 2026-10-16)
+
+A user-entered setting is authoritative. Never silently coerce, clamp
+per-codec, or replace an entered value with a default — not in driver runtime
+code, not in caps/NVENC overrides, not in GUI state on codec switch, not in
+load-time stamps. Per-codec optimized defaults are presentation: the UI shows
+them and an explicit reset/apply control applies them (see the codec-aware
+reset arrows on Stream Frame). When driver/device capability would force a
+different outcome, honor the user value or fail loudly — driver log line plus
+honest UI state — never downgrade in place. Dated, versioned migrations remain
+the only permitted silent rewrites and cover never-set values only. Any new
+override path needs its visibility story (log + UI surface) as part of the
+same change.
+
 Use focused local checks. Full builds run on GitHub unless the user explicitly
 requests a local full build or a concrete build issue requires one. Report static,
 fixture, compilation, CI and runtime evidence separately. A runtime claim needs

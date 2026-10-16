@@ -5,6 +5,8 @@
 #include "Config/SdrColorPolicy.h"
 #include "Config/VrlinkSettingsRouting.h"
 #include "Config/SteamVRSettingsJournal.h"
+#include "Config/StreamTiers.h"
+#include <atomic>
 #include <iostream>
 
 Config driverConfig;
@@ -57,16 +59,15 @@ struct FakeSettings {
     }
 };
 FakeSettings* TestSettings() { static FakeSettings api; return &api; }
-int GalaxyXR_EffectiveTileWidth() { return driverConfig.galaxyXr.customStreamFormatWidth; }
+struct { bool done=false; } pathProbe;
 gxr::Sdr10BaselinePolicy ResolveSdr10PolicyLocked() { return gxr::ResolveSdr10Policy(driverConfig); }
 void ApplyNativeResolutionSetting() {}
-void ApplyStreamQualitySetting() {}
 #include "Startup.generated.h"
 
 void Reset(bool profile,int original) {
     driverConfig=Config{};
     driverConfig.galaxyXr.vrlinkHeadsetProfile=profile;
-    driverConfig.galaxyXr.profileSupports10bit=true;
+    driverConfig.galaxyXr.profileSupports10bit=false;
     settings=Json::object();
     journal={{"schema",1},{"driver","GalaxyXRNative"},{"entries",Json::object()}};
     writes=0;
@@ -83,6 +84,9 @@ void CheckOriginal(const std::vector<std::string>& sections,int original,const s
 constexpr const char* kOverlayKeys[]={"debugRegionColoring","showAdvancedGraphs"};
 void ResetOverlay(bool profile,int regionsOriginal,int graphsOriginal) {
     Reset(profile,-1);
+    // Overlay-specific cases exercise the control with its Debug Mode
+    // prerequisite enabled; the separate master-OFF case checks the gate.
+    driverConfig.debugMode=true;
     const int originals[]={regionsOriginal,graphsOriginal};
     for(const auto& section:gxr::VrlinkTuningSections(true)) for(int key=0;key<2;++key)
         if(originals[key]>=0) settings[section][kOverlayKeys[key]]=(originals[key]!=0);
@@ -97,7 +101,102 @@ void CheckOverlay(const std::vector<std::string>& sections,int regions,int graph
     CheckKeyOriginal(sections,kOverlayKeys[0],regions,label);
     CheckKeyOriginal(sections,kOverlayKeys[1],graphs,label);
 }
+void CheckInt(const std::vector<std::string>& sections,const char* key,int value,const std::string& label) {
+    for(const auto& section:sections)
+        Check(settings.contains(section)&&settings[section].contains(key)&&settings[section][key]==value,
+            label+" "+section+"."+key);
+}
+void GeometryRequests() {
+    constexpr const char* bounds[]={"minStreamFormatWidth","maxStreamFormatWidth",
+        "minNonFoveatedStreamFormatWidth","maxNonFoveatedStreamFormatWidth"};
+    for(bool profile:{false,true}) for(int codec:{0,1,2}) for(int tile:{768,3072}) {
+        Reset(profile,-1);
+        auto& config=driverConfig.galaxyXr;
+        config.streamQuality="custom";
+        config.customStreamFormatWidth=tile;
+        config.customBandwidthMbit=2500;
+        config.customEncodeWidth=9001;
+        driverConfig.streamFrame.nvencCodec=codec;
+        Check(GalaxyXR_EffectiveTileWidth()==tile,"requested tile survives resolver for every codec");
+        Check(GalaxyXR_EffectiveBandwidthMbit()==2500,"requested bandwidth above old ceiling survives resolver");
+        GalaxyXR_EarlyApplyVrlinkSettings();
+        const auto tuning=gxr::VrlinkTuningSections(profile);
+        CheckInt(tuning,"streamFormatWidth",tile,"requested tile reaches SteamVR IO");
+        CheckInt(tuning,"encodeWidth",9001,"custom encode width above old ceiling survives");
+        CheckInt(tuning,"targetBandwidth",2500,"requested bandwidth reaches pacer");
+        CheckInt(tuning,"recommendedBandwidthMbit",2500,"requested bandwidth recommendation stays identical");
+        // Baseline owns profile enable; the route still follows the saved
+        // profile switch. These profile keys describe a request, not GPU caps.
+        driverConfig.galaxyXr.sdr10Baseline=true;
+        ApplyHeadsetProfileSetting("",ResolveSdr10PolicyLocked());
+        for(const char* key:bounds)
+            CheckInt(gxr::VrlinkCapabilitySections(profile,""),key,tile,"fixed profile bounds match requested tile");
+
+        driverConfig.streamFrame.nvencBandwidthOverrideMbit=3001;
+        ApplyStreamQualitySetting();
+        CheckInt(tuning,"targetBandwidth",3001,"Advanced bandwidth overrides normal request without clamp");
+        driverConfig.streamFrame.nvencBandwidthOverrideMbit=-7;
+        Check(GalaxyXR_EffectiveBandwidthMbit()==-7,"invalid negative override reaches validator unchanged");
+        ApplyStreamQualitySetting();
+        CheckInt(tuning,"targetBandwidth",-7,"invalid override is never replaced by a default in writer");
+        driverConfig.streamFrame.nvencBandwidthOverrideMbit=0;
+        Check(GalaxyXR_EffectiveBandwidthMbit()==2500,"zero disables Advanced override only");
+    }
+
+    // The old value-list restoration missed arbitrary prior requests when
+    // the saved values changed at the same time as leaving custom mode.
+    Reset(true,-1);
+    auto& config=driverConfig.galaxyXr;
+    config.streamQuality="custom";
+    config.customStreamFormatWidth=3073;
+    config.customBandwidthMbit=2511;
+    config.customEncodeWidth=9001;
+    const auto tuning=gxr::VrlinkTuningSections(true);
+    for(const auto& section:tuning) settings[section]["streamFormatWidth"]=1234;
+    ApplyStreamQualitySetting();
+    config.streamQuality="unknown";
+    config.customStreamFormatWidth=768;
+    config.customBandwidthMbit=600;
+    config.customEncodeWidth=1200;
+    ApplyStreamQualitySetting();
+    CheckInt(tuning,"streamFormatWidth",1234,"leaving mode restores original arbitrary width");
+    for(const auto& section:tuning)
+        Check(!settings[section].contains("targetBandwidth"),"leaving mode removes only owned bandwidth");
+
+    // A simultaneous profile-disable/tile change restores the previous
+    // requested bounds. A subsequent external edit remains user-owned.
+    Reset(true,-1);
+    config.customStreamFormatWidth=3073;
+    const auto capabilities=gxr::VrlinkCapabilitySections(true,"");
+    for(const auto& section:capabilities) for(const char* key:bounds) settings[section][key]=1234;
+    auto policy=ResolveSdr10PolicyLocked(); policy.profileEnabled=true;
+    ApplyHeadsetProfileSetting("",policy);
+    for(const auto& section:capabilities) settings[section]["minStreamFormatWidth"]=2222;
+    config.customStreamFormatWidth=768;
+    policy.profileEnabled=false;
+    ApplyHeadsetProfileSetting("",policy);
+    CheckInt(capabilities,"minStreamFormatWidth",2222,"profile restore preserves external edit");
+    for(const char* key:{"maxStreamFormatWidth","minNonFoveatedStreamFormatWidth","maxNonFoveatedStreamFormatWidth"})
+        CheckInt(capabilities,key,1234,"profile disable restores old arbitrary bounds after tile change");
+}
 int main() {
+    for(bool profile : {false, true}) {
+        Reset(profile, -1);
+        driverConfig.galaxyXr.profileSupports10bit = true;
+        driverConfig.galaxyXr.sdr10Baseline = false;
+        GalaxyXR_EarlyApplyVrlinkSettings();
+        CheckValue(gxr::VrlinkCapabilitySections(profile, ""), true,
+            "explicit 10-bit compatibility request remains effective with baseline OFF");
+    }
+    GeometryRequests();
+    for(bool profile:{false,true}) {
+        ResetOverlay(profile,1,1);
+        driverConfig.debugMode=false;
+        driverConfig.galaxyXr.vrlinkDebugOverlay=true;
+        driverConfig.galaxyXr.vrlinkExtraKeys={{"debugRegionColoring",'b',1.0},{"showAdvancedGraphs",'b',1.0}};
+        GalaxyXR_EarlyApplyVrlinkSettings();
+        CheckOverlay(gxr::VrlinkTuningSections(profile),0,0,"Debug Mode OFF gates stored overlay requests");
+    }
     // Cold-start and ON -> OFF, all identity routes, legacy stored true,
     // original absent/false/true, idempotence and uninstall restoration.
     for(bool profile:{false,true}) for(int original:{-1,0,1}) {

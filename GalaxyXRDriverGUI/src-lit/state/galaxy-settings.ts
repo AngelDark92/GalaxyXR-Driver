@@ -36,8 +36,11 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // SteamFrame recipe the driver used to pin in code (VBR + 1-frame VBV).
 // splitMode stays 1 for H.264 too: the key also opens the API 12.1 session the
 // tap's verified H.264 path runs on, and the tap itself skips the split bits
-// for codec 1. The codec switch and the dependent rows' reset arrows read this
-// table; the global defaults stay untouched. 2026-10-16: the dependent set
+// for codec 1. The dependent rows' reset arrows and the Stream Frame page's
+// per-codec note read this table; the global defaults stay untouched.
+// 2026-10-16 (owner policy): the table is no longer applied on codec switch —
+// only the codec changes; the optimized defaults are visible in the page's
+// note and applied only by the reset arrows. 2026-10-16: the dependent set
 // also carries each codec's default Tile Width and Bandwidth (owner-set:
 // HEVC 1536/350, H.264 1536/500, AV1 1536/400); the codec-0 row's tile and
 // bandwidth must stay pinned to the GENERATED driver defaults.
@@ -46,18 +49,6 @@ export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames
   1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 500 },
   2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 400 },
 };
-
-export function applyCodecDefaults(streamFrame: StreamFrameConfig, galaxyXr: GalaxyXrConfig | undefined, codec: number): void {
-  const d = codecEncoderDefaults[codec] ?? codecEncoderDefaults[0];
-  streamFrame.nvencForceCbr = d.forceCbr;
-  streamFrame.nvencVbvFrames = d.vbvFrames;
-  streamFrame.nvencLowDelayKfScale = d.lowDelayKfScale;
-  streamFrame.nvencSplitMode = d.splitMode;
-  if (galaxyXr) {
-    galaxyXr.customStreamFormatWidth = d.streamFormatWidth;
-    galaxyXr.customBandwidthMbit = d.bandwidthMbit;
-  }
-}
 
 function zeroHandOffsets(): HandOffsets {
   return {
@@ -172,11 +163,14 @@ export class GalaxySettingsBase {
       // save or reset clears the error; otherwise a read-only file loops forever.
       const canMigrate = !this.dss.inspecting && !this.dss.writeFileError?.();
       if (this.rootSetting) {
-        // schema 2 (2026-09-25): mirrors MigrateSdr10Settings in the driver.
-        // Only retire the old enabled compatibility default with baseline OFF.
+        // schema-2 migration (2026-09-25), preservation fix (2026-10-16):
+        // retire only an absent compatibility default with baseline OFF.
+        // The service has already merged defaults, so inspect stored presence.
         const rawGalaxy = this.rootSetting.galaxyXr;
+        const storedSettings = this.dss.storedValues?.() as Settings | undefined;
+        const storedGalaxy = storedSettings === undefined ? rawGalaxy : storedSettings.galaxyXr;
         if (rawGalaxy && canMigrate && (rawGalaxy.sdr10SettingsVersion ?? 1) < 2) {
-          if (!rawGalaxy.sdr10Baseline && (rawGalaxy.profileSupports10bit ?? true)) {
+          if (!rawGalaxy.sdr10Baseline && storedGalaxy?.profileSupports10bit === undefined) {
             rawGalaxy.profileSupports10bit = false;
           }
           rawGalaxy.sdr10SettingsVersion = 2;
@@ -253,15 +247,10 @@ export class GalaxySettingsBase {
         }
         // NVENC settings v3 (2026-09-05), preservation fix (2026-09-26):
         // absent keys receive defaults through normal loading/fillDefaults.
-        // Direct upgrades retain supported scalar tuning and toggle choices;
-        // only the retired force10bit field and invalid tile widths migrate.
+        // Direct upgrades retain scalar tuning and toggle choices, including
+        // out-of-range tile widths; capability errors must be surfaced instead.
         if (rawSf && canMigrate && (rawSf.nvencSettingsVersion ?? 0) < 3) {
           rawSf.nvencSettingsVersion = 3;
-          const g = this.rootSetting.galaxyXr as any;
-          if (g) {
-            if (g.customStreamFormatWidth === undefined || g.customStreamFormatWidth > 2048 || g.customStreamFormatWidth < 512) { g.customStreamFormatWidth = 1536; }
-            g.force10bit = false;
-          }
           queueMicrotask(() => this.save());
         }
         // v4 (2026-09-05): post-pack CAS replaces the pre-encode CAS when the
@@ -317,38 +306,11 @@ export class GalaxySettingsBase {
           queueMicrotask(() => this.save());
         }
         this.rootSetting.streamFrame = fillDefaults(this.rootSetting.streamFrame, defaultStreamFrame());
-        // 2026-10-15 per-codec defaults: a stored H.264 profile still carrying
-        // the exact codec-0 default shape (pre-wave profiles were never
-        // adapted, and the driver's codec-1 pins are gone from this build on)
-        // is stamped to the H.264 row. Any deviation from the shape is an
-        // explicit user choice and stays — the shape guard also makes this
-        // idempotent without a version key.
-        const sfCodec = this.rootSetting.streamFrame;
-        if (sfCodec?.nvencCodec === 1) {
-          // via the getter: fills defaults + the tier migration first, so a
-          // legacy tier selection has already resolved to its concrete values
-          // (an explicit 450 stays a deviation and blocks the stamp)
-          const gxStamp = this.galaxyXr;
-          // a getter-created block is current-schema; mirror the sdr10 load
-          // migration's retirement so the version mark does not permanently
-          // skip it, then stamp the version so the migration cannot re-fire
-          // after the stamp persists it
-          if (gxStamp.sdr10SettingsVersion === undefined) {
-            if (!gxStamp.sdr10Baseline && (gxStamp.profileSupports10bit ?? true)) { gxStamp.profileSupports10bit = false; }
-            gxStamp.sdr10SettingsVersion = 2;
-          }
-          const g = codecEncoderDefaults[0];
-          if (sfCodec.nvencForceCbr === g.forceCbr && sfCodec.nvencVbvFrames === g.vbvFrames
-            && sfCodec.nvencLowDelayKfScale === g.lowDelayKfScale && sfCodec.nvencSplitMode === g.splitMode
-            && gxStamp.customStreamFormatWidth === g.streamFormatWidth
-            && gxStamp.customBandwidthMbit === g.bandwidthMbit) {
-            const h = codecEncoderDefaults[1];
-            sfCodec.nvencForceCbr = h.forceCbr;
-            sfCodec.nvencVbvFrames = h.vbvFrames;
-            gxStamp.customBandwidthMbit = h.bandwidthMbit;
-            if (canMigrate) queueMicrotask(() => this.save());
-          }
-        }
+        // 2026-10-16 (owner policy): the per-codec load stamp is retired —
+        // user-entered values are authoritative for every codec, so nothing
+        // in this load path rewrites stored tile/bandwidth or encoder rows;
+        // the optimized defaults live in codecEncoderDefaults and are applied
+        // only through the page's per-field reset arrows.
         this.rootSetting.controllers = fillDefaults(this.rootSetting.controllers, defaultControllers());
         this.controllerSettings = this.rootSetting.controllers;
         if (this.controllerSettings && this.controllerSettings.mirrorOffsetsForRightHand === undefined) {
@@ -449,6 +411,26 @@ export class GalaxySettingsBase {
 
   // Galaxy XR native identity (vendor builds only; page hides it otherwise)
   vendor = vendor;
+  setStreamQualityValue(key: 'width' | 'bandwidth', value: number): void {
+    // Explicitly leaving a legacy tier keeps the other displayed value.
+    const shown = this.streamQualityValues;
+    const g = this.galaxyXr;
+    g.streamQuality = 'custom';
+    g.customStreamFormatWidth = key === 'width' ? value : shown.width;
+    g.customBandwidthMbit = key === 'bandwidth' ? value : shown.bandwidth;
+  }
+
+  get streamQualityValues(): { width: number; bandwidth: number } {
+    const g = this.galaxyXr;
+    const aliases: Record<string, string> = { stable: 'efficient', quality: 'balanced', default: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
+    const tiers: Record<string, { width: number; bandwidth: number }> = {
+      efficient: { width: 1536, bandwidth: 300 }, balanced: { width: 1536, bandwidth: 350 },
+      vivid: { width: 1536, bandwidth: 400 }, sharp: { width: 1536, bandwidth: 450 }, max: { width: 2048, bandwidth: 450 }
+    };
+    return tiers[aliases[g.streamQuality ?? ''] ?? g.streamQuality ?? '']
+      ?? { width: g.customStreamFormatWidth ?? 1536, bandwidth: g.customBandwidthMbit ?? 350 };
+  }
+
   get galaxyXr(): GalaxyXrConfig {
     if (this.rootSetting) {
       if (!this.rootSetting.galaxyXr) {
@@ -520,37 +502,24 @@ export class GalaxySettingsBase {
       if (this.rootSetting.galaxyXr.customEncodeWidth === undefined) {
         this.rootSetting.galaxyXr.customEncodeWidth = 3072;
       }
-      // streamFormatWidth now tracks customEncodeWidth (2026-08-26); the old
-      // separate field is kept in the file only so the driver can clean the
-      // legacy value out of steamvr.vrsettings
+      // 2026-10-16 preservation fix: keep legacy tier selection and every
+      // explicit custom value. Missing fields can display the selected tier's
+      // defaults; merely reading settings must never convert the stored mode.
+      const gx = this.rootSetting.galaxyXr;
+      const legacyName: Record<string, string> = { stable: 'efficient', quality: 'balanced', default: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
+      const tier = legacyName[gx.streamQuality ?? 'custom'] ?? gx.streamQuality ?? 'custom';
+      const tierValues: Record<string, { width: number; bandwidth: number }> = {
+        efficient: { width: 1536, bandwidth: 300 },
+        balanced: { width: 1536, bandwidth: 350 },
+        vivid: { width: 1536, bandwidth: 400 },
+        sharp: { width: 1536, bandwidth: 450 },
+        max: { width: 2048, bandwidth: 450 }
+      };
       if (this.rootSetting.galaxyXr.customStreamFormatWidth === undefined) {
-        this.rootSetting.galaxyXr.customStreamFormatWidth = 1536; // v3: the tile, not the (inert) encode width
+        this.rootSetting.galaxyXr.customStreamFormatWidth = tierValues[tier]?.width ?? 1536;
       }
       if (this.rootSetting.galaxyXr.customBandwidthMbit === undefined) {
-        this.rootSetting.galaxyXr.customBandwidthMbit = 350;
-      }
-      // 2026-10-16: the Stream Quality preset selector is gone; Tile Width
-      // and Bandwidth are the setting. Legacy v1/v2/v3 tier names migrate to
-      // their concrete values as an explicit user choice - never silently to
-      // defaults (the tier was authoritative while selected, so its values
-      // overwrite any stale custom tile/bandwidth left in the file).
-      {
-        const gx = this.rootSetting.galaxyXr;
-        const legacyName: Record<string, string> = { stable: 'efficient', quality: 'balanced', default: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
-        const q = gx.streamQuality ?? 'custom';
-        const tier = legacyName[q] ?? q;
-        const tierValues: Record<string, { width: number; bandwidth: number }> = {
-          efficient: { width: 1536, bandwidth: 300 },
-          balanced: { width: 1536, bandwidth: 350 },
-          vivid: { width: 1536, bandwidth: 400 },
-          sharp: { width: 1536, bandwidth: 450 },
-          max: { width: 2048, bandwidth: 450 }
-        };
-        if (tierValues[tier]) {
-          gx.streamQuality = 'custom';
-          gx.customStreamFormatWidth = tierValues[tier].width;
-          gx.customBandwidthMbit = tierValues[tier].bandwidth;
-        }
+        this.rootSetting.galaxyXr.customBandwidthMbit = tierValues[tier]?.bandwidth ?? 350;
       }
       if (this.rootSetting.galaxyXr.customStreamFormatWidthOverride === undefined) {
         this.rootSetting.galaxyXr.customStreamFormatWidthOverride = 0;
@@ -565,7 +534,7 @@ export class GalaxySettingsBase {
         this.rootSetting.galaxyXr.profileMaxStreamFormatWidth = 3200;
       }
       if (this.rootSetting.galaxyXr.profileSupports10bit === undefined) {
-        this.rootSetting.galaxyXr.profileSupports10bit = true;
+        this.rootSetting.galaxyXr.profileSupports10bit = false;
       }
       if (this.rootSetting.galaxyXr.force10bit === undefined) {
         this.rootSetting.galaxyXr.force10bit = false;

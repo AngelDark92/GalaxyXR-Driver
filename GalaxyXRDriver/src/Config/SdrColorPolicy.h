@@ -34,9 +34,11 @@ namespace gxr{
 // schema 2 (2026-09-25): the baseline switch now owns the capability request.
 // Retire only the old enabled compatibility default when the baseline is off;
 // preserve explicit false, active baselines, advanced overrides and all tuning.
-inline bool MigrateSdr10Settings(GalaxyXrConfig &config){
+inline bool MigrateSdr10Settings(GalaxyXrConfig &config, bool profileWasStored = true){
 	if(config.sdr10SettingsVersion >= 2){ return false; }
-	if(!config.sdr10Baseline && config.profileSupports10bit){ config.profileSupports10bit = false; }
+	// schema-2 preservation fix (2026-10-16): only never-set compatibility
+	// values may receive the legacy OFF default. Explicit true is tuning.
+	if(!profileWasStored && !config.sdr10Baseline){ config.profileSupports10bit = false; }
 	config.sdr10SettingsVersion = 2;
 	return true;
 }
@@ -108,7 +110,7 @@ inline Sdr10BaselinePolicy ResolveSdr10Policy(const Config &config){
 	// 2026-09-25: OFF must not inherit the old hidden profileSupports10bit=true.
 	if(!p.active){
 		p.profileEnabled = config.galaxyXr.vrlinkHeadsetProfile;
-		p.profileSupports10bit = false;
+		p.profileSupports10bit = config.galaxyXr.profileSupports10bit;
 	}
 	p.saturation = config.streamFrame.saturation;
 	p.vibrance = config.streamFrame.vibrance;

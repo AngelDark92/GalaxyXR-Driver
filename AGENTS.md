@@ -68,6 +68,7 @@ The vendor build shares `%APPDATA%/GalaxyXR/CustomHeadset/` between GUI and driv
 5. Never edit `ThirdParty/`; new code/dependencies must remain GPLv2-compatible.
 6. New user-visible strings use `t(...)` and `GalaxyXRDriverGUI/src/locale/messages.xlf`. Do not hand-edit `zh-Hant` / `ja` translations unless requested.
 7. Static source/package checks establish only what they actually test. Runtime claims need fresh matching process/module/build evidence; a saved `info.json` or old capture does not establish current runtime behavior.
+8. No silent settings (owner policy, 2026-10-16): a user-entered setting is never silently coerced, clamped per-codec, or replaced by a default — neither by driver runtime code, caps/NVENC overrides, GUI state on codec change, nor load-time stamps. Per-codec optimized defaults are presentation only: shown by the UI and applied through an explicit reset/apply control. Where a driver/device capability forces an outcome, the change is visible (driver log plus honest UI state) and a capability-forced failure is surfaced, not downgraded in place. Dated, versioned migrations remain the only permitted rewrites and cover never-set values only.
 
 ## Change routing
 
