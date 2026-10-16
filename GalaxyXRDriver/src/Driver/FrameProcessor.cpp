@@ -1714,8 +1714,10 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	// 2026-10-13 stream codec override (0 HEVC default / 1 H.264 / 2 AV1)
 	tc.codec = settings.config.nvencCodec;
 	// 2026-10-16: publish the effective tile with the config, resolved under
-	// driverConfigLock here like the pacer bandwidth below; the caps shim
-	// answers its H.264 width limits from this published copy
+	// driverConfigLock here like the pacer bandwidth below. Caps queries use
+	// real per-codec NVENC limits; only the explicit H.264 8-bit input-class
+	// probe is answered by the shim. Geometry mismatches are refused visibly
+	// by ValidateRequest under enforceTile, never smoothed by fabricated caps.
 	tc.effectiveTileWidth = GalaxyXR_EffectiveTileWidth();
 #ifdef VENDOR_GALAXYXR
 	// Reject upstream negotiation that silently substitutes a smaller stream.
@@ -1731,9 +1733,6 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	tc.forceFps = settings.config.nvencForceFps;
 	tc.bitrateScale = settings.config.nvencBitrateScale;
 	tc.vrlinkClampMbit = settings.config.nvencVrlinkClampMbit;
-	// 2026-10-16: user filler-data knob; every effective application logs
-	// in NvencTap's what buffer (H.264 pin/lift, HEVC lift, AV1 never)
-	tc.fillerData = settings.config.nvencFillerDataInsertion;
 	tc.requestError = settings.config.nvencValidationError;
 	if(tc.bitrateMbit <= 0){ tc.requestError = "Requested streaming bandwidth must be a positive integer."; }
 	tc.h264GopFrames = settings.config.nvencH264GopFrames;
@@ -1750,14 +1749,12 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	tc.multiPass = settings.config.nvencMultiPass;
 	tc.preset = settings.config.nvencPreset;
 	tc.presetMerge = settings.config.nvencPresetMerge;
-	// the post-pack limited-range remap needs the VUI full-range flag
-	// cleared so the decoder expands 16..235 back; it overrides the
-	// (graveyard) manual VUI value. 2026-09-19 SDR10 baseline: the
-	// enable and the VUI pair are EFFECTIVE values — the baseline
-	// bypasses post-pack and leaves Valve's original pixel/metadata
-	// pair untouched (all -1)
-	// 2026-10-16: preserve explicit metadata requests. The tap validates
-	// pixel/range conflicts and reports them instead of replacing user values.
+	// 2026-09-19 SDR10 baseline: the enable and the VUI pair are EFFECTIVE
+	// values — the baseline bypasses post-pack and leaves Valve's original
+	// pixel/metadata pair untouched (all -1).
+	// 2026-10-16: manual metadata is published unchanged; when post-pack runs
+	// with a conflicting range, the pair is delivered as-is and the tap
+	// refuses the request visibly instead of replacing user values.
 	tc.vuiFullRange = settings.config.nvencVuiFullRange;
 	tc.vuiMatrix = settings.config.nvencVuiMatrix;
 	tc.vuiPrimaries = settings.config.nvencVuiPrimaries;

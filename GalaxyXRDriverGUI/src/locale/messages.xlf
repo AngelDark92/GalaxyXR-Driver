@@ -947,7 +947,7 @@
         <source>Checking…</source>
       </trans-unit>
       <trans-unit id="fluent-fix-db71f02ee461e9e9" datatype="html">
-        <source>Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). Switching keeps your entered Tile Width and Bandwidth; each codec's optimized defaults are shown right below and restored with the per-field reset arrows. Requires a SteamVR restart and reconnect.</source>
+        <source>Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Requires a SteamVR restart and reconnect.</source>
       </trans-unit>
       <trans-unit id="fluent-fix-6b73191a0a4b6742" datatype="html">
         <source>Color</source>
@@ -1113,9 +1113,6 @@
       </trans-unit>
       <trans-unit id="fluent-fix-50009ce1da4d15e1" datatype="html">
         <source>File</source>
-      </trans-unit>
-      <trans-unit id="fluent-fix-08711f028e88a495" datatype="html">
-        <source>Pad Bitrate on Easy Scenes</source>
       </trans-unit>
       <trans-unit id="fluent-fix-f48fa919756aaf6a" datatype="html">
         <source>Fixation Dot (VOR probe)</source>
@@ -2496,10 +2493,7 @@ An encoder already created with the tap can retain its earlier parameters and AP
         <source>Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is shown with the codec defaults; H.264 recommends Off.</source>
       </trans-unit>
       <trans-unit id="encoder-controls-20261016-3" datatype="html">
-        <source>On requests filler insertion; Off disables it for H.264 and HEVC. Filler requires actual CBR rate control and a nonzero frame rate. Force CBR may be off when upstream already uses CBR. Unsupported combinations report an encoder error. AV1 has no filler switch. The saved choice survives codec changes.</source>
-      </trans-unit>
-      <trans-unit id="encoder-controls-20261016-4" datatype="html">
-        <source>0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.</source>
+        <source>0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.</source>
       </trans-unit>
       <trans-unit id="encoder-controls-20261016-5" datatype="html">
         <source>Preset merge adopts canonical preset settings. Explicit multipass and H.264 controls below remain authoritative. Automatic multipass uses the tested H.264 single-pass default or the HEVC/AV1 preset recommendation.</source>
@@ -2561,23 +2555,11 @@ An encoder already created with the tap can retain its earlier parameters and AP
       <trans-unit id="encoder-controls-20261016-24" datatype="html">
         <source>Encoder Multipass</source>
       </trans-unit>
-      <trans-unit id="encoder-controls-20261016-25" datatype="html">
-        <source>NVENC has no AV1 filler knob. Its saved value is kept.</source>
-      </trans-unit>
-      <trans-unit id="encoder-controls-20261016-26" datatype="html">
-        <source>Optimized defaults: Tile {tile}; Bitrate {bandwidth} Mbit/s; Force CBR {cbr}; Frame Size Cap {vbv} frames; Keyframe Size Budget {keyframe}; Multi-Engine Encoding {split}. Reset arrows apply these values.</source>
-      </trans-unit>
-      <trans-unit id="encoder-controls-20261016-27" datatype="html">
-        <source>Codec changes preserve all tuning. Unsupported requests fail with an encoder error; hardware limits are not replaced by defaults.</source>
-      </trans-unit>
-      <trans-unit id="encoder-controls-20261016-28" datatype="html">
-        <source>Waiting for fresh encoder evidence from the verified driver process.</source>
-      </trans-unit>
       <trans-unit id="encoder-controls-20261016-29" datatype="html">
         <source>Encoder request failed</source>
       </trans-unit>
       <trans-unit id="encoder-controls-20261016-30" datatype="html">
-        <source>Latest accepted encoder: {codec}; {width} × {height}; filler {filler}; rate control {rc}; split {split}.</source>
+        <source>Latest accepted encoder: {codec}; {width} × {height}; rate control {rc}; split {split}.</source>
       </trans-unit>
       <trans-unit id="encoder-controls-20261016-31" datatype="html">
         <source>Not applicable</source>
@@ -2604,8 +2586,11 @@ An encoder already created with the tap can retain its earlier parameters and AP
       <trans-unit id="encoder-controls-20261016-39" datatype="html"><source>Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.</source></trans-unit>
       <trans-unit id="encoder-controls-20261016-40" datatype="html"><source>With Force CBR, set the key-frame to P-frame budget ratio (0–255, NVENC byte field). The optimized recommendation is 2. Unsupported requests fail without rewriting the value.</source></trans-unit>
       <trans-unit id="encoder-controls-20261016-41" datatype="html"><source>Select H.264 to edit this setting. Its saved value is kept.</source></trans-unit>
+      <trans-unit id="encoder-controls-20261016-42" datatype="html"><source>{key} must be {range}; the entered value is kept until corrected.</source></trans-unit>
+      <trans-unit id="encoder-controls-20261016-43" datatype="html"><source>{key} must be a whole number ({range}); the entered value is kept until corrected.</source></trans-unit>
+      <trans-unit id="encoder-controls-20261016-44" datatype="html"><source>Last observed encoder rejection, {seconds} seconds ago: {error}</source></trans-unit>
       <trans-unit id="3883825347" datatype="html">
-        <source>0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.
+        <source>0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.
 
 Value: streamFrame.nvencSplitMode (settings.json). Encoder side — multi-engine split; nonzero opens the API 12.1 encoder session.</source>
       </trans-unit>
@@ -2902,7 +2887,7 @@ The brightness level from 0 to 100 percent of white that the contrast pivots aro
 Value: streamFrame.contrastMidpoint (settings.json). Driver side — the brightness pivot of the contrast curve.</source>
       </trans-unit>
       <trans-unit id="969013015" datatype="html">
-        <source>Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). Switching keeps your entered Tile Width and Bandwidth; each codec's optimized defaults are shown right below and restored with the per-field reset arrows. Requires a SteamVR restart and reconnect.
+        <source>Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Requires a SteamVR restart and reconnect.
 
 Value: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.</source>
       </trans-unit>
@@ -3159,11 +3144,6 @@ Value: streamFrame.alignment.rightV (settings.json). Driver side — vertical pr
       </trans-unit>
       <trans-unit id="2266992629" datatype="html">
         <source>Multi-Engine Encoding</source>
-      </trans-unit>
-      <trans-unit id="4152331969" datatype="html">
-        <source>On requests filler insertion; Off disables it for H.264 and HEVC. Filler requires actual CBR rate control and a nonzero frame rate. Force CBR may be off when upstream already uses CBR. Unsupported combinations report an encoder error. AV1 has no filler switch. The saved choice survives codec changes.
-
-Value: streamFrame.nvencFillerDataInsertion (settings.json). Encoder side — inserts filler data to hold CBR pacing; CBR-only, no AV1 knob.</source>
       </trans-unit>
       <trans-unit id="805317965" datatype="html">
         <source>Override only the encoder's bitrate budget. This does not automatically change network pacing, so mismatched values can cause problems.

@@ -85,26 +85,22 @@ describe('human-readable settings inspection', () => {
     expect(reason('advanceMode')).toBeUndefined();
   });
 
-  it('allows filler with upstream CBR and gates only codec and tap without changing saved values', () => {
-    const c = context();
-    const reason = (id: string) => settingUnavailable(settingPresentation(id)!, c);
-    const before = structuredClone(c);
-    c.settings.streamFrame!.nvencCodec = 0;
-    expect(reason('streamFrame.nvencFillerDataInsertion')).toBeUndefined();
-    c.settings.streamFrame!.nvencCodec = 2;
-    expect(reason('streamFrame.nvencFillerDataInsertion')).toBe('NVENC has no AV1 filler knob. Its saved value is kept.');
-    c.settings.streamFrame!.nvencCodec = 0;
-    c.settings.streamFrame!.nvencForceCbr = false;
-    expect(reason('streamFrame.nvencFillerDataInsertion')).toBeUndefined();
-    c.settings.streamFrame!.nvencCodec = 1;
-    expect(reason('streamFrame.nvencFillerDataInsertion')).toBeUndefined();
-    c.settings.streamFrame!.nvencCodec = 0;
-    // the gate override keeps the encoder group's NVENC Tap prerequisite
-    c.settings.streamFrame!.nvencForceCbr = true;
-    c.settings.streamFrame!.nvencTap = false;
-    expect(reason('streamFrame.nvencFillerDataInsertion')).toMatch(/NVENC Tap is off/);
-    c.settings.streamFrame!.nvencTap = true;
-    expect(c).toEqual(before);
+  it('removes the retired filler-data switch from catalog, page source and catalog strings', () => {
+    // Owner directive 2026-10-16: the nvencFillerDataInsertion knob is gone
+    // from the GUI entirely; reintroducing any of these would silently
+    // resurrect a switched-off knob. The DriverInfo evidence type and the
+    // page's evidence row lost their filler segment with it.
+    const catalogText = readFileSync(new URL('./settings-presentation.ts', import.meta.url), 'utf8');
+    const pageText = readFileSync(new URL('../features/stream-frame-page.ts', import.meta.url), 'utf8');
+    const defaultsText = readFileSync(new URL('./driver-defaults.ts', import.meta.url), 'utf8');
+    const typesText = readFileSync(new URL('./types.ts', import.meta.url), 'utf8');
+    const xlf = readFileSync(new URL('../../src/locale/messages.xlf', import.meta.url), 'utf8');
+    for (const text of [catalogText, pageText, defaultsText, typesText, xlf]) {
+      expect(text.includes('nvencFillerDataInsertion')).toBe(false);
+      expect(text.includes('Filler')).toBe(false);
+      expect(text.includes('filler')).toBe(false);
+    }
+    expect(SETTINGS_PRESENTATION.some(setting => setting.id.includes('Filler'))).toBe(false);
   });
 
   it('keeps target IDs stable when the display locale changes', () => {

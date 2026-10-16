@@ -837,13 +837,6 @@ struct StreamFrameConfig{
 	bool nvencBitrateScale = true;
 	// vrlink's own encoder ceiling (reference for the scaling), settings.json only
 	int nvencVrlinkClampMbit = 350;
-	// 2026-10-16: owner-added NVENC filler-data knob. enableFillerData-
-	// Insertion bits exist for H.264 and HEVC (ThirdParty/nvenc/
-	// nvEncodeAPI.h lines 1849 and 1953), effective only under CBR with
-	// nonzero fps; AV1 has no such API bit (row hidden in the GUI).
-	// default off preserves current behavior (the H.264 recipe keeps
-	// pinning 0, HEVC keeps the streamer's own value).
-	bool nvencFillerDataInsertion = false;
 	std::string nvencValidationError; // Transient parse error, never persisted as a setting.
 	// 2026-10-16: explicit H.264 compatibility controls. Defaults retain the
 	// tested recipe; entered values are never replaced with that recipe.

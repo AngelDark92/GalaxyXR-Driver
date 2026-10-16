@@ -9,8 +9,8 @@ import { css } from 'lit';
 import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionHeading, sectionGroup, fieldStyles } from './page-base';
 import { t } from '../locale/i18n';
 import { pageIntro, statusMessage } from '../ui/presentation';
-import { encoderTapStatus, encoderEvidence } from '../domain/encoder-tap-status';
-import { codecEncoderDefaults } from '../state/galaxy-settings';
+import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
+import { codecEncoderDefaults, streamFrameIntegerError } from '../state/galaxy-settings';
 import '../ui/controls';
 import './driver-banner';
 import './system-ready';
@@ -19,17 +19,41 @@ import './system-ready';
 export class StreamFramePage extends BasePage {
   private runtimeTimer?: ReturnType<typeof setTimeout>;
   private runtimeExpiryTimer?: ReturnType<typeof setTimeout>;
+  private evidenceExpiryTimer?: ReturnType<typeof setTimeout>;
   private runtimeUnsub?: () => void;
+  private evidenceUnsub?: () => void;
   private readonly onVisibilityChange = () => this.requestUpdate();
   private pollGeneration = 0;
+  private readonly streamNumberErrors = new Map<string, string>();
+  // 2026-10-16: inline per-key validation for app-number rows (the driver
+  // contract in streamFrameIntegerError). The entered value is kept and
+  // saved exactly as typed; the error row names the key and its accepted
+  // range until a valid value is entered. Nothing is rounded or replaced.
+  private noteNumberError(key: string, value: number | undefined, context?: { forceCbr: boolean }): void {
+    const error = streamFrameIntegerError(key, value, context);
+    if (error) this.streamNumberErrors.set(key, error); else this.streamNumberErrors.delete(key);
+    this.requestUpdate();
+  }
+  private numberErrorRow(key: string): TemplateResult {
+    const message = this.streamNumberErrors.get(key);
+    return message ? noteRow(html`${message}`) : html``;
+  }
   private updateRuntimeEvidence(): void {
     this.requestUpdate();
     if (this.runtimeExpiryTimer !== undefined) clearTimeout(this.runtimeExpiryTimer);
+    if (this.evidenceExpiryTimer !== undefined) clearTimeout(this.evidenceExpiryTimer);
     const checkedAt = this.ctx.startup.status()?.checkedAt;
     // Expire evidence independently: an unresolved native poll cannot keep
     // the previous confirmed-OFF badge alive indefinitely (2026-09-30).
     if (checkedAt !== undefined) this.runtimeExpiryTimer = setTimeout(() => this.requestUpdate(),
       Math.max(0, checkedAt + 5001 - Date.now()));
+    // Expired encoder evidence triggers a real refresh of the runtime status
+    // (2026-10-16), not merely a waiting re-render: the rejection keeps its
+    // age on screen until a newer observation replaces it.
+    const observedAt = this.ctx.dis.values()?.encoderTap?.observedAt;
+    if (observedAt !== undefined) this.evidenceExpiryTimer = setTimeout(() => {
+      if (document.visibilityState !== 'hidden') void this.ctx.startup.refresh().then(() => this.requestUpdate());
+    }, Math.max(0, observedAt + 5001 - Date.now()));
   }
   private async pollRuntime(generation: number): Promise<void> {
     if (!this.isConnected || generation !== this.pollGeneration) return;
@@ -41,6 +65,7 @@ export class StreamFramePage extends BasePage {
   connectedCallback(): void {
     super.connectedCallback();
     this.runtimeUnsub = this.ctx.startup.status.subscribe(() => this.updateRuntimeEvidence());
+    this.evidenceUnsub = this.ctx.dis.values.subscribe(() => this.updateRuntimeEvidence());
     this.updateRuntimeEvidence();
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     void this.pollRuntime(++this.pollGeneration);
@@ -49,8 +74,10 @@ export class StreamFramePage extends BasePage {
     ++this.pollGeneration;
     if (this.runtimeTimer !== undefined) clearTimeout(this.runtimeTimer);
     if (this.runtimeExpiryTimer !== undefined) clearTimeout(this.runtimeExpiryTimer);
+    if (this.evidenceExpiryTimer !== undefined) clearTimeout(this.evidenceExpiryTimer);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.runtimeUnsub?.();
+    this.evidenceUnsub?.();
     super.disconnectedCallback();
   }
   private async restoreEncoder(): Promise<void> {
@@ -86,6 +113,46 @@ export class StreamFramePage extends BasePage {
     const galaxyXr = galaxy.galaxyXr;
     const sections = galaxy.sections();
     const save = () => { galaxy.save(); this.requestUpdate(); };
+    // 2026-10-16: heal stale inline errors each render — programmatic writes
+    // (codec switches, reset arrows) can satisfy an earlier recorded error,
+    // and Force CBR moves the keyframe-scale contract with itself.
+    if (settings) {
+      const context = { forceCbr: !!settings.nvencForceCbr };
+      const contractValues: Record<string, number | undefined> = {
+        'galaxyXr.customStreamFormatWidth': galaxy.streamQualityValues.width,
+        'galaxyXr.customBandwidthMbit': galaxy.streamQualityValues.bandwidth,
+        'streamFrame.nvencBandwidthOverrideMbit': settings.nvencBandwidthOverrideMbit,
+        'streamFrame.nvencBitrateMbit': settings.nvencBitrateMbit,
+        'streamFrame.nvencMaxBitrateHeadroomPct': settings.nvencMaxBitrateHeadroomPct,
+        'streamFrame.nvencForceFps': settings.nvencForceFps,
+        'streamFrame.nvencVbvFrames': settings.nvencVbvFrames,
+        'streamFrame.nvencAqStrength': settings.nvencAqStrength,
+        'streamFrame.nvencLowDelayKfScale': settings.nvencLowDelayKfScale,
+        'streamFrame.nvencPreset': settings.nvencPreset,
+        'streamFrame.nvencMultiPass': settings.nvencMultiPass,
+        'streamFrame.nvencSplitMode': settings.nvencSplitMode,
+        'streamFrame.nvencMaxQp': settings.nvencMaxQp,
+        'streamFrame.nvencMinQp': settings.nvencMinQp,
+        'streamFrame.nvencMinQpIntra': settings.nvencMinQpIntra,
+        'streamFrame.nvencQpFovea': settings.nvencQpFovea,
+        'streamFrame.nvencQpPeriphery': settings.nvencQpPeriphery,
+        'streamFrame.nvencH264GopFrames': settings.nvencH264GopFrames,
+        'streamFrame.nvencH264IdrFrames': settings.nvencH264IdrFrames,
+        'streamFrame.nvencH264RefFrames': settings.nvencH264RefFrames,
+        'streamFrame.nvencH264Entropy': settings.nvencH264Entropy,
+        'streamFrame.nvencH264SliceMode': settings.nvencH264SliceMode,
+        'streamFrame.nvencH264SliceData': settings.nvencH264SliceData,
+        'streamFrame.nvencH264VbvInitialDelay': settings.nvencH264VbvInitialDelay,
+        'streamFrame.nvencVuiFullRange': settings.nvencVuiFullRange,
+        'streamFrame.nvencVuiMatrix': settings.nvencVuiMatrix,
+        'streamFrame.nvencVuiPrimaries': settings.nvencVuiPrimaries,
+        'streamFrame.nvencVuiTransfer': settings.nvencVuiTransfer,
+      };
+      for (const [key, value] of Object.entries(contractValues)) {
+        const error = streamFrameIntegerError(key, value, context);
+        if (error) this.streamNumberErrors.set(key, error); else this.streamNumberErrors.delete(key);
+      }
+    }
     const parts: TemplateResult[] = [pageIntro(t('Image Settings'), t('Stream quality, color, and sharpening.'))];
 if (settings) {
       parts.push(html`<app-driver-enable-banner .ctx=${this.ctx}></app-driver-enable-banner>`);
@@ -97,21 +164,19 @@ if (vendor) {
         const codecDef = codecEncoderDefaults[settings.nvencCodec ?? 0] ?? codecEncoderDefaults[0];
         parts.push(sectionHeading(t('Stream Quality'), 0, 'stream-quality'));
           parts.push(fieldRow(t('Tile Width'), html`
-      <app-number .value=${galaxy.streamQualityValues.width} step="1" min="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxy.setStreamQualityValue('width', e.detail); } save(); }}></app-number>
+      <app-number .value=${galaxy.streamQualityValues.width} step="1" min="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxy.setStreamQualityValue('width', e.detail); } this.noteNumberError('galaxyXr.customStreamFormatWidth', e.detail); save(); }}></app-number>
           `, {
   tip: t("Tile width is sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. Requires a SteamVR restart.\n\nValue: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap's tile answers."),
   reset: { can: galaxy.streamQualityValues.width != codecDef.streamFormatWidth, on: () => { galaxy.setStreamQualityValue('width', codecDef.streamFormatWidth); save(); } }
           }));
+          parts.push(this.numberErrorRow('galaxyXr.customStreamFormatWidth'));
           parts.push(fieldRow(t('Bitrate (Mbit/s)'), html`
-      <app-number .value=${galaxy.streamQualityValues.bandwidth} step="1" min="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxy.setStreamQualityValue('bandwidth', e.detail); } save(); }}></app-number>
+      <app-number .value=${galaxy.streamQualityValues.bandwidth} step="1" min="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxy.setStreamQualityValue('bandwidth', e.detail); } this.noteNumberError('galaxyXr.customBandwidthMbit', e.detail); save(); }}></app-number>
           `, {
   tip: t("Streaming bandwidth budget, written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally.\n\nHEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; used as the encoder bitrate."),
   reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
           }));
-        parts.push(noteRow(html`${t('Optimized defaults: Tile {tile}; Bitrate {bandwidth} Mbit/s; Force CBR {cbr}; Frame Size Cap {vbv} frames; Keyframe Size Budget {keyframe}; Multi-Engine Encoding {split}. Reset arrows apply these values.', {
-          tile: codecDef.streamFormatWidth, bandwidth: codecDef.bandwidthMbit, cbr: t(codecDef.forceCbr ? 'On' : 'Off'),
-          vbv: codecDef.vbvFrames, keyframe: codecDef.lowDelayKfScale, split: codecDef.splitMode })}`));
-        parts.push(noteRow(html`${t('Codec changes preserve all tuning. Unsupported requests fail with an encoder error; hardware limits are not replaced by defaults.')}`));
+          parts.push(this.numberErrorRow('galaxyXr.customBandwidthMbit'));
         if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
             || !Number.isInteger(galaxy.streamQualityValues.bandwidth) || galaxy.streamQualityValues.bandwidth <= 0) {
           parts.push(statusMessage('error', t('Invalid stream setting'), t('Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.')));
@@ -119,14 +184,24 @@ if (vendor) {
         const evidence = encoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
         if (settings.nvencTap) {
           const names = ['HEVC', 'H.264', 'AV1'];
-          if (!evidence) parts.push(noteRow(html`${t('Waiting for fresh encoder evidence from the verified driver process.')}`));
-          else {
+          if (evidence) {
             if (evidence.error || evidence.pictureError) parts.push(statusMessage('error', t('Encoder request failed'), evidence.error || evidence.pictureError || ''));
-            parts.push(noteRow(html`${t('Latest accepted encoder: {codec}; {width} × {height}; filler {filler}; rate control {rc}; split {split}.', {
+            parts.push(noteRow(html`${t('Latest accepted encoder: {codec}; {width} × {height}; rate control {rc}; split {split}.', {
               codec: names[evidence.effectiveCodec ?? -1] ?? t('Unknown'), width: evidence.encodeWidth ?? 0, height: evidence.encodeHeight ?? 0,
-              filler: evidence.effectiveFiller === 1 ? t('On') : evidence.effectiveFiller === 0 ? t('Off') : t('Unknown'),
               rc: evidence.effectiveRateControl === 2 ? 'CBR' : evidence.effectiveRateControl === 1 ? 'VBR' : t('Unknown'),
               split: evidence.effectiveSplit === -1 ? t('Not applicable') : evidence.effectiveSplit ?? t('Unknown') })}`));
+          } else {
+            // Expiry (2026-10-16): the last rejection of the verified process
+            // stays visible with its age; it must never appear as merely
+            // waiting. updateRuntimeEvidence also schedules the real status
+            // refresh that replaces this snapshot.
+            const expired = expiredEncoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
+            const refusal = expired?.tap.error || expired?.tap.pictureError;
+            if (refusal) {
+              parts.push(statusMessage('error', t('Encoder request failed'),
+                t('Last observed encoder rejection, {seconds} seconds ago: {error}',
+                  { seconds: Math.max(0, Math.floor((expired!.ageMs ?? 0) / 1000)), error: refusal || '' })));
+            }
           }
         }
         parts.push(settingFieldRow('streamFrame.nvencTap', html`
@@ -136,9 +211,9 @@ if (vendor) {
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
         parts.push(settingFieldRow('streamFrame.nvencCodec', html`
-      <app-select ?disabled=${!settings.nvencTap} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; save(); }}></app-select>
+      <app-select ?disabled=${!settings.nvencTap} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1' }]} @change=${(e: CustomEvent) => { const codec = e.detail; if (codec !== settings.nvencCodec) { settings.nvencCodec = codec; galaxy.applyCodecEncoderDefaults(codec); } this.requestUpdate(); }}></app-select>
             `, {
-  tip: t("Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). Switching keeps your entered Tile Width and Bandwidth; each codec's optimized defaults are shown right below and restored with the per-field reset arrows. Requires a SteamVR restart and reconnect.\n\nValue: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.")
+  tip: t("Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Requires a SteamVR restart and reconnect.\n\nValue: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.")
             }));
         if (!settings.nvencTap) {
           parts.push(noteRow(html`Requires the NVENC Tap — enable it above to choose a codec. With the tap off the codec choice is saved but not applied.`));
@@ -381,37 +456,32 @@ if (vendor && settings.nvencTap) {
 if (settings.nvencTap) {
   const codecDef = codecEncoderDefaults[settings.nvencCodec ?? 0] ?? codecEncoderDefaults[0];
                 parts.push(fieldRow(t('Bandwidth Override (Mbit/s)'), html`
-      <app-number .value=${settings.nvencBandwidthOverrideMbit} step="25" min="0" max="600" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBandwidthOverrideMbit = e.detail; } save(); }}></app-number>
+      <app-number .value=${settings.nvencBandwidthOverrideMbit} step="25" min="0" max="600" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBandwidthOverrideMbit = e.detail; } this.noteNumberError('streamFrame.nvencBandwidthOverrideMbit', e.detail); save(); }}></app-number>
                 `, {
   tip: t("Override the normal stream bandwidth budget. 0 follows the Bitrate row above instead of forcing a separate value.\n\n0 uses the Tile Width and Bandwidth settings. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the Bandwidth row's value.\n\nValue: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — nonzero writes the network pacer and the encoder bitrate, replacing the Bitrate row."),
   reset: { can: settings.nvencBandwidthOverrideMbit != defaults.nvencBandwidthOverrideMbit, on: () => { galaxy.reset('nvencBandwidthOverrideMbit'); } }
                 }));
+                parts.push(this.numberErrorRow('streamFrame.nvencBandwidthOverrideMbit'));
                 parts.push(fieldRow(t('Frame Size Cap'), html`
-      <app-number .value=${settings.nvencVbvFrames} step="1" min="0" max="30" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVbvFrames = e.detail; } save(); }}></app-number>
+      <app-number .value=${settings.nvencVbvFrames} step="1" min="0" max="30" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVbvFrames = e.detail; } this.noteNumberError('streamFrame.nvencVbvFrames', e.detail); save(); }}></app-number>
                 `, {
   tip: t("Set how much video the encoder may buffer. A smaller buffer can reduce delay but makes sudden complex scenes harder to encode cleanly.\n\nVBV = average bitrate per frame times this, which bounds how large any single frame can be. 2 caps vegetation peaks and reset key frames at about two frame budgets, far below the streamer's 2 MB send limit. 0 leaves the streamer's value.\n\nValue: streamFrame.nvencVbvFrames (settings.json). Encoder side — VBV buffer sized as frame budgets; caps single-frame size."),
   reset: { can: settings.nvencVbvFrames != codecDef.vbvFrames, on: () => { settings.nvencVbvFrames = codecDef.vbvFrames; save(); } }
                 }));
+                parts.push(this.numberErrorRow('streamFrame.nvencVbvFrames'));
                 parts.push(fieldRow(t('Encoder Quality Preset'), html`
-      <app-number .value=${settings.nvencPreset} step="1" min="0" max="7" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencPreset = e.detail; } save(); }}></app-number>
+      <app-number .value=${settings.nvencPreset} step="1" min="0" max="7" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencPreset = e.detail; } this.noteNumberError('streamFrame.nvencPreset', e.detail); save(); }}></app-number>
                 `, {
   tip: t("Choose the NVIDIA encoding preset. Keep automatic selection unless you are testing a specific quality or latency trade-off.\n\n0 = automatic by NVENC engine count (3 engines: P7, 2: P5, 1: P4; logged as 'preset AUTO'). Higher presets spend more encoder time for better quality at the same bitrate; P7 needs the split across three engines to hold 90 fps. Auto resolves to P2 for H.264 (P7/P5/P4 by engine count otherwise).\n\nValue: streamFrame.nvencPreset (settings.json). Encoder side — NVENC preset selector; 0 = automatic by engine count."),
   reset: { can: settings.nvencPreset != defaults.nvencPreset, on: () => { galaxy.reset('nvencPreset'); } }
                 }));
+                parts.push(this.numberErrorRow('streamFrame.nvencPreset'));
                 parts.push(settingFieldRow('streamFrame.nvencForceCbr', html`
       <app-switch .checked=${!!settings.nvencForceCbr} @change=${(e: CustomEvent) => { settings.nvencForceCbr = e.detail; save(); }}></app-switch>
                 `, {
   tip: t("Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is shown with the codec defaults; H.264 recommends Off.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."),
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
-                if (settings.nvencCodec !== 2) {
-                parts.push(settingFieldRow('streamFrame.nvencFillerDataInsertion', html`
-      <app-switch .checked=${!!settings.nvencFillerDataInsertion} @change=${(e: CustomEvent) => { settings.nvencFillerDataInsertion = e.detail; save(); }}></app-switch>
-                `, {
-  tip: t("On requests filler insertion; Off disables it for H.264 and HEVC. Filler requires actual CBR rate control and a nonzero frame rate. Force CBR may be off when upstream already uses CBR. Unsupported combinations report an encoder error. AV1 has no filler switch. The saved choice survives codec changes.\n\nValue: streamFrame.nvencFillerDataInsertion (settings.json). Encoder side — inserts filler data to hold CBR pacing; CBR-only, no AV1 knob."),
-  reset: { can: !!settings.nvencFillerDataInsertion, on: () => { galaxy.reset('nvencFillerDataInsertion'); } }
-                }));
-                }
                 parts.push(settingFieldRow('streamFrame.nvencMultiPass', html`
                   <app-select .value=${settings.nvencMultiPass ?? -1} .options=${[
                     { value: -1, label: t('Automatic (codec / preset)') }, { value: 0, label: t('Single pass') },
@@ -423,32 +493,39 @@ if (settings.nvencTap) {
                   parts.push(noteRow(html`${t('H.264 compatibility defaults are editable below. Reset arrows restore the tested values. Split-Frame is not applicable to H.264; its saved choice is retained.')}`));
                   parts.push(settingFieldRow('streamFrame.nvencH264GopFrames', html`
                     <app-number .value=${settings.nvencH264GopFrames ?? defaults.nvencH264GopFrames} step="1"
-                      @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencH264GopFrames = e.detail; save(); } }}></app-number>
+                      @change=${(e: CustomEvent) => { this.noteNumberError('streamFrame.nvencH264GopFrames', e.detail); if (e.detail !== undefined) { settings.nvencH264GopFrames = e.detail; save(); } }}></app-number>
                   `, { tip: t("0 = automatic nominal frame rate; -1 = leave upstream GOP unchanged. Positive values are applied exactly."), reset: { can: settings.nvencH264GopFrames !== defaults.nvencH264GopFrames, on: () => galaxy.reset('nvencH264GopFrames') } }));
+                  parts.push(this.numberErrorRow('streamFrame.nvencH264GopFrames'));
                   parts.push(settingFieldRow('streamFrame.nvencH264IdrFrames', html`
                     <app-number .value=${settings.nvencH264IdrFrames ?? defaults.nvencH264IdrFrames} step="1"
-                      @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencH264IdrFrames = e.detail; save(); } }}></app-number>
+                      @change=${(e: CustomEvent) => { this.noteNumberError('streamFrame.nvencH264IdrFrames', e.detail); if (e.detail !== undefined) { settings.nvencH264IdrFrames = e.detail; save(); } }}></app-number>
                   `, { tip: t("0 = automatic nominal frame rate; -1 = leave upstream IDR unchanged. Positive values are applied exactly."), reset: { can: settings.nvencH264IdrFrames !== defaults.nvencH264IdrFrames, on: () => galaxy.reset('nvencH264IdrFrames') } }));
+                  parts.push(this.numberErrorRow('streamFrame.nvencH264IdrFrames'));
                   parts.push(settingFieldRow('streamFrame.nvencH264RefFrames', html`
                     <app-number .value=${settings.nvencH264RefFrames ?? defaults.nvencH264RefFrames} step="1"
-                      @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencH264RefFrames = e.detail; save(); } }}></app-number>
+                      @change=${(e: CustomEvent) => { this.noteNumberError('streamFrame.nvencH264RefFrames', e.detail); if (e.detail !== undefined) { settings.nvencH264RefFrames = e.detail; save(); } }}></app-number>
                   `, { tip: t("Set the reference-frame count. Unsupported requests fail instead of falling back."), reset: { can: settings.nvencH264RefFrames !== defaults.nvencH264RefFrames, on: () => galaxy.reset('nvencH264RefFrames') } }));
+                  parts.push(this.numberErrorRow('streamFrame.nvencH264RefFrames'));
                   parts.push(settingFieldRow('streamFrame.nvencH264Entropy', html`
                     <app-number .value=${settings.nvencH264Entropy ?? defaults.nvencH264Entropy} step="1"
-                      @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencH264Entropy = e.detail; save(); } }}></app-number>
+                      @change=${(e: CustomEvent) => { this.noteNumberError('streamFrame.nvencH264Entropy', e.detail); if (e.detail !== undefined) { settings.nvencH264Entropy = e.detail; save(); } }}></app-number>
                   `, { tip: t("0 = automatic; 1 = CABAC; 2 = CAVLC. Automatic uses CAVLC above 200 Mbit/s."), reset: { can: settings.nvencH264Entropy !== defaults.nvencH264Entropy, on: () => galaxy.reset('nvencH264Entropy') } }));
+                  parts.push(this.numberErrorRow('streamFrame.nvencH264Entropy'));
                   parts.push(settingFieldRow('streamFrame.nvencH264SliceMode', html`
                     <app-number .value=${settings.nvencH264SliceMode ?? defaults.nvencH264SliceMode} step="1"
-                      @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencH264SliceMode = e.detail; save(); } }}></app-number>
+                      @change=${(e: CustomEvent) => { this.noteNumberError('streamFrame.nvencH264SliceMode', e.detail); if (e.detail !== undefined) { settings.nvencH264SliceMode = e.detail; save(); } }}></app-number>
                   `, { tip: t("NVENC slice mode: 0 = macroblocks; 1 = bytes; 2 = rows; 3 = slice count."), reset: { can: settings.nvencH264SliceMode !== defaults.nvencH264SliceMode, on: () => galaxy.reset('nvencH264SliceMode') } }));
+                  parts.push(this.numberErrorRow('streamFrame.nvencH264SliceMode'));
                   parts.push(settingFieldRow('streamFrame.nvencH264SliceData', html`
                     <app-number .value=${settings.nvencH264SliceData ?? defaults.nvencH264SliceData} step="1"
-                      @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencH264SliceData = e.detail; save(); } }}></app-number>
+                      @change=${(e: CustomEvent) => { this.noteNumberError('streamFrame.nvencH264SliceData', e.detail); if (e.detail !== undefined) { settings.nvencH264SliceData = e.detail; save(); } }}></app-number>
                   `, { tip: t("Value for the selected NVENC slice mode."), reset: { can: settings.nvencH264SliceData !== defaults.nvencH264SliceData, on: () => galaxy.reset('nvencH264SliceData') } }));
+                  parts.push(this.numberErrorRow('streamFrame.nvencH264SliceData'));
                   parts.push(settingFieldRow('streamFrame.nvencH264VbvInitialDelay', html`
                     <app-number .value=${settings.nvencH264VbvInitialDelay ?? defaults.nvencH264VbvInitialDelay} step="1"
-                      @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencH264VbvInitialDelay = e.detail; save(); } }}></app-number>
+                      @change=${(e: CustomEvent) => { this.noteNumberError('streamFrame.nvencH264VbvInitialDelay', e.detail); if (e.detail !== undefined) { settings.nvencH264VbvInitialDelay = e.detail; save(); } }}></app-number>
                   `, { tip: t("Initial VBV delay in bits. Zero preserves the tested low-latency default."), reset: { can: settings.nvencH264VbvInitialDelay !== defaults.nvencH264VbvInitialDelay, on: () => galaxy.reset('nvencH264VbvInitialDelay') } }));
+                  parts.push(this.numberErrorRow('streamFrame.nvencH264VbvInitialDelay'));
                   parts.push(settingFieldRow('streamFrame.nvencH264Aud', html`
                     <app-switch .checked=${settings.nvencH264Aud ?? defaults.nvencH264Aud}
                       @change=${(e: CustomEvent) => { settings.nvencH264Aud = e.detail; save(); }}></app-switch>
@@ -467,24 +544,28 @@ if (settings.nvencTap) {
                   `, { reset: { can: settings.nvencH264BitstreamRestriction !== defaults.nvencH264BitstreamRestriction, on: () => galaxy.reset('nvencH264BitstreamRestriction') } }));
                 }
                 parts.push(fieldRow(t('Keyframe Size Budget'), html`
-      <app-number .value=${settings.nvencLowDelayKfScale} step="1" min="0" max="255" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencLowDelayKfScale = e.detail; } save(); }}></app-number>
+      <app-number .value=${settings.nvencLowDelayKfScale} step="1" min="0" max="255" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencLowDelayKfScale = e.detail; } this.noteNumberError('streamFrame.nvencLowDelayKfScale', e.detail, { forceCbr: !!settings.nvencForceCbr }); save(); }}></app-number>
                 `, {
   tip: t("With Force CBR, set the key-frame to P-frame budget ratio (0–255, NVENC byte field). The optimized recommendation is 2. Unsupported requests fail without rewriting the value.\n\nValue: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — keyframe budget in P-frame units under CBR."),
   reset: { can: settings.nvencLowDelayKfScale != codecDef.lowDelayKfScale, on: () => { settings.nvencLowDelayKfScale = codecDef.lowDelayKfScale; save(); } }
                 }));
+                parts.push(this.numberErrorRow('streamFrame.nvencLowDelayKfScale'));
                 parts.push(fieldRow(t('Multi-Engine Encoding'), html`
-      <app-number .value=${settings.nvencSplitMode} step="1" min="0" max="15" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencSplitMode = e.detail; } save(); }}></app-number>
+      <app-number .value=${settings.nvencSplitMode} step="1" min="0" max="15" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencSplitMode = e.detail; } this.noteNumberError('streamFrame.nvencSplitMode', e.detail); save(); }}></app-number>
                 `, {
-  tip: t("0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencSplitMode (settings.json). Encoder side — multi-engine split; nonzero opens the API 12.1 encoder session."),
+  tip: t("0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencSplitMode (settings.json). Encoder side — multi-engine split; nonzero opens the API 12.1 encoder session."),
   reset: { can: settings.nvencSplitMode != codecDef.splitMode, on: () => { settings.nvencSplitMode = codecDef.splitMode; save(); } }
                 }));
+                parts.push(this.numberErrorRow('streamFrame.nvencSplitMode'));
                 parts.push(fieldRow(t('Center Quality Boost (QP)'), html`
-      <app-number .value=${settings.nvencQpFovea} step="1" min="-10" max="0" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencQpFovea = e.detail; } save(); }}></app-number>
-      <app-number .value=${settings.nvencQpPeriphery} step="1" min="0" max="10" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencQpPeriphery = e.detail; } save(); }}></app-number>
+      <app-number .value=${settings.nvencQpFovea} step="1" min="-10" max="0" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencQpFovea = e.detail; } this.noteNumberError('streamFrame.nvencQpFovea', e.detail); save(); }}></app-number>
+      <app-number .value=${settings.nvencQpPeriphery} step="1" min="0" max="10" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencQpPeriphery = e.detail; } this.noteNumberError('streamFrame.nvencQpPeriphery', e.detail); save(); }}></app-number>
                 `, {
   tip: t("Spend more encoding quality on the center of the image than on the edges. This advanced option can change artifacts in different areas.\n\nMoves bits within the same bitrate: a QP offset per block, negative for the gaze cut-out tile (finer, more bits) and positive for the periphery tile (coarser, fewer bits), blended over the same edge falloff as the sharpening. 0 / 0 = off. Small values (-2 / 2, -3 / 3) work; large ones starve the whole frame. The ramp shape and fovea-tile parity come from the Edge Falloff and fovea-top controls (shown with CAS in post-process mode) — one value drives both the sharpening and the encoder QP ramp.\n\nValue: streamFrame.nvencQpFovea + nvencQpPeriphery (settings.json). Encoder side — per-block QP offsets that move bits to the gaze tile."),
   reset: { can: settings.nvencQpFovea != 0 || settings.nvencQpPeriphery != 0, on: () => { settings.nvencQpFovea = 0; settings.nvencQpPeriphery = 0; save(); } }
                 }));
+                parts.push(this.numberErrorRow('streamFrame.nvencQpFovea'));
+                parts.push(this.numberErrorRow('streamFrame.nvencQpPeriphery'));
                 parts.push(settingFieldRow('streamFrame.postPack.limitedRange', html`
       <app-switch .checked=${!!settings.postPack.limitedRange} @change=${(e: CustomEvent) => { settings.postPack.limitedRange = e.detail; settings.postPack.enable = settings.postPack.enable || settings.postPack.limitedRange; save(); }}></app-switch>
                 `, {
@@ -704,23 +785,27 @@ if (vendor) {
   reset: { can: settings.zeroCopyV3 != defaults.zeroCopyV3, on: () => { galaxy.reset('zeroCopyV3'); } }
             }));
             parts.push(fieldRow(t('NVENC (retired): AQ Strength'), html`
-      <app-number .value=${settings.nvencAqStrength} step="1" min="0" max="15" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencAqStrength = e.detail; } save(); }}></app-number>
+      <app-number .value=${settings.nvencAqStrength} step="1" min="0" max="15" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencAqStrength = e.detail; } this.noteNumberError('streamFrame.nvencAqStrength', e.detail); save(); }}></app-number>
             `, {
   tip: "Do not use spatial adaptive quantization for normal play in this build. It has caused encoder stalls in testing, and the driver's safety checks may reset it.\n\nDO NOT USE. Any spatial AQ, at any strength, makes nvEncEncodePicture block 4-6 ms per frame on these tall frames and trips the streamer's 10 ms watchdog (encoder resets, soft key frames, storms). No longer forced to 0; leave at 0 unless measuring.",
   reset: { can: settings.nvencAqStrength != defaults.nvencAqStrength, on: () => { galaxy.reset('nvencAqStrength'); } }
             }));
+            parts.push(this.numberErrorRow('streamFrame.nvencAqStrength'));
             parts.push(fieldRow(t('NVENC (retired): Max QP'), html`
-      <app-number .value=${settings.nvencMaxQp} step="1" min="0" max="51" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencMaxQp = e.detail; } save(); }}></app-number>
+      <app-number .value=${settings.nvencMaxQp} step="1" min="0" max="51" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencMaxQp = e.detail; } this.noteNumberError('streamFrame.nvencMaxQp', e.detail); save(); }}></app-number>
             `, {
   tip: "Set a lower limit on the encoder's quantization value. This is an advanced quality/bandwidth constraint, not a simple quality slider.\n\nQuality floor per block (0 = off). Fights CBR; can overshoot the 2 MB frame limit in complex scenes.",
   reset: { can: settings.nvencMaxQp != defaults.nvencMaxQp, on: () => { galaxy.reset('nvencMaxQp'); } }
             }));
+            parts.push(this.numberErrorRow('streamFrame.nvencMaxQp'));
             parts.push(fieldRow(t('NVENC (retired): Min QP / Min QP intra'), html`
-      <app-number .value=${settings.nvencMinQp} step="1" min="0" max="51" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencMinQp = e.detail; } save(); }}></app-number>
-      <app-number .value=${settings.nvencMinQpIntra} step="1" min="0" max="51" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencMinQpIntra = e.detail; } save(); }}></app-number>
+      <app-number .value=${settings.nvencMinQp} step="1" min="0" max="51" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencMinQp = e.detail; } this.noteNumberError('streamFrame.nvencMinQp', e.detail); save(); }}></app-number>
+      <app-number .value=${settings.nvencMinQpIntra} step="1" min="0" max="51" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencMinQpIntra = e.detail; } this.noteNumberError('streamFrame.nvencMinQpIntra', e.detail); save(); }}></app-number>
             `, {
   tip: "Set an upper limit on quantization where the selected rate-control mode uses it. It has no effect in the documented constant-bitrate path.\n\nInert under CBR (the key-frame budget does the containment). Only meaningful with Force CBR off."
             }));
+            parts.push(this.numberErrorRow('streamFrame.nvencMinQp'));
+            parts.push(this.numberErrorRow('streamFrame.nvencMinQpIntra'));
             parts.push(settingFieldRow('streamFrame.nvencBitrateScale', html`
       <app-switch .checked=${!!settings.nvencBitrateScale} @change=${(e: CustomEvent) => { settings.nvencBitrateScale = e.detail; save(); }}></app-switch>
             `, {
@@ -734,13 +819,17 @@ if (vendor) {
   reset: { can: settings.nvencPresetMerge != defaults.nvencPresetMerge, on: () => { galaxy.reset('nvencPresetMerge'); } }
             }));
             parts.push(fieldRow(t('NVENC (retired): VUI Full Range / Matrix / Primaries / Transfer'), html`
-      <app-number .value=${settings.nvencVuiFullRange} step="1" min="-1" max="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVuiFullRange = e.detail; } save(); }}></app-number>
-      <app-number .value=${settings.nvencVuiMatrix} step="1" min="-1" max="14" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVuiMatrix = e.detail; } save(); }}></app-number>
-      <app-number .value=${settings.nvencVuiPrimaries} step="1" min="-1" max="22" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVuiPrimaries = e.detail; } save(); }}></app-number>
-      <app-number .value=${settings.nvencVuiTransfer} step="1" min="-1" max="18" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVuiTransfer = e.detail; } save(); }}></app-number>
+      <app-number .value=${settings.nvencVuiFullRange} step="1" min="-1" max="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVuiFullRange = e.detail; } this.noteNumberError('streamFrame.nvencVuiFullRange', e.detail); save(); }}></app-number>
+      <app-number .value=${settings.nvencVuiMatrix} step="1" min="-1" max="14" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVuiMatrix = e.detail; } this.noteNumberError('streamFrame.nvencVuiMatrix', e.detail); save(); }}></app-number>
+      <app-number .value=${settings.nvencVuiPrimaries} step="1" min="-1" max="22" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVuiPrimaries = e.detail; } this.noteNumberError('streamFrame.nvencVuiPrimaries', e.detail); save(); }}></app-number>
+      <app-number .value=${settings.nvencVuiTransfer} step="1" min="-1" max="18" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVuiTransfer = e.detail; } this.noteNumberError('streamFrame.nvencVuiTransfer', e.detail); save(); }}></app-number>
             `, {
-  tip: "Override video color-range metadata. Leave automatic unless diagnosing a known mismatch; incompatible client handling can darken the image.\n\n-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated - the client mishandles explicit tags, so these stay inert until the APK changes. The driver also forces full-range to 0 while post-pack limited range is active, and an active SDR 10-bit baseline leaves the pair at -1."
+  tip: "Override video color-range metadata. Leave automatic unless diagnosing a known mismatch; incompatible client handling can darken the image.\n\n-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated - the client mishandles explicit tags, so these stay inert until the APK changes. Manual VUI values are applied as entered: a full-range value conflicting with active post-pack limited-range output is refused visibly in the driver log and the Stream Frame evidence row, and an active SDR 10-bit baseline leaves the pair at -1."
             }));
+            parts.push(this.numberErrorRow('streamFrame.nvencVuiFullRange'));
+            parts.push(this.numberErrorRow('streamFrame.nvencVuiMatrix'));
+            parts.push(this.numberErrorRow('streamFrame.nvencVuiPrimaries'));
+            parts.push(this.numberErrorRow('streamFrame.nvencVuiTransfer'));
             parts.push(fieldRow(t('vrlink (retired): Encode Width'), html`
       <app-number .value=${galaxyXr.customEncodeWidth} step="256" min="512" max="8192" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxyXr.customEncodeWidth = e.detail; } save(); }}></app-number>
             `, {

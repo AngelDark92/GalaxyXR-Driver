@@ -14,7 +14,7 @@ export interface SettingPresentation {
   keys: string[];
   source: BooleanSettingCheck['source'];
   advanced: boolean;
-  gate?: 'vendor' | 'enhancements' | 'postpack' | 'preencode' | 'encoder' | 'filler' | 'h264' | 'kalman' | 'kalman-ca' | 'graveyard' | 'grid' | 'camera-grid' | 'tuner' | 'native-input-profile' | 'controllers';
+  gate?: 'vendor' | 'enhancements' | 'postpack' | 'preencode' | 'encoder' | 'h264' | 'kalman' | 'kalman-ca' | 'graveyard' | 'grid' | 'camera-grid' | 'tuner' | 'native-input-profile' | 'controllers';
   vendorOnly?: boolean;
 }
 
@@ -74,7 +74,6 @@ group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 've
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencCodec', 'Video Codec');
 const encoder = group('stream-frame', ['Encoder Advanced'], ['heading:encoder'], true, 'encoder', true);
 encoder('streamFrame.nvencForceCbr', 'Constant Bitrate');
-encoder('streamFrame.nvencFillerDataInsertion', 'Pad Bitrate on Easy Scenes', { gate: 'filler' });
 encoder('streamFrame.nvencH264GopFrames', 'H.264 GOP Frames', { gate: 'h264' });
 encoder('streamFrame.nvencH264IdrFrames', 'H.264 IDR Frames', { gate: 'h264' });
 encoder('streamFrame.nvencH264RefFrames', 'H.264 Reference Frames', { gate: 'h264' });
@@ -185,9 +184,8 @@ export function settingUnavailable(setting: SettingPresentation, context: Presen
   if (['enhancements', 'postpack', 'preencode', 'camera-grid', 'grid', 'tuner'].includes(setting.gate ?? '') && !enhancements) return 'Image Enhancements is off. Its saved adjustments are kept.';
   if (setting.gate === 'postpack' && !(sf?.postPack?.enable && sf.postPack.casEnable)) return 'This control is available when Sharpening (CAS) uses Post-pack.';
   if (setting.gate === 'preencode' && (sf?.postPack?.enable && sf.postPack.casEnable || !sf?.cas?.enable)) return 'This control is available when Sharpening (CAS) uses Pre-encode.';
-  if (['encoder', 'filler', 'h264'].includes(setting.gate ?? '') && !sf?.nvencTap) return 'NVENC Tap is off. Its saved adjustments are kept.';
+  if (['encoder', 'h264'].includes(setting.gate ?? '') && !sf?.nvencTap) return 'NVENC Tap is off. Its saved adjustments are kept.';
   if (setting.gate === 'h264' && sf?.nvencCodec !== 1) return 'Select H.264 to edit this setting. Its saved value is kept.';
-  if (setting.gate === 'filler' && sf?.nvencCodec === 2) return 'NVENC has no AV1 filler knob. Its saved value is kept.';
   if (setting.gate === 'graveyard' && !sf?.graveyardEnable) return 'Retired experiments are hidden. Showing a setting will not enable them.';
   if ((setting.gate === 'kalman' || setting.gate === 'kalman-ca') && !['kalman', 'kalmanCA', 'kalmanCAM'].includes(sf?.velocityFixMode ?? '')) return 'This control is available with a Kalman controller mode.';
   if (setting.gate === 'kalman-ca' && !['kalmanCA', 'kalmanCAM'].includes(sf?.velocityFixMode ?? '')) return 'This control is available with a Kalman CA controller mode.';

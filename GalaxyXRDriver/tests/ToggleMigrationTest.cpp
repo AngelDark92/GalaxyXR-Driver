@@ -225,12 +225,14 @@ int main(int argc, char** argv) {
             Check(s.nvencValidationError.empty(), "valid unbounded scalar requests have no parse error");
         } else if (scenario == 21) {
             Check(!driverConfig.galaxyXr.profileSupports10bit, "absent capability uses false default");
-            Check(!s.nvencFillerDataInsertion, "absent filler remains off");
             Check(s.nvencH264GopFrames == 0 && s.nvencH264IdrFrames == 0 && s.nvencMultiPass == -1,
                 "absent recipe timing and multipass use automatic defaults");
             Check(s.nvencValidationError.empty(), "absent optional fields are not invalid requests");
         } else if (scenario == 22) {
-            Check(s.nvencFillerDataInsertion && !s.nvencForceCbr, "filler request is preserved independently of Force CBR");
+            // h264Tuning still carries the retired nvencFillerDataInsertion
+            // key: an old settings.json with it must parse cleanly, keep the
+            // key untouched on disk and enable nothing.
+            Check(!s.nvencForceCbr, "retired filler key parses cleanly, is ignored and leaves Force CBR unset");
             Check(s.nvencH264GopFrames == 144 && s.nvencH264IdrFrames == 288 && s.nvencH264RefFrames == 2,
                 "explicit GOP, IDR and reference frames reach runtime config");
             Check(s.nvencH264Entropy == 2 && s.nvencH264SliceMode == 0 && s.nvencH264SliceData == 12,

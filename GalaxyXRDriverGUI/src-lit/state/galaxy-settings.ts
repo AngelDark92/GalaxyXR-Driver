@@ -38,17 +38,99 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // tap's verified H.264 path runs on, and the tap itself skips the split bits
 // for codec 1. The dependent rows' reset arrows and the Stream Frame page's
 // per-codec note read this table; the global defaults stay untouched.
-// 2026-10-16 (owner policy): the table is no longer applied on codec switch —
-// only the codec changes; the optimized defaults are visible in the page's
-// note and applied only by the reset arrows. 2026-10-16: the dependent set
-// also carries each codec's default Tile Width and Bandwidth (owner-set:
-// HEVC 1536/350, H.264 1536/500, AV1 1536/400); the codec-0 row's tile and
-// bandwidth must stay pinned to the GENERATED driver defaults.
+// 2026-10-16 (owner directive, supersedes the same-day reset-arrows-only
+// rule): a codec switch applies this table row at once — tile width,
+// bandwidth and the four dependent encoder rows — replacing the previous
+// codec's values; afterwards every row is user-editable until the next
+// switch, and the reset arrows keep applying the row manually. 2026-10-16:
+// the dependent set also carries each codec's default Tile Width and
+// Bandwidth (owner-set: HEVC 1536/350, H.264 1536/500, AV1 1536/400); the
+// codec-0 row's tile and bandwidth must stay pinned to the GENERATED driver
+// defaults.
 export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number, streamFormatWidth: number, bandwidthMbit: number }> = {
   0: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
   1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 500 },
   2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 400 },
 };
+
+// 2026-10-16 (owner directive): inline per-key validation for the Stream
+// Frame app-number rows. Each streamFrame and H.264 recipe integer key maps
+// to the exact contract NvencTap.cpp ValidateRequest enforces (source of
+// truth, read as committed at 0cf0cf7), including the native unsigned-32
+// tile math: tile width times four must fit the uint32 dimension, so the
+// accepted tile ceiling is floor((2^32 - 1) / 4), not a UI convenience cap.
+// Invalid input is displayed naming the key and its accepted range, and the
+// entered value is kept — nothing is silently rounded, clamped or replaced
+// (no-silent-settings policy); the driver still revalidates and reports any
+// request it refuses.
+export interface StreamFrameNumberContract {
+  /** Human-readable accepted range, named verbatim in the inline error. */
+  range: string;
+  /** Exactly the native check in NvencTap.cpp ValidateRequest. */
+  check: (value: number) => boolean;
+  /** Optional: the native check applies only conditionally (mirrors ValidateRequest). */
+  when?: (context: { forceCbr: boolean }) => boolean;
+}
+
+const nvencUint32Max = 4294967295;
+
+export const streamFrameNumberContracts: Record<string, StreamFrameNumberContract> = {
+  // tile width: > 0 and tile * 4 within the uint32 dimension
+  'galaxyXr.customStreamFormatWidth': {
+    range: 'at least 1, with tile width times four fitting the uint32 dimension',
+    check: value => value >= 1 && value * 4 <= nvencUint32Max,
+  },
+  'streamFrame.nvencBitrateMbit': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencMaxBitrateHeadroomPct': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencForceFps': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencVbvFrames': { range: 'nonnegative', check: value => value >= 0 },
+  // AQ strength fits 4 bits; the CBR keyframe scale is a byte field the
+  // native validator checks only while Force CBR is on
+  'streamFrame.nvencAqStrength': { range: '0 to 15', check: value => value >= 0 && value <= 15 },
+  'streamFrame.nvencLowDelayKfScale': { range: '0 to 255 while Force CBR is on', check: value => value >= 0 && value <= 255, when: context => context.forceCbr },
+  'streamFrame.nvencPreset': { range: '0 to 7', check: value => value >= 0 && value <= 7 },
+  'streamFrame.nvencMultiPass': { range: '-1 to 2', check: value => value >= -1 && value <= 2 },
+  'streamFrame.nvencSplitMode': { range: '0 to 4, or 15', check: value => (value >= 0 && value <= 4) || value === 15 },
+  // QP overrides must be nonnegative; NVENC validates the codec-specific range
+  'streamFrame.nvencMaxQp': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencMinQp': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencMinQpIntra': { range: 'nonnegative', check: value => value >= 0 },
+  // QP offsets fit the NVENC signed-byte delta map (ValidateQpMap)
+  'streamFrame.nvencQpFovea': { range: '-128 to 127', check: value => value >= -128 && value <= 127 },
+  'streamFrame.nvencQpPeriphery': { range: '-128 to 127', check: value => value >= -128 && value <= 127 },
+  // bandwidth rows: nonnegative; 0 keeps the bandwidth-override sentinel
+  'galaxyXr.customBandwidthMbit': { range: 'at least 0', check: value => value >= 0 },
+  'streamFrame.nvencBandwidthOverrideMbit': { range: 'at least 0', check: value => value >= 0 },
+  // manual VUI overrides exactly mirror ValidateRequest (-1 autoselects)
+  'streamFrame.nvencVuiFullRange': { range: '-1 to 1', check: value => value >= -1 && value <= 1 },
+  'streamFrame.nvencVuiMatrix': { range: '-1 to 255', check: value => value >= -1 && value <= 255 },
+  'streamFrame.nvencVuiPrimaries': { range: '-1 to 255', check: value => value >= -1 && value <= 255 },
+  'streamFrame.nvencVuiTransfer': { range: '-1 to 255', check: value => value >= -1 && value <= 255 },
+  // the explicit H.264 recipe (exactly the driver's codec-1 block)
+  'streamFrame.nvencH264GopFrames': { range: 'at least -1', check: value => value >= -1 },
+  'streamFrame.nvencH264IdrFrames': { range: 'at least -1', check: value => value >= -1 },
+  'streamFrame.nvencH264RefFrames': { range: '0 to 16', check: value => value >= 0 && value <= 16 },
+  'streamFrame.nvencH264Entropy': { range: '0 to 2', check: value => value >= 0 && value <= 2 },
+  'streamFrame.nvencH264SliceMode': { range: '0 to 3', check: value => value >= 0 && value <= 3 },
+  'streamFrame.nvencH264SliceData': { range: 'at least 0', check: value => value >= 0 },
+  'streamFrame.nvencH264VbvInitialDelay': { range: 'at least 0', check: value => value >= 0 },
+};
+
+/** Per-key inline validation for app-number inputs: undefined for keys with
+ * no contract or a valid value; otherwise an error naming the key and its
+ * accepted range. The entered value is kept either way. */
+export function streamFrameIntegerError(key: string, value: number | undefined, context?: { forceCbr: boolean }): string | undefined {
+  if (value === undefined) return undefined;
+  const contract = streamFrameNumberContracts[key];
+  if (!contract) return undefined;
+  if (contract.when && context && !contract.when(context)) return undefined;
+  if (!Number.isInteger(value) || !contract.check(value)) {
+    return Number.isInteger(value)
+      ? t('{key} must be {range}; the entered value is kept until corrected.', { key, range: contract.range })
+      : t('{key} must be a whole number ({range}); the entered value is kept until corrected.', { key, range: contract.range });
+  }
+  return undefined;
+}
 
 function zeroHandOffsets(): HandOffsets {
   return {
@@ -418,6 +500,27 @@ export class GalaxySettingsBase {
     g.streamQuality = 'custom';
     g.customStreamFormatWidth = key === 'width' ? value : shown.width;
     g.customBandwidthMbit = key === 'bandwidth' ? value : shown.bandwidth;
+  }
+
+  // 2026-10-16 (owner directive): switching codecs loads this codec's
+  // optimized defaults — Tile Width, Bandwidth, Force CBR, Frame Size Cap,
+  // Keyframe Size Budget, Multi-Engine Encoding — replacing whatever the
+  // previous codec held, then saves. Rows the table does not own (preset,
+  // multipass, QP, postPack, the H.264 recipe) keep their values;
+  // the switch is an explicit user action, never a load-time or driver-side
+  // rewrite.
+  applyCodecEncoderDefaults(codec: number): void {
+    const codecDef = codecEncoderDefaults[codec] ?? codecEncoderDefaults[0];
+    this.setStreamQualityValue('width', codecDef.streamFormatWidth);
+    this.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit);
+    const sf = this.settings;
+    if (sf) {
+      sf.nvencForceCbr = codecDef.forceCbr;
+      sf.nvencVbvFrames = codecDef.vbvFrames;
+      sf.nvencLowDelayKfScale = codecDef.lowDelayKfScale;
+      sf.nvencSplitMode = codecDef.splitMode;
+    }
+    this.save();
   }
 
   get streamQualityValues(): { width: number; bandwidth: number } {

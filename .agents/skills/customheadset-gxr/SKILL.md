@@ -31,10 +31,12 @@ and TypeScript migrations which upgrade exact old defaults only.
 
 A user-entered setting is authoritative. Never silently coerce, clamp
 per-codec, or replace an entered value with a default — not in driver runtime
-code, not in caps/NVENC overrides, not in GUI state on codec switch, not in
-load-time stamps. Per-codec optimized defaults are presentation: the UI shows
-them and an explicit reset/apply control applies them (see the codec-aware
-reset arrows on Stream Frame). When driver/device capability would force a
+code, not in caps/NVENC overrides, not at load time. Two explicit user actions
+apply per-codec optimized defaults on Stream Frame: switching the codec
+(applies that codec's optimized row — tile, bandwidth, Force CBR, Frame Size
+Cap, Keyframe Size Budget, Multi-Engine Encoding — at once) and the
+codec-aware reset arrows. Between those actions the user's values rule. When
+driver/device capability would force a
 different outcome, honor the user value or fail loudly — driver log line plus
 honest UI state — never downgrade in place. Dated, versioned migrations remain
 the only permitted silent rewrites and cover never-set values only. Any new

@@ -952,10 +952,6 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["nvencVrlinkClampMbit"].is_number()){
 				newConfig.streamFrame.nvencVrlinkClampMbit = streamFrameData["nvencVrlinkClampMbit"].get<int>();
 			}
-			// 2026-10-16: absent key = false = current behavior; no migration
-			if(streamFrameData["nvencFillerDataInsertion"].is_boolean()){
-				newConfig.streamFrame.nvencFillerDataInsertion = streamFrameData["nvencFillerDataInsertion"].get<bool>();
-			}
 			if(streamFrameData["nvencH264GopFrames"].is_number_integer()){
 				newConfig.streamFrame.nvencH264GopFrames = streamFrameData["nvencH264GopFrames"].get<int>();
 			}
@@ -2001,8 +1997,6 @@ void ConfigLoader::WriteInfo(){
 				{"nvencForceFps", defaultSettings.streamFrame.nvencForceFps},
 				{"nvencBitrateScale", defaultSettings.streamFrame.nvencBitrateScale},
 				{"nvencVrlinkClampMbit", defaultSettings.streamFrame.nvencVrlinkClampMbit},
-				// 2026-10-16: default off written explicitly (GUI defaults parity: Generate-DriverDefaults regexes this block)
-				{"nvencFillerDataInsertion", defaultSettings.streamFrame.nvencFillerDataInsertion},
 				{"nvencH264GopFrames", defaultSettings.streamFrame.nvencH264GopFrames},
 				{"nvencH264IdrFrames", defaultSettings.streamFrame.nvencH264IdrFrames},
 				{"nvencH264RefFrames", defaultSettings.streamFrame.nvencH264RefFrames},
@@ -2159,7 +2153,6 @@ void ConfigLoader::WriteInfo(){
 		{"lastStatus", tap.lastStatus},
 		{"lastPictureStatus", tap.lastPictureStatus}, {"pictureError", tap.pictureError},
 		{"error", tap.error},
-		{"effectiveFiller", tap.effectiveFiller},
 		{"effectiveRateControl", tap.effectiveRateControl},
 		{"effectiveSplit", tap.effectiveSplit},
 		{"encodeWidth", tap.encodeWidth},

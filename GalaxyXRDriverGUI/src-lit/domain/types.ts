@@ -237,9 +237,6 @@ export type StreamFrameConfig = {
   nvencForceFps: number;
   nvencBitrateScale: boolean;
   nvencVrlinkClampMbit: number;
-  // optional: absent from settings.json written before the filler-data toggle;
-  // undefined reads as false
-  nvencFillerDataInsertion?: boolean;
   // Optional for settings written before the editable H.264 recipe (2026-10-16).
   // GOP/IDR: 0 follows the encoder FPS; -1 preserves upstream parameters.
   nvencH264GopFrames?: number;
@@ -475,7 +472,6 @@ export type DriverInfo = {
     effectiveCodec?: number; // -1 until NVENC accepts a session
     lastStatus?: number;
     error?: string;
-    effectiveFiller?: number; // -1 unknown, 0 disabled, 1 enabled
     effectiveRateControl?: number; // -1 unknown; otherwise NVENC rate-control enum
     effectiveSplit?: number;
     encodeWidth?: number;

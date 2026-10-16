@@ -47,6 +47,10 @@ ZeroCopyV3& ZeroCopyV3::Get() { static ZeroCopyV3 instance; return instance; }
 void ZeroCopyV3::MaybeHeartbeat() { ++heartbeatCalls; }
 ReconLogger& ReconLogger::Get() { static ReconLogger instance; return instance; }
 void ReconLogger::ResetSuppression() { ++reconResets; }
+// Headset profile request substitutes: canned tier values so the linked
+// FrameProcessor code resolves; no profile application runs in this test.
+int GalaxyXR_EffectiveTileWidth() { return 1536; }
+int GalaxyXR_EffectiveBandwidthMbit() { return 432; }
 
 // The runner extracts the actual production function prefix verbatim, ending
 // immediately before device/shader creation, then appends only return false.

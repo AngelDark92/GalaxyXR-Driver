@@ -32,6 +32,10 @@
 //      another codec or discard user settings after a rejection.
 //   3. unsupported structures with explicit settings fail visibly; disabled
 //      sessions remain passthrough except required lifetime ABI adaptation.
+//   4. initialization without an explicit encodeConfig is valid NVENC usage
+//      (a preset-defaults request): observe-only — the call passes through
+//      and the success is recorded exactly like pre-0cf0cf7. It never
+//      refuses, and no codec substitution ever runs on that path.
 //
 // Install timing: TryInstall() pre-loads nvEncodeAPI64.dll itself and hooks
 // it, so vrlink's later LoadLibrary finds the hooked export. Call it from
@@ -122,10 +126,6 @@ struct NvencTapConfig {
 	// the encoder ceiling vrlink applies to its own request (run 3: 600
 	// asked, 350 sent). the reference point for bitrateScale.
 	int vrlinkClampMbit = 350;
-	// Explicit filler bit for H.264/HEVC: false forces 0, true forces 1.
-	// A true request requires actual CBR and nonzero FPS or fails visibly.
-	// AV1 has no corresponding bit and remains untouched.
-	bool fillerData = false;
 	// 2026-10-16: explicit H.264 tuning; zero GOP/IDR derives rational fps,
 	// -1 preserves the caller. Other fields use their documented NVENC values.
 	int h264GopFrames = 0, h264IdrFrames = 0;
@@ -205,6 +205,12 @@ struct NvencTapConfig {
 	//     12.1 too (same size; 12.1 only appends pointers).
 	//     if the required upgrade is rejected, return that error without an
 	//     older-API fallback. AV1 upgrades independently of split preference.
+	//     Before the first config publish the open decision consults the same
+	//     settings.json probe as the caps shim, mirroring the ConfigLoader
+	//     parse (missing nvencTap -> true, nvencCodec -> 0, nvencSplitMode ->
+	//     1). A genuinely rejected 12.1 open or function list keeps failing
+	//     visibly (PublishFailure plus a one-shot log with the NVENC status);
+	//     no pristine open, no silent downgrade latch.
 	//   * split degrades quality a little (independent strips); the payoff
 	//     is P5..P7 at full frame rate, and possibly 3 strips instead of
 	//     the driver's implicit choice for P1..P4.
@@ -289,7 +295,7 @@ struct NvencTapRuntimeState {
 	std::string error;
 	uint32_t lastPictureStatus = 0;
 	std::string pictureError;
-	int effectiveFiller = -1, effectiveRateControl = -1, effectiveSplit = -1;
+	int effectiveRateControl = -1, effectiveSplit = -1;
 	uint32_t encodeWidth = 0, encodeHeight = 0;
 };
 
@@ -305,6 +311,10 @@ public:
 	// shims run on vrlink's encode thread and read under the same mutex)
 	void SetConfig(const NvencTapConfig &cfg);
 	NvencTapConfig GetConfig();
+	// 2026-10-16 open-time parity: false until the first SetConfig publish.
+	// Before it the shims consult the caps shim's settings.json probe for the
+	// open/function-list upgrade decisions and the caps answers as well.
+	bool ConfigPublished() const { return cfgPublished.load(std::memory_order_relaxed); }
 	NvencTapStats GetStats();
 	NvencTapRuntimeState GetRuntimeState();
 
@@ -325,7 +335,9 @@ private:
 	std::mutex cfgLock;
 	NvencTapConfig cfg;
 	// 2026-10-15: true once SetConfig has published a live config; the caps
-	// shim's settings-file fallback applies only before that (pre-publish).
+	// shim's settings-file fallback and the open-time upgrade decisions
+	// (UpgradeWanted, the CreateInstance wrap gate) apply only before that
+	// (pre-publish).
 	// Caps queries always use real selected-codec limits; only the explicit
 	// H.264 High 8-bit input profile restricts the advertised input depth.
 	std::atomic<bool> cfgPublished{false};

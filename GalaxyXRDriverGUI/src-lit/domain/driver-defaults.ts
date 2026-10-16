@@ -287,7 +287,6 @@ const nativeDefaults = {
     "nvencForceFps": 90,
     "nvencBitrateScale": true,
     "nvencVrlinkClampMbit": 350,
-    "nvencFillerDataInsertion": false,
     "nvencH264GopFrames": 0,
     "nvencH264IdrFrames": 0,
     "nvencH264RefFrames": 3,
