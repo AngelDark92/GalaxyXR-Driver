@@ -1253,8 +1253,13 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		SetSessionCodec(encoder, effectiveCodec);
 		PublishSuccess(encoder, cfg, p);
 	}else{
-		std::string error = std::string(tag) + " rejected the requested configuration";
+		// 2026-10-16: failures must name the NVENC status number and the
+		// request itself — nvEncGetLastErrorString often returns useless
+		// text ("Success.") and early calls can precede a working log sink,
+		// so the persisted error state carries the full context.
+		std::string error = std::string(tag) + " rejected the requested configuration (NVENC status " + std::to_string((unsigned)status) + ")";
 		if(origGetLastErrorString){ const char* detail = origGetLastErrorString(encoder); if(detail && *detail){ error += ": "; error += detail; } }
+		error += " | request: " + RequestDescription(cfg);
 		PublishFailure(encoder, cfg, status, error);
 	}
 	Restore(snap);
