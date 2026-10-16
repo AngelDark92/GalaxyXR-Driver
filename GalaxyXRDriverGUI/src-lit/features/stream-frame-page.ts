@@ -95,7 +95,7 @@ if (galaxy.calibrationActive()) {
 }
 if (vendor) {
         const codecDef = codecEncoderDefaults[settings.nvencCodec ?? 0] ?? codecEncoderDefaults[0];
-        parts.push(sectionHeading(t('Stream Quality')));
+        parts.push(sectionHeading(t('Stream Quality'), 0, 'stream-quality'));
           parts.push(fieldRow(t('Tile Width'), html`
       <app-number .value=${galaxyXr.customStreamFormatWidth} step="512" min="512" max="2048" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxyXr.customStreamFormatWidth = e.detail; } save(); }}></app-number>
           `, {
@@ -363,7 +363,7 @@ if (settings.nvencTap) {
                 parts.push(fieldRow(t('Bandwidth Override (Mbit/s)'), html`
       <app-number .value=${settings.nvencBandwidthOverrideMbit} step="25" min="0" max="600" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBandwidthOverrideMbit = e.detail; } save(); }}></app-number>
                 `, {
-  tip: "Override the normal stream bandwidth budget. 0 uses the selected stream preset instead of forcing a separate value.\n\n0 follows the tier (or custom) bandwidth. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the tier value.",
+  tip: "Override the normal stream bandwidth budget. 0 follows the Bandwidth row above instead of forcing a separate value.\n\n0 uses the Tile Width and Bandwidth settings. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the Bandwidth row's value.",
   reset: { can: settings.nvencBandwidthOverrideMbit != defaults.nvencBandwidthOverrideMbit, on: () => { galaxy.reset('nvencBandwidthOverrideMbit'); } }
                 }));
                 parts.push(fieldRow(t('VBV Frames'), html`

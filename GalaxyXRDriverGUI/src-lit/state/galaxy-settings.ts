@@ -329,9 +329,14 @@ export class GalaxySettingsBase {
           // legacy tier selection has already resolved to its concrete values
           // (an explicit 450 stays a deviation and blocks the stamp)
           const gxStamp = this.galaxyXr;
-          // a getter-created block is current-schema; mark it so the sdr10
-          // load migration cannot re-fire after the stamp persists it
-          if (gxStamp.sdr10SettingsVersion === undefined) { gxStamp.sdr10SettingsVersion = 2; }
+          // a getter-created block is current-schema; mirror the sdr10 load
+          // migration's retirement so the version mark does not permanently
+          // skip it, then stamp the version so the migration cannot re-fire
+          // after the stamp persists it
+          if (gxStamp.sdr10SettingsVersion === undefined) {
+            if (!gxStamp.sdr10Baseline && (gxStamp.profileSupports10bit ?? true)) { gxStamp.profileSupports10bit = false; }
+            gxStamp.sdr10SettingsVersion = 2;
+          }
           const g = codecEncoderDefaults[0];
           if (sfCodec.nvencForceCbr === g.forceCbr && sfCodec.nvencVbvFrames === g.vbvFrames
             && sfCodec.nvencLowDelayKfScale === g.lowDelayKfScale && sfCodec.nvencSplitMode === g.splitMode

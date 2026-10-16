@@ -367,9 +367,9 @@
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 86,
-    "summary": "Override the normal stream bandwidth budget. 0 uses the selected stream preset instead of forcing a separate value.",
-    "details": "0 follows the tier (or custom) bandwidth. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the tier value."
+    "originalLine": 363,
+    "summary": "Override the normal stream bandwidth budget. 0 follows the Bandwidth row above instead of forcing a separate value.",
+    "details": "0 uses the Tile Width and Bandwidth settings. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the Bandwidth row's value."
   },
   {
     "source": "features/stream-frame-page.ts",

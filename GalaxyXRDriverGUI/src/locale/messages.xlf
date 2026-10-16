@@ -1000,17 +1000,11 @@
       <trans-unit id="fluent-fix-252001c1b33cd274" datatype="html">
         <source>Custom Headset's driver is disabled</source>
       </trans-unit>
-      <trans-unit id="fluent-fix-2a14ced3f79de809" datatype="html">
-        <source>Custom: Bandwidth (Mbit/s)</source>
-      </trans-unit>
       <trans-unit id="stream-quality-20261016-1" datatype="html">
         <source>Tile Width</source>
       </trans-unit>
       <trans-unit id="stream-quality-20261016-2" datatype="html">
         <source>Bandwidth (Mbit/s)</source>
-      </trans-unit>
-      <trans-unit id="fluent-fix-aede1721bfe969e3" datatype="html">
-        <source>Custom: Tile Width (streamFormatWidth)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-1a03bd2fd107c453" datatype="html">
         <source>Debug</source>
@@ -1515,9 +1509,6 @@
       </trans-unit>
       <trans-unit id="fluent-fix-f059348cf984d83c" datatype="html">
         <source>Stream Quality</source>
-      </trans-unit>
-      <trans-unit id="fluent-fix-8bd4c368c8dc7322" datatype="html">
-        <source>Stream Quality Preset</source>
       </trans-unit>
       <trans-unit id="fluent-fix-d39c7b29903b6054" datatype="html">
         <source>Stream codec</source>
