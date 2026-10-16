@@ -115,9 +115,9 @@ if (vendor) {
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
         parts.push(settingFieldRow('streamFrame.nvencCodec', html`
-      <app-select ?disabled=${!settings.nvencTap} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1 (experimental)' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; applyCodecDefaults(settings, galaxyXr, e.detail); save(); }}></app-select>
+      <app-select ?disabled=${!settings.nvencTap} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; applyCodecDefaults(settings, galaxyXr, e.detail); save(); }}></app-select>
             `, {
-  tip: "Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). Switching also applies that codec's default Tile Width and Bandwidth plus its encoder row - edit them freely afterwards. Requires a SteamVR restart and reconnect."
+  tip: "Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). Switching also applies that codec's default Tile Width and Bandwidth plus its encoder row - edit them freely afterwards. Requires a SteamVR restart and reconnect."
             }));
         if (!settings.nvencTap) {
           parts.push(noteRow(html`Requires the NVENC Tap — enable it above to choose a codec. With the tap off the codec choice is saved but not applied.`));

@@ -780,7 +780,9 @@ struct StreamFrameConfig{
 	// enable BEFORE launching SteamVR (the hook must precede connect).
 	bool nvencTap = true; // v3 master switch: off = stock streamer, tiers write only width + bandwidth
 	// 2026-10-13: stream codec override for the tap. 0 = leave (vrlink's HEVC),
-	// 1 = force H.264 (8-bit), 2 = force AV1 (8-bit, experimental). rewrites
+	// 1 = force H.264 (8-bit via the caps shim), 2 = force AV1
+	// (follows the session input depth: 10-bit when the SDR 10-bit
+	// baseline is on). rewrites
 	// encodeGUID + profileGUID + the codec-config union at init and every
 	// reconfigure; requires the Steam Link client "Codecs Support" patch on
 	// the headset to decode. takes effect at the next SteamVR start.

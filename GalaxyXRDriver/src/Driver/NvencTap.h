@@ -44,11 +44,13 @@ struct NvencTapConfig {
 	// reconfigure. fixes the Invalid Level reconfigure failures.
 	bool fixLevel = true;
 	// 2026-10-13: stream codec override. 0 = leave (vrlink's HEVC), 1 = H.264,
-	// 2 = AV1 (experimental). applied at init and every reconfigure by
-	// rewriting encodeGUID / profileGUID / the codec config; H.264 and AV1 v1
-	// force 8-bit output (NVENC rejects 10-bit H.264; every HEVC-only
-	// override below skips itself via snap.hevc). paired with the Steam Link
-	// client "Codecs Support" patch and streamFrame.nvencCodec.
+	// 2 = AV1. applied at init and every reconfigure by
+	// rewriting encodeGUID / profileGUID / the codec config; H.264 gets the
+	// 8-bit session class via the caps shim (NVENC rejects 10-bit H.264)
+	// while AV1 follows the session input depth (10-bit when the SDR 10-bit
+	// baseline is on); every HEVC-only override below skips itself via
+	// snap.hevc. paired with the Steam Link client "Codecs Support" patch and
+	// streamFrame.nvencCodec.
 	int codec = 0;
 	// 0 = leave vrlink's bitrate alone. otherwise averageBitRate is
 	// replaced by this (Mbit/s), maxBitRate by 1.15x, vbvBufferSize scaled

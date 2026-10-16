@@ -565,8 +565,10 @@ inline size_t WhatRem(const char* w, const char* what, size_t whatLen){
 // are restored after each call (Restore), so each call re-derives from
 // vrlink's own state. Only fields inside kCodecWindow are cleared and
 // written; every HEVC-only override below skips itself because snap.hevc
-// is cleared here. H.264 and AV1 v1 force 8-bit output (NVENC rejects
-// 10-bit H.264; the client "Codecs Support" patch decodes both).
+// is cleared here. H.264 gets the 8-bit session class via the caps shim
+// (NVENC rejects 10-bit H.264); AV1 follows the session input depth
+// (10-bit when the SDR 10-bit baseline is on). The client "Codecs
+// Support" patch decodes both.
 // 2026-10-14 codec-swap fix: codec-specific fields, applied once onto the
 // hand-built window and re-applied after the merge seeds that window from
 // NVENC's own canonical preset config (valid by construction — the hand-built
