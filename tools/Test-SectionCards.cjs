@@ -139,7 +139,7 @@ const ts=process.env.FLUENT_TEST_TYPESCRIPT?require(process.env.FLUENT_TEST_TYPE
  }
  test('Checker fields share their catalog label and stable focus ID',()=>{
    const row=flatten(h.settingFieldRow('streamFrame.nvencForceCbr',html`<input type="checkbox">`));
-   assert.match(row,/setting-streamFrame.nvencForceCbr/);assert.match(row,/Force CBR/);assert.match(row,/tabindex=-1/);
+   assert.match(row,/setting-streamFrame.nvencForceCbr/);assert.match(row,/Constant Bitrate/);assert.match(row,/tabindex=-1/);
  });
  test('Explicit heading keys survive localized label changes',()=>{
    const cards=h.sectionCards([h.sectionHeading('Translated encoder',0,'encoder'),imageRow],{sections:{'heading:encoder':false},onToggle:()=>{}});
