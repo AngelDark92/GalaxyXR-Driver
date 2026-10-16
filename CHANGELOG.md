@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.11.0-dev.2] - 2026-10-16
+
+### Fixes
+
+- update stream codec references and descriptions for clarity, av1 now not experimental (`e43f1a6`)
+
 ## [1.11.0-dev.1] - 2026-10-16
 
 ### Features
