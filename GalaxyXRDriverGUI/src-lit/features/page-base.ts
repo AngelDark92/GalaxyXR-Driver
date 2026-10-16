@@ -29,7 +29,12 @@ export const fieldStyles = css`
     border-bottom: 1px solid var(--colorNeutralStroke1, rgba(0, 0, 0, 0.15));
   }
   .field:last-child { border-bottom: none; }
-  .field[data-setting-id]:focus { outline: 2px solid var(--colorBrandStroke1); outline-offset: 3px; border-radius: 4px; background: var(--colorNeutralBackground3); }
+  /* 2026-10-16: rows are not selectable - only the control in the second
+     column is interactive. user-select:none covers the whole row and the
+     focus highlight paints only for keyboard/deep-link focus (:focus-visible),
+     so a mouse click on the row neither selects text nor looks "selected". */
+  .field { user-select: none; }
+  .field[data-setting-id]:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: 3px; border-radius: 4px; background: var(--colorNeutralBackground3); }
   .field .title {
     display: flex;
     align-items: center;
