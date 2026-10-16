@@ -1565,7 +1565,7 @@ void ConfigLoader::ParseConfig(){
 						{"foveaStrength", sf.postPack.foveaStrength}, {"peripheryStrength", sf.postPack.peripheryStrength},
 						{"foveaTop", sf.postPack.foveaTop}, {"edgeFalloff", sf.postPack.edgeFalloff}, {"limitedRange", sf.postPack.limitedRange},
 					};
-					jg["streamQuality"] = g.streamQuality; jg["customStreamFormatWidth"] = g.customStreamFormatWidth;
+					jg["streamQuality"] = g.streamQuality; jg["customStreamFormatWidth"] = g.customStreamFormatWidth; jg["customBandwidthMbit"] = g.customBandwidthMbit;
 					jg["force10bit"] = false; jg["profileSupports10bit"] = g.profileSupports10bit; jg["vrlinkHeadsetProfile"] = g.vrlinkHeadsetProfile;
 					configFile.close();
 					std::ofstream out(configPath, std::ios::trunc);

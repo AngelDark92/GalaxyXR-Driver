@@ -2,13 +2,18 @@
 #include <string>
 
 // ============================================================================
-// Galaxy XR stream quality tiers, v3 (2026-09-05).
+// Galaxy XR stream quality tiers, v3 (2026-09-05) — MIGRATION-ONLY since
+// 2026-10-16: the GUI preset selector is retired; tile width and bandwidth
+// are first-class settings and the stored mode is "custom". This table
+// survives to resolve legacy settings.json files that still carry a tier
+// name (the ConfigLoader canonicalization + ApplyStreamQualitySettingIn's
+// tier branch). Do not add UI on top of it.
 //
 // A tier is now only {tile width, bandwidth}. Everything about the encoder
 // is a global default in StreamFrameConfig (P7 auto / CBR / VBV 2 / split /
 // fps pin / fix level ...), the same for every tier, because none of it
 // depends on bandwidth. Measured facts behind the numbers (runs A..X, S, V,
-// 350/450/500/600):
+// 350/450/500/600, all HEVC-era — limits above 450 are unmeasured per codec):
 //   * the transport frame is four stacked square tiles of streamFormatWidth
 //     (per eye: the whole view downscaled + a 1:1 gaze-tracked cut-out of the
 //     render target). 4 x 2048 = 8192 is the HEVC/NVENC height limit, so

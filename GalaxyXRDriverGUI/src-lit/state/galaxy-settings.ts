@@ -430,25 +430,19 @@ export class GalaxySettingsBase {
   get galaxyXr(): GalaxyXrConfig {
     if (this.rootSetting) {
       if (!this.rootSetting.galaxyXr) {
-        this.rootSetting.galaxyXr = { nativeIdentity: true, nativeInputProfile: false, nativeResolution: true, streamQuality: 'balanced', renderModelScale: 1.15 };
+        this.rootSetting.galaxyXr = { nativeIdentity: true, nativeInputProfile: false, nativeResolution: true, streamQuality: 'custom', renderModelScale: 1.15 };
       }
       if (this.rootSetting.galaxyXr.nativeResolution === undefined) {
         this.rootSetting.galaxyXr.nativeResolution = true;
       }
       if (this.rootSetting.galaxyXr.streamQuality === undefined) {
-        this.rootSetting.galaxyXr.streamQuality = 'balanced';
+        this.rootSetting.galaxyXr.streamQuality = 'custom'; // 2026-10-16: preset selector removed; tile/bandwidth rows are the setting
       }
       if (this.rootSetting.galaxyXr.synthesizeGripTouch === undefined) {
         this.rootSetting.galaxyXr.synthesizeGripTouch = true;
       }
       if (this.rootSetting.galaxyXr.gripTouchThreshold === undefined) {
         this.rootSetting.galaxyXr.gripTouchThreshold = 0.03;
-      }
-      // v3 tier names: legacy v1/v2 names map onto the closest tier
-      {
-        const q = this.rootSetting.galaxyXr.streamQuality;
-        const legacy: Record<string, string> = { stable: 'efficient', quality: 'balanced', default: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
-        if (legacy[q]) { this.rootSetting.galaxyXr.streamQuality = legacy[q]; }
       }
       if (this.rootSetting.galaxyXr.renderModelScale === undefined) {
         this.rootSetting.galaxyXr.renderModelScale = 1.15;
@@ -510,14 +504,31 @@ export class GalaxySettingsBase {
       if (this.rootSetting.galaxyXr.customStreamFormatWidth === undefined) {
         this.rootSetting.galaxyXr.customStreamFormatWidth = 1536; // v3: the tile, not the (inert) encode width
       }
-      // v1 tier names migrate to the v2 tuples (driver accepts both;
-      // migrating keeps the dropdown selection visible)
-      const tierMigration: Record<string, string> = { stable: 'efficient', quality: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
-      if (this.rootSetting.galaxyXr.streamQuality && tierMigration[this.rootSetting.galaxyXr.streamQuality]) {
-        this.rootSetting.galaxyXr.streamQuality = tierMigration[this.rootSetting.galaxyXr.streamQuality];
-      }
       if (this.rootSetting.galaxyXr.customBandwidthMbit === undefined) {
         this.rootSetting.galaxyXr.customBandwidthMbit = 350;
+      }
+      // 2026-10-16: the Stream Quality preset selector is gone; Tile Width
+      // and Bandwidth are the setting. Legacy v1/v2/v3 tier names migrate to
+      // their concrete values as an explicit user choice - never silently to
+      // defaults (the tier was authoritative while selected, so its values
+      // overwrite any stale custom tile/bandwidth left in the file).
+      {
+        const gx = this.rootSetting.galaxyXr;
+        const legacyName: Record<string, string> = { stable: 'efficient', quality: 'balanced', default: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
+        const q = gx.streamQuality ?? 'custom';
+        const tier = legacyName[q] ?? q;
+        const tierValues: Record<string, { width: number; bandwidth: number }> = {
+          efficient: { width: 1536, bandwidth: 300 },
+          balanced: { width: 1536, bandwidth: 350 },
+          vivid: { width: 1536, bandwidth: 400 },
+          sharp: { width: 1536, bandwidth: 450 },
+          max: { width: 2048, bandwidth: 450 }
+        };
+        if (tierValues[tier]) {
+          gx.streamQuality = 'custom';
+          gx.customStreamFormatWidth = tierValues[tier].width;
+          gx.customBandwidthMbit = tierValues[tier].bandwidth;
+        }
       }
       if (this.rootSetting.galaxyXr.customStreamFormatWidthOverride === undefined) {
         this.rootSetting.galaxyXr.customStreamFormatWidthOverride = 0;

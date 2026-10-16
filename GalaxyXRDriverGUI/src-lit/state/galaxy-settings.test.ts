@@ -583,15 +583,26 @@ describe('reset', () => {
 });
 
 describe('galaxyXr config', () => {
-  it('migrates legacy v1 tier names to the v3 tier set', () => {
+  it('migrates legacy tier names to custom with the tier\'s concrete values', () => {
     const { gs } = buildHarness({ galaxyXr: { streamQuality: 'stable' } });
-    expect(gs.galaxyXr.streamQuality).toBe('efficient');
+    expect(gs.galaxyXr.streamQuality).toBe('custom');
+    expect(gs.galaxyXr.customStreamFormatWidth).toBe(1536);
+    expect(gs.galaxyXr.customBandwidthMbit).toBe(300);
 
     const { gs: gs2 } = buildHarness({ galaxyXr: { streamQuality: 'ultra' } });
-    expect(gs2.galaxyXr.streamQuality).toBe('max');
+    expect(gs2.galaxyXr.streamQuality).toBe('custom');
+    expect(gs2.galaxyXr.customStreamFormatWidth).toBe(2048);
+    expect(gs2.galaxyXr.customBandwidthMbit).toBe(450);
 
-    const { gs: gs3 } = buildHarness({ galaxyXr: { streamQuality: 'quality' } });
-    expect(gs3.galaxyXr.streamQuality).toBe('balanced');
+    const { gs: gs3 } = buildHarness({ galaxyXr: { streamQuality: 'sharp' } });
+    expect(gs3.galaxyXr.streamQuality).toBe('custom');
+    expect(gs3.galaxyXr.customBandwidthMbit).toBe(450);
+
+    // while a tier was selected it was authoritative: a stale custom value
+    // in the file must not leak through the migration
+    const { gs: gs4 } = buildHarness({ galaxyXr: { streamQuality: 'sharp', customStreamFormatWidth: 1536, customBandwidthMbit: 100 } });
+    expect(gs4.galaxyXr.customBandwidthMbit).toBe(450);
+    expect(gs4.galaxyXr.customStreamFormatWidth).toBe(1536);
   });
 
   it('fills missing galaxyXr keys with the shipped defaults', () => {
@@ -606,7 +617,7 @@ describe('galaxyXr config', () => {
   it('creates the whole galaxyXr block with nativeIdentity when absent', () => {
     const { gs } = buildHarness({});
     expect(gs.galaxyXr.nativeIdentity).toBe(true);
-    expect(gs.galaxyXr.streamQuality).toBe('balanced');
+    expect(gs.galaxyXr.streamQuality).toBe('custom');
     expect(gs.galaxyXr.renderModelScale).toBe(1.15);
   });
 

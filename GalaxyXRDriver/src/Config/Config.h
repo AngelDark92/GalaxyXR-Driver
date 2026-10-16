@@ -324,7 +324,7 @@ struct GalaxyXrConfig{
 	// actually encodes at (m_nTargetEncodeWidth tracks it) and encodeWidth
 	// alone does nothing observable, so those tiers all encoded at 1536.
 	// effective at the next SteamVR start / headset connect.
-	std::string streamQuality = "balanced"; // v3: efficient|balanced|sharp|max|custom (legacy names migrate)
+	std::string streamQuality = "custom"; // 2026-10-16: preset selector retired; custom is the mode. Legacy tier names (efficient|balanced|vivid|sharp|max + v1 names) still resolve via StreamTiers.h
 	// streamQuality == "custom": customEncodeWidth is written to both width
 	// keys; bandwidth is targetBandwidth/recommendedBandwidthMbit.
 	// customStreamFormatWidth is legacy, parsed only so old settings load

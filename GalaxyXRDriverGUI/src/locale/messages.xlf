@@ -1003,6 +1003,12 @@
       <trans-unit id="fluent-fix-2a14ced3f79de809" datatype="html">
         <source>Custom: Bandwidth (Mbit/s)</source>
       </trans-unit>
+      <trans-unit id="stream-quality-20261016-1" datatype="html">
+        <source>Tile Width</source>
+      </trans-unit>
+      <trans-unit id="stream-quality-20261016-2" datatype="html">
+        <source>Bandwidth (Mbit/s)</source>
+      </trans-unit>
       <trans-unit id="fluent-fix-aede1721bfe969e3" datatype="html">
         <source>Custom: Tile Width (streamFormatWidth)</source>
       </trans-unit>
