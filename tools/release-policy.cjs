@@ -67,13 +67,24 @@ function planRelease(repo, env, event) {
     return { ...initial, publish: true };
   }
   const reachableTags = git(repo, ['tag', '--merged', source, '--list', 'v*']).split('\n');
+  // Released versions live on the other release branch (2026-10-16): a stable
+  // tag published on main but not yet merged back into dev still counts as
+  // released, so the dev channel never renumbers a shipped base. The branch
+  // being released from keeps its own reachable-from-source measure, which
+  // excludes the in-flight release commit's tag; unrelated branches stay
+  // excluded from the baseline.
+  const refExists = ref => { try { git(repo, ['rev-parse', '--verify', '--quiet', ref]); return true; } catch { return false; } };
+  const otherBranch = env.GITHUB_REF === 'refs/heads/dev' ? 'main' : env.GITHUB_REF === 'refs/heads/main' ? 'dev' : undefined;
+  const releasedTags = [...new Set([source,
+    ...[`refs/remotes/origin/${otherBranch}`, `refs/heads/${otherBranch}`].filter(ref => otherBranch && refExists(ref))]
+    .flatMap(ref => git(repo, ['tag', '--merged', ref, '--list', 'v*']).split('\n').filter(Boolean)))];
   // Dev-series prereleases are the dev channel's normal flow; every other
   // prerelease stays immutable after its tag is published (2026-10-13).
   const devSeries = /^(\d+\.\d+\.\d+)-dev\.(\d+)$/.exec(version);
   if (!stable.test(version) && !devSeries && reachableTags.includes(`v${version}`)) {
     throw new Error('Change the already tagged prerelease version with bump-version.js before releasing more changes.');
   }
-  const tags = reachableTags.filter(tag => stable.test(tag.slice(1))).sort((a, b) => compareVersions(b.slice(1), a.slice(1)));
+  const tags = releasedTags.filter(tag => stable.test(tag.slice(1))).sort((a, b) => compareVersions(b.slice(1), a.slice(1)));
   const baseTag = tags[0];
   let previousVersion, base;
   if (baseTag) { previousVersion = baseTag.slice(1); base = baseTag; }
@@ -98,7 +109,7 @@ function planRelease(repo, env, event) {
   // promotes the merged series to the stable X.Y.Z release. Stable versions on
   // main and manual non-dev prereleases keep their existing override rules.
   const maxStable = (a, b) => (compareVersions(a, b) >= 0 ? a : b);
-  const devReleases = seriesBase => reachableTags
+  const devReleases = seriesBase => releasedTags
     .map(tag => ({ tag, match: /^v(\d+\.\d+\.\d+)-dev\.(\d+)$/.exec(tag) }))
     .filter(entry => entry.match && entry.match[1] === seriesBase)
     .map(entry => ({ tag: entry.tag, n: Number(entry.match[2]) }))
@@ -109,7 +120,9 @@ function planRelease(repo, env, event) {
     const released = devReleases(seriesBase);
     const lastN = released.length ? released.at(-1).n : 0;
     const lastDevTag = released.length ? released.at(-1).tag : undefined;
-    const n = Math.max(lastN + 1, Number(devSeries[2]) + 1);
+    // The tree's own counter carries only while the series base is unchanged
+    // (2026-10-16): advancing the base starts a fresh series at 1.
+    const n = devSeries[1] === seriesBase ? Math.max(lastN + 1, Number(devSeries[2]) + 1) : lastN + 1;
     const commitsSince = lastDevTag ? listCommits(`${lastDevTag}..${source}`) : commits;
     if (!commitsSince.some(c => commitType(c.subject))) return { ...initial, publish: false };
     return { ...initial, version: `${seriesBase}-dev.${n}`, tag: `v${seriesBase}-dev.${n}`, baseTag,

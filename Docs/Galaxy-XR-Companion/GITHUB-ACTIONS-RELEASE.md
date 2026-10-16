@@ -117,7 +117,7 @@ The Windows workflow:
 9. generates release notes from the version's changelog entry without duplicating its commit list;
 10. uploads the ZIP and metadata as Actions artifacts;
 11. saves generated metadata to the release branch (`main` or `dev`), pins `v<version>` to the built commit, uploads the ZIP and checksum to a draft, and publishes after both uploads succeed. Prerelease versions are marked as prereleases.
-12. after a stable `main` publication, backmerges the release commit into `dev` (fast-forward only; a diverged `dev` is skipped with a warning).
+12. after a stable `main` publication, backmerges the release commit into `dev` with a true merge (`dev` routinely advances past the promotion merge while the release builds; conflicting hunks resolve toward `dev`, and the next dev release re-derives version and changelog from tags). A failed backmerge fails the job loudly — a silently skipped sync left dev numbering on a shipped base twice (2026-10-16).
 
 The release workflow builds and packages only. The GUI unit suite (`npm test`),
 the Rust library tests (`cargo test --locked --lib`), the service regressions

@@ -382,6 +382,46 @@ test('main promotes a merged dev series to the stable release and retries it int
   const retry = prepareRelease(f.repo, { ...f.env, GITHUB_EVENT_NAME: 'workflow_dispatch' }, { inputs: { publish: true } });
   assert.equal(retry.publish, true); assert.equal(retry.generated, false); assert.equal(retry.commit, released.commit);
 });
+test('advancing the dev series base resets the counter', t => {
+  const f = history(t);
+  const dev = { ...f.env, GITHUB_REF: 'refs/heads/dev' };
+  f.git('checkout', '--quiet', '-b', 'dev');
+  f.commit('feat: start the dev series');
+  let plan = prepareRelease(f.repo, dev, {}); f.git('tag', plan.tag);
+  f.commit('fix: follow-up repair');
+  plan = prepareRelease(f.repo, dev, {}); f.git('tag', plan.tag);
+  assert.equal(plan.version, '1.3.0-dev.2');
+  // main promotes the series and ships v1.3.0, but the backmerge has not
+  // reached dev: the stable tag is unreachable from the dev series.
+  f.git('checkout', '--quiet', 'main');
+  f.git('merge', '--quiet', '--no-ff', '-m', 'Feat: Merge pull request #2 from AngelDark92/dev', 'dev');
+  f.git('tag', 'v1.3.0');
+  f.git('checkout', '--quiet', 'dev');
+  f.commit('feat: a feature after the promotion');
+  plan = prepareRelease(f.repo, dev, {});
+  assert.equal(plan.version, '1.4.0-dev.1'); assert.equal(plan.tag, 'v1.4.0-dev.1'); assert.equal(plan.publish, true);
+  f.git('tag', plan.tag);
+  f.commit('fix: another repair in the new series');
+  plan = prepareRelease(f.repo, dev, {});
+  assert.equal(plan.version, '1.4.0-dev.2');
+});
+test('a dev series continues past a shipped stable instead of renumbering it', t => {
+  const f = history(t);
+  const dev = { ...f.env, GITHUB_REF: 'refs/heads/dev' };
+  f.git('checkout', '--quiet', '-b', 'dev');
+  f.commit('feat: start the dev series');
+  const plan = prepareRelease(f.repo, dev, {}); f.git('tag', plan.tag);
+  assert.equal(plan.version, '1.3.0-dev.1');
+  f.git('checkout', '--quiet', 'main');
+  f.git('merge', '--quiet', '--no-ff', '-m', 'Feat: Merge pull request #2 from AngelDark92/dev', 'dev');
+  f.git('tag', 'v1.3.0');
+  f.git('checkout', '--quiet', 'dev');
+  f.commit('fix: repair while main already shipped the base');
+  const next = prepareRelease(f.repo, dev, {});
+  assert.equal(next.version, '1.3.1-dev.1'); assert.equal(next.tag, 'v1.3.1-dev.1');
+  assert.equal(next.baseTag, 'v1.3.0'); assert.equal(next.publish, true);
+  assert.equal(verifyReleaseVersion(f.repo).version, '1.3.1-dev.1');
+});
 test('manual non-dev prereleases still refuse to republish their tagged version', t => {
   const f = history(t); bumpVersion(f.repo, '2.0.0-rc.1'); f.commit('feat: preview feature');
   const plan = prepareRelease(f.repo, f.env, {});

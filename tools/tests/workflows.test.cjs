@@ -67,17 +67,23 @@ test('release keeps version, package, and publication validation', () => {
   assert.match(release, /path: ci-diagnostics\/\*\*/);
 });
 
-test('release backmerges main into dev with a fast-forward-only best-effort sync', () => {
+test('release backmerges main into dev with a true merge and loud failures', () => {
   assert.match(release, /Backmerge/);
   const backmerge = release.indexOf('Backmerge main into dev');
   assert.ok(backmerge > release.indexOf('Publish GitHub Release'));
   assert.ok(release.includes("if: steps.persist.outputs.publish == 'true' && github.ref == 'refs/heads/main'"));
   assert.ok(release.includes('git fetch origin +refs/heads/dev:refs/remotes/origin/dev +refs/heads/main:refs/remotes/origin/main'));
   assert.ok(release.includes('git checkout -B dev origin/dev'));
-  assert.ok(release.includes('git merge --ff-only origin/main'));
+  assert.ok(release.includes('git merge origin/main --no-edit -X ours'));
   assert.ok(release.includes('git push origin dev'));
-  assert.match(release, /Write-Warning/);
-  assert.match(release, /exit 0/);
+  // Failures are loud: the silent exit-0 skip paths left dev unsynced at two
+  // promotions while the step reported success.
+  const stepEnd = release.indexOf('- name:', backmerge + 1);
+  const step = release.slice(backmerge, stepEnd < 0 ? undefined : stepEnd);
+  assert.ok(step.includes('exit 1'));
+  assert.ok(!step.includes('exit 0'));
+  assert.ok(step.includes('::error::Backmerge'));
+  assert.ok(!step.includes('Write-Warning'));
   // The dev sync must not reintroduce pipeline gates into the build-only release job.
   assertReleaseSeparation(release);
 });
