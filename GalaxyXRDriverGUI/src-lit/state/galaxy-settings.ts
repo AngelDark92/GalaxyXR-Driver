@@ -36,20 +36,27 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // SteamFrame recipe the driver used to pin in code (VBR + 1-frame VBV).
 // splitMode stays 1 for H.264 too: the key also opens the API 12.1 session the
 // tap's verified H.264 path runs on, and the tap itself skips the split bits
-// for codec 1. The codec switch and the four dependent rows' reset arrows read
-// this table; the global defaults stay untouched.
-export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number }> = {
-  0: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1 },
-  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1 },
-  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1 },
+// for codec 1. The codec switch and the dependent rows' reset arrows read this
+// table; the global defaults stay untouched. 2026-10-16: the dependent set
+// also carries each codec's default Tile Width and Bandwidth (owner-set:
+// HEVC 1536/350, H.264 1536/500, AV1 1536/400); the codec-0 row's tile and
+// bandwidth must stay pinned to the GENERATED driver defaults.
+export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number, streamFormatWidth: number, bandwidthMbit: number }> = {
+  0: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
+  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 500 },
+  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 400 },
 };
 
-export function applyCodecDefaults(streamFrame: StreamFrameConfig, codec: number): void {
+export function applyCodecDefaults(streamFrame: StreamFrameConfig, galaxyXr: GalaxyXrConfig | undefined, codec: number): void {
   const d = codecEncoderDefaults[codec] ?? codecEncoderDefaults[0];
   streamFrame.nvencForceCbr = d.forceCbr;
   streamFrame.nvencVbvFrames = d.vbvFrames;
   streamFrame.nvencLowDelayKfScale = d.lowDelayKfScale;
   streamFrame.nvencSplitMode = d.splitMode;
+  if (galaxyXr) {
+    galaxyXr.customStreamFormatWidth = d.streamFormatWidth;
+    galaxyXr.customBandwidthMbit = d.bandwidthMbit;
+  }
 }
 
 function zeroHandOffsets(): HandOffsets {
@@ -318,12 +325,22 @@ export class GalaxySettingsBase {
         // idempotent without a version key.
         const sfCodec = this.rootSetting.streamFrame;
         if (sfCodec?.nvencCodec === 1) {
+          // via the getter: fills defaults + the tier migration first, so a
+          // legacy tier selection has already resolved to its concrete values
+          // (an explicit 450 stays a deviation and blocks the stamp)
+          const gxStamp = this.galaxyXr;
+          // a getter-created block is current-schema; mark it so the sdr10
+          // load migration cannot re-fire after the stamp persists it
+          if (gxStamp.sdr10SettingsVersion === undefined) { gxStamp.sdr10SettingsVersion = 2; }
           const g = codecEncoderDefaults[0];
           if (sfCodec.nvencForceCbr === g.forceCbr && sfCodec.nvencVbvFrames === g.vbvFrames
-            && sfCodec.nvencLowDelayKfScale === g.lowDelayKfScale && sfCodec.nvencSplitMode === g.splitMode) {
+            && sfCodec.nvencLowDelayKfScale === g.lowDelayKfScale && sfCodec.nvencSplitMode === g.splitMode
+            && gxStamp.customStreamFormatWidth === g.streamFormatWidth
+            && gxStamp.customBandwidthMbit === g.bandwidthMbit) {
             const h = codecEncoderDefaults[1];
             sfCodec.nvencForceCbr = h.forceCbr;
             sfCodec.nvencVbvFrames = h.vbvFrames;
+            gxStamp.customBandwidthMbit = h.bandwidthMbit;
             if (canMigrate) queueMicrotask(() => this.save());
           }
         }

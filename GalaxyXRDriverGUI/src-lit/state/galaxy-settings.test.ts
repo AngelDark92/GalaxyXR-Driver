@@ -764,24 +764,30 @@ describe('per-codec encoder defaults', () => {
     sf.nvencVbvFrames = 2;
     sf.nvencLowDelayKfScale = 2;
     sf.nvencSplitMode = 3;
-    applyCodecDefaults(sf, 1);
+    const gx: any = { customStreamFormatWidth: 2048, customBandwidthMbit: 600 };
+    applyCodecDefaults(sf, gx, 1);
     expect(sf.nvencForceCbr).toBe(false);
     expect(sf.nvencVbvFrames).toBe(1);
     expect(sf.nvencLowDelayKfScale).toBe(2);
     expect(sf.nvencSplitMode).toBe(1);
+    expect(gx.customStreamFormatWidth).toBe(1536);
+    expect(gx.customBandwidthMbit).toBe(500);
   });
 
-  it.each([0, 2])('applies the HEVC/AV1 row for codec %s', codec => {
+  it.each([[0, 350], [2, 400]])('applies the HEVC/AV1 row for codec %s', (codec, bandwidth) => {
     const sf = structuredClone(driverDefaults.streamFrame!);
     sf.nvencForceCbr = false;
     sf.nvencVbvFrames = 1;
     sf.nvencLowDelayKfScale = 2;
     sf.nvencSplitMode = 0;
-    applyCodecDefaults(sf, codec);
+    const gx: any = { customStreamFormatWidth: 1024, customBandwidthMbit: 600 };
+    applyCodecDefaults(sf, gx, codec);
     expect(sf.nvencForceCbr).toBe(true);
     expect(sf.nvencVbvFrames).toBe(2);
     expect(sf.nvencLowDelayKfScale).toBe(2);
     expect(sf.nvencSplitMode).toBe(1);
+    expect(gx.customStreamFormatWidth).toBe(1536);
+    expect(gx.customBandwidthMbit).toBe(bandwidth);
   });
 
   it('falls back to the codec-0 row for an unknown codec', () => {
@@ -790,14 +796,17 @@ describe('per-codec encoder defaults', () => {
     sf.nvencVbvFrames = 9;
     sf.nvencLowDelayKfScale = 4;
     sf.nvencSplitMode = 3;
-    applyCodecDefaults(sf, 7);
+    const gx: any = { customStreamFormatWidth: 2048, customBandwidthMbit: 600 };
+    applyCodecDefaults(sf, gx, 7);
     expect(sf.nvencForceCbr).toBe(true);
     expect(sf.nvencVbvFrames).toBe(2);
     expect(sf.nvencLowDelayKfScale).toBe(2);
     expect(sf.nvencSplitMode).toBe(1);
+    expect(gx.customStreamFormatWidth).toBe(1536);
+    expect(gx.customBandwidthMbit).toBe(350);
   });
 
-  it('writes only the four dependent keys, leaving the rest of the config untouched', () => {
+  it('writes only the dependent keys, leaving the rest of the config untouched', () => {
     const sf = structuredClone(driverDefaults.streamFrame!);
     sf.nvencForceCbr = false;
     sf.nvencVbvFrames = 9;
@@ -807,24 +816,36 @@ describe('per-codec encoder defaults', () => {
     sf.nvencBitrateMbit = 123;
     sf.gamma = 1.8;
     sf.saturation = 42;
-    applyCodecDefaults(sf, 2);
+    const gx: any = { customStreamFormatWidth: 2048, customBandwidthMbit: 600, renderModelScale: 1.5, streamQuality: 'custom' };
+    applyCodecDefaults(sf, gx, 2);
     expect(sf.nvencForceCbr).toBe(true);
     expect(sf.nvencVbvFrames).toBe(2);
     expect(sf.nvencLowDelayKfScale).toBe(2);
     expect(sf.nvencSplitMode).toBe(1);
-    // encoder neighbours and non-nvenc keys keep their seeded values
+    expect(gx.customStreamFormatWidth).toBe(1536);
+    expect(gx.customBandwidthMbit).toBe(400);
+    // encoder neighbours and non-dependent keys keep their seeded values
     expect(sf.nvencPreset).toBe(7);
     expect(sf.nvencBitrateMbit).toBe(123);
     expect(sf.gamma).toBe(1.8);
     expect(sf.saturation).toBe(42);
+    expect(gx.renderModelScale).toBe(1.5);
+    expect(gx.streamQuality).toBe('custom');
   });
 
   it('keeps the defaults table internally consistent', () => {
-    expect(codecEncoderDefaults[2]).toEqual(codecEncoderDefaults[0]);
+    // AV1 matches HEVC on every key except its own default bandwidth
+    const { bandwidthMbit: av1Bandwidth, ...av1Rest } = codecEncoderDefaults[2];
+    const { bandwidthMbit: hevcBandwidth, ...hevcRest } = codecEncoderDefaults[0];
+    expect(av1Rest).toEqual(hevcRest);
+    expect(av1Bandwidth).toBe(400);
+    expect(hevcBandwidth).toBe(350);
     expect(codecEncoderDefaults[1].forceCbr).toBe(false);
     expect(codecEncoderDefaults[1].vbvFrames).toBe(1);
     expect(codecEncoderDefaults[1].splitMode).toBe(1); // split bits are skipped for codec 1 in the tap, but the key still opens the 12.1 session
     expect(codecEncoderDefaults[1].lowDelayKfScale).toBe(codecEncoderDefaults[0].lowDelayKfScale);
+    expect(codecEncoderDefaults[1].streamFormatWidth).toBe(1536);
+    expect(codecEncoderDefaults[1].bandwidthMbit).toBe(500);
     // the codec-0 row must stay pinned to the GENERATED driver defaults:
     // a Config.h default change + regeneration must desync loudly here,
     // not silently in the reset arrows (streamFrameDefaults forces the
@@ -833,6 +854,8 @@ describe('per-codec encoder defaults', () => {
     expect(codecEncoderDefaults[0].vbvFrames).toBe(driverDefaults.streamFrame!.nvencVbvFrames);
     expect(codecEncoderDefaults[0].lowDelayKfScale).toBe(driverDefaults.streamFrame!.nvencLowDelayKfScale);
     expect(codecEncoderDefaults[0].splitMode).toBe(driverDefaults.streamFrame!.nvencSplitMode);
+    expect(codecEncoderDefaults[0].streamFormatWidth).toBe(driverDefaults.galaxyXr!.customStreamFormatWidth);
+    expect(codecEncoderDefaults[0].bandwidthMbit).toBe(driverDefaults.galaxyXr!.customBandwidthMbit);
   });
 });
 
@@ -851,11 +874,15 @@ describe('H.264 stored-profile migration', () => {
     expect(stored.streamFrame.nvencVbvFrames).toBe(1);
     expect(gs.settings?.nvencForceCbr).toBe(false);
     expect(gs.settings?.nvencVbvFrames).toBe(1);
+    expect(stored.galaxyXr.customBandwidthMbit).toBe(500);
+    expect(gs.galaxyXr.customBandwidthMbit).toBe(500);
+    expect(gs.galaxyXr.customStreamFormatWidth).toBe(1536);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
     expect(reopened.gs.settings?.nvencForceCbr).toBe(false);
     expect(reopened.gs.settings?.nvencVbvFrames).toBe(1);
+    expect(reopened.gs.galaxyXr.customBandwidthMbit).toBe(500);
   });
 
   it('keeps a deviated H.264 profile untouched (explicit user choices)', async () => {
@@ -869,10 +896,28 @@ describe('H.264 stored-profile migration', () => {
     await flush();
     expect(gs.settings?.nvencForceCbr).toBe(true);
     expect(gs.settings?.nvencVbvFrames).toBe(1);
+    expect(gs.galaxyXr.customBandwidthMbit).toBe(350);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
     expect(reopened.gs.settings?.nvencForceCbr).toBe(true);
+  });
+
+  it('keeps a tier-migrated bandwidth as an explicit choice (no stamp)', async () => {
+    // streamQuality 'sharp' migrates to custom 1536/450; the 450 deviates
+    // from the codec-0 shape so the ALL-OR-NOTHING stamp must not fire:
+    // the 450 stays AND the codec-0 encoder shape stays (fill defaults)
+    const stored: any = {
+      galaxyXr: { streamQuality: 'sharp' },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 1 },
+    };
+    const { gs, flush } = buildHarness(stored);
+    await flush();
+    expect(gs.galaxyXr.customBandwidthMbit).toBe(450);
+    expect(gs.galaxyXr.customStreamFormatWidth).toBe(1536);
+    expect(gs.galaxyXr.streamQuality).toBe('custom');
+    expect(gs.settings?.nvencForceCbr).toBe(true);
+    expect(gs.settings?.nvencVbvFrames).toBe(2);
   });
 
   it('leaves HEVC profiles untouched', async () => {

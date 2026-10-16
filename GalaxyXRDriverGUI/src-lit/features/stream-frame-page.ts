@@ -94,18 +94,19 @@ if (galaxy.calibrationActive()) {
             html`<fluent-button appearance="outline" @click=${() => { galaxy.stopCalibration(); this.requestUpdate(); }}>${t('Stop calibration')}</fluent-button>`));
 }
 if (vendor) {
+        const codecDef = codecEncoderDefaults[settings.nvencCodec ?? 0] ?? codecEncoderDefaults[0];
         parts.push(sectionHeading(t('Stream Quality')));
           parts.push(fieldRow(t('Tile Width'), html`
       <app-number .value=${galaxyXr.customStreamFormatWidth} step="512" min="512" max="2048" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxyXr.customStreamFormatWidth = e.detail; } save(); }}></app-number>
           `, {
   tip: "Video tile width in pixels. The stream is four stacked square tiles of this width per frame (per eye: the whole view downscaled plus a 1:1 gaze-tracked cut-out of the render target).\n\n1536 keeps the encoder ahead of the streamer on a 3-engine GPU; 2048 is the hard ceiling (4 x 2048 = the codec's 8192-row limit) and is encode-limited on current GPUs. H.264 caps the tile to 1024 (its 4096-row NVENC ceiling); the encoder session follows automatically. Takes effect at the next SteamVR start or headset connect.",
-  reset: { can: galaxyXr.customStreamFormatWidth != 1536, on: () => { galaxyXr.customStreamFormatWidth = 1536; save(); } }
+  reset: { can: galaxyXr.customStreamFormatWidth != codecDef.streamFormatWidth, on: () => { galaxyXr.customStreamFormatWidth = codecDef.streamFormatWidth; save(); } }
           }));
           parts.push(fieldRow(t('Bandwidth (Mbit/s)'), html`
       <app-number .value=${galaxyXr.customBandwidthMbit} step="25" min="100" max="2000" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxyXr.customBandwidthMbit = e.detail; } save(); }}></app-number>
           `, {
   tip: "Streaming bandwidth budget, written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally.\n\nHEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.",
-  reset: { can: galaxyXr.customBandwidthMbit != 350, on: () => { galaxyXr.customBandwidthMbit = 350; save(); } }
+  reset: { can: galaxyXr.customBandwidthMbit != codecDef.bandwidthMbit, on: () => { galaxyXr.customBandwidthMbit = codecDef.bandwidthMbit; save(); } }
           }));
         parts.push(settingFieldRow('streamFrame.nvencTap', html`
       <app-switch .checked=${!!settings.nvencTap} @change=${(e: CustomEvent) => { settings.nvencTap = e.detail; save(); }}></app-switch>
@@ -114,9 +115,9 @@ if (vendor) {
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
         parts.push(settingFieldRow('streamFrame.nvencCodec', html`
-      <app-select ?disabled=${!settings.nvencTap} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1 (experimental)' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; applyCodecDefaults(settings, e.detail); save(); }}></app-select>
+      <app-select ?disabled=${!settings.nvencTap} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1 (experimental)' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; applyCodecDefaults(settings, galaxyXr, e.detail); save(); }}></app-select>
             `, {
-  tip: "Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). Requires a SteamVR restart and reconnect."
+  tip: "Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). Switching also applies that codec's default Tile Width and Bandwidth plus its encoder row - edit them freely afterwards. Requires a SteamVR restart and reconnect."
             }));
         if (!settings.nvencTap) {
           parts.push(noteRow(html`Requires the NVENC Tap — enable it above to choose a codec. With the tap off the codec choice is saved but not applied.`));
