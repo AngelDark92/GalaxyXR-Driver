@@ -6,6 +6,21 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.10.0-dev.10] - 2026-10-16
+
+### Features
+
+- gui: retire the Stream Quality preset; Tile Width and Bandwidth are first-class editable settings (`9774a99`)
+- gui: NVENC Tap, Stream codec and Restore live under Stream Quality, not advanced (`730b7d2`)
+- gui: Stream codec select disabled while the NVENC Tap is off (`cc3c531`)
+- gui: help catalog + docs follow the preset retirement (`0e90b37`)
+- gui: per-codec default Tile Width and Bandwidth (HEVC 1536/350, H.264 1536/500, AV1 1536/400) (`a74380d`)
+
+### Fixes
+
+- gui: setting rows are not selectable; focus highlight only on keyboard/deep-link focus (`a1b6fae`)
+- gui: fold the reviewer findings of the stream-quality rework (`c2f629a`)
+
 ## [1.10.0-dev.9] - 2026-10-15
 
 ### Fixes

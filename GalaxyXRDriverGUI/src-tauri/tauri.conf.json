@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Galaxy XR Companion",
-  "version": "1.10.0-dev.9",
+  "version": "1.10.0-dev.10",
   "identifier": "com.sboys3.custom-headset",
   "build": {
     "frontendDist": "../../../builds/GalaxyXR-Driver/gui/dist/fluent",
