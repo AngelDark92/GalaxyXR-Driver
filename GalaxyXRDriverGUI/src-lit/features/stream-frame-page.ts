@@ -107,6 +107,37 @@ if (vendor) {
   tip: "Streaming bandwidth budget. Written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally. HEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.",
   reset: { can: galaxyXr.customBandwidthMbit != 350, on: () => { galaxyXr.customBandwidthMbit = 350; save(); } }
           }));
+        parts.push(settingFieldRow('streamFrame.nvencTap', html`
+      <app-switch .checked=${!!settings.nvencTap} @change=${(e: CustomEvent) => { settings.nvencTap = e.detail; save(); }}></app-switch>
+            `, {
+  tip: "Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.\n\nAn encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.",
+  reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
+            }));
+        parts.push(settingFieldRow('streamFrame.nvencCodec', html`
+      <app-select .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1 (experimental)' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; applyCodecDefaults(settings, e.detail); save(); }}></app-select>
+            `, {
+  tip: "Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). Requires a SteamVR restart and reconnect."
+            }));
+        if (!settings.nvencTap) {
+          parts.push(noteRow(html`Needs the NVENC Tap — with the tap off the codec choice is saved but not applied.`));
+        }
+        parts.push(fieldRow(t('Restore Steam Link encoder behaviour'), html`
+          <fluent-button appearance="outline" ?disabled=${this.ctx.sds.installingDriver() || this.ctx.startup.status()?.steamvrRunning !== false}
+            @click=${() => this.restoreEncoder()}>${t('Restore encoder behaviour')}</fluent-button>
+        `, { tip: "Disable NVENC Tap without deleting your custom tuning. Stream quality, bandwidth, resolution, 10-bit requests and other settings are kept. Close SteamVR completely before restoring." }));
+        if (!settings.nvencTap) {
+          const runtime = this.ctx.startup.status();
+          const state = encoderTapStatus(false, runtime);
+          parts.push(statusMessage(state === 'restart-required' ? 'warning' : 'info',
+            t(state === 'confirmed-off' ? 'NVENC Tap OFF confirmed' : state === 'restart-required' ? 'NVENC Tap OFF: restart required' : 'NVENC Tap OFF saved'),
+            t(state === 'confirmed-off' ? 'The current driver process reports no NVENC hook. Your selected stream settings remain active.'
+              : state === 'restart-required' ? 'This SteamVR process already installed the hook. Close SteamVR completely and start it again to clear the encoder session.'
+              : 'Start SteamVR to verify OFF in a fresh driver process. Old or missing runtime information cannot confirm it.')));
+          if (state === 'confirmed-off' && runtime?.encoderTap) {
+            parts.push(noteRow(html`${t('Driver configuration')}: ${runtime.encoderTap.configPath}<br />
+              ${t('Loaded driver')}: ${runtime.encoderTap.modulePath}`));
+          }
+        }
         parts.push(html`<div class="status-badge-row"><fluent-badge appearance="tint" color="informative">${t('SteamVR restart required')}</fluent-badge>
           <span>${t('After changing stream quality.')}</span></div>`);
 }
@@ -323,39 +354,8 @@ if (advancedMode) {
   tip: "Make the headset image black while keeping tracking and the game running. Use this for testing, not as a way to stop or pause the application.\n\nBlack out the headset's screens to protect from burn in. Tracking, streaming and the game keep running; only the panels go black. Useful while developing or leaving the headset connected. Needs Enable Image Processing on.",
   reset: { can: !!settings.calib?.blackout, on: () => { galaxy.setBlackout(false); } }
           }));
-if (vendor) {
+if (vendor && settings.nvencTap) {
         parts.push(sectionHeading(t('Encoder'), 0, 'encoder'));
-        parts.push(settingFieldRow('streamFrame.nvencTap', html`
-      <app-switch .checked=${!!settings.nvencTap} @change=${(e: CustomEvent) => { settings.nvencTap = e.detail; save(); }}></app-switch>
-            `, {
-  tip: "Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.\n\nAn encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.",
-  reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
-            }));
-        parts.push(settingFieldRow('streamFrame.nvencCodec', html`
-      <app-select .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1 (experimental)' }]} @change=${(e: CustomEvent) => { settings.nvencCodec = e.detail; applyCodecDefaults(settings, e.detail); save(); }}></app-select>
-            `, {
-  tip: "Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). Requires a SteamVR restart and reconnect."
-            }));
-        if (!settings.nvencTap) {
-          parts.push(noteRow(html`Needs the NVENC Tap — with the tap off the codec choice is saved but not applied.`));
-        }
-        parts.push(fieldRow(t('Restore Steam Link encoder behaviour'), html`
-          <fluent-button appearance="outline" ?disabled=${this.ctx.sds.installingDriver() || this.ctx.startup.status()?.steamvrRunning !== false}
-            @click=${() => this.restoreEncoder()}>${t('Restore encoder behaviour')}</fluent-button>
-        `, { tip: "Disable NVENC Tap without deleting your custom tuning. Stream quality, bandwidth, resolution, 10-bit requests and other settings are kept. Close SteamVR completely before restoring." }));
-        if (!settings.nvencTap) {
-          const runtime = this.ctx.startup.status();
-          const state = encoderTapStatus(false, runtime);
-          parts.push(statusMessage(state === 'restart-required' ? 'warning' : 'info',
-            t(state === 'confirmed-off' ? 'NVENC Tap OFF confirmed' : state === 'restart-required' ? 'NVENC Tap OFF: restart required' : 'NVENC Tap OFF saved'),
-            t(state === 'confirmed-off' ? 'The current driver process reports no NVENC hook. Your selected stream settings remain active.'
-              : state === 'restart-required' ? 'This SteamVR process already installed the hook. Close SteamVR completely and start it again to clear the encoder session.'
-              : 'Start SteamVR to verify OFF in a fresh driver process. Old or missing runtime information cannot confirm it.')));
-          if (state === 'confirmed-off' && runtime?.encoderTap) {
-            parts.push(noteRow(html`${t('Driver configuration')}: ${runtime.encoderTap.configPath}<br />
-              ${t('Loaded driver')}: ${runtime.encoderTap.modulePath}`));
-          }
-        }
 if (settings.nvencTap) {
   const codecDef = codecEncoderDefaults[settings.nvencCodec ?? 0] ?? codecEncoderDefaults[0];
   parts.push(sectionGroup(t('Advanced'), 1));
