@@ -33,9 +33,9 @@
 //   3. unsupported structures with explicit settings fail visibly; disabled
 //      sessions remain passthrough except required lifetime ABI adaptation.
 //   4. initialization without an explicit encodeConfig is valid NVENC usage
-//      (a preset-defaults request): observe-only — the call passes through
-//      and the success is recorded exactly like pre-0cf0cf7. It never
-//      refuses, and no codec substitution ever runs on that path.
+//      (a preset-defaults request): observe-only after active-geometry
+//      validation; no codec substitution runs on that path. Initialization
+//      allocation geometry may differ from the packed picture geometry.
 //
 // Install timing: TryInstall() pre-loads nvEncodeAPI64.dll itself and hooks
 // it, so vrlink's later LoadLibrary finds the hooked export. Call it from
@@ -58,10 +58,11 @@ struct NvencTapConfig {
 	// snap.hevc. paired with the Steam Link client "Codecs Support" patch and
 	// streamFrame.nvencCodec.
 	int codec = 0;
-	// Published geometry reference; never advertised as a device capability.
+	// Explicit stream geometry; vendor maximum-dimension probes describe its
+	// session allocation envelope after validating real selected-codec caps.
 	int effectiveTileWidth = 1536;
-	// Galaxy XR requires the exact four-tile negotiated geometry; neutral
-	// and legacy headset callers keep their existing geometry contract.
+	// Galaxy XR requires exact four-tile active pictures/reconfiguration;
+	// initial allocation may differ. Neutral/legacy callers remain unchanged.
 	bool enforceTile = false;
 	// 0 = leave vrlink's bitrate alone. otherwise averageBitRate is
 	// replaced by this (Mbit/s), maxBitRate by 1.15x, vbvBufferSize scaled
@@ -293,6 +294,14 @@ struct NvencTapRuntimeState {
 	int requestedCodec = 0, effectiveCodec = -1;
 	uint32_t lastStatus = 0;
 	std::string error;
+	// 2026-10-17: first startup allocation/initialization failure of the encoder
+	// session. Error text names the phase, distinguishing capability/setup
+	// validation from NVIDIA's initialization call.
+	// Captured atomically at origin; retries/reconfiguration cannot overwrite
+	// it. Matching successful initialization clears it; after destruction,
+	// a successful replacement session retires the archived failure too.
+	uint32_t lastInitStatus = 0;
+	std::string initError;
 	uint32_t lastPictureStatus = 0;
 	std::string pictureError;
 	int effectiveRateControl = -1, effectiveSplit = -1;
@@ -338,8 +347,9 @@ private:
 	// shim's settings-file fallback and the open-time upgrade decisions
 	// (UpgradeWanted, the CreateInstance wrap gate) apply only before that
 	// (pre-publish).
-	// Caps queries always use real selected-codec limits; only the explicit
-	// H.264 High 8-bit input profile restricts the advertised input depth.
+	// Legacy caller feature caps retain their codec GUID; target-codec caps
+	// validate the explicit vendor allocation envelope separately. H.264 High
+	// 8-bit restricts input depth to match the selected client profile.
 	std::atomic<bool> cfgPublished{false};
 
 	friend struct NvencTapShims;

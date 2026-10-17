@@ -42,15 +42,26 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // rule): a codec switch applies this table row at once — tile width,
 // bandwidth and the four dependent encoder rows — replacing the previous
 // codec's values; afterwards every row is user-editable until the next
-// switch, and the reset arrows keep applying the row manually. 2026-10-16:
+// switch, and the reset arrows keep applying the row manually. 2026-10-17:
 // the dependent set also carries each codec's default Tile Width and
-// Bandwidth (owner-set: HEVC 1536/350, H.264 1536/500, AV1 1536/400); the
-// codec-0 row's tile and bandwidth must stay pinned to the GENERATED driver
-// defaults.
+// Bandwidth (owner-set: HEVC 1536/350, H.264 1024/500, AV1 1536/400);
+// H.264's 1024-tile is the class the Steam Link client actually negotiates
+// for H.264 (4x1024 = 4096) — proven live on 2026-10-16: with 1536 stored
+// the client negotiated 1024x4096 and the tap refused the mismatch. Every
+// applied value shows in its field, and stays user-editable.
+// 2026-10-17: AV1's row carries splitMode 0. Live evidence both sides: the
+// tap's own AU dump shows split-1 AV1 output as per-strip micro-frames
+// (188/72-byte AUs, strip-class sequence dims ~3x216; the client read
+// 32x5120), the client's av1D configure then rejects the recorded geometry
+// and rebuilds the stock HEVC decoder, and the stream stalls with zero
+// video-packet ACKs (SVLFEC lastAcknowledgeFrameNumber = 0). Unsplit AV1
+// keeps the host bitstream at the negotiated 1536x6144 the client accepts.
+// The codec-0 row's tile and bandwidth must stay pinned to the GENERATED
+// driver defaults.
 export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number, streamFormatWidth: number, bandwidthMbit: number }> = {
   0: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
-  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 500 },
-  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 400 },
+  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1024, bandwidthMbit: 500 },
+  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 0, streamFormatWidth: 1536, bandwidthMbit: 400 },
 };
 
 // 2026-10-16 (owner directive): inline per-key validation for the Stream

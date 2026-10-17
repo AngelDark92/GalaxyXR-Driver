@@ -58,9 +58,12 @@ if ($InstallMicrosoftBuildTools) {
 if ($SetupOnly) { Write-Output 'Portable build prerequisites are ready; no application was built or deployed.'; return }
 # Portable build cleanup (2026-09-26): isolate disposable compiler artifacts so
 # successful builds can remove only their own work, keeping packages and logs.
-$runId = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N')
-$workDirectory = Join-Path $buildRoot ('portable-work-' + $runId)
-$logDirectory = Join-Path $buildRoot ('portable-logs-' + $runId)
+# 2026-10-17: short run ids. The old timestamp + 32-char guid produced
+# cargo/link paths that crossed MAX_PATH 260 and killed every Companion
+# build-script link with LNK1104 on this checkout's long absolute prefix.
+$runId = (Get-Date -Format 'HHmmss') + [Guid]::NewGuid().ToString('N').Substring(0, 6)
+$workDirectory = Join-Path $buildRoot ('pw-' + $runId)
+$logDirectory = Join-Path $buildRoot ('plog-' + $runId)
 New-Item -ItemType Directory -Path $workDirectory,$logDirectory | Out-Null
 Write-Output "Build logs: $logDirectory"
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null

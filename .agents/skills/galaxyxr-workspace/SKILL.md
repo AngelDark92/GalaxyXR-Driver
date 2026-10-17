@@ -29,6 +29,29 @@ The native Galaxy XR driver is `GalaxyXRNative`; the neutral build retains the
    GitHub CI and live headset evidence. Cite current `file:line` evidence in the
    main result; a passing mocked browser test is not a native/runtime test.
 
+## Focused native runners: what each actually compiles
+
+The portable toolchain provides the C/C++ compiler only; MSBuild is not part of
+it, so `build.js` staging fails on the missing Visual Studio VC-tools install
+and full staging belongs to CI dispatch (or a user-approved BuildTools
+install). The focused suites are the local fast path, each with a knowable
+compile surface:
+
+- `Test-NvencToggle.ps1` compiles only `NvencToggleTest.cpp` (which includes
+  the tap source); FrameProcessor, ConfigLoader and Headsets consumers are not
+  compiled by it.
+- `Test-ToggleMigrations.ps1` extracts only the `ConfigLoader::ParseConfig`
+  body into a generated header; the rest of ConfigLoader (serialization, info
+  emit, watchers) is not compiled by it.
+- `Test-CasActivation.ps1` / `Test-HitchDiagnostics.ps1` compile
+  `FrameProcessor.cpp` + `EyeActivity.cpp` against link-time substitutes for
+  externals — a newly published external missing from the substitute set is a
+  LINK failure, not a silent skip; extend the substitute set whenever
+  FrameProcessor gains a new external call.
+
+A green receipt proves only its compiled subset; reconcile shared consumers in
+the main thread and let CI provide cross-TU verification.
+
 ## External artifacts are part of the contract
 
 All generated compiler output, packages, frontend bundles, test fixtures, caches,
@@ -80,3 +103,7 @@ artifact root. Report removed bytes and protected/skipped paths.
 - Static code, historical JSON and saved captures cannot establish live NVENC or
   headset behavior. Runtime claims need fresh PID-matched telemetry and loaded
   module path/hash evidence. A read-only audit remains read-only when requested.
+
+## Settings authority (2026-10-17)
+
+Explicit codec switches and reset arrows update the saved values backing each editable field. Advanced controls may remain hidden: switching codecs must still update them, and opening Advanced Mode must show their current values. Never silently coerce, replace or ignore app-visible user settings; preserve rejected requests with a visible error. Automatic internal parameters with no app setting may be derived without rewriting user settings.

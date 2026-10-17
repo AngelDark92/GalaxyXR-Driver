@@ -472,6 +472,8 @@ export type DriverInfo = {
     effectiveCodec?: number; // -1 until NVENC accepts a session
     lastStatus?: number;
     error?: string;
+    lastInitStatus?: number;
+    initError?: string; // first initialization failure in this encoder session
     effectiveRateControl?: number; // -1 unknown; otherwise NVENC rate-control enum
     effectiveSplit?: number;
     encodeWidth?: number;

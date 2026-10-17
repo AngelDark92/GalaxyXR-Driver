@@ -32,3 +32,5 @@ totals: N🔴 N🟡 N🔵 N❓; checks/limits if material.
 ```
 
 Use 🔴 for confirmed output/crash/security/data-loss regressions, 🟡 for concrete edge/race/leak/performance risk, 🔵 only for requested style findings and ❓ for required intent/context. Sort by file then line. Zero findings: `No issues.` with any material validation limit. Security findings and authorization ambiguity use clear normal English before returning to concise form.
+
+Explicit codec switches and reset arrows update the saved values backing each editable field. Advanced controls may remain hidden: switching codecs must still update them, and opening Advanced Mode must show their current values. Never silently coerce, replace or ignore app-visible user settings; preserve rejected requests with a visible error. Automatic internal parameters with no app setting may be derived without rewriting user settings.

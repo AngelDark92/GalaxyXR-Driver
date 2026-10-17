@@ -113,6 +113,7 @@ export class StreamFramePage extends BasePage {
     const galaxyXr = galaxy.galaxyXr;
     const sections = galaxy.sections();
     const save = () => { galaxy.save(); this.requestUpdate(); };
+    const evidence = encoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
     // 2026-10-16: heal stale inline errors each render — programmatic writes
     // (codec switches, reset arrows) can satisfy an earlier recorded error,
     // and Force CBR moves the keyframe-scale contract with itself.
@@ -170,6 +171,10 @@ if (vendor) {
   reset: { can: galaxy.streamQualityValues.width != codecDef.streamFormatWidth, on: () => { galaxy.setStreamQualityValue('width', codecDef.streamFormatWidth); save(); } }
           }));
           parts.push(this.numberErrorRow('galaxyXr.customStreamFormatWidth'));
+          if (settings.nvencCodec === 1 && galaxy.streamQualityValues.width > 1024) {
+            parts.push(statusMessage('warning', t('H.264 tile width above 1024'),
+              t('Steam Link negotiates H.264 at 1024 × 4096. A tile width above 1024 requests a taller four-tile frame and may fail to encode. Your value is kept and remains editable; reset Tile Width to use 1024.')));
+          }
           parts.push(fieldRow(t('Bitrate (Mbit/s)'), html`
       <app-number .value=${galaxy.streamQualityValues.bandwidth} step="1" min="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxy.setStreamQualityValue('bandwidth', e.detail); } this.noteNumberError('galaxyXr.customBandwidthMbit', e.detail); save(); }}></app-number>
           `, {
@@ -181,21 +186,27 @@ if (vendor) {
             || !Number.isInteger(galaxy.streamQualityValues.bandwidth) || galaxy.streamQualityValues.bandwidth <= 0) {
           parts.push(statusMessage('error', t('Invalid stream setting'), t('Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.')));
         }
-        const evidence = encoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
-        if (settings.nvencTap) {
+        const expired = expiredEncoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
+        if (settings.nvencTap || evidence?.initError || expired?.tap.initError) {
           const names = ['HEVC', 'H.264', 'AV1'];
           if (evidence) {
+            if (evidence.initError) parts.push(statusMessage('error', t('Encoder initialization failed'), evidence.initError));
             if (evidence.error || evidence.pictureError) parts.push(statusMessage('error', t('Encoder request failed'), evidence.error || evidence.pictureError || ''));
-            parts.push(noteRow(html`${t('Latest accepted encoder: {codec}; {width} × {height}; rate control {rc}; split {split}.', {
+            if ((evidence.effectiveCodec ?? -1) >= 0) parts.push(noteRow(html`${t('Latest accepted encoder: {codec}; {width} × {height}; rate control {rc}; split {split}.', {
               codec: names[evidence.effectiveCodec ?? -1] ?? t('Unknown'), width: evidence.encodeWidth ?? 0, height: evidence.encodeHeight ?? 0,
               rc: evidence.effectiveRateControl === 2 ? 'CBR' : evidence.effectiveRateControl === 1 ? 'VBR' : t('Unknown'),
               split: evidence.effectiveSplit === -1 ? t('Not applicable') : evidence.effectiveSplit ?? t('Unknown') })}`));
+            else parts.push(noteRow(t('No encoder configuration has been accepted in this session.')));
           } else {
             // Expiry (2026-10-16): the last rejection of the verified process
             // stays visible with its age; it must never appear as merely
             // waiting. updateRuntimeEvidence also schedules the real status
             // refresh that replaces this snapshot.
-            const expired = expiredEncoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
+            if (expired?.tap.initError) {
+              parts.push(statusMessage('error', t('Encoder initialization failed'),
+                t('Last observed encoder rejection, {seconds} seconds ago: {error}',
+                  { seconds: Math.max(0, Math.floor(expired.ageMs / 1000)), error: expired.tap.initError })));
+            }
             const refusal = expired?.tap.error || expired?.tap.pictureError;
             if (refusal) {
               parts.push(statusMessage('error', t('Encoder request failed'),
@@ -478,6 +489,9 @@ if (settings.nvencTap) {
                 parts.push(this.numberErrorRow('streamFrame.nvencPreset'));
                 parts.push(settingFieldRow('streamFrame.nvencForceCbr', html`
       <app-switch .checked=${!!settings.nvencForceCbr} @change=${(e: CustomEvent) => { settings.nvencForceCbr = e.detail; save(); }}></app-switch>
+      ${evidence && (evidence.effectiveCodec ?? -1) >= 0 ? html`<span class="note-inline">${t('Latest accepted rate control: {rc}', {
+        rc: evidence.effectiveRateControl === 2 ? 'CBR' : evidence.effectiveRateControl === 1 ? 'VBR'
+          : evidence.effectiveRateControl === 0 ? t('Constant QP') : t('Unknown') })}</span>` : html``}
                 `, {
   tip: t("Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is shown with the codec defaults; H.264 recommends Off.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."),
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }

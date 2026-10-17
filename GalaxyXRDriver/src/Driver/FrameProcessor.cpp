@@ -1714,13 +1714,13 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	// 2026-10-13 stream codec override (0 HEVC default / 1 H.264 / 2 AV1)
 	tc.codec = settings.config.nvencCodec;
 	// 2026-10-16: publish the effective tile with the config, resolved under
-	// driverConfigLock here like the pacer bandwidth below. Caps queries use
-	// real per-codec NVENC limits; only the explicit H.264 8-bit input-class
-	// probe is answered by the shim. Geometry mismatches are refused visibly
-	// by ValidateRequest under enforceTile, never smoothed by fabricated caps.
+	// driverConfigLock here like the pacer bandwidth below. Dimension queries
+	// expose this explicit allocation envelope after real target-codec checks;
+	// legacy caller feature queries retain their codec contract. Packed active
+	// frames are validated separately from initial allocation geometry.
 	tc.effectiveTileWidth = GalaxyXR_EffectiveTileWidth();
 #ifdef VENDOR_GALAXYXR
-	// Reject upstream negotiation that silently substitutes a smaller stream.
+	// Preserve the requested packed frame without rejecting bootstrap allocation.
 	tc.enforceTile = true;
 #endif
 	// encoder bitrate: the debug "separate" value if set, else the

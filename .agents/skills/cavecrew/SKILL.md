@@ -71,6 +71,23 @@ output. Do not hand a builder an unknown execution path: investigate first.
 For parallel work, use disjoint file owners and explicitly reconcile shared
 settings schemas, build paths and their consumers in the main thread.
 
+## Main-thread verification of parallel waves
+
+- Before dispatching builders, map shared consumers: a field published in one
+  owner's file and read in another's (config -> tap, tap state -> info.json
+  emitter, tap state -> GUI types) must live inside ONE owner, or the main
+  thread holds the seam itself. Partial-TU test runners will not catch a
+  consumer break: extraction-based runners compile one function body, and
+  test-TU runners compile only the test file's includes.
+- Before EACH main-thread patch round, rerun `git status --short`. A parallel
+  agent session live-edits the same tree mid-wave; absorb consistent owner
+  work, never revert it, and reconcile seams it left half-done.
+- Terminal state persists across calls: run every command batch with an
+  explicit absolute `cd`, or commands run under the wrong directory and can
+  fail silently inside background calls. A shell pipeline also masks the real
+  exit code (`echo EXIT=$?` after `cmd | tail` reports tail's status); write
+  the real exit into a log file.
+
 Read [AGENTS.md](../../../AGENTS.md) and
 [the workspace map](../galaxyxr-workspace/references/project-map.md) before
 project work. Implementation follows [customheadset-gxr](../customheadset-gxr/SKILL.md)
@@ -123,3 +140,7 @@ Keep output compact while retaining exact paths, line numbers, symbols and
 validation limits. Use normal clear English for authorization, risk or anything
 where fragments could mislead. The main thread converts agent output into a
 self-contained user result with the necessary evidence.
+
+## Settings authority (2026-10-17)
+
+Explicit codec switches and reset arrows update the saved values backing each editable field. Advanced controls may remain hidden: switching codecs must still update them, and opening Advanced Mode must show their current values. Never silently coerce, replace or ignore app-visible user settings; preserve rejected requests with a visible error. Automatic internal parameters with no app setting may be derived without rewriting user settings.

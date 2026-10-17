@@ -54,6 +54,11 @@ uint32_t seenPictureVersion = 0, seenLockVersion = 0;
 int destroyCalls = 0;
 int capsCalls = 0;
 bool failNextInit = false;
+NVENCSTATUS nextInitStatus = NV_ENC_SUCCESS;
+NVENCSTATUS reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+bool strictCapabilities = false;
+std::vector<GUID> directGeometryCaps;
+uint32_t seenEncodeW = 0, seenEncodeH = 0;
 int initDriverCalls = 0;
 int ordinaryCalls = 0;
 NVENCSTATUS encodeDriverStatus = NV_ENC_ERR_GENERIC;
@@ -63,6 +68,7 @@ NV_ENC_CONFIG_H264 seenH264Recipe{};
 NV_ENC_CONFIG_HEVC_VUI_PARAMETERS seenHevcVui{};
 NV_ENC_CONFIG_AV1 seenAv1Config{};
 uint32_t seenH264Gop = 0, seenH264Idr = 0;
+int rejectedPresetCalls = 0;
 
 void Check(bool condition, const char* label){
 	checks++;
@@ -204,18 +210,22 @@ void CheckCodecOverride(void* encoder){
 	Check(capsValue == 1 && capsCalls == capsBefore + 2, "caps shim: disabled tap keeps the real answer");
 	ConfigureCodec(true, 0);
 
-	// Actual GPU geometry limits are queried for the selected codec; user
-	// requests never masquerade as hardware caps (including oversized tiles).
+	// Legacy caller probes describe the codec the caller asked about. In
+	// particular HEVC-only feature probes must not be routed to AV1.
 	for(int codec : {0, 1, 2}) for(int tile : {768, 1536, 3072}){
 		ConfigureCodec(true, codec, tile);
 		for(auto query : {NV_ENC_CAPS_WIDTH_MAX, NV_ENC_CAPS_HEIGHT_MAX}){
 			auto probe = ShimCapsQuery(encoder, query);
-			Check(probe.status == NV_ENC_SUCCESS && probe.value == 1 && probe.driverCalls == 1,
-				"caps: selected codec geometry uses actual driver answer without request-derived limits");
-			const GUID expected = codec == 1 ? NV_ENC_CODEC_H264_GUID : codec == 2 ? NV_ENC_CODEC_AV1_GUID : NV_ENC_CODEC_HEVC_GUID;
-			Check(memcmp(&seenCapsGuid, &expected, sizeof(GUID)) == 0, "caps: driver receives selected codec GUID");
+			Check(probe.status == NV_ENC_SUCCESS && probe.value == 8192 && probe.driverCalls == 1,
+				"caps: caller geometry uses actual driver answer without request-derived limits");
+			Check(memcmp(&seenCapsGuid, &NV_ENC_CODEC_HEVC_GUID, sizeof(GUID)) == 0, "caps: driver receives the caller's HEVC GUID");
 		}
 	}
+	ConfigureCodec(true, 2);
+	auto constrained = ShimCapsQuery(encoder, NV_ENC_CAPS_SUPPORT_CONSTRAINED_ENCODING);
+	Check(constrained.status == NV_ENC_SUCCESS && constrained.value == 1
+		&& memcmp(&seenCapsGuid, &NV_ENC_CODEC_HEVC_GUID, sizeof(GUID)) == 0,
+		"caps: AV1 selection preserves a legacy HEVC constrained-encoding query");
 	ConfigureCodec(false, 1);
 	auto disabledCaps = ShimCapsQuery(encoder, NV_ENC_CAPS_WIDTH_MAX);
 	Check(disabledCaps.driverCalls == 1 && memcmp(&seenCapsGuid, &NV_ENC_CODEC_HEVC_GUID, sizeof(GUID)) == 0,
@@ -262,12 +272,16 @@ void CheckCodecOverride(void* encoder){
 	Check(((seenInitFlags >> 5) & 0xFu) == 0u, "h264+split: forced split bits ABSENT for H.264");
 	Check(*((uint32_t*)&sinit.enablePTD + 1) == 0, "h264+split: caller flags word restored");
 
-	// 2026-10-16 no-silent-settings: no maxEncode rewrite for codec 1 — the
-	// caller's derived bounds pass through (3200x8192 stays 3200x8192).
+	// Allocation reservations have no app field. Bound them to real target
+	// hardware while preserving the active geometry and caller-owned memory.
+	strictCapabilities = true;
+	sinit.encodeWidth = 1024; sinit.encodeHeight = 4096;
 	sinit.maxEncodeWidth = 3200; sinit.maxEncodeHeight = 8192;
-	Check(NvencTapShims::InitializeEncoder(h264Enc, &sinit) == NV_ENC_SUCCESS, "h264 passthrough: init delegated");
-	Check(seenMaxEncodeW == 3200u && seenMaxEncodeH == 8192u, "h264 passthrough: caller bounds reach the encoder unchanged");
-	Check(sinit.maxEncodeWidth == 3200u && sinit.maxEncodeHeight == 8192u, "h264 passthrough: caller bounds untouched");
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &sinit) == NV_ENC_SUCCESS, "h264 reservations: valid active frame initializes within actual hardware bounds");
+	Check(seenMaxEncodeW == 3200u && seenMaxEncodeH == 4096u && seenEncodeW == 1024u && seenEncodeH == 4096u,
+		"h264 reservations: maximum height bounded to hardware without changing active frame");
+	Check(sinit.maxEncodeWidth == 3200u && sinit.maxEncodeHeight == 8192u, "h264 reservations: caller bounds restored");
+	strictCapabilities = false;
 
 	// hevc+split regression: codec 0 keeps the forced split bits — the skip
 	// must only drop them for H.264.
@@ -281,17 +295,18 @@ void CheckCodecOverride(void* encoder){
 	Check(((seenInitFlags >> 5) & 0xFu) == 1, "hevc+split: forced split bits still present for HEVC");
 	Check(*((uint32_t*)&sinit.enablePTD + 1) == 0, "hevc+split: caller flags word restored");
 
-	// 2026-10-16 no-silent-settings (already-H264 caller): the caller hands
-	// over the H264 GUID directly; no swap and no bounds rewrite happen.
+	// The same reservation rule must also work for a direct H.264 caller.
 	driverConfig.streamFrame.nvencTap = true;
 	driverConfig.streamFrame.nvencCodec = 1;
 	driverConfig.streamFrame.nvencSplitMode = 1;
 	NvencTap::Get().SetConfig(h264Cfg);
 	sinit.encodeGUID = NV_ENC_CODEC_H264_GUID;
 	sinit.maxEncodeWidth = 8192; sinit.maxEncodeHeight = 8192;
-	Check(NvencTapShims::InitializeEncoder(h264Enc, &sinit) == NV_ENC_SUCCESS, "h264 passthrough: already-H264 init delegated");
-	Check(seenMaxEncodeW == 8192u && seenMaxEncodeH == 8192u, "h264 passthrough: already-H264 bounds flow through");
-	Check(sinit.maxEncodeWidth == 8192u && sinit.maxEncodeHeight == 8192u, "h264 passthrough: already-H264 caller untouched");
+	strictCapabilities = true;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &sinit) == NV_ENC_SUCCESS, "h264 reservations: already-H264 init delegated");
+	Check(seenMaxEncodeW == 4096u && seenMaxEncodeH == 4096u, "h264 reservations: already-H264 bounds follow actual capability");
+	Check(sinit.maxEncodeWidth == 8192u && sinit.maxEncodeHeight == 8192u, "h264 reservations: already-H264 caller restored");
+	strictCapabilities = false;
 
 	// h264 rc: forceCbr and vbvFrames honor the configured values for codec 1
 	// like for every codec (the codec-1 bypass is gone). forceCbr off: the
@@ -346,9 +361,15 @@ void CheckCodecOverride(void* encoder){
 	ConfigureCodec(true, 0);
 }
 
-NVENCSTATUS NVENCAPI CaptureCanonicalPreset(void*, GUID, GUID, NV_ENC_TUNING_INFO, NV_ENC_PRESET_CONFIG* preset){
+NVENCSTATUS NVENCAPI CaptureCanonicalPreset(void*, GUID codec, GUID, NV_ENC_TUNING_INFO, NV_ENC_PRESET_CONFIG* preset){
 	preset->presetCfg.rcParams.multiPass = (NV_ENC_MULTI_PASS)1;
+	if(IsH264(codec)){ preset->presetCfg.encodeCodecConfig.h264Config.disableDeblockingFilterIDC = 2; }
+	else if(CodecOfGuid(codec) == 2){ preset->presetCfg.encodeCodecConfig.av1Config.numTileRows = 2; }
 	return NV_ENC_SUCCESS;
+}
+NVENCSTATUS NVENCAPI RejectCanonicalPreset(void*, GUID, GUID, NV_ENC_TUNING_INFO, NV_ENC_PRESET_CONFIG*){
+	++rejectedPresetCalls;
+	return NV_ENC_ERR_UNSUPPORTED_PARAM;
 }
 
 void CheckExplicitSettings(){
@@ -370,29 +391,47 @@ void CheckExplicitSettings(){
 	NvencTapConfig parseFailure; parseFailure.enabled = true; parseFailure.requestError = "Tile width must be an integer.";
 	for(int codec : {0, 1, 2}){
 		NvencTapConfig geometry; geometry.enabled = true; geometry.codec = codec; geometry.enforceTile = true;
-		geometry.effectiveTileWidth = 1536;
+		geometry.effectiveTileWidth = codec == 1 ? 1024 : 1536;
 		NvencTap::Get().SetConfig(geometry);
-		auto negotiated = init; negotiated.encodeWidth = 1024; negotiated.encodeHeight = 4096;
+		auto negotiated = init; negotiated.encodeWidth = 768; negotiated.encodeHeight = 3072;
 		const auto original = negotiated; const auto originalConfig = config;
+		void* geometryEncoder = codec == 2 ? OpenSession() : encoder;
 		const int before = initDriverCalls;
-		Check(NvencTapShims::InitializeEncoder(encoder, &negotiated) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == before,
-			"upstream geometry downgrade: every codec rejects 1024 when the user requested 1536");
+		Check(NvencTapShims::InitializeEncoder(geometryEncoder, &negotiated) == NV_ENC_SUCCESS && initDriverCalls == before + 1,
+			"startup allocation: every codec permits initialization before packed geometry is selected");
 		Check(memcmp(&negotiated, &original, sizeof(original)) == 0 && memcmp(&config, &originalConfig, sizeof(config)) == 0,
-			"upstream geometry rejection: input parameters remain byte-exact");
-		Check(NvencTap::Get().GetRuntimeState().error.find("1536") != std::string::npos,
-			"upstream geometry rejection: UI error identifies requested dimensions");
-		negotiated.encodeWidth = 1536; negotiated.encodeHeight = 6144;
-		Check(NvencTapShims::InitializeEncoder(encoder, &negotiated) == NV_ENC_SUCCESS,
+			"startup allocation: caller parameters remain byte-exact");
+		NV_ENC_RECONFIGURE_PARAMS mismatch = {}; mismatch.version = Tag111(1, true); mismatch.reInitEncodeParams = negotiated;
+		const auto originalMismatch = mismatch; const int beforeMismatch = ordinaryCalls;
+		Check(NvencTapShims::ReconfigureEncoder(geometryEncoder, &mismatch) == NV_ENC_ERR_INVALID_PARAM && ordinaryCalls == beforeMismatch,
+			"active geometry downgrade: every codec rejects a packed frame different from the requested tile");
+		Check(memcmp(&mismatch, &originalMismatch, sizeof(mismatch)) == 0,
+			"active geometry rejection: caller parameters remain byte-exact");
+		Check(NvencTap::Get().GetRuntimeState().error.find(std::to_string(geometry.effectiveTileWidth)) != std::string::npos,
+			"active geometry rejection: UI error identifies requested dimensions");
+		negotiated.encodeWidth = geometry.effectiveTileWidth; negotiated.encodeHeight = geometry.effectiveTileWidth * 4;
+		Check(NvencTapShims::InitializeEncoder(geometryEncoder, &negotiated) == NV_ENC_SUCCESS,
 			"exact requested geometry: all codec requests reach NVENC unchanged");
 	}
 	NvencTap::Get().SetConfig(parseFailure); const int beforeParse = initDriverCalls;
 	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == beforeParse
-		&& NvencTap::Get().GetRuntimeState().error == parseFailure.requestError,
+		&& NvencTap::Get().GetRuntimeState().error.find(parseFailure.requestError) == 0,
 		"parser rejection: runtime surfaces original error without default substitution");
 	NvencTapConfig highRate; highRate.enabled = true; highRate.bitrateMbit = 2500; highRate.bitrateScale = false;
 	NvencTap::Get().SetConfig(highRate);
 	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS && seenBitrate == 2500000000u,
 		"requested bitrate above old 2000Mbps cap: exact representable value reaches NVENC");
+	for(int codec : {0, 2}){
+		NvencTapConfig inactiveRecipe; inactiveRecipe.enabled = true; inactiveRecipe.codec = codec;
+		inactiveRecipe.h264SliceMode = 9; inactiveRecipe.h264RefFrames = -3;
+		NvencTap::Get().SetConfig(inactiveRecipe);
+		void* activeEncoder = codec == 2 ? OpenSession() : encoder;
+		Check(NvencTapShims::InitializeEncoder(activeEncoder, &init) == NV_ENC_SUCCESS,
+			"inactive H264 recipe: invalid retained H264 values do not prevent HEVC or AV1 initialization");
+		Check(NvencTap::Get().GetConfig().h264SliceMode == 9 && NvencTap::Get().GetConfig().h264RefFrames == -3,
+			"inactive H264 recipe: retained values remain user-authoritative without normalization");
+		if(codec == 2){ Check(NvencTapShims::DestroyEncoder(activeEncoder) == NV_ENC_SUCCESS, "inactive H264 recipe: AV1 session destroyed"); }
+	}
 	for(int split = 5; split <= 14; ++split){
 		NvencTapConfig cfg; cfg.enabled = true; cfg.splitMode = split;
 		NvencTap::Get().SetConfig(cfg); const int before = initDriverCalls;
@@ -420,9 +459,34 @@ void CheckExplicitSettings(){
 		Check(seenH264Recipe.outputAUD == 0 && seenH264Recipe.repeatSPSPPS == 0 && seenH264Recipe.disableSPSPPS == 1
 			&& seenH264Recipe.h264VUIParameters.bitstreamRestrictionFlag == 0 && seenMultiPass == 2 && seenVbvDelay == 12345,
 			"custom H264 recipe: header flags and explicit multipass honored");
+		Check(seenH264Recipe.disableDeblockingFilterIDC == 2,
+			"canonical H264 seed: codec setup adopts canonical codec fields even with optional preset merge disabled");
 		Check(memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&config, &savedConfig, sizeof(config)) == 0,
 			"custom H264 recipe: complete caller data restored");
 	}
+	origGetPresetConfigEx = RejectCanonicalPreset;
+	cfg.forceCbr = true; cfg.lowDelayKfScale = 3; cfg.vbvFrames = 2;
+	cfg.bitrateMbit = 180; cfg.bitrateScale = false; cfg.presetMerge = true; cfg.preset = 6;
+	NvencTap::Get().SetConfig(cfg);
+	const int rejectedPresetsBefore = rejectedPresetCalls;
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS,
+		"preset lookup failure: valid target codec request still reaches NVENC");
+	Check(rejectedPresetCalls > rejectedPresetsBefore,
+		"preset lookup failure: exercise a real failed fetch rather than a cached successful preset");
+	Check(seenBitrate == 180000000u && seenMaxBitrate == 180000000u
+		&& seenRcMode == NV_ENC_PARAMS_RC_CBR && seenKfScale == 3u && seenVbvSize == 4000000u
+		&& seenMultiPass == 2 && seenH264Gop == 123u && seenH264Idr == 321u && seenH264Recipe.maxNumRefFrames == 7u,
+		"preset lookup failure: explicit bitrate, CBR, VBV, multipass and H264 recipe are all honored");
+	Check(memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&config, &savedConfig, sizeof(config)) == 0,
+		"preset lookup failure: full caller configuration restored");
+	origGetPresetConfigEx = CaptureCanonicalPreset;
+	cfg = NvencTapConfig{}; cfg.enabled = true; cfg.codec = 2; cfg.preset = 7; cfg.presetMerge = false;
+	NvencTap::Get().SetConfig(cfg); void* seededAv1 = OpenSession();
+	Check(NvencTapShims::InitializeEncoder(seededAv1, &init) == NV_ENC_SUCCESS && seenAv1Config.numTileRows == 2,
+		"canonical AV1 seed: optional merge OFF still uses the target codec recipe");
+	Check(memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&config, &savedConfig, sizeof(config)) == 0,
+		"canonical AV1 seed: caller bytes restored");
+	Check(NvencTapShims::DestroyEncoder(seededAv1) == NV_ENC_SUCCESS, "canonical AV1 seed: session destroyed");
 	origGetPresetConfigEx = savedPresetFunction;
 	for(int codec : {0, 1, 2}){
 		cfg = NvencTapConfig{}; cfg.enabled = true; cfg.codec = codec;
@@ -703,6 +767,11 @@ NVENCSTATUS NVENCAPI CaptureCaps(void*, GUID guid, NV_ENC_CAPS_PARAM* params, in
 	seenCapsGuid = guid;
 	seenCapsVersion = params->version;
 	*value = 1;
+	if(params->capsToQuery == NV_ENC_CAPS_SUPPORT_CONSTRAINED_ENCODING){ *value = IsHevc(guid) ? 1 : 0; }
+	if(params->capsToQuery == NV_ENC_CAPS_WIDTH_MAX || params->capsToQuery == NV_ENC_CAPS_HEIGHT_MAX){
+		*value = IsH264(guid) ? 4096 : 8192;
+		if(strictCapabilities){ directGeometryCaps.push_back(guid); }
+	}
 	return NV_ENC_SUCCESS;
 }
 
@@ -710,6 +779,12 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 	++initDriverCalls;
 	if(!params){ return NV_ENC_ERR_INVALID_PTR; }
 	if(failNextInit){ failNextInit = false; return NV_ENC_ERR_INVALID_PARAM; }
+	if(nextInitStatus != NV_ENC_SUCCESS){ const auto status = nextInitStatus; nextInitStatus = NV_ENC_SUCCESS; return status; }
+	if(strictCapabilities){
+		const uint32_t limit = IsH264(params->encodeGUID) ? 4096u : 8192u;
+		if(params->encodeWidth > limit || params->encodeHeight > limit
+			|| params->maxEncodeWidth > limit || params->maxEncodeHeight > limit){ return NV_ENC_ERR_INVALID_PARAM; }
+	}
 	seenInitVersion = params->version;
 	seenInitFlags = *((uint32_t*)&params->enablePTD + 1);
 	seenTuning = (uint32_t)params->tuningInfo;
@@ -718,6 +793,7 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 	// observe-only init arrives WITHOUT an encodeConfig (valid NVENC usage)
 	// — capture a cleared config view and never dereference null.
 	seenCodecGuid = params->encodeGUID;
+	seenEncodeW = params->encodeWidth; seenEncodeH = params->encodeHeight;
 	seenMaxEncodeW = params->maxEncodeWidth; seenMaxEncodeH = params->maxEncodeHeight;
 	seenConfigVersion = 0; seenRcVersion = 0; seenLevel = 0; seenBitrate = 0;
 	seenRcMode = 0; seenKfScale = 0; seenMaxBitrate = 0; seenVbvSize = 0; seenVbvDelay = 0;
@@ -759,7 +835,16 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 }
 
 const void* seenOrdinary = nullptr;
-NVENCSTATUS NVENCAPI CaptureReconfigure(void*, NV_ENC_RECONFIGURE_PARAMS* p){ ++ordinaryCalls; seenOrdinary = p; return NV_ENC_ERR_GENERIC; }
+NVENCSTATUS NVENCAPI CaptureReconfigure(void*, NV_ENC_RECONFIGURE_PARAMS* p){
+	++ordinaryCalls; seenOrdinary = p;
+	if(reconfigureDriverStatus == NV_ENC_SUCCESS && p){
+		const int before = initDriverCalls;
+		const NVENCSTATUS checked = CaptureInit(nullptr, &p->reInitEncodeParams);
+		initDriverCalls = before;
+		return checked;
+	}
+	return reconfigureDriverStatus;
+}
 NVENCSTATUS NVENCAPI CaptureRegister(void*, NV_ENC_REGISTER_RESOURCE* p){ ++ordinaryCalls; seenOrdinary = p; return NV_ENC_ERR_GENERIC; }
 NVENCSTATUS NVENCAPI CaptureMap(void*, NV_ENC_MAP_INPUT_RESOURCE* p){ ++ordinaryCalls; seenOrdinary = p; return NV_ENC_ERR_GENERIC; }
 NVENCSTATUS NVENCAPI CaptureEncode(void*, NV_ENC_PIC_PARAMS* p){
@@ -813,7 +898,11 @@ void CheckOffPassthrough(void* encoder){
 	Check(memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&cfg, &savedCfg, sizeof(cfg)) == 0,
 		"OFF full initialization/config bytes unchanged");
 	Check(capsCalls == capsBefore, "OFF does not query encoder capabilities");
+	Check(logCalls == logsBefore, "OFF successful passthrough emits no diagnostic logs");
 	Check(NvencTapShims::InitializeEncoder(encoder, nullptr) == NV_ENC_ERR_INVALID_PTR, "OFF null init delegated");
+	Check(NvencTap::Get().GetRuntimeState().lastInitStatus == NV_ENC_ERR_INVALID_PTR
+		&& !NvencTap::Get().GetRuntimeState().initError.empty(), "OFF failed null init remains diagnosable");
+	const int logsAfterNullFailure = logCalls;
 	NvencTap::Get().TryInstall();
 	NvencTap::Get().MaybeHeartbeat();
 	NV_ENC_RECONFIGURE_PARAMS r = {}; r.version = Tag111(1, true);
@@ -844,7 +933,7 @@ void CheckOffPassthrough(void* encoder){
 	Check(NvencTapShims::ReconfigureEncoder(encoder, nullptr) == NV_ENC_ERR_GENERIC, "OFF null reconfigure forwarded");
 	const auto after = NvencTap::Get().GetStats();
 	Check(memcmp(&before, &after, sizeof(before)) == 0, "OFF no diagnostic counter changes");
-	Check(logCalls == logsBefore, "OFF no diagnostic logs");
+	Check(logCalls == logsAfterNullFailure, "OFF passthrough operations emit no extra diagnostics after recorded init failure");
 }
 
 NVENCSTATUS NVENCAPI CaptureDestroy(void*){ destroyCalls++; return NV_ENC_SUCCESS; }
@@ -922,7 +1011,8 @@ void CheckExistingSessionAfterOff(void* encoder){
 void CheckOpenProbeParity(){
 	const char* appdataRaw = getenv("APPDATA");
 	const std::string savedAppdata = appdataRaw ? appdataRaw : "";
-	const std::string base = (std::filesystem::temp_directory_path() / "nvenc-open-probe").string();
+	const auto checkoutParent = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
+	const std::string base = (checkoutParent / "builds/GalaxyXR-Driver/build/nvenc-toggle-test/open-probe").string();
 	std::filesystem::create_directories(base + "/CustomHeadset");
 	struct ProbeCase { const char* name; const char* json; bool expectTap; int expectCodec; int expectSplit; bool expectUpgrade; };
 	const ProbeCase cases[] = {
@@ -1067,6 +1157,166 @@ void CheckSplitGateAndRefusalKeys(){
 	Check(NvencTapShims::DestroyEncoder(stockEnc) == NV_ENC_SUCCESS, "split gate: stock session destroyed");
 	ConfigureCodec(true, 0);
 }
+
+void CheckStartupAllocationAndPictures(){
+	strictCapabilities = true;
+	for(int codec : {0, 1, 2}){
+		NvencTapConfig cfg; cfg.enabled = true; cfg.codec = codec; cfg.splitMode = codec == 1 ? 0 : 1;
+		cfg.enforceTile = true; cfg.effectiveTileWidth = codec == 1 ? 1024 : 1536;
+		NvencTap::Get().SetConfig(cfg);
+		void* encoder = OpenSession();
+		directGeometryCaps.clear();
+		auto width = ShimCapsQuery(encoder, NV_ENC_CAPS_WIDTH_MAX);
+		auto height = ShimCapsQuery(encoder, NV_ENC_CAPS_HEIGHT_MAX);
+		Check(width.status == NV_ENC_SUCCESS && width.value == cfg.effectiveTileWidth
+			&& height.status == NV_ENC_SUCCESS && height.value == cfg.effectiveTileWidth * 4,
+			"startup caps: advertised allocation envelope carries the selected explicit tile");
+		const GUID target = codec == 1 ? NV_ENC_CODEC_H264_GUID : codec == 2 ? NV_ENC_CODEC_AV1_GUID : NV_ENC_CODEC_HEVC_GUID;
+		Check(!directGeometryCaps.empty() && std::all_of(directGeometryCaps.begin(), directGeometryCaps.end(), [&](GUID guid){
+			return memcmp(&guid, &target, sizeof(GUID)) == 0;
+		}), "startup caps: allocation envelope is checked against actual target codec hardware");
+		NV_ENC_CONFIG config = {}; config.version = Tag111(7, true); config.rcParams.version = Tag111(1);
+		config.rcParams.averageBitRate = 42000000; config.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+		NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag111(5, true);
+		init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init.encodeConfig = &config;
+		init.frameRateNum = 90; init.frameRateDen = 1;
+		// HEVC and AV1 legitimately allocate at maximum size before the
+		// streamer reconfigures to the packed frame selected for transmission.
+		init.encodeWidth = codec == 1 ? 1024 : 3200; init.encodeHeight = codec == 1 ? 4096 : 8192;
+		init.maxEncodeWidth = 3200; init.maxEncodeHeight = 8192;
+		const auto savedInit = init; const auto savedConfig = config;
+		Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS,
+			"startup allocation: maximum-size initialization is accepted before packed-size reconfiguration");
+		Check(memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&config, &savedConfig, sizeof(config)) == 0,
+			"startup allocation: init and config caller bytes restored");
+		NV_ENC_RECONFIGURE_PARAMS reconfigure = {}; reconfigure.version = Tag111(1, true);
+		reconfigure.reInitEncodeParams = init;
+		reconfigure.reInitEncodeParams.encodeWidth = cfg.effectiveTileWidth;
+		reconfigure.reInitEncodeParams.encodeHeight = cfg.effectiveTileWidth * 4;
+		const auto savedReconfigure = reconfigure;
+		reconfigureDriverStatus = NV_ENC_SUCCESS;
+		Check(NvencTapShims::ReconfigureEncoder(encoder, &reconfigure) == NV_ENC_SUCCESS,
+			"startup allocation: subsequent requested packed frame reconfiguration succeeds");
+		const auto accepted = NvencTap::Get().GetRuntimeState();
+		Check(accepted.effectiveCodec == codec && accepted.encodeWidth == (uint32_t)cfg.effectiveTileWidth
+			&& accepted.encodeHeight == (uint32_t)cfg.effectiveTileWidth * 4u,
+			"startup allocation: app evidence reports actual accepted packed dimensions and selected codec");
+		Check(memcmp(&reconfigure, &savedReconfigure, sizeof(reconfigure)) == 0
+			&& memcmp(&config, &savedConfig, sizeof(config)) == 0,
+			"startup allocation: reconfigure and config caller bytes restored");
+		NV_ENC_PIC_PARAMS picture = {}; picture.version = Tag111(4, true);
+		picture.inputBuffer = reinterpret_cast<void*>(1); picture.outputBitstream = reinterpret_cast<void*>(2);
+		picture.inputWidth = 768; picture.inputHeight = 3072;
+		const auto savedPicture = picture; const int beforePicture = ordinaryCalls;
+		Check(NvencTapShims::EncodePicture(encoder, &picture) == NV_ENC_ERR_INVALID_PARAM && ordinaryCalls == beforePicture,
+			"active picture: mismatched tile is refused before encoding instead of silently sent");
+		Check(!NvencTap::Get().GetRuntimeState().pictureError.empty()
+			&& memcmp(&picture, &savedPicture, sizeof(picture)) == 0,
+			"active picture: refusal is visible and caller bytes remain intact");
+		Check(NvencTapShims::DestroyEncoder(encoder) == NV_ENC_SUCCESS, "startup allocation: session destroyed");
+	}
+	NvencTapConfig oversized; oversized.enabled = true; oversized.codec = 1; oversized.enforceTile = true;
+	oversized.effectiveTileWidth = 1536;
+	NvencTap::Get().SetConfig(oversized); void* encoder = OpenSession();
+	const auto rejected = ShimCapsQuery(encoder, NV_ENC_CAPS_HEIGHT_MAX);
+	Check(rejected.status != NV_ENC_SUCCESS && !NvencTap::Get().GetRuntimeState().error.empty(),
+		"unsupported requested H264 tile: allocation probe fails visibly instead of lowering user value");
+	const auto allocationFailure = NvencTap::Get().GetRuntimeState();
+	Check(allocationFailure.lastInitStatus == NV_ENC_ERR_INVALID_PARAM
+		&& allocationFailure.initError.find("allocation") != std::string::npos,
+		"unsupported requested H264 tile: allocation probe preserves the initiating setup failure");
+	NV_ENC_CONFIG invalidConfig = {}; invalidConfig.version = Tag111(7, true); invalidConfig.rcParams.version = Tag111(1);
+	NV_ENC_INITIALIZE_PARAMS invalidInit = {}; invalidInit.version = Tag111(5, true);
+	invalidInit.encodeGUID = NV_ENC_CODEC_HEVC_GUID; invalidInit.encodeConfig = &invalidConfig;
+	invalidInit.frameRateNum = 90; invalidInit.frameRateDen = 1;
+	invalidInit.encodeWidth = 1024; invalidInit.encodeHeight = 4096;
+	nextInitStatus = NV_ENC_ERR_DEVICE_NOT_EXIST;
+	Check(NvencTapShims::InitializeEncoder(encoder, &invalidInit) == NV_ENC_ERR_DEVICE_NOT_EXIST,
+		"unsupported requested H264 tile: later invalid-device initialization error returned");
+	Check(NvencTap::Get().GetRuntimeState().lastInitStatus == NV_ENC_ERR_INVALID_PARAM
+		&& NvencTap::Get().GetRuntimeState().initError == allocationFailure.initError,
+		"unsupported requested H264 tile: subsequent init status 5 cannot hide allocation setup failure");
+	Check(NvencTap::Get().GetConfig().effectiveTileWidth == 1536,
+		"unsupported requested H264 tile: exact user value remains configured");
+	Check(NvencTapShims::DestroyEncoder(encoder) == NV_ENC_SUCCESS, "unsupported requested H264 tile: session destroyed");
+	strictCapabilities = false; reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+	ConfigureCodec(true, 0);
+}
+
+void CheckFirstInitializationFailure(){
+	ConfigureCodec(true, 0);
+	void* encoder = OpenSession();
+	NV_ENC_CONFIG config = {}; config.version = Tag111(7, true); config.rcParams.version = Tag111(1);
+	NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag111(5, true);
+	init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init.encodeConfig = &config; init.frameRateNum = 90; init.frameRateDen = 1;
+	nextInitStatus = NV_ENC_ERR_INVALID_PARAM;
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_ERR_INVALID_PARAM,
+		"first init failure: initiating status 8 returned");
+	const auto first = NvencTap::Get().GetRuntimeState();
+	Check(first.lastInitStatus == NV_ENC_ERR_INVALID_PARAM && first.initError.find("nvEncInitializeEncoder") != std::string::npos
+		&& first.initError.find("request:") != std::string::npos,
+		"first init failure: exact initiating status and request preserved together");
+	NV_ENC_RECONFIGURE_PARAMS reconfigure = {}; reconfigure.version = Tag111(1, true); reconfigure.reInitEncodeParams = init;
+	reconfigureDriverStatus = NV_ENC_ERR_DEVICE_NOT_EXIST;
+	Check(NvencTapShims::ReconfigureEncoder(encoder, &reconfigure) == NV_ENC_ERR_DEVICE_NOT_EXIST,
+		"first init failure: later reconfigure status 5 returned");
+	nextInitStatus = NV_ENC_ERR_DEVICE_NOT_EXIST;
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_ERR_DEVICE_NOT_EXIST,
+		"first init failure: repeated init status 5 returned");
+	const auto repeated = NvencTap::Get().GetRuntimeState();
+	Check(repeated.lastStatus == NV_ENC_ERR_DEVICE_NOT_EXIST && repeated.lastInitStatus == NV_ENC_ERR_INVALID_PARAM
+		&& repeated.initError == first.initError,
+		"first init failure: later reconfigure/init failures cannot overwrite initiating status 8");
+	void* other = OpenSession();
+	Check(NvencTapShims::InitializeEncoder(other, &init) == NV_ENC_SUCCESS,
+		"first init failure: another encoder may initialize successfully");
+	Check(NvencTap::Get().GetRuntimeState().lastInitStatus == NV_ENC_ERR_INVALID_PARAM
+		&& NvencTap::Get().GetRuntimeState().initError == first.initError,
+		"first init failure: unrelated active encoder success preserves the failed session's visible evidence");
+	Check(NvencTapShims::DestroyEncoder(other) == NV_ENC_SUCCESS, "first init failure: unrelated session destroy succeeds");
+	// Revisiting the failed session must recover its own first failure,
+	// regardless of which other session most recently published telemetry.
+	nextInitStatus = NV_ENC_ERR_DEVICE_NOT_EXIST;
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_ERR_DEVICE_NOT_EXIST,
+		"first init failure: failed session retry still returns actual status");
+	Check(NvencTap::Get().GetRuntimeState().lastInitStatus == NV_ENC_ERR_INVALID_PARAM
+		&& NvencTap::Get().GetRuntimeState().initError == first.initError,
+		"first init failure: unrelated session success/destroy cannot erase original session evidence");
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS,
+		"first init failure: matching successful initialization allowed");
+	Check(NvencTap::Get().GetRuntimeState().lastInitStatus == 0 && NvencTap::Get().GetRuntimeState().initError.empty(),
+		"first init failure: matching success clears initiating failure");
+	ConfigureCodec(false, 0);
+	nextInitStatus = NV_ENC_ERR_INVALID_PARAM;
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_ERR_INVALID_PARAM
+		&& NvencTap::Get().GetRuntimeState().lastInitStatus == NV_ENC_ERR_INVALID_PARAM,
+		"first init failure: Tap OFF path also preserves initialization rejection");
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS
+		&& NvencTap::Get().GetRuntimeState().initError.empty(),
+		"first init failure: Tap OFF matching success clears its own failure");
+	ConfigureCodec(true, 0);
+	nextInitStatus = NV_ENC_ERR_INVALID_PARAM;
+	NvencTapShims::InitializeEncoder(encoder, &init);
+	Check(NvencTapShims::DestroyEncoder(encoder) == NV_ENC_SUCCESS, "first init failure: original session destroyed");
+	nextHandle = reinterpret_cast<uintptr_t>(encoder);
+	void* reused = OpenSession();
+	Check(reused == encoder, "first init failure: fake driver reuses the same raw session handle");
+	nextInitStatus = NV_ENC_ERR_DEVICE_NOT_EXIST;
+	Check(NvencTapShims::InitializeEncoder(reused, &init) == NV_ENC_ERR_DEVICE_NOT_EXIST
+		&& NvencTap::Get().GetRuntimeState().lastInitStatus == NV_ENC_ERR_DEVICE_NOT_EXIST,
+		"first init failure: reused handle starts a fresh diagnostic lifetime");
+	Check(NvencTapShims::DestroyEncoder(reused) == NV_ENC_SUCCESS, "first init failure: reused session destroyed");
+	Check(NvencTap::Get().GetRuntimeState().lastInitStatus == NV_ENC_ERR_DEVICE_NOT_EXIST
+		&& !NvencTap::Get().GetRuntimeState().initError.empty(),
+		"first init failure: destroyed failing session remains available as archived diagnostic evidence");
+	void* recoveredSession = OpenSession();
+	Check(NvencTapShims::InitializeEncoder(recoveredSession, &init) == NV_ENC_SUCCESS,
+		"first init failure: new session may recover after failed owner is destroyed");
+	Check(NvencTap::Get().GetRuntimeState().lastInitStatus == 0 && NvencTap::Get().GetRuntimeState().initError.empty(),
+		"first init failure: new successful session clears archived failure of a destroyed owner");
+	Check(NvencTapShims::DestroyEncoder(recoveredSession) == NV_ENC_SUCCESS, "first init failure: recovered session destroyed");
+	reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+}
 }
 
 // GPU processing always fails fast. Hook installation is allowed only in
@@ -1150,6 +1400,8 @@ int main(){
 	CheckSessionCodecGating();
 	CheckObserveOnlyInit();
 	CheckSplitGateAndRefusalKeys();
+	CheckStartupAllocationAndPictures();
+	CheckFirstInitializationFailure();
 
 	Configure(true, 0);
 	stock = OpenSession();

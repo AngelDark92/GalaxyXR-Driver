@@ -967,9 +967,13 @@ describe('per-codec encoder defaults', () => {
     gs.settings!.nvencCodec = 2;
     gs.applyCodecEncoderDefaults(2);
     const after = structuredClone(gs.rootSetting) as any;
-    // HEVC and AV1 share every optimized value except the bandwidth
+    // HEVC and AV1 share every optimized value except the bandwidth and the
+    // split mode: 2026-10-17 — AV1's row applies Split-Frame 0 (split-1 AV1
+    // emits per-strip micro-frames the client's av1D configure rejects, the
+    // stream stalls with zero ACKs).
     before.streamFrame.nvencCodec = 2;
     before.galaxyXr.customBandwidthMbit = 400;
+    before.streamFrame.nvencSplitMode = 0;
     expect(after).toEqual(before);
   });
 
@@ -1007,7 +1011,7 @@ describe('per-codec encoder defaults', () => {
     expect(harness.gs.settings!.nvencVbvFrames).toBe(1);
     expect(harness.gs.settings!.nvencLowDelayKfScale).toBe(2);
     expect(harness.gs.settings!.nvencSplitMode).toBe(1);
-    expect(harness.gs.galaxyXr.customStreamFormatWidth).toBe(1536);
+    expect(harness.gs.galaxyXr.customStreamFormatWidth).toBe(codecEncoderDefaults[1].streamFormatWidth); // the switch applies the codec's negotiated-carryable row (H.264 = 1024)
     expect(harness.gs.galaxyXr.customBandwidthMbit).toBe(500);
   });
 
@@ -1053,17 +1057,21 @@ describe('per-codec encoder defaults', () => {
   });
 
   it('keeps the defaults table internally consistent', () => {
-    // AV1 matches HEVC on every key except its own default bandwidth
-    const { bandwidthMbit: av1Bandwidth, ...av1Rest } = codecEncoderDefaults[2];
-    const { bandwidthMbit: hevcBandwidth, ...hevcRest } = codecEncoderDefaults[0];
+    // AV1 matches HEVC on every key except its own default bandwidth and its
+    // split mode: 2026-10-17 live evidence — split-1 AV1 emits per-strip
+    // micro-frames the client's av1D configure rejects, so AV1 runs unsplit.
+    const { bandwidthMbit: av1Bandwidth, splitMode: av1Split, ...av1Rest } = codecEncoderDefaults[2];
+    const { bandwidthMbit: hevcBandwidth, splitMode: hevcSplit, ...hevcRest } = codecEncoderDefaults[0];
     expect(av1Rest).toEqual(hevcRest);
     expect(av1Bandwidth).toBe(400);
+    expect(av1Split).toBe(0);
+    expect(hevcSplit).toBe(1);
     expect(hevcBandwidth).toBe(350);
     expect(codecEncoderDefaults[1].forceCbr).toBe(false);
     expect(codecEncoderDefaults[1].vbvFrames).toBe(1);
     expect(codecEncoderDefaults[1].splitMode).toBe(1); // split bits are skipped for codec 1 in the tap, but the key still opens the 12.1 session
     expect(codecEncoderDefaults[1].lowDelayKfScale).toBe(codecEncoderDefaults[0].lowDelayKfScale);
-    expect(codecEncoderDefaults[1].streamFormatWidth).toBe(1536);
+    expect(codecEncoderDefaults[1].streamFormatWidth).toBe(1024); // owner-verified 2026-10-17: the Steam Link client negotiates the H.264 1024x4096 tile class
     expect(codecEncoderDefaults[1].bandwidthMbit).toBe(500);
     // the codec-0 row must stay pinned to the GENERATED driver defaults:
     // a Config.h default change + regeneration must desync loudly here,

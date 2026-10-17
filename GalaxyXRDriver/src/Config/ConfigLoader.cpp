@@ -2153,6 +2153,8 @@ void ConfigLoader::WriteInfo(){
 		{"lastStatus", tap.lastStatus},
 		{"lastPictureStatus", tap.lastPictureStatus}, {"pictureError", tap.pictureError},
 		{"error", tap.error},
+		{"lastInitStatus", tap.lastInitStatus},
+		{"initError", tap.initError},
 		{"effectiveRateControl", tap.effectiveRateControl},
 		{"effectiveSplit", tap.effectiveSplit},
 		{"encodeWidth", tap.encodeWidth},

@@ -27,7 +27,7 @@ user tuning and journal-owned SteamVR settings intact. New GUI strings use
 `t(...)` and the source XLIFF catalog. A settings meaning change needs both C++
 and TypeScript migrations which upgrade exact old defaults only.
 
-## No silent settings (owner policy, 2026-10-16)
+## No silent settings (owner policy, 2026-10-16; visible-application mantra 2026-10-17)
 
 A user-entered setting is authoritative. Never silently coerce, clamp
 per-codec, or replace an entered value with a default — not in driver runtime
@@ -35,7 +35,15 @@ code, not in caps/NVENC overrides, not at load time. Two explicit user actions
 apply per-codec optimized defaults on Stream Frame: switching the codec
 (applies that codec's optimized row — tile, bandwidth, Force CBR, Frame Size
 Cap, Keyframe Size Budget, Multi-Engine Encoding — at once) and the
-codec-aware reset arrows. Between those actions the user's values rule. When
+codec-aware reset arrows. Between those actions the user's values rule.
+Applied values always match their editable fields. Codec switching updates
+Advanced settings even while Advanced Mode is off; opening it shows the
+current values. Do not reveal Advanced Mode automatically.
+Per-codec rows carry that codec's negotiated-carryable class (H.264 = the
+1024x4096 tile the Steam Link client negotiates; proven live 2026-10-16).
+Selected codecs are running codecs: no codec-to-codec fallback ever; a failed
+selection fails loudly with its NVENC status and request in the log plus the
+evidence row. When
 driver/device capability would force a
 different outcome, honor the user value or fail loudly — driver log line plus
 honest UI state — never downgrade in place. Dated, versioned migrations remain

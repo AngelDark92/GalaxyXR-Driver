@@ -26,7 +26,7 @@ describe('human-readable settings inspection', () => {
     expect(ids.sort()).toEqual(SETTINGS_PRESENTATION.map(setting => setting.id).sort());
     const rows = presentSettings([], context());
     expect(rows.find(row => row.id === 'streamFrame.nvencForceCbr')?.location)
-      .toEqual(['Image Settings', 'Encoder Advanced', 'Constant Bitrate']);
+      .toEqual(['Image Settings', 'Encoder Advanced', 'Force Constant Bitrate']);
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
   });
 
@@ -115,7 +115,7 @@ describe('human-readable settings inspection', () => {
     expect(settingUnavailable(settingPresentation('streamFrame.nvencH264Aud')!, c)).toBeUndefined();
     expect(c.settings.streamFrame!.nvencH264Aud).toBe(saved.streamFrame!.nvencH264Aud);
     const before = presentSettings([], context()).map(row => row.href);
-    setLocale('ja', { 'Image Settings': '画像', 'Constant Bitrate': '固定レート' });
+    setLocale('ja', { 'Image Settings': '画像', 'Force Constant Bitrate': '固定レート' });
     try { expect(presentSettings([], context()).map(row => row.href)).toEqual(before); }
     finally { setLocale('en-US', {}); }
   });

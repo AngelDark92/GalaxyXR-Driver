@@ -33,3 +33,5 @@ verified: re-read OK; checks: parent-run required / exact result.
 ```
 
 Use `too-big.` for broader ownership, `ambiguous.` only when missing requirements prevent safe work, and `regressed.` with the concrete failure/location if assigned changes cannot be repaired within scope. Permission questions and security-sensitive ambiguity use normal English; honor existing authorization before asking again.
+
+Explicit codec switches and reset arrows update the saved values backing each editable field. Advanced controls may remain hidden: switching codecs must still update them, and opening Advanced Mode must show their current values. Never silently coerce, replace or ignore app-visible user settings; preserve rejected requests with a visible error. Automatic internal parameters with no app setting may be derived without rewriting user settings.
