@@ -803,8 +803,9 @@ struct StreamFrameConfig{
 	// and the encoder; nonzero overrides both at once
 	int nvencBandwidthOverrideMbit = 0;
 	// v3 settings-schema version. < 3 in a loaded file = pre-v3 encoder
-	// settings: ConfigLoader applies the v3 encoder defaults over them
-	// (AQ off, CBR on, ...) and logs it. The GUI writes 3.
+	// settings: the loader stamps the version and logs it; absent keys use
+	// the native defaults (AQ off; Force CBR off since 2026-10-17). The GUI
+	// writes 3.
 	int nvencSettingsVersion = 0;
 	// 0 = leave. else QP ceiling (1..51): blocks cannot be quantized coarser
 	// than this; black-floor / dark-gradient lever. try 30..36.
@@ -818,7 +819,7 @@ struct StreamFrameConfig{
 	// exactly 2 MB/frame; IDR at QP 16 = 2.3 MB, at QP 24 = 1.45 MB)
 	int nvencMinQpIntra = 0;
 	// CBR + low-delay key-frame scale: VBV honoured on key frames
-	bool nvencForceCbr = true; // v3 default (X2, 350/450 runs); spatial AQ, not CBR, was the serializer
+	bool nvencForceCbr = false; // 2026-10-17 (owner directive): OFF default for every codec; the GUI codec rows + reset arrows apply Off; explicit On stays user tuning (v3 default was true, X2 runs)
 	// with Force CBR: reset-IDR budget as a multiple of a P frame (1..4).
 	// 1 = one frame budget (soft IDR, QP 34-48 in the R runs); 2 = two,
 	// still under vbvFrames=2. see NvencTapConfig::lowDelayKfScale

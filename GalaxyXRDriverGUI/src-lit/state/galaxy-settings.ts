@@ -57,11 +57,14 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // video-packet ACKs (SVLFEC lastAcknowledgeFrameNumber = 0). Unsplit AV1
 // keeps the host bitstream at the negotiated 1536x6144 the client accepts.
 // The codec-0 row's tile and bandwidth must stay pinned to the GENERATED
-// driver defaults.
+// driver defaults. 2026-10-17 (owner directive): Force CBR is OFF in every
+// row — codec switches and the reset arrows apply Off, and turning it on is
+// the user's own choice; selecting H.264 also turns the SDR 10-bit baseline
+// off (capability: H.264 cannot carry 10-bit; see applyCodecEncoderDefaults).
 export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number, streamFormatWidth: number, bandwidthMbit: number }> = {
-  0: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
+  0: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
   1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1024, bandwidthMbit: 500 },
-  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 0, streamFormatWidth: 1536, bandwidthMbit: 400 },
+  2: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 0, streamFormatWidth: 1536, bandwidthMbit: 400 },
 };
 
 // 2026-10-16 (owner directive): inline per-key validation for the Stream
@@ -520,6 +523,13 @@ export class GalaxySettingsBase {
   // multipass, QP, postPack, the H.264 recipe) keep their values;
   // the switch is an explicit user action, never a load-time or driver-side
   // rewrite.
+  // 2026-10-17 (owner directive): Force CBR is Off in every row. Selecting
+  // H.264 also turns the SDR 10-bit baseline off — H.264 cannot carry 10-bit
+  // — writing the same baseline pair the Driver Settings toggle writes when
+  // switched off; the explicit advanced 10-bit capability request
+  // (galaxyXr.profileSupports10bit) stays untouched so a saved override
+  // lives on, and switching away leaves the baseline off until the user
+  // enables it again.
   applyCodecEncoderDefaults(codec: number): void {
     const codecDef = codecEncoderDefaults[codec] ?? codecEncoderDefaults[0];
     this.setStreamQualityValue('width', codecDef.streamFormatWidth);
@@ -530,6 +540,11 @@ export class GalaxySettingsBase {
       sf.nvencVbvFrames = codecDef.vbvFrames;
       sf.nvencLowDelayKfScale = codecDef.lowDelayKfScale;
       sf.nvencSplitMode = codecDef.splitMode;
+    }
+    const g = this.rootSetting?.galaxyXr;
+    if (codec === 1 && g?.sdr10Baseline) {
+      g.sdr10Baseline = false;
+      g.sdr10AllowEnhancements = false;
     }
     this.save();
   }

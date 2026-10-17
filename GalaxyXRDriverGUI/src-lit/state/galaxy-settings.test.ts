@@ -897,7 +897,7 @@ describe('profile import/export', () => {
 
 describe('per-codec encoder defaults', () => {
   // each codec owns a default rate-control profile (galaxy-settings.ts):
-  // HEVC/AV1 default to CBR + 2-frame VBV; H.264 to VBR + 1-frame VBV
+  // Force CBR is OFF in every row (owner directive 2026-10-17); HEVC/AV1 carry a 2-frame VBV, H.264 one frame
   // (splitMode stays 1 everywhere — it also opens the 12.1 session; the
   // tap skips the split bits for codec 1 itself). 2026-10-16 owner directive:
   // a codec switch applies that codec's table row at once — tile, bandwidth
@@ -959,7 +959,7 @@ describe('per-codec encoder defaults', () => {
   it('switches only the codec and the codec-owned keys that actually differ (HEVC -> AV1)', () => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, streamQuality: 'custom', customStreamFormatWidth: 1536, customBandwidthMbit: 350 },
-      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0, nvencForceCbr: true, nvencVbvFrames: 2, nvencLowDelayKfScale: 2, nvencSplitMode: 1 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0, nvencForceCbr: false, nvencVbvFrames: 2, nvencLowDelayKfScale: 2, nvencSplitMode: 1 },
     };
     const { gs } = buildHarness(stored);
     void gs.galaxyXr; void gs.settings; // materialize getter default fills before the baseline clone
@@ -1013,6 +1013,31 @@ describe('per-codec encoder defaults', () => {
     expect(harness.gs.settings!.nvencSplitMode).toBe(1);
     expect(harness.gs.galaxyXr.customStreamFormatWidth).toBe(codecEncoderDefaults[1].streamFormatWidth); // the switch applies the codec's negotiated-carryable row (H.264 = 1024)
     expect(harness.gs.galaxyXr.customBandwidthMbit).toBe(500);
+  });
+
+  it('turns the SDR 10-bit baseline off when switching to H.264 and leaves it off on switch-away', async () => {
+    // 2026-10-17 (owner directive): H.264 cannot carry 10-bit. Selecting it
+    // applies the baseline-off pair the Driver Settings toggle writes; the
+    // explicit advanced 10-bit capability request stays user-owned, and
+    // switching away never silently re-enables the baseline.
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, sdr10Baseline: true, sdr10AllowEnhancements: true, profileSupports10bit: true },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0 },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0); // the load itself rewrites nothing
+    gs.settings!.nvencCodec = 1;
+    gs.applyCodecEncoderDefaults(1);
+    expect(saved).toHaveLength(1);
+    const persisted = JSON.parse(JSON.stringify(saved[0]));
+    expect(persisted.galaxyXr.sdr10Baseline).toBe(false);
+    expect(persisted.galaxyXr.sdr10AllowEnhancements).toBe(false);
+    expect(persisted.galaxyXr.profileSupports10bit).toBe(true);
+    gs.settings!.nvencCodec = 0;
+    gs.applyCodecEncoderDefaults(0);
+    expect(saved).toHaveLength(2);
+    expect(gs.galaxyXr.sdr10Baseline).toBe(false); // never silently re-enabled
   });
 
   it('preserves unsupported encoder inputs until runtime can report validation errors', async () => {
@@ -1198,7 +1223,7 @@ describe('H.264 stored-profile migration', () => {
     expect(gs.galaxyXr.customBandwidthMbit).toBe(450);
     expect(gs.galaxyXr.customStreamFormatWidth).toBe(1536);
     expect(gs.galaxyXr.streamQuality).toBe('sharp');
-    expect(gs.settings?.nvencForceCbr).toBe(true);
+    expect(gs.settings?.nvencForceCbr).toBe(false);
     expect(gs.settings?.nvencVbvFrames).toBe(2);
   });
 
@@ -1220,7 +1245,7 @@ describe('H.264 stored-profile migration', () => {
     };
     const { gs, flush } = buildHarness(stored);
     await flush();
-    expect(gs.settings?.nvencForceCbr).toBe(true);
+    expect(gs.settings?.nvencForceCbr).toBe(false);
     expect(gs.settings?.nvencVbvFrames).toBe(2);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();

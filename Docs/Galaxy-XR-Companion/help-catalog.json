@@ -175,8 +175,8 @@
   },
   {
     "source": "features/driver-settings-page.ts",
-    "originalLine": 97,
-    "summary": "Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. You can then enable Image Enhancements in App Settings after accepting the image-quality warning. Turning the baseline off disables its 10-bit request, including when vrlink Headset Profile is off. Requires a SteamVR restart and reconnect. Explicit advanced overrides still apply.",
+    "originalLine": 103,
+    "summary": "Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. You can then enable Image Enhancements in App Settings after accepting the image-quality warning. Turning the baseline off disables its 10-bit request, including when vrlink Headset Profile is off. H.264 cannot carry a 10-bit stream: its toggle stays Off and disabled while that codec is selected, and selecting H.264 turns the baseline off. Requires a SteamVR restart and reconnect. Explicit advanced overrides still apply.",
     "details": "The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_<original model> destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the driver's color policy; the encoder bit depth follows (H.264 stays 8-bit)."
   },
   {
@@ -386,7 +386,7 @@
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 401,
-    "summary": "Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is shown with the codec defaults; H.264 recommends Off.",
+    "summary": "Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is Off for every codec; the reset arrow applies it.",
     "details": "Value: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."
   },
   {
@@ -398,7 +398,7 @@
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 475,
-    "summary": "0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.",
+    "summary": "0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.",
     "details": "Value: streamFrame.nvencSplitMode (settings.json). Encoder side — multi-engine split; nonzero opens the API 12.1 encoder session."
   },
   {
@@ -873,7 +873,7 @@
     "source": "features/stream-frame-page.ts",
     "originalLine": 737,
     "summary": "Override video color-range metadata. Leave automatic unless diagnosing a known mismatch; incompatible client handling can darken the image.",
-    "details": "-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated - the client mishandles explicit tags, so these stay inert until the APK changes. The driver also forces full-range to 0 while post-pack limited range is active, and an active SDR 10-bit baseline leaves the pair at -1."
+    "details": "-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated - the client mishandles explicit tags, so these stay inert until the APK changes. Manual VUI values are applied as entered: a full-range value conflicting with active post-pack limited-range output is refused visibly in the driver log and the Stream Frame evidence row, and an active SDR 10-bit baseline leaves the pair at -1."
   },
   {
     "source": "features/stream-frame-page.ts",

@@ -10,6 +10,8 @@ Sunshine defaults to quarter-resolution two-pass encoding; full-resolution analy
 
 ## Existing defaults retained
 
+**Update 2026-10-17:** Force CBR now defaults Off in every codec row (owner directive); the table below records the 2026-09-26 review state.
+
 The C++ and GUI defaults agree in `GalaxyXRDriver/src/Config/Config.h` and `GalaxyXRDriverGUI/src-lit/domain/driver-defaults.ts`.
 
 | Setting | Default | Effective behavior |

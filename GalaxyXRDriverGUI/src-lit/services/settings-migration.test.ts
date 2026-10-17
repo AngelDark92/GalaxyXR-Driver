@@ -169,7 +169,12 @@ describe('first-load settings application', () => {
     expect(disk.attempts).toBe(1);
     expect(state.settings).toMatchObject({ ...off, nvencSettingsVersion: 4 });
     const saved = JSON.parse(disk.content);
-    expect(saved.streamFrame).toMatchObject({ ...off, streamFrameSchema: 5, nvencSettingsVersion: 4 });
+    // 2026-10-17 (owner directive): Off equals the new native Force CBR
+    // default, so the sparse save omits it while the choice reads back Off.
+    const offPersisted: Record<string, unknown> = { ...off };
+    delete offPersisted.nvencForceCbr;
+    expect(saved.streamFrame).toMatchObject({ ...offPersisted, streamFrameSchema: 5, nvencSettingsVersion: 4 });
+    expect(saved.streamFrame.nvencForceCbr).toBeUndefined();
     expect(saved.streamFrame.postPack).toMatchObject({ enable: false, casEnable: false });
     expect(saved.galaxyXr.vrlinkHeadsetProfile).toBe(false);
     const stableDisk = disk.content;
