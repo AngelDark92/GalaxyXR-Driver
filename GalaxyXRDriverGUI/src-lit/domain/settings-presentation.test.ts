@@ -27,6 +27,8 @@ describe('human-readable settings inspection', () => {
     const rows = presentSettings([], context());
     expect(rows.find(row => row.id === 'streamFrame.nvencForceCbr')?.location)
       .toEqual(['Image Settings', 'Encoder Advanced', 'Force Constant Bitrate']);
+    expect(rows.find(row => row.id === 'streamFrame.spacewarpEnable')?.location)
+      .toEqual(['Image Settings', 'Stream Quality', 'Async Spacewarp']);
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
   });
 

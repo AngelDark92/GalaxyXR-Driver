@@ -305,6 +305,7 @@ const nativeDefaults = {
     "nvencMinQp": 0,
     "nvencMinQpIntra": 0,
     "nvencForceCbr": true,
+    "spacewarpEnable": false,
     "nvencLowDelayKfScale": 2,
     "nvencVuiMatrix": -1,
     "nvencVuiPrimaries": -1,

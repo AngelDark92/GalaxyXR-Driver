@@ -108,6 +108,7 @@ path below is relative to that root, independent of source/runtime identities.
 | `output/GalaxyXRDriver-STAGING-<version>[-Galaxyxr]-Windows/`, `output/GalaxyXRDriver-Test-<timestamp>/` | `build.js`, `tools/Build-Portable.ps1`; packaged display executable: `Galaxy XR Companion.exe`. |
 | `gui/build/`, `gui/dist/`, `gui/cache/`: localization, frontend bundles, Vite/Vitest cache | `GalaxyXRDriverGUI/package.json`, `vite.config.mts`, `vitest.config.mts`, `scripts/configure-tauri.mjs`, `build-frontend-dist.mjs`, `verify-frontend-dist.mjs`, `src-tauri/tauri.conf.json` |
 | `build/test-fixtures/`: temporary isolated repositories and test files | `tools/lib/test-fixtures.cjs`, Node tool suites, `tools/Test-WorkspaceCleanup.ps1`; successful checks remove their own fixtures |
+| `build/`: isolated release backmerge worktrees | `tools/backmerge-release.cjs`, invoked after main publication; preserves the build checkout, removes successful scratch and retains failed scratch for diagnosis |
 | `release/source/`: source ZIPs and temporary archive list files | `tools/Zip-Project.ps1`; explicit outputs must stay beneath the artifact root |
 | Cargo `OUT_DIR/tauri-build-context/`: per-build Tauri scratch; `gui/schemas/`: stable editor schemas | `GalaxyXRDriverGUI/src-tauri/build.rs`, `src-tauri/capabilities/default.json` |
 | `release/`: ZIP/checksum/notes | `tools/Package-GitHubRelease.ps1`, `publish-release.cjs`, `.github/workflows/release.yml` upload paths |
@@ -162,6 +163,15 @@ external binary tree under `GalaxyXRDriver/bin/linux64/`.
 - Source/input checks: `node tools/verify-build-sources.cjs`; CI adds
   `--require-tracked`. Verify fresh-checkout inputs rather than assuming ignored
   captures/caches exist.
+- Release backmerge: `tools/backmerge-release.cjs` merges the exact published
+  commit in a detached external worktree with explicit bot identity. Before its
+  first merge, it carries the released version through `bump-version.js` to all
+  seven version files; real source conflicts fail rather than favoring dev.
+  Already-synced releases leave later dev prerelease versions alone. Concurrent
+  dev advances retry from the fetched tip, up to three attempts. Fetch/push
+  use the original checkout's credentials; it never resets the build checkout.
+  `node --test tools/tests/backmerge-release.test.cjs tools/tests/workflows.test.cjs`
+  checks real local Git remotes and workflow wiring without changing GitHub.
 - `.github/workflows/build-tools.yml` tests tool compatibility on Windows
   PowerShell 5.1 and 7 and runs the GUI unit suite. `.github/workflows/release.yml`
   is build-only: both vendor builds, packaging and release publication, with no

@@ -10,6 +10,7 @@ import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionHeadin
 import { t } from '../locale/i18n';
 import { pageIntro, statusMessage } from '../ui/presentation';
 import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
+import { spacewarpStatus } from '../domain/spacewarp-status';
 import { codecEncoderDefaults, streamFrameIntegerError } from '../state/galaxy-settings';
 import '../ui/controls';
 import './driver-banner';
@@ -221,6 +222,20 @@ if (vendor) {
   tip: t("Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.\n\nAn encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.\n\nValue: streamFrame.nvencTap (settings.json). Encoder side — hooks NVIDIA NVENC session creation and reconfiguration."),
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
+        parts.push(settingFieldRow('streamFrame.spacewarpEnable', html`
+      <app-switch .checked=${!!settings.spacewarpEnable} @change=${(e: CustomEvent) => { settings.spacewarpEnable = e.detail; save(); }}></app-switch>
+            `, {
+  tip: t("Applies live to the running stream. Async Spacewarp synthesizes extra intermediate frames, smoothing motion between streamed frames. The synthesis runs on the headset client and needs the GXR spacewarp client patch (experimental) installed there; without it the stream shows extra held frames instead of synthesized frames. Off preserves the upstream frames; the switch stays honest via the status row.\n\nValue: streamFrame.spacewarpEnable (settings.json). Stream side — publishes the toggle live to the running vrlink stream; the headset synthesizes the frames."),
+  reset: { can: settings.spacewarpEnable != defaults.spacewarpEnable, on: () => { galaxy.reset('spacewarpEnable'); } }
+            }));
+        {
+          const spacewarpState = spacewarpStatus(!!settings.spacewarpEnable, this.ctx.dis.values(), this.ctx.startup.status());
+          parts.push(statusMessage(spacewarpState === 'on' ? 'success' : spacewarpState === 'waiting' ? 'warning' : 'info',
+            t(spacewarpState === 'on' ? 'Async Spacewarp: Active' : spacewarpState === 'waiting' ? 'Async Spacewarp: Waiting for stream' : 'Async Spacewarp: Off'),
+            t(spacewarpState === 'on' ? 'The running stream carries the request; the headset synthesizes the intermediate frames.'
+              : spacewarpState === 'waiting' ? 'The saved value is not confirmed by the running stream yet. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.'
+              : 'The stream is left unchanged; no frames are synthesized.')));
+        }
         parts.push(settingFieldRow('streamFrame.nvencCodec', html`
       <app-select ?disabled=${!settings.nvencTap} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1' }]} @change=${(e: CustomEvent) => { const codec = e.detail; if (codec !== settings.nvencCodec) { settings.nvencCodec = codec; galaxy.applyCodecEncoderDefaults(codec); } this.requestUpdate(); }}></app-select>
             `, {

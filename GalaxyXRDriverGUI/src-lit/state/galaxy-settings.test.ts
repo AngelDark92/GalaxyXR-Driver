@@ -1086,6 +1086,41 @@ describe('per-codec encoder defaults', () => {
   });
 });
 
+describe('Async Spacewarp toggle (2026-10-17)', () => {
+  it('defaults to false and keeps a never-set key absent on disk', async () => {
+    expect(driverDefaults.streamFrame!.spacewarpEnable).toBe(false);
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0 },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0); // brief 11 seam: never-set key — no migration, no silent stamp
+    expect(gs.settings?.spacewarpEnable).toBe(false);
+    const reopened = buildHarness(structuredClone(stored));
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
+  });
+
+  it('keeps an explicit toggle, resets it to the native default and round-trips both', async () => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, spacewarpEnable: true },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0); // the explicit choice is stored state, never rewritten on load
+    expect(gs.settings?.spacewarpEnable).toBe(true);
+    gs.reset('spacewarpEnable');
+    expect(gs.settings?.spacewarpEnable).toBe(false); // native default
+    const persisted = JSON.parse(JSON.stringify(saved[0]));
+    expect(persisted.streamFrame.spacewarpEnable).toBe(false);
+    const reopened = buildHarness(persisted);
+    await reopened.flush();
+    expect(reopened.gs.settings?.spacewarpEnable).toBe(false);
+  });
+});
+
 describe('H.264 stored-profile migration', () => {
   // 2026-10-16 (owner policy): the load stamp is retired — user-entered
   // values are authoritative for every codec and nothing is rewritten

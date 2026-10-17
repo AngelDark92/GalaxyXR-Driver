@@ -71,6 +71,9 @@ const controllerDebug = group('debug', ['Controllers', 'Diagnostics'], ['debugCo
 controllerDebug('streamFrame.poseLogging', 'Motion Logging');
 controllerDebug('streamFrame.poseLogBurst', 'Motion Logging: Burst');
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.nvencTap', 'Override NVIDIA Encoder');
+// Async Spacewarp (2026-10-17): stream synthesis toggle; its page row lives in
+// the vendor build's Stream Quality branch, so it mirrors nvencTap's gate.
+group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpEnable', 'Async Spacewarp');
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencCodec', 'Video Codec');
 const encoder = group('stream-frame', ['Encoder Advanced'], ['heading:encoder'], true, 'encoder', true);
 encoder('streamFrame.nvencForceCbr', 'Force Constant Bitrate');

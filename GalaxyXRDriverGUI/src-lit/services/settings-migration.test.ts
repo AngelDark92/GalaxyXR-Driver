@@ -147,6 +147,15 @@ describe('first-load settings application', () => {
     expect(state.settings?.cas?.strength).toBe(0.63);
   });
 
+  it('treats a never-set async spacewarp key as absent: no attempt, default false (2026-10-17)', async () => {
+    const state = await load({ streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0 });
+    const before = disk.content;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(disk.attempts).toBe(0); // new never-set key: no migration, no silent rewrite
+    expect(disk.content).toBe(before);
+    expect(state.settings?.spacewarpEnable).toBe(false); // filled from the bundled default only in memory
+  });
+
   it('persists every explicit pre-v3 encoder Off choice and reopens with current stamps', async () => {
     const off = {
       nvencTap: false, nvencFixLevel: false, nvencForceCbr: false,

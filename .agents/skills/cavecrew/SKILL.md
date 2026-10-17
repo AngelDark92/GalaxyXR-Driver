@@ -62,6 +62,11 @@ Hermes mechanics that differ from Codex: children inherit the session model
 (there is no per-child model pin), cannot ask the user questions, and return
 only a final summary the parent must verify against the cited lines and rerun
 checks — never trust a receipt alone.
+- A `delegate_task` dispatch rejected with "could not be parsed as JSON" is usually
+  the embedded output_schema with nested item-array definitions, not the goal text:
+  resend the same goal as ONE short task WITHOUT the schema instead of trimming
+  prose. Losing the schema loses nothing — the output contract already stated in
+  the goal prose fixes the shape.
 
 ## Give the agent concrete boundaries
 
@@ -79,6 +84,11 @@ settings schemas, build paths and their consumers in the main thread.
   thread holds the seam itself. Partial-TU test runners will not catch a
   consumer break: extraction-based runners compile one function body, and
   test-TU runners compile only the test file's includes.
+- An investigator's `No match.` is a self-report, not evidence: it can be a failed
+  read even when the goal carried exact symbols and paths. When the main thread
+  already holds grep hits in the same area, discard the child report and finish
+  the locate in the main thread instead of re-dispatching blind; likewise distrust
+  any report containing scope statements the dispatch never wrote.
 - Before EACH main-thread patch round, rerun `git status --short`. A parallel
   agent session live-edits the same tree mid-wave; absorb consistent owner
   work, never revert it, and reconcile seams it left half-done.
