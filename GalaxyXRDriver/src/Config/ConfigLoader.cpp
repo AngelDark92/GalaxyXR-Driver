@@ -15,6 +15,7 @@
 #ifdef _WIN32
 #include "Windows.h"
 #include "../Driver/NvencTap.h"
+#include "../Driver/VrlinkTap.h"
 #else
 #include <unistd.h>
 #endif
@@ -1005,6 +1006,9 @@ void ConfigLoader::ParseConfig(){
 			}
 			if(streamFrameData["nvencForceCbr"].is_boolean()){
 				newConfig.streamFrame.nvencForceCbr = streamFrameData["nvencForceCbr"].get<bool>();
+			}
+			if(streamFrameData["spacewarpEnable"].is_boolean()){
+				newConfig.streamFrame.spacewarpEnable = streamFrameData["spacewarpEnable"].get<bool>();
 			}
 			if(streamFrameData["nvencLowDelayKfScale"].is_number()){
 				newConfig.streamFrame.nvencLowDelayKfScale = streamFrameData["nvencLowDelayKfScale"].get<int>();
@@ -2015,6 +2019,7 @@ void ConfigLoader::WriteInfo(){
 				{"nvencMinQp", defaultSettings.streamFrame.nvencMinQp},
 				{"nvencMinQpIntra", defaultSettings.streamFrame.nvencMinQpIntra},
 				{"nvencForceCbr", defaultSettings.streamFrame.nvencForceCbr},
+				{"spacewarpEnable", defaultSettings.streamFrame.spacewarpEnable},
 				{"nvencLowDelayKfScale", defaultSettings.streamFrame.nvencLowDelayKfScale},
 				{"nvencVuiMatrix", defaultSettings.streamFrame.nvencVuiMatrix},
 				{"nvencVuiPrimaries", defaultSettings.streamFrame.nvencVuiPrimaries},
@@ -2159,6 +2164,15 @@ void ConfigLoader::WriteInfo(){
 		{"effectiveSplit", tap.effectiveSplit},
 		{"encodeWidth", tap.encodeWidth},
 		{"encodeHeight", tap.encodeHeight}};
+	// 2026-10-17 add-feature (brief 11-W2B): pinned cross-child seam — the
+	// Companion (brief 12-W2C) reads these keys and the status enum verbatim:
+	// status is EXACTLY one of "off" (disabled) / "on" (enabled and published)
+	// / "waiting" (enabled but the value-transport publish has not happened
+	// yet). Do not deviate from the shape.
+	const auto spacewarpTap = VrlinkTap::Get().GetRuntimeState();
+	data["spacewarp"] = {
+		{"enabled", spacewarpTap.enabled}, {"hookInstalled", spacewarpTap.hookInstalled},
+		{"published", spacewarpTap.published}, {"status", spacewarpTap.status}};
 #endif
 	ordered_json& distortionProfilesJson = data["builtInDistortionProfiles"];
 	for(auto profilePair : builtInDistortionProfiles){

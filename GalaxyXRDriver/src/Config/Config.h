@@ -774,6 +774,12 @@ struct StreamFrameConfig{
 	// wall: NVENC surfaces untouched). our per-eye traffic 4x -> 2x.
 	// EXPERIMENTAL: one dedicated toggle-on test in a disposable session.
 	bool zeroCopyV3 = false;
+	// 2026-10-17 add-feature (brief 11-W2B): async spacewarp toggle. false =
+	// stock stream (default conservative-off). true is routed through
+	// VrlinkTap on every hot reload (FrameProcessor::UpdateEncoderSettings),
+	// which publishes the boolean to the client over the pinned vrlink
+	// value-transport impl — see VrlinkTap.h for the pinned gate contract.
+	bool spacewarpEnable = false;
 	// NVENC tap (ACTIVE since 2026-08-27, see NvencTap.h). hooks vrlink's
 	// encoder init/reconfigure. every override is retried with vrlink's
 	// own params on failure, so worst case is stock behaviour + a log line.

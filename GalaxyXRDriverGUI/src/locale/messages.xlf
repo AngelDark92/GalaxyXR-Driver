@@ -2589,6 +2589,32 @@ An encoder already created with the tap can retain its earlier parameters and AP
       <trans-unit id="encoder-controls-20261016-42" datatype="html"><source>{key} must be {range}; the entered value is kept until corrected.</source></trans-unit>
       <trans-unit id="encoder-controls-20261016-43" datatype="html"><source>{key} must be a whole number ({range}); the entered value is kept until corrected.</source></trans-unit>
       <trans-unit id="encoder-controls-20261016-44" datatype="html"><source>Last observed encoder rejection, {seconds} seconds ago: {error}</source></trans-unit>
+      <trans-unit id="spacewarp-20261017-1" datatype="html">
+        <source>Async Spacewarp</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261017-2" datatype="html">
+        <source>Applies live to the running stream. Async Spacewarp synthesizes extra intermediate frames, smoothing motion between streamed frames. The synthesis runs on the headset client and needs the GXR spacewarp client patch (experimental) installed there; without it the stream shows extra held frames instead of synthesized frames. Off preserves the upstream frames; the switch stays honest via the status row.
+
+Value: streamFrame.spacewarpEnable (settings.json). Stream side — publishes the toggle live to the running vrlink stream; the headset synthesizes the frames.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261017-3" datatype="html">
+        <source>Async Spacewarp: Off</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261017-4" datatype="html">
+        <source>The stream is left unchanged; no frames are synthesized.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261017-5" datatype="html">
+        <source>Async Spacewarp: Active</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261017-6" datatype="html">
+        <source>The running stream carries the request; the headset synthesizes the intermediate frames.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261017-7" datatype="html">
+        <source>Async Spacewarp: Waiting for stream</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261017-8" datatype="html">
+        <source>The saved value is not confirmed by the running stream yet. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.</source>
+      </trans-unit>
       <trans-unit id="3883825347" datatype="html">
         <source>0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.
 

@@ -257,6 +257,9 @@ export type StreamFrameConfig = {
   nvencMinQp: number;
   nvencMinQpIntra: number;
   nvencForceCbr: boolean;
+  // Async Spacewarp toggle (2026-10-17): never-set key keeps its native
+  // default (false) — no migration, and nothing silently rewrites it.
+  spacewarpEnable: boolean;
   nvencLowDelayKfScale: number;
   nvencVuiMatrix: number;
   nvencVuiPrimaries: number;
@@ -482,6 +485,14 @@ export type DriverInfo = {
     observedAt?: number;
     lastPictureStatus?: number;
     pictureError?: string;
+  };
+  spacewarp?: {
+    enabled: boolean;
+    hookInstalled: boolean;
+    published: boolean;
+    // Pinned cross-child seam (brief 11, 2026-10-17): the keys and the status
+    // enum are read verbatim from info.json — exactly 'off' | 'on' | 'waiting'.
+    status: 'off' | 'on' | 'waiting';
   };
 }
 export type ResolutionInfo = {
