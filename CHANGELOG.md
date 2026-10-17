@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.11.0-dev.5] - 2026-10-16
+
+### Fixes
+
+- enhance error reporting in Guarded function to include NVENC status and request details (`54f1b2b`)
+
 ## [1.11.0-dev.4] - 2026-10-16
 
 ### Features
