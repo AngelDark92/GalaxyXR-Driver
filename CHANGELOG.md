@@ -6,6 +6,40 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.12.0-dev.1] - 2026-10-17
+
+### Features
+
+- add ASW, status handling and tests (`1488b1e`)
+
+## [1.11.0] - 2026-10-17
+
+### Features
+
+- gui: retire the Stream Quality preset; Tile Width and Bandwidth are first-class editable settings (`9774a99`)
+- gui: NVENC Tap, Stream codec and Restore live under Stream Quality, not advanced (`730b7d2`)
+- gui: Stream codec select disabled while the NVENC Tap is off (`cc3c531`)
+- gui: help catalog + docs follow the preset retirement (`0e90b37`)
+- gui: per-codec default Tile Width and Bandwidth (HEVC 1536/350, H.264 1536/500, AV1 1536/400) (`a74380d`)
+- Various renaming and description changes, silent settings change now solved, minor bug fixes (`0cf0cf7`)
+- implement inline validation for Stream Frame app-number keys (`6d696fd`)
+
+### Fixes
+
+- honesty pass 2 for real values in app (`4b45110`)
+- gui: setting rows are not selectable; focus highlight only on keyboard/deep-link focus (`a1b6fae`)
+- gui: fold the reviewer findings of the stream-quality rework (`c2f629a`)
+- implement true merge for backmerging main into dev with loud failure handling (`35afc1c`)
+- update stream codec references and descriptions for clarity, av1 now not experimental (`e43f1a6`)
+- update label for nvencForceCbr setting to 'Constant Bitrate' for clarity (`b3d1eee`)
+- enhance error reporting in Guarded function to include NVENC status and request details (`54f1b2b`)
+- regressions from dev 3 and bump version to 1.11.0-dev.6 with updated dependencies (`5929b69`)
+- enhance setup page behavior and routing during driver installation (`4505761`)
+
+### Other changes
+
+- test(gui): extend the SectionCards reveal stub with the focus-ring endpoints (`ca8fb27`)
+
 ## [1.11.0-dev.8] - 2026-10-17
 
 ### Fixes
