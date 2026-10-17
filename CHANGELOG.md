@@ -6,6 +6,22 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.12.0] - 2026-10-17
+
+### Features
+
+- add ASW, status handling and tests (`1488b1e`)
+
+### Fixes
+
+- Refactor NVENC settings to disable Force CBR by default (`ed918b4`)
+- Update Force CBR default to On for all codecs and adjust related documentation, disable 10bit for h.264 which wouldn't support it anyway (`8865361`)
+- SDR 10-bit baseline handling and image enhancements, various improvements (`d979a23`)
+
+### Other changes
+
+- Update Ko-fi funding username (`b1014a8`)
+
 ## [1.12.0-dev.4] - 2026-10-17
 
 ### Fixes
