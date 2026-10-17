@@ -27,7 +27,8 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 
 const filePath = '/settings/settings.json';
 const services: DriverSettingService[] = [];
-// Config.h in the user-selected CustomHeadsetOpenVrGxR reference, 2026-09-26.
+// Config.h in the user-selected CustomHeadsetOpenVrGxR reference, 2026-09-26;
+// Force CBR ON per the 2026-10-17 owner directive (revised same day).
 // Literal expectations pin parity independently of generated GUI defaults.
 const referenceEncoderDefaults = {
   nvencTap: true, nvencFixLevel: true, nvencBitrateMbit: 0, nvencBandwidthOverrideMbit: 0,
@@ -91,7 +92,13 @@ describe('vendor defaults before info.json exists', () => {
     const service = await load('galaxyxr', { streamFrame: stock }, { streamFrame: stock });
     expect(service.values()?.streamFrame).toMatchObject(stock);
     expect(await service.save(service.values()!)).toBe(true);
-    expect(JSON.parse(storage.files.get(filePath)!).streamFrame).toMatchObject(stock);
+    // 2026-10-17 (owner directive): Off equals the native limited-range default,
+    // so a sparse save omits the key while the choice still reads back Off.
+    const savedStock = JSON.parse(storage.files.get(filePath)!).streamFrame;
+    const stockPersisted: Record<string, unknown> = { ...stock, postPack: { ...stock.postPack } };
+    delete (stockPersisted.postPack as any).limitedRange;
+    expect(savedStock).toMatchObject(stockPersisted);
+    expect(savedStock.postPack.limitedRange).toBeUndefined();
     expect(await service.loadSetting()).toBe(true);
     expect(service.values()?.streamFrame).toMatchObject(stock);
   });
@@ -135,17 +142,37 @@ describe('vendor defaults before info.json exists', () => {
     }, { streamFrame: old });
     const state = new GalaxySettingsBase({ values: () => ({}) } as any, service, info);
     expect(state.defaults).toMatchObject(referenceEncoderDefaults);
-    expect(state.defaults.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: true });
+    expect(state.defaults.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: false });
     for (const key of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencPresetMerge', 'nvencForceFps', 'nvencSplitMode', 'postPack'] as const) {
       state.reset(key);
     }
     await new Promise<void>(resolve => setTimeout(resolve, 0));
     await service.flush();
     expect(state.settings).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
-    expect(state.settings?.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: true });
+    expect(state.settings?.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: false });
     expect(await service.loadSetting()).toBe(true);
     expect(service.values()?.streamFrame).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
-    expect(service.values()?.streamFrame?.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: true });
+    expect(service.values()?.streamFrame?.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: false });
+  });
+
+  it('serializes the async spacewarp toggle and resets it to the native default (2026-10-17)', async () => {
+    const service = await load('galaxyxr', { streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, spacewarpEnable: true } });
+    expect(service.values()?.streamFrame?.spacewarpEnable).toBe(true);
+    const state = new GalaxySettingsBase({ values: () => ({}) } as any, service, { values: () => undefined } as any);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    // an old info.json without the key publishes no default for it
+    expect(state.defaults.spacewarpEnable).toBe(false);
+    await service.flush();
+    expect(state.settings?.spacewarpEnable).toBe(true);
+    state.reset('spacewarpEnable');
+    expect(state.settings?.spacewarpEnable).toBe(false); // native default
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    await service.flush();
+    const persisted = JSON.parse(storage.files.get(filePath)!);
+    // sparse save: a key restored to its default is omitted from settings.json
+    expect(persisted.streamFrame.spacewarpEnable).toBeUndefined();
+    const reopened = await load('galaxyxr', persisted);
+    expect(reopened.values()?.streamFrame?.spacewarpEnable).toBe(false);
   });
 
   it('preserves a saved legacy encoder-off profile through migrations, sparse saves and reloads', async () => {

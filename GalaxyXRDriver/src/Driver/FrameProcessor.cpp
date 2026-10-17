@@ -3,6 +3,7 @@
 #include "ReconLogger.h"
 #include "ZeroCopy.h"
 #include "NvencTap.h"
+#include "VrlinkTap.h"
 #include "NvencPostPack.h"
 #include "../Config/StreamTiers.h"
 #include "../Headsets/GalaxyXR.h"
@@ -1790,6 +1791,10 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 		NvencTap::Get().TryInstall();
 		NvencTap::Get().MaybeHeartbeat();
 	}
+	// 2026-10-17 add-feature (brief 11-W2B): the async spacewarp boolean rides
+	// the same hot-reload publish (single control path: settings.json ->
+	// SetConfig); its install/publish/retract logic lives inside VrlinkTap.
+	VrlinkTap::Get().SetConfig(settings.config.spacewarpEnable);
 }
 
 bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::SharedTextureHandle_t rightEye,

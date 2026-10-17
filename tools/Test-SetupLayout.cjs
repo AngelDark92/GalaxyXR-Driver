@@ -182,8 +182,8 @@ function imageModeContext(baseline = true, enabled = false) {
   const ctx = context();
   ctx.galaxy.baselineRequested = baseline;
   ctx.galaxy.imageEnhancementsEnabled = enabled;
-  ctx.galaxy.setImageEnhancements = async (value, accepted) => {
-    ctx.calls.push({ action: 'setImageEnhancements', enabled: value, accepted });
+  ctx.galaxy.setImageEnhancements = async value => {
+    ctx.calls.push({ action: 'setImageEnhancements', enabled: value });
     ctx.galaxy.imageEnhancementsEnabled = value;
     return true;
   };
@@ -202,7 +202,8 @@ async function test(name, fn) {
     const routes = Array.from(nav.visibleRoutes(available));
     assert.equal(routes[0], available ? 'driver-settings' : 'app-settings'); assert.ok(routes.includes('setup'));
     assert.deepEqual(routes.filter(r => ['app-settings', 'setup', 'about'].includes(r)), ['app-settings', 'setup', 'about']);
-    for (const route of nav.ROUTES) assert.equal(nav.permittedRoute(route, available), routes.includes(route) ? route : 'setup');
+    // 2026-10-17: blocked Debug redirects to App Settings while installed (matches domain/navigation and Test-CompanionModes).
+    for (const route of nav.ROUTES) assert.equal(nav.permittedRoute(route, available), routes.includes(route) ? route : (available && route === 'debug' ? 'app-settings' : 'setup'));
   });
   await test('Default and invalid hashes land on Setup uninstalled, Driver Settings installed; explicit deep links remain valid', () => {
     for (const hash of ['', '#/', '#/missing']) {
@@ -278,51 +279,32 @@ async function test(name, fn) {
     const sections = cards(render(AppSettingsPage, ctx).template); assert.equal(sections.length, 1);
     assert.match(markup(sections[0]), /Application preferences/); assert.match(markup(sections[0]), /Check Settings on Setup/); assert.match(markup(sections[0]), /mode fixture/);
   });
-  await test('Image Enhancement page handler: cancelled warning leaves settings and switch off', async () => {
-    const ctx = imageModeContext(), prompts = [];
-    ctx.dialog.confirm = async (...args) => { prompts.push(args); return false; };
-    const { page } = render(AppSettingsPage, ctx), control = { checked: true };
-    await page.setImageEnhancements(true, control);
-    assert.equal(prompts.length, 1); assert.deepEqual(ctx.calls, []);
-    assert.equal(ctx.galaxy.imageEnhancementsEnabled, false); assert.equal(control.checked, false);
-    assert.match(prompts[0][0], /SDR 10-bit/);
-    assert.match(prompts[0][1], /banding, artifacts, or color changes/);
-    assert.match(prompts[0][1], /10-bit request stays enabled, but processing may not preserve its precision/);
-    assert.match(prompts[0][2], /I understand/); assert.equal(prompts[0][3], 'danger');
-  });
-  await test('Image Enhancement page handler: acceptance forwards explicit consent and updates switch', async () => {
-    const ctx = imageModeContext(); let prompts = 0;
-    ctx.dialog.confirm = async () => { prompts++; return true; };
-    const { page } = render(AppSettingsPage, ctx), control = { checked: true };
-    await page.setImageEnhancements(true, control);
-    assert.equal(prompts, 1);
-    assert.deepEqual(ctx.calls, [{ action: 'setImageEnhancements', enabled: true, accepted: true }]);
-    assert.equal(control.checked, true); assert.equal(ctx.galaxy.baselineRequested, true);
-  });
-  await test('Image Enhancement page handler: ordinary enable and disable do not show a warning', async () => {
-    for (const [baseline, enabled, requested] of [[false, false, true], [true, true, false]]) {
+  await test('Image Enhancement page handler: toggling saves directly with no dialog in every combination', async () => {
+    for (const [baseline, enabled, requested] of [[true, false, true], [true, true, false], [false, false, true], [false, true, false]]) {
       const ctx = imageModeContext(baseline, enabled); let prompts = 0;
-      ctx.dialog.confirm = async () => { prompts++; return true; };
+      ctx.dialog.confirm = async () => { prompts++; return false; };
       const { page } = render(AppSettingsPage, ctx), control = { checked: requested };
       await page.setImageEnhancements(requested, control);
-      assert.equal(prompts, 0);
-      assert.deepEqual(ctx.calls, [{ action: 'setImageEnhancements', enabled: requested, accepted: false }]);
+      assert.equal(prompts, 0, 'no confirmation dialog appears');
+      assert.deepEqual(ctx.calls, [{ action: 'setImageEnhancements', enabled: requested }]);
       assert.equal(control.checked, requested);
+      assert.equal(ctx.galaxy.baselineRequested, baseline);
     }
   });
-  await test('Image Enhancement page handler: pending warning blocks duplicate toggles', async () => {
-    const ctx = imageModeContext(); let resolveWarning, prompts = 0;
-    ctx.dialog.confirm = () => { prompts++; return new Promise(resolve => { resolveWarning = resolve; }); };
+  await test('Image Enhancement page handler: an in-flight mode change blocks duplicate toggles', async () => {
+    const ctx = imageModeContext();
     const { page } = render(AppSettingsPage, ctx), control = { checked: true };
-    const pending = page.setImageEnhancements(true, control);
-    assert.equal(control.checked, false);
-    assert.equal(switchProperty(page.render(), 'disabled'), true);
+    ctx.galaxy.imageModeChanging.set(true);
     await page.setImageEnhancements(true, control);
     await page.setImageEnhancements(false, control);
-    assert.equal(prompts, 1); assert.deepEqual(ctx.calls, []);
-    resolveWarning(true); await pending;
-    assert.deepEqual(ctx.calls, [{ action: 'setImageEnhancements', enabled: true, accepted: true }]);
-    assert.equal(control.checked, true); assert.equal(switchProperty(page.render(), 'disabled'), false);
+    assert.deepEqual(ctx.calls, [], 'toggles are dropped while a mode change is in flight');
+    assert.equal(control.checked, false, 'the switch re-syncs to the stored state');
+    assert.equal(switchProperty(page.render(), 'disabled'), true);
+    ctx.galaxy.imageModeChanging.set(false);
+    await page.setImageEnhancements(true, control);
+    assert.deepEqual(ctx.calls, [{ action: 'setImageEnhancements', enabled: true }]);
+    assert.equal(control.checked, true);
+    assert.equal(switchProperty(page.render(), 'disabled'), false);
   });
   await test('Image Enhancement inert template: baseline permits the switch only with installed known settings', () => {
     const ctx = imageModeContext();
@@ -349,7 +331,7 @@ async function test(name, fn) {
       assert.match(text, /activeid="tab-setup"/);
       const tabs = [...text.matchAll(/<fluent-tab\b[^>]* id="([^"]+)"/g)].map(match => match[1]);
       assert.ok(tabs.includes('tab-setup'));
-      if (installed) assert.deepEqual(tabs, ['tab-driver-settings', 'tab-stream-frame', 'tab-distortion-profile', 'tab-app-settings', 'tab-setup', 'tab-about']);
+      if (installed) assert.deepEqual(tabs, ['tab-driver-settings', 'tab-stream-frame', 'tab-debug', 'tab-distortion-profile', 'tab-app-settings', 'tab-setup', 'tab-about']); // fixture leaves galaxy.debugMode unset (proxy default reads truthy), so the Debug tab is visible while installed
       else assert.deepEqual(tabs, ['tab-app-settings', 'tab-setup', 'tab-about']);
     }
   });

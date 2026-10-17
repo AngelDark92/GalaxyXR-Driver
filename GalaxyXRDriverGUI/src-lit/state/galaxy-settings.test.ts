@@ -897,7 +897,7 @@ describe('profile import/export', () => {
 
 describe('per-codec encoder defaults', () => {
   // each codec owns a default rate-control profile (galaxy-settings.ts):
-  // HEVC/AV1 default to CBR + 2-frame VBV; H.264 to VBR + 1-frame VBV
+  // Force CBR is ON in every row (owner directive 2026-10-17, revised); HEVC/AV1 carry a 2-frame VBV, H.264 one frame
   // (splitMode stays 1 everywhere — it also opens the 12.1 session; the
   // tap skips the split bits for codec 1 itself). 2026-10-16 owner directive:
   // a codec switch applies that codec's table row at once — tile, bandwidth
@@ -931,7 +931,7 @@ describe('per-codec encoder defaults', () => {
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
     expect(reopened.gs.galaxyXr.customBandwidthMbit).toBe(500);
-    expect(reopened.gs.settings?.nvencForceCbr).toBe(false);
+    expect(reopened.gs.settings?.nvencForceCbr).toBe(true);
   });
 
   it.each([0, 2])('switches to codec %s loading its optimized defaults', async codec => {
@@ -967,13 +967,11 @@ describe('per-codec encoder defaults', () => {
     gs.settings!.nvencCodec = 2;
     gs.applyCodecEncoderDefaults(2);
     const after = structuredClone(gs.rootSetting) as any;
-    // HEVC and AV1 share every optimized value except the bandwidth and the
-    // split mode: 2026-10-17 — AV1's row applies Split-Frame 0 (split-1 AV1
-    // emits per-strip micro-frames the client's av1D configure rejects, the
-    // stream stalls with zero ACKs).
+    // HEVC and AV1 share every optimized value except the bandwidth: both
+    // rows carry splitMode 1 (2026-10-17 evening — AV1's row applies the
+    // portable forced split, so the switch changes no split value).
     before.streamFrame.nvencCodec = 2;
     before.galaxyXr.customBandwidthMbit = 400;
-    before.streamFrame.nvencSplitMode = 0;
     expect(after).toEqual(before);
   });
 
@@ -1007,12 +1005,36 @@ describe('per-codec encoder defaults', () => {
       expect(harness.gs.settings).toMatchObject({ nvencCodec: codec, ...chosen });
     }
     // the final apply (codec 1) replaced the codec-owned rows with the table
-    expect(harness.gs.settings!.nvencForceCbr).toBe(false);
+    expect(harness.gs.settings!.nvencForceCbr).toBe(true);
     expect(harness.gs.settings!.nvencVbvFrames).toBe(1);
     expect(harness.gs.settings!.nvencLowDelayKfScale).toBe(2);
     expect(harness.gs.settings!.nvencSplitMode).toBe(1);
     expect(harness.gs.galaxyXr.customStreamFormatWidth).toBe(codecEncoderDefaults[1].streamFormatWidth); // the switch applies the codec's negotiated-carryable row (H.264 = 1024)
     expect(harness.gs.galaxyXr.customBandwidthMbit).toBe(500);
+  });
+
+  it('turns the SDR 10-bit baseline off when switching to H.264 and leaves it off on switch-away', async () => {
+    // 2026-10-17 (owner directive): H.264 cannot carry 10-bit. Selecting it
+    // writes sdr10Baseline false only; the retired consent key and the
+    // explicit advanced 10-bit capability request stay user-owned and
+    // untouched, and switching away never silently re-enables the baseline.
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, sdr10Baseline: true, sdr10AllowEnhancements: true, profileSupports10bit: true },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0 },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0); // the load itself rewrites nothing
+    gs.settings!.nvencCodec = 1;
+    gs.applyCodecEncoderDefaults(1);
+    expect(saved).toHaveLength(1);
+    const persisted = JSON.parse(JSON.stringify(saved[0]));
+    expect(persisted.galaxyXr.sdr10Baseline).toBe(false);
+    expect(persisted.galaxyXr.profileSupports10bit).toBe(true);
+    gs.settings!.nvencCodec = 0;
+    gs.applyCodecEncoderDefaults(0);
+    expect(saved).toHaveLength(2);
+    expect(gs.galaxyXr.sdr10Baseline).toBe(false); // never silently re-enabled
   });
 
   it('preserves unsupported encoder inputs until runtime can report validation errors', async () => {
@@ -1057,17 +1079,17 @@ describe('per-codec encoder defaults', () => {
   });
 
   it('keeps the defaults table internally consistent', () => {
-    // AV1 matches HEVC on every key except its own default bandwidth and its
-    // split mode: 2026-10-17 live evidence — split-1 AV1 emits per-strip
-    // micro-frames the client's av1D configure rejects, so AV1 runs unsplit.
+    // AV1 matches HEVC on every key except its own default bandwidth; both
+    // rows carry splitMode 1 (2026-10-17 evening owner directive: portable
+    // forced split, live-validated; explicit strip counts stay a user choice).
     const { bandwidthMbit: av1Bandwidth, splitMode: av1Split, ...av1Rest } = codecEncoderDefaults[2];
     const { bandwidthMbit: hevcBandwidth, splitMode: hevcSplit, ...hevcRest } = codecEncoderDefaults[0];
     expect(av1Rest).toEqual(hevcRest);
     expect(av1Bandwidth).toBe(400);
-    expect(av1Split).toBe(0);
+    expect(av1Split).toBe(1);
     expect(hevcSplit).toBe(1);
     expect(hevcBandwidth).toBe(350);
-    expect(codecEncoderDefaults[1].forceCbr).toBe(false);
+    expect(codecEncoderDefaults[1].forceCbr).toBe(true);
     expect(codecEncoderDefaults[1].vbvFrames).toBe(1);
     expect(codecEncoderDefaults[1].splitMode).toBe(1); // split bits are skipped for codec 1 in the tap, but the key still opens the 12.1 session
     expect(codecEncoderDefaults[1].lowDelayKfScale).toBe(codecEncoderDefaults[0].lowDelayKfScale);
@@ -1083,6 +1105,41 @@ describe('per-codec encoder defaults', () => {
     expect(codecEncoderDefaults[0].splitMode).toBe(driverDefaults.streamFrame!.nvencSplitMode);
     expect(codecEncoderDefaults[0].streamFormatWidth).toBe(driverDefaults.galaxyXr!.customStreamFormatWidth);
     expect(codecEncoderDefaults[0].bandwidthMbit).toBe(driverDefaults.galaxyXr!.customBandwidthMbit);
+  });
+});
+
+describe('Async Spacewarp toggle (2026-10-17)', () => {
+  it('defaults to false and keeps a never-set key absent on disk', async () => {
+    expect(driverDefaults.streamFrame!.spacewarpEnable).toBe(false);
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0 },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0); // brief 11 seam: never-set key — no migration, no silent stamp
+    expect(gs.settings?.spacewarpEnable).toBe(false);
+    const reopened = buildHarness(structuredClone(stored));
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
+  });
+
+  it('keeps an explicit toggle, resets it to the native default and round-trips both', async () => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, spacewarpEnable: true },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0); // the explicit choice is stored state, never rewritten on load
+    expect(gs.settings?.spacewarpEnable).toBe(true);
+    gs.reset('spacewarpEnable');
+    expect(gs.settings?.spacewarpEnable).toBe(false); // native default
+    const persisted = JSON.parse(JSON.stringify(saved[0]));
+    expect(persisted.streamFrame.spacewarpEnable).toBe(false);
+    const reopened = buildHarness(persisted);
+    await reopened.flush();
+    expect(reopened.gs.settings?.spacewarpEnable).toBe(false);
   });
 });
 

@@ -20,6 +20,10 @@
 class DirectModeComponentShim : public vr::IVRDriverDirectModeComponent{
 public:
 	explicit DirectModeComponentShim(vr::IVRDriverDirectModeComponent* original);
+	// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C): releases the
+	// injection spike's private swap sets + its local D3D11 objects; no-op
+	// unless GXR_OF_INJECT=1 armed the spike.
+	~DirectModeComponentShim();
 	vr::IVRDriverDirectModeComponent* original;
 
 	void CreateSwapTextureSet(uint32_t unPid, const SwapTextureSetDesc_t* pSwapTextureSetDesc, SwapTextureSet_t* pOutSwapTextureSet) override;
@@ -193,6 +197,78 @@ private:
 	void MaybeLogSwimProbe(const FrameProcessSettings &settings);
 
 	FrameProcessor processor;
+
+	// ========================================================================
+	// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C)
+	// Env-gated phase-0 scaffolding for the host-side Optical Flow gate
+	// (builds/GalaxyXR-Driver/build/of-20261017/). Cadence diagnostics ride
+	// GXR_OF_CADENCE=1; the injection spike rides GXR_OF_INJECT=1 (which
+	// implies the diagnostics). With both env vars absent nothing in this
+	// block is ever read, written or logged and behavior is byte-identical
+	// to stock. Spike content is static only (two private swap sets cleared
+	// to alternating solid colors); any failure disarms the injection for
+	// the session with ONE log line and the stock path continues. Only the
+	// compositor thread reaches SubmitLayer/Present, like every other member
+	// of this class, so this state needs no extra synchronization.
+	// ========================================================================
+	struct OfSpikeState {
+		// cadence counters (lifetime)
+		uint64_t slCalls = 0;
+		uint64_t rawLines = 0;      // raw per-call OFSpike lines emitted (capped)
+		bool slPairValid = false;
+		vr::SharedTextureHandle_t slPairL = 0, slPairR = 0;
+		bool lastPresentValid = false;
+		double lastPresentMs = 0;
+		// per-second summary window
+		bool windowStarted = false;
+		double windowStartMs = 0;
+		uint64_t windowSlCalls = 0, windowPCalls = 0;
+		uint64_t windowDistinctPairs = 0;
+		uint64_t windowIvCount = 0;
+		double windowIvSumMs = 0, windowIvMaxMs = 0;
+		// last real inputs, stored only while the diagnostics are enabled
+		vr::IVRDriverDirectModeComponent::SubmitLayerPerEye_t realPerEye[2] = {};
+		bool haveRealPerEye = false;
+		uint32_t appPid = 0;
+		bool appPidValid = false;
+		vr::IVRDriverDirectModeComponent::SwapTextureSetDesc_t capturedDesc = {};
+		uint32_t capturedFlags = 0;
+		bool capturedDescValid = false;
+		// injection spike
+		bool injectInitTried = false;
+		bool spikeDisarmed = false;
+		bool disarmLogged = false;
+		bool injectArmed = false;
+		int injectRatio = 1;
+		int injectSyncMode = 0;
+		uint64_t realPresentCount = 0;
+#ifdef _WIN32
+		// local D3D11 objects (created lazily on the first enabled Present
+		// after a real CreateSwapTextureSet; guarded so this header keeps
+		// parsing against the non-Windows FrameProcessor stub)
+		ID3D11Device* localDevice = nullptr;
+		ID3D11DeviceContext* localContext = nullptr;
+		ID3D11Texture2D* texL = nullptr;
+		ID3D11Texture2D* texR = nullptr;
+		ID3D11RenderTargetView* rtvL = nullptr;
+		ID3D11RenderTargetView* rtvR = nullptr;
+#endif
+		// rSharedTextureHandles[0] of each private set: the texture submitted
+		// for that eye AND the token passed to original->DestroySwapTextureSet
+		vr::SharedTextureHandle_t privateHandleL = 0;
+		vr::SharedTextureHandle_t privateHandleR = 0;
+	};
+	OfSpikeState ofSpike;
+	void OfSpikeSubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]);
+	void OfSpikeRecordPresent(uint64_t frameIdx, double tMs, int layers,
+		vr::SharedTextureHandle_t pairL, vr::SharedTextureHandle_t pairR,
+		vr::SharedTextureHandle_t sync, double durFwdMs);
+	void OfSpikeMaybeSum(double nowMs);
+	void OfSpikeMaybeInject(uint64_t frameIdx, int layers, vr::SharedTextureHandle_t realSync);
+	void OfSpikeInitInjection();
+	void OfSpikeDeliverSynthetic(uint64_t frameIdx, vr::SharedTextureHandle_t realSync);
+	void OfSpikeDisarm(const char* reason);
+	void OfSpikeDestroyPrivateSets();
 };
 
 // Wraps IVRVirtualDisplay (compiled against IVRVirtualDisplay_002).

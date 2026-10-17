@@ -1,6 +1,7 @@
 #include "../src/Driver/FrameProcessor.h"
 #include "../src/Driver/NvencTap.h"
 #include "../src/Driver/NvencPostPack.h"
+#include "../src/Driver/VrlinkTap.h"
 #include "../src/Driver/ReconLogger.h"
 #include "../src/Driver/ZeroCopy.h"
 #include "../src/Config/ConfigLoader.h"
@@ -18,6 +19,7 @@ int checks = 0;
 int failures = 0;
 int tapUpdates = 0;
 int postPackUpdates = 0;
+int vrlinkTapUpdates = 0;
 int installCalls = 0;
 int heartbeatCalls = 0;
 int bandwidthCalls = 0;
@@ -45,11 +47,13 @@ void Dispatch(const Config& config, const char* label) {
     settings.policy = gxr::ResolveSdr10Policy(config);
     const int previousTapUpdates = tapUpdates;
     const int previousPostPackUpdates = postPackUpdates;
+    const int previousVrlinkTapUpdates = vrlinkTapUpdates;
     const int previousInstallCalls = installCalls;
     const int previousHeartbeatCalls = heartbeatCalls;
     FrameProcessor::UpdateEncoderSettings(settings);
     Check(tapUpdates == previousTapUpdates + 1, std::string(label) + ": encoder snapshot published");
     Check(postPackUpdates == previousPostPackUpdates + 1, std::string(label) + ": post-pack snapshot published");
+    Check(vrlinkTapUpdates == previousVrlinkTapUpdates + 1, std::string(label) + ": vrlink tap snapshot published");
     Check(installCalls == previousInstallCalls + (config.streamFrame.nvencTap ? 1 : 0),
         std::string(label) + ": installation follows NVENC master");
     Check(heartbeatCalls == previousHeartbeatCalls + (config.streamFrame.nvencTap ? 1 : 0),
@@ -92,9 +96,11 @@ void CheckEyeActivity() {
         Check(!EyeActive(config), std::string(test.name) + " respects enhancements OFF");
         config.streamFrame.enable = true;
         config.galaxyXr.sdr10Baseline = true;
-        Check(!EyeActive(config), std::string(test.name) + " respects SDR10 without consent");
-        config.galaxyXr.sdr10AllowEnhancements = true;
-        Check(EyeActive(config), std::string(test.name) + " activates with SDR10 consent");
+        Check(EyeActive(config), std::string(test.name) + " activates under SDR10 with the master ON (owner directive 2026-10-17)");
+        config.galaxyXr.sdr10AllowEnhancements = true; // retired gate: must not change the outcome
+        Check(EyeActive(config), std::string(test.name) + " activates under SDR10 with the retired consent value set");
+        config.streamFrame.enable = false;
+        Check(!EyeActive(config), std::string(test.name) + " respects enhancements OFF under SDR10");
     }
     Config config;
     config.streamFrame.enable = true;
@@ -119,6 +125,10 @@ void NvencTap::SetConfig(const NvencTapConfig& value) { lastTap = value; ++tapUp
 void NvencTap::TryInstall() { ++installCalls; }
 void NvencTap::MaybeHeartbeat() { ++heartbeatCalls; }
 void NvencPostPack::SetConfig(const NvencPostPackConfig& value) { lastPostPack = value; ++postPackUpdates; }
+// 2026-10-17: the ASW publisher joined UpdateEncoderSettings (1488b1e); the
+// real VrlinkTap install/publish path never runs in this harness.
+VrlinkTap& VrlinkTap::Get() { static VrlinkTap tap; return tap; }
+void VrlinkTap::SetConfig(bool) { ++vrlinkTapUpdates; }
 int GalaxyXR_EffectiveBandwidthMbit() { ++bandwidthCalls; return 432; }
 int GalaxyXR_EffectiveTileWidth() { ++tileCalls; return 1536; }
 
@@ -181,15 +191,19 @@ int main() {
     config.streamFrame.contrast = 75;
     Check(EyeActive(config) && ZeroCopyV3::Get().Armed(), "restoring eye work arms again");
     config.galaxyXr.sdr10Baseline = true;
-    config.galaxyXr.sdr10AllowEnhancements = false;
-    Dispatch(config, "Zero-copy consent revoked");
-    Check(!ZeroCopyV3::Get().Armed(), "SDR10 consent removal disarms immediately");
+    config.galaxyXr.sdr10AllowEnhancements = false; // retired gate: clearing it must not disarm
+    Dispatch(config, "SDR10 baseline with the master ON");
+    Check(ZeroCopyV3::Get().Armed(), "SDR10 baseline with the master ON keeps eye work armed (owner directive 2026-10-17)");
+    config.streamFrame.enable = false;
+    Dispatch(config, "Master OFF under SDR10 baseline");
+    Check(!ZeroCopyV3::Get().Armed(), "master OFF under SDR10 disarms immediately");
     config = Config{};
     bandwidthCalls = 0;
     tileCalls = 0;
     config.streamFrame.enable = true;
     Dispatch(config, "Neutral picture with post-pack CAS");
     Check(lastPostPack.enable && lastPostPack.casEnable, "neutral picture enables post-pack CAS without an eye pass");
+    Check(!lastPostPack.limitedRange, "fresh config leaves the limited-range remap OFF (owner directive 2026-10-17)");
     Check(lastTap.enabled, "NVENC enabled with neutral picture");
     Near(lastPostPack.foveaStrength, 0.6, "default fovea strength delivered");
     Near(lastPostPack.peripheryStrength, 0.3, "default periphery strength delivered");
@@ -210,24 +224,24 @@ int main() {
     Check(lastTap.bitrateMbit == 321 && bandwidthCalls == 1, "explicit bitrate avoids bandwidth fallback");
 
     config.galaxyXr.sdr10Baseline = true;
-    config.galaxyXr.sdr10AllowEnhancements = true;
-    Dispatch(config, "SDR10 enhancement consent");
-    Check(lastPostPack.enable && lastPostPack.casEnable, "SDR10 consent permits post-pack CAS");
+    config.galaxyXr.sdr10AllowEnhancements = true; // retired gate: must not gate anything
+    config.streamFrame.nvencVuiFullRange = 1; // non-default: the passthrough proof needs a value the neutral path would overwrite
+    Dispatch(config, "SDR10 baseline with the master ON");
+    Check(lastPostPack.enable && lastPostPack.casEnable, "SDR10 baseline with the master ON permits post-pack CAS (owner directive 2026-10-17)");
+    Check(lastTap.postPackEnabled && !lastTap.postPackLimitedRange, "SDR10 baseline with the master ON keeps post-pack active with the remap at its stored Off");
+    Check(lastTap.vuiFullRange == 1, "SDR10 baseline with the master ON passes stored range metadata through");
 
     config.galaxyXr.sdr10AllowEnhancements = false;
-    Dispatch(config, "SDR10 consent revoked");
-    Check(!lastPostPack.enable, "revoking SDR10 consent disables previously active post-pack processing");
-    Check(lastTap.vuiFullRange == -1, "SDR10 bypass leaves stock range metadata");
+    Dispatch(config, "SDR10 baseline with the retired consent cleared");
+    Check(lastPostPack.enable && lastTap.postPackEnabled, "clearing the retired consent value leaves the combination active");
 
-    config.galaxyXr.sdr10AllowEnhancements = true;
-    Dispatch(config, "SDR10 consent restored");
-    Check(lastPostPack.enable, "restoring SDR10 consent re-enables post-pack processing");
     config.streamFrame.enable = false;
     Dispatch(config, "Enhancements OFF under SDR10");
-    Check(!lastPostPack.enable && lastTap.vuiFullRange == -1, "master OFF bypasses post-pack and remap VUI under SDR10");
+    Check(!lastPostPack.enable && !lastTap.postPackEnabled && lastTap.vuiFullRange == 1, "master OFF bypasses post-pack and remap under SDR10; manual range metadata stays user-owned");
 
     config.galaxyXr.sdr10Baseline = false;
     config.streamFrame.enable = true;
+    config.streamFrame.postPack.limitedRange = true; // explicit opt-in; the remap default is Off (owner directive 2026-10-17)
     config.streamFrame.nvencVuiFullRange = 1;
     config.streamFrame.nvencVuiMatrix = 9;
     config.streamFrame.nvencVuiPrimaries = 4;

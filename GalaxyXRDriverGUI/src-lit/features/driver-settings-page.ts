@@ -42,13 +42,6 @@ export class DriverSettingsPage extends BasePage {
   private async changeBaseline(enabled: boolean, control: HTMLElement & { checked: boolean }): Promise<void> {
     const galaxy = this.ctx.galaxy;
     control.checked = galaxy.baselineRequested;
-    if (enabled && !galaxy.baselineRequested) {
-      if (galaxy.imageEnhancementsEnabled) return;
-      const confirmed = await this.ctx.dialog.confirm(t('Reset picture adjustments and enable the baseline?'),
-        t('This resets color, sharpening, lens correction and other image-processing adjustments to their defaults. It also turns off the custom shader for this headset. Your controller, tracking and stream-quality settings are kept. Turning the baseline off later will not restore the previous picture adjustments. Back up your settings or export your lens profile first. Continue?'),
-        t('Reset and enable'), 'danger');
-      if (!confirmed) return;
-    }
     await galaxy.setSdr10Baseline(enabled);
     control.checked = galaxy.baselineRequested;
     this.requestUpdate();
@@ -94,29 +87,29 @@ export class DriverSettingsPage extends BasePage {
         body.push(statusMessage('warning', t('Keep Galaxy XR recognition enabled'), t('Turning off either identity option can make SteamVR show another headset or Unknown. Restart SteamVR after a change.')));
       }
       body.push(
+        // 2026-10-17 (owner directive): H.264 cannot carry 10-bit, so while
+        // that codec is selected the switch reads the capability-effective
+        // Off and is disabled; switching to H.264 writes the baseline off in
+        // applyCodecEncoderDefaults so the stored value backs the field. A
+        // stored explicit On (hand-edited file) is preserved and surfaces
+        // again under a codec that honors it — never rewritten on load.
         settingFieldRow('galaxyXr.sdr10Baseline', html`<app-switch
-          .checked=${galaxy.baselineRequested}
-          .disabled=${galaxy.imageModeChanging() || (!galaxy.baselineRequested && galaxy.imageEnhancementsEnabled)}
+          .checked=${galaxy.baselineRequested && settings.nvencCodec !== 1}
+          .disabled=${galaxy.imageModeChanging() || settings.nvencCodec === 1}
           @change=${(e: CustomEvent<boolean>) => { void this.changeBaseline(e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>`, {
-          tip: t("Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. You can then enable Image Enhancements in App Settings after accepting the image-quality warning. Turning the baseline off disables its 10-bit request, including when vrlink Headset Profile is off. Requires a SteamVR restart and reconnect. Explicit advanced overrides still apply.\n\nThe reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_<original model> destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the driver's color policy; the encoder bit depth follows (H.264 stays 8-bit)."),
+          tip: t("Send the stream as 10-bit SDR. Off by default; works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.\n\nTurning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit)."),
         }),
       );
-      if (galaxy.baselineRequested) {
-        body.push(statusMessage(galaxy.imageEnhancementsEnabled ? 'warning' : 'info',
-          galaxy.imageEnhancementsEnabled ? t('SDR 10-bit with Image Enhancements') : t('SDR 10-bit baseline is on'),
-          galaxy.imageEnhancementsEnabled ? t('Image processing may reduce quality. Restart SteamVR and reconnect to apply the 10-bit request.')
-            : t('Picture adjustments are reset. Restart SteamVR and reconnect to apply the 10-bit request.')));
-        if (galaxy.sdr10BaselineConflict()) {
-          body.push(statusMessage('warning', t('Custom shader conflicts with the baseline'), t('Turn the baseline off and on to reset picture adjustments and clear the conflict.')));
-        }
-      } else if (galaxy.imageEnhancementsEnabled) {
-        body.push(statusMessage('info', t('Image Enhancements is on'), t('Turn it off before enabling the baseline. Enabling the baseline resets picture adjustments.'),
-          html`<a href="#/app-settings">${t('Open App Settings')}</a>`));
-      } else {
-        body.push(noteRow(t('Enabling the baseline resets picture adjustments. Back up custom settings first; turning it off does not restore them.')));
-      }
-      if (galaxy.baselineRequested && settings.nvencCodec === 1) {
+      if (settings.nvencCodec === 1) {
+        // 2026-10-17 (owner directive): the baseline toggle is forced Off
+        // and disabled while H.264 is selected; this banner is its visible
+        // reason and stays up in every baseline state.
         body.push(statusMessage('info', t('H.264 is always 8-bit'), t('The 10-bit request is not applied to the H.264 codec. AV1 and HEVC honor it.')));
+      } else if (galaxy.baselineRequested) {
+        body.push(statusMessage('info', t('SDR 10-bit baseline is on'), t('Restart SteamVR and reconnect to apply the 10-bit request.')));
+        if (galaxy.sdr10BaselineConflict()) {
+          body.push(statusMessage('warning', t('Custom shader conflicts with the baseline'), t('Turn off the custom shader for this headset, then enable the baseline again to clear the conflict.')));
+        }
       }
       if (galaxy.imageModeError()) body.push(statusMessage('error', t('Image mode could not be changed'), galaxy.imageModeError()!));
     }

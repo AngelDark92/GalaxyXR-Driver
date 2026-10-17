@@ -18,6 +18,8 @@ const REQUIRED_BUILD_SOURCES = Object.freeze([
   'bump-version.js',
   'tools/release-policy.cjs',
   'tools/publish-release.cjs',
+  'tools/backmerge-release.cjs',
+  'tools/tests/backmerge-release.test.cjs',
   'tools/tests/automatic-release.test.cjs',
   'tools/Build-Portable.ps1',
   'tools/Enter-PortableBuildEnvironment.ps1',

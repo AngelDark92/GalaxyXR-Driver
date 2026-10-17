@@ -236,7 +236,7 @@ struct StreamFramePostPackConfig{
 	double peripheryStrength = 0.3; // 0..1, the downscaled whole-view tile (sharpened after its downscale)
 	bool foveaTop = true;           // fovea tile is the upper of each eye's pair (from vrlink's shader); flip if the overlay says otherwise
 	double edgeFalloff = 0.12;      // fraction of the fovea tile over which sharpening ramps down to the periphery strength (seam softening)
-	bool limitedRange = true;       // Y 16..235 / C 16..240 + VUI full-range flag cleared. 09-06: FIXES the black floor with the xrvst2ue-identity APK
+	bool limitedRange = false;      // Y 16..235 / C 16..240 + VUI full-range flag cleared. 09-06: FIXES the black floor with the xrvst2ue-identity APK. 2026-10-17 (owner directive): OFF default in every codec; the toggle and its reset arrow read and restore Off, turning it on stays user tuning
 };
 
 struct StreamFrameCASConfig{
@@ -502,25 +502,30 @@ struct GalaxyXrConfig{
 	double skeletonOffsetZCm = 0.0;
 	bool skeletonOffsetMirror = true;
 	// 2026-09-19 SDR10 baseline: opt-in VD-like neutral baseline (see
-	// SdrColorPolicy.h). effective (not stored): while on, the vrlink
-	// headset profile is requested with supports10bit and the host color
-	// pipeline runs neutral unless enhancements are explicitly allowed
-	// (saturation 50 / vibrance 0 / contrast 50 / gamma
+	// SdrColorPolicy.h). effective (not stored): while on AND the Image
+	// Enhancements master (streamFrame.enable) is off, the vrlink headset
+	// profile is requested with supports10bit and the host color pipeline
+	// runs neutral (saturation 50 / vibrance 0 / contrast 50 / gamma
 	// 2.2 / tint 1 / no matrix / dither off / black-floor off / post-pack
-	// bypassed / VUI left to Valve's original pair). stored controls are
-	// untouched and resume when this goes off; the 10-bit request is disabled.
-	// force10bit stays retired regardless.
+	// bypassed / VUI left to Valve's original pair). 2026-10-17 (owner
+	// directive): with the master ON this baseline no longer resets or
+	// bypasses enhancements: stored picture controls pass through and the
+	// combination is supported. stored controls are untouched either way;
+	// with this off the 10-bit request is disabled. force10bit stays retired.
 	bool sdr10Baseline = false;
 	// Keep the pre-migration sentinel so schema 2 survives default-diff saves.
 	int sdr10SettingsVersion = 1;
-	// 2026-09-25: explicit warning consent permits image enhancements while
-	// retaining the SDR10 capability request. Old files remain neutral.
+	// 2026-09-25 legacy enhancement consent. 2026-10-17 (owner directive):
+	// retired as a gate: no driver logic may read it; parsing and
+	// serialization stay only for file compatibility; the stored value is inert.
 	bool sdr10AllowEnhancements = false;
 };
 
 struct StreamFrameConfig{
-	// process direct mode layer textures before the streaming driver consumes them
-	bool enable = false;
+	// process direct mode layer textures before the streaming driver consumes them.
+	// 2026-10-17 (owner directive): ON default; Image Enhancements and the
+	// SDR 10-bit baseline are independent.
+	bool enable = true;
 	// saturation with 50 being normal, same semantics as customShader.saturation
 	double saturation = 50;
 	// vibrance from -100 to 100 with 0 being off: saturation change weighted
@@ -774,6 +779,12 @@ struct StreamFrameConfig{
 	// wall: NVENC surfaces untouched). our per-eye traffic 4x -> 2x.
 	// EXPERIMENTAL: one dedicated toggle-on test in a disposable session.
 	bool zeroCopyV3 = false;
+	// 2026-10-17 add-feature (brief 11-W2B): async spacewarp toggle. false =
+	// stock stream (default conservative-off). true is routed through
+	// VrlinkTap on every hot reload (FrameProcessor::UpdateEncoderSettings),
+	// which publishes the boolean to the client over the pinned vrlink
+	// value-transport impl — see VrlinkTap.h for the pinned gate contract.
+	bool spacewarpEnable = false;
 	// NVENC tap (ACTIVE since 2026-08-27, see NvencTap.h). hooks vrlink's
 	// encoder init/reconfigure. every override is retried with vrlink's
 	// own params on failure, so worst case is stock behaviour + a log line.
@@ -797,8 +808,9 @@ struct StreamFrameConfig{
 	// and the encoder; nonzero overrides both at once
 	int nvencBandwidthOverrideMbit = 0;
 	// v3 settings-schema version. < 3 in a loaded file = pre-v3 encoder
-	// settings: ConfigLoader applies the v3 encoder defaults over them
-	// (AQ off, CBR on, ...) and logs it. The GUI writes 3.
+	// settings: the loader stamps the version and logs it; absent keys use
+	// the native defaults (AQ off; Force CBR off since 2026-10-17). The GUI
+	// writes 3.
 	int nvencSettingsVersion = 0;
 	// 0 = leave. else QP ceiling (1..51): blocks cannot be quantized coarser
 	// than this; black-floor / dark-gradient lever. try 30..36.
@@ -812,7 +824,7 @@ struct StreamFrameConfig{
 	// exactly 2 MB/frame; IDR at QP 16 = 2.3 MB, at QP 24 = 1.45 MB)
 	int nvencMinQpIntra = 0;
 	// CBR + low-delay key-frame scale: VBV honoured on key frames
-	bool nvencForceCbr = true; // v3 default (X2, 350/450 runs); spatial AQ, not CBR, was the serializer
+	bool nvencForceCbr = true; // 2026-10-17 (owner directive, revised): ON default for every codec; the GUI codec rows + reset arrows apply On; turning it off stays user tuning (v3 default was true, X2 runs)
 	// with Force CBR: reset-IDR budget as a multiple of a P frame (1..4).
 	// 1 = one frame budget (soft IDR, QP 34-48 in the R runs); 2 = two,
 	// still under vbvFrames=2. see NvencTapConfig::lowDelayKfScale

@@ -15,6 +15,7 @@ describe('human-readable settings inspection', () => {
     expect(checks.length).toBeGreaterThan(70);
     expect(checks.filter(check => classifyBoolean(check) === 'unknown')).toEqual([]);
     expect(classifyBoolean({ key: 'driverVerified', source: 'gui-settings.json' })).toBe('internal');
+    expect(classifyBoolean({ key: 'galaxyXr.sdr10AllowEnhancements', source: 'settings.json' })).toBe('internal');
     expect(classifyBoolean({ key: 'futureFeature', source: 'settings.json' })).toBe('unknown');
   });
 
@@ -27,22 +28,30 @@ describe('human-readable settings inspection', () => {
     const rows = presentSettings([], context());
     expect(rows.find(row => row.id === 'streamFrame.nvencForceCbr')?.location)
       .toEqual(['Image Settings', 'Encoder Advanced', 'Force Constant Bitrate']);
+    expect(rows.find(row => row.id === 'streamFrame.spacewarpEnable')?.location)
+      .toEqual(['Image Settings', 'Stream Quality', 'Async Spacewarp']);
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
   });
 
-  it('uses effective Image Enhancements consent and compound CAS mode without changing saved values', () => {
+  it('reports Image Enhancements from the master alone and compound CAS mode without changing saved values', () => {
     const c = context();
     c.settings.streamFrame!.enable = true;
     c.settings.galaxyXr!.sdr10Baseline = true;
     c.settings.galaxyXr!.sdr10AllowEnhancements = false;
     const before = structuredClone(c);
     let rows = presentSettings([], c);
-    expect(rows.find(row => row.id === 'image-enhancements')?.state).toBe('Off');
+    // 2026-10-17 (owner directive): the master is independent of the baseline;
+    // the retired consent key no longer gates this state.
+    expect(rows.find(row => row.id === 'image-enhancements')?.state).toBe('On');
     expect(c).toEqual(before);
     c.settings.galaxyXr!.sdr10AllowEnhancements = true;
     rows = presentSettings([], c);
     expect(rows.find(row => row.id === 'image-enhancements')?.state).toBe('On');
     expect(rows.find(row => row.id === 'cas-sharpening')?.state).toBe('Post-pack');
+    c.settings.streamFrame!.enable = false;
+    rows = presentSettings([], c);
+    expect(rows.find(row => row.id === 'image-enhancements')?.state).toBe('Off');
+    c.settings.streamFrame!.enable = true;
     c.settings.streamFrame!.postPack.casEnable = false;
     c.settings.streamFrame!.cas.enable = true;
     expect(presentSettings([], c).find(row => row.id === 'cas-sharpening')?.state).toBe('Pre-encode');
@@ -63,6 +72,7 @@ describe('human-readable settings inspection', () => {
   it('keeps unavailable modes explanatory and never enables their prerequisites', () => {
     const c = context();
     const reason = (id: string) => settingUnavailable(settingPresentation(id)!, c);
+    c.settings.streamFrame!.enable = false; // 2026-10-17 (owner directive): master defaults On; exercise the master-off gate explicitly
     const before = structuredClone(c);
     expect(reason('streamFrame.dither')).toMatch(/Image Enhancements is off/);
     expect(reason('streamFrame.kalmanGripEnable')).toMatch(/Retired experiments/);

@@ -68,6 +68,7 @@
     <ClCompile Include="src\Driver\ReconLogger.cpp" />
     <ClCompile Include="src\Driver\ZeroCopy.cpp" />
     <ClCompile Include="src\Driver\NvencTap.cpp" />
+    <ClCompile Include="src\Driver\VrlinkTap.cpp" />
     <ClCompile Include="src\Driver\NvencPostPack.cpp" />
     <ClCompile Include="src\Driver\EyeTrackingTap.cpp" />
     <ClCompile Include="src\Driver\DriverLockout.cpp" />

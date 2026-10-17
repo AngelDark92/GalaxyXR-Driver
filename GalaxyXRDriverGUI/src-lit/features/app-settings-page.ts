@@ -12,7 +12,6 @@ import '../ui/controls';
 
 @customElement('app-app-settings-page')
 export class AppSettingsPage extends BasePage {
-  private warningPending = false;
   static styles = [fieldStyles, css`
     :host { display: block; padding: 0 1rem 2rem 1rem; }
   `];
@@ -20,24 +19,9 @@ export class AppSettingsPage extends BasePage {
   private async setImageEnhancements(enabled: boolean, control: HTMLElement & { checked: boolean }): Promise<void> {
     const galaxy = this.ctx.galaxy;
     control.checked = galaxy.imageEnhancementsEnabled;
-    if (this.warningPending || galaxy.imageModeChanging()) return;
+    if (galaxy.imageModeChanging()) return;
     if (!driverAvailable(this.ctx.sds.driverInstalled(), this.ctx.sds.driverState())) return;
-    let qualityWarningAccepted = false;
-    if (enabled && galaxy.baselineRequested) {
-      this.warningPending = true;
-      this.requestUpdate();
-      try {
-        qualityWarningAccepted = !!await this.ctx.dialog.confirm(
-          t('Enable Image Enhancements with SDR 10-bit?'),
-          t('Image Enhancements can cause banding, artifacts, or color changes with SDR 10-bit. The 10-bit request stays enabled, but processing may not preserve its precision.\n\nContinue only if you accept this image-quality tradeoff. Turn enhancements off to return to the neutral baseline.'),
-          t('I understand — enable enhancements'), 'danger');
-      } finally {
-        this.warningPending = false;
-        this.requestUpdate();
-      }
-      if (!qualityWarningAccepted) return;
-    }
-    await galaxy.setImageEnhancements(enabled, qualityWarningAccepted);
+    await galaxy.setImageEnhancements(enabled);
     control.checked = galaxy.imageEnhancementsEnabled;
     this.requestUpdate();
   }
@@ -46,7 +30,6 @@ export class AppSettingsPage extends BasePage {
     const { appSetting, galaxy, sds, checks } = this.ctx;
     const installed = driverAvailable(sds.driverInstalled(), sds.driverState());
     const known = !!this.ctx.dss.values() && !this.ctx.dss.readFileError();
-    const baseline = galaxy.baselineRequested;
     const busy = checks.checking() || sds.installingDriver() || galaxy.imageModeChanging();
     const save = (patch: Partial<AppSetting>) => {
       void appSetting.save({ ...appSetting.values(), ...patch });
@@ -65,15 +48,10 @@ export class AppSettingsPage extends BasePage {
         tip: t("Light, dark, or follow your Windows theme.\n\nValue: colorScheme (gui-settings.json). GUI-only presentation preference.") }),
       settingFieldRow('image-enhancements', html`
         <app-switch .known=${known} .checked=${galaxy.imageEnhancementsEnabled}
-          .disabled=${!installed || !known || this.warningPending || galaxy.imageModeChanging() || busy}
+          .disabled=${!installed || !known || galaxy.imageModeChanging() || busy}
           @change=${(e: CustomEvent<boolean>) => { void this.setImageEnhancements(e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>
       `, {
-        tip: t("Master switch for the color, sharpening and lens-correction tools. Off restores the neutral picture without changing your saved values.\n\nValue: streamFrame.enable + galaxyXr.sdr10AllowEnhancements (settings.json). Driver side — the effective color-processing gate; the 10-bit quality warning applies when the baseline is on.") }),
-      baseline ? statusMessage(galaxy.imageEnhancementsEnabled ? 'warning' : 'info',
-        galaxy.imageEnhancementsEnabled ? t('SDR 10-bit with Image Enhancements') : t('SDR 10-bit baseline is on'),
-        galaxy.imageEnhancementsEnabled ? t('Image processing may reduce quality. Turn enhancements off to use the neutral baseline; your adjustments are kept.')
-          : t('Enabling enhancements requires accepting an image-quality warning.'))
-        : noteRow(t('Enable color, sharpening, and lens correction. Turn this off before enabling the SDR 10-bit baseline, which resets picture adjustments.')),
+        tip: t("Master switch for the color, sharpening and lens-correction tools. Off restores the neutral picture without changing your saved values.\n\nValue: streamFrame.enable (settings.json). Driver side — the effective color-processing gate.") }),
       ...(!installed ? [statusMessage('info', t('Install the driver to enable image controls'), t('Appearance and advanced preferences are available now.'),
         html`<a href="#/setup">${t('Open Setup')}</a>`)] : []),
       settingFieldRow('advanceMode', html`

@@ -10,6 +10,7 @@ import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionHeadin
 import { t } from '../locale/i18n';
 import { pageIntro, statusMessage } from '../ui/presentation';
 import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
+import { spacewarpStatus } from '../domain/spacewarp-status';
 import { codecEncoderDefaults, streamFrameIntegerError } from '../state/galaxy-settings';
 import '../ui/controls';
 import './driver-banner';
@@ -221,10 +222,24 @@ if (vendor) {
   tip: t("Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.\n\nAn encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.\n\nValue: streamFrame.nvencTap (settings.json). Encoder side — hooks NVIDIA NVENC session creation and reconfiguration."),
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
+        parts.push(settingFieldRow('streamFrame.spacewarpEnable', html`
+      <app-switch .checked=${!!settings.spacewarpEnable} @change=${(e: CustomEvent) => { settings.spacewarpEnable = e.detail; save(); }}></app-switch>
+            `, {
+  tip: t("Applies live to the running stream. Async Spacewarp synthesizes extra intermediate frames, smoothing motion between streamed frames. The synthesis runs on the headset client and needs the GXR spacewarp client patch (experimental) installed there; without it the stream shows extra held frames instead of synthesized frames. Off preserves the upstream frames; the switch stays honest via the status row.\n\nValue: streamFrame.spacewarpEnable (settings.json). Stream side — publishes the toggle live to the running vrlink stream; the headset synthesizes the frames."),
+  reset: { can: settings.spacewarpEnable != defaults.spacewarpEnable, on: () => { galaxy.reset('spacewarpEnable'); } }
+            }));
+        {
+          const spacewarpState = spacewarpStatus(!!settings.spacewarpEnable, this.ctx.dis.values(), this.ctx.startup.status());
+          parts.push(statusMessage(spacewarpState === 'on' ? 'success' : spacewarpState === 'waiting' ? 'warning' : 'info',
+            t(spacewarpState === 'on' ? 'Async Spacewarp: Active' : spacewarpState === 'waiting' ? 'Async Spacewarp: Waiting for stream' : 'Async Spacewarp: Off'),
+            t(spacewarpState === 'on' ? 'The running stream carries the request; the headset synthesizes the intermediate frames.'
+              : spacewarpState === 'waiting' ? 'The saved value is not confirmed by the running stream yet. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.'
+              : 'The stream is left unchanged; no frames are synthesized.')));
+        }
         parts.push(settingFieldRow('streamFrame.nvencCodec', html`
       <app-select ?disabled=${!settings.nvencTap} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1' }]} @change=${(e: CustomEvent) => { const codec = e.detail; if (codec !== settings.nvencCodec) { settings.nvencCodec = codec; galaxy.applyCodecEncoderDefaults(codec); } this.requestUpdate(); }}></app-select>
             `, {
-  tip: t("Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Requires a SteamVR restart and reconnect.\n\nValue: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.")
+  tip: t("Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Selecting H.264 turns the SDR 10-bit baseline off (its toggle on Driver Settings shows Off and is disabled until another codec is selected). Requires a SteamVR restart and reconnect.\n\nValue: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.")
             }));
         if (!settings.nvencTap) {
           parts.push(noteRow(html`Requires the NVENC Tap — enable it above to choose a codec. With the tap off the codec choice is saved but not applied.`));
@@ -253,9 +268,6 @@ parts.push(sectionHeading(t('Image Processing'), 0, 'image-processing'));
 if (galaxy.imageEnhancementsEnabled) {
         parts.push(sectionRow(t('Color'), sections['color'], 1, () => this.toggleSection('color')));
 if (sections.color) {
-if (galaxy.sdr10BaselineActive()) {
-            parts.push(statusMessage('warning', t('SDR 10-bit with Image Enhancements'), t('Image processing may reduce quality.')));
-}
           parts.push(fieldRow(t('Brightness'), html`
       <app-number .value=${settings.brightness} step="0.05" min="0.05" max="1.5" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.brightness = e.detail; } save(); }}></app-number>
       <app-slider .value=${settings.brightness} .min=${0.05} .max=${1.5} .step=${0.05} @change=${(e: CustomEvent) => { settings.brightness = e.detail; save(); }}></app-slider>
@@ -420,8 +432,7 @@ if (settings.stationaryDimming.enable) {
 }
 } else {
         parts.push(statusMessage('info', t('Image Enhancements is off'),
-          galaxy.baselineRequested ? t('Enable it in App Settings and accept the quality warning to adjust the SDR 10-bit picture.')
-            : t('Enable it in App Settings to adjust color and sharpening.'),
+          t('Enable it in App Settings to adjust color and sharpening.'),
           html`<a href="#/app-settings">${t('Open App Settings')}</a>`));
 }
 if (advancedMode) {
@@ -493,7 +504,7 @@ if (settings.nvencTap) {
         rc: evidence.effectiveRateControl === 2 ? 'CBR' : evidence.effectiveRateControl === 1 ? 'VBR'
           : evidence.effectiveRateControl === 0 ? t('Constant QP') : t('Unknown') })}</span>` : html``}
                 `, {
-  tip: t("Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is shown with the codec defaults; H.264 recommends Off.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."),
+  tip: t("Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."),
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
                 parts.push(settingFieldRow('streamFrame.nvencMultiPass', html`
@@ -583,8 +594,8 @@ if (settings.nvencTap) {
                 parts.push(settingFieldRow('streamFrame.postPack.limitedRange', html`
       <app-switch .checked=${!!settings.postPack.limitedRange} @change=${(e: CustomEvent) => { settings.postPack.limitedRange = e.detail; settings.postPack.enable = settings.postPack.enable || settings.postPack.limitedRange; save(); }}></app-switch>
                 `, {
-  tip: t("Correct a mismatch between full-range and limited-range video levels. Use this only to diagnose washed-out blacks or crushed shadows; it requires the NVIDIA encoder adjustment path.\n\nSteam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.\n\nValue: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range."),
-  reset: { can: settings.postPack.limitedRange != true, on: () => { settings.postPack.limitedRange = true; settings.postPack.enable = settings.postPack.enable || true; save(); } }
+  tip: t("Correct a mismatch between full-range and limited-range video levels. Off by default; turn it on only if the headset shows washed-out blacks or crushed shadows. The reset arrow restores Off; it requires the NVIDIA encoder adjustment path.\n\nSteam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.\n\nValue: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range."),
+  reset: { can: settings.postPack.limitedRange != false, on: () => { settings.postPack.limitedRange = false; save(); } }
                 }));
 
 }

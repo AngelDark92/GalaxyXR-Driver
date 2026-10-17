@@ -162,29 +162,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node .\tools\publish-release.cjs
 
-      # Dev channel (2026-10-13): after a stable publication on main, sync the
-      # release commit back to dev. True merge: dev routinely advances past
-      # the promotion merge while the release builds, so fast-forward-only
-      # skips. Conflicting hunks resolve toward dev (-X ours); the next dev
-      # release re-derives version and changelog from tags. Failures are loud
-      # (2026-10-16): the previous warn-and-exit-0 step concluded success
-      # while skipping the sync at both promotions, and dev kept numbering a
-      # shipped base.
+      # Backmerge in an isolated external worktree (2026-10-17): Tauri can
+      # modify tracked Cargo.toml during the build, blocking a branch switch
+      # in this checkout. Carry the published version back with bot identity,
+      # then merge the exact release normally; real source conflicts fail loudly.
       - name: Backmerge main into dev
         if: steps.persist.outputs.publish == 'true' && github.ref == 'refs/heads/main'
         shell: pwsh
-        run: |
-          git fetch origin +refs/heads/dev:refs/remotes/origin/dev +refs/heads/main:refs/remotes/origin/main
-          if ($LASTEXITCODE -ne 0) { echo '::error::Backmerge: could not fetch dev and main.'; exit 1 }
-          git checkout -B dev origin/dev
-          if ($LASTEXITCODE -ne 0) { echo '::error::Backmerge: could not check out origin/dev.'; exit 1 }
-          git merge origin/main --no-edit -X ours -m 'chore: backmerge main into dev'
-          if ($LASTEXITCODE -ne 0) { echo '::error::Backmerge: merging origin/main into dev failed; resolve dev and retry.'; exit 1 }
-          git push origin dev
-          if ($LASTEXITCODE -ne 0) { echo '::error::Backmerge: the push to dev was rejected.'; exit 1 }
-          git fetch origin +refs/heads/dev:refs/remotes/origin/dev
-          if ($LASTEXITCODE -ne 0) { echo '::error::Backmerge: could not re-fetch dev to verify the sync.'; exit 1 }
-          if ((git rev-parse origin/dev) -ne (git rev-parse dev)) { echo '::error::Backmerge: origin/dev does not contain the merged release commit.'; exit 1 }
+        run: node .\tools\backmerge-release.cjs
 
       - name: Stage native dependency diagnostics on failure
         if: failure()

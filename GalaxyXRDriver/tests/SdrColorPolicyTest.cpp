@@ -98,7 +98,22 @@ int main() {
         Check(off.profileEnabled == profile, "OFF preserves the profile geometry switch");
         Check(c.galaxyXr.profileSupports10bit == legacy10bit, "policy does not rewrite legacy stored values");
     }
-    Check(!Config{}.galaxyXr.sdr10AllowEnhancements, "legacy/default configs do not opt into SDR10 enhancements");
+    // 2026-10-17 (owner directive): the retired consent gate is never read;
+    // the baseline and the master are independent and combine both ways.
+    {
+        Config combined{};
+        combined.galaxyXr.sdr10Baseline = true; // default streamFrame: master ON
+        const auto combo = gxr::ResolveSdr10Policy(combined);
+        Check(gxr::ImageEnhancementsEnabled(combined.streamFrame, combo), "baseline ON + master ON: enhancements pass enabled");
+        Check(combo.postPackEnable == combined.streamFrame.postPack.enable, "baseline ON + master ON: post-pack equals the stored value");
+        Check(combo.saturation == combined.streamFrame.saturation, "baseline ON + master ON: stored picture controls pass through");
+        Check(combo.profileSupports10bit, "baseline ON + master ON: 10-bit capability request remains active");
+        combined.streamFrame.enable = false;
+        const auto comboOff = gxr::ResolveSdr10Policy(combined);
+        Check(!gxr::ImageEnhancementsEnabled(combined.streamFrame, comboOff) && comboOff.saturation == 50.0 && !comboOff.postPackEnable,
+            "baseline ON + master OFF: neutral baseline holds");
+        Check(comboOff.profileSupports10bit, "baseline ON + master OFF: 10-bit capability request remains active");
+    }
     // ---- default-off: every policy field passes the stored config through exactly ----
     {
         Config c = StoredConfig();
@@ -124,10 +139,11 @@ int main() {
         Check(p.vuiFullRange == c.streamFrame.nvencVuiFullRange && p.vuiMatrix == c.streamFrame.nvencVuiMatrix, "default off: VUI fullRange/matrix passthrough exact");
         Check(p.vuiPrimaries == c.streamFrame.nvencVuiPrimaries && p.vuiTransfer == c.streamFrame.nvencVuiTransfer, "default off: VUI primaries/transfer passthrough exact");
     }
-    // ---- active: every effective value is the neutral baseline ----
+    // ---- active with the master OFF: every effective value is the neutral baseline ----
     {
         Config c = StoredConfig();
         c.galaxyXr.sdr10Baseline = true;
+        c.streamFrame.enable = false; // 2026-10-17: the neutral baseline needs the master off
         gxr::Sdr10BaselinePolicy p = gxr::ResolveSdr10Policy(c);
         Check(p.requested && !p.conflict && p.active, "active: requested true, no conflict, active true");
         Check(p.profileEnabled == true && p.profileSupports10bit == true, "active: profile enabled with supports10bit requested");
@@ -145,34 +161,37 @@ int main() {
         Check(p.postPackEnable == false, "active: post-pack bypassed");
         Check(p.vuiFullRange == -1 && p.vuiMatrix == -1 && p.vuiPrimaries == -1 && p.vuiTransfer == -1, "active: VUI left to Valve's original pair (all -1)");
     }
-    // ---- explicit consent restores picture controls without dropping 10-bit ----
+    // ---- 2026-10-17 (owner directive): the master alone decides; the
+    // baseline plus master-ON combination passes stored controls through ----
     {
         Config c = StoredConfig();
         const auto stored = gxr::ResolveSdr10Policy(c);
         c.galaxyXr.sdr10Baseline = true;
-        c.galaxyXr.sdr10AllowEnhancements = true;
-        const auto combined = gxr::ResolveSdr10Policy(c);
-        Check(combined.active && combined.profileEnabled && combined.profileSupports10bit, "consent: baseline capability request remains active");
-        Check(gxr::ImageEnhancementsEnabled(c.streamFrame, combined), "consent: enhancement passes enabled");
-        Check(combined.saturation == stored.saturation && combined.vibrance == stored.vibrance && combined.contrast == stored.contrast, "consent: stored saturation/vibrance/contrast restored");
-        Check(combined.contrastMidpoint == stored.contrastMidpoint && combined.contrastLinear == stored.contrastLinear && combined.gamma == stored.gamma && combined.brightness == stored.brightness, "consent: stored contrast mode/gamma/brightness restored");
-        Check(combined.colorMultiplier.r == stored.colorMultiplier.r && combined.colorMultiplier.g == stored.colorMultiplier.g && combined.colorMultiplier.b == stored.colorMultiplier.b && combined.srgbMatrix == stored.srgbMatrix, "consent: stored tint and matrix restored");
-        Check(combined.dither == stored.dither && combined.blackFloorRangeMode == stored.blackFloorRangeMode && combined.blackFloorShadowLift == stored.blackFloorShadowLift, "consent: stored dither and black floor mode restored");
-        Check(combined.blackFloorFloorCode == stored.blackFloorFloorCode && combined.blackFloorKneeCode == stored.blackFloorKneeCode && combined.blackFloorBlackPointCode == stored.blackFloorBlackPointCode, "consent: stored black floor tuning restored");
-        Check(combined.postPackEnable == stored.postPackEnable && combined.vuiFullRange == stored.vuiFullRange && combined.vuiMatrix == stored.vuiMatrix && combined.vuiPrimaries == stored.vuiPrimaries && combined.vuiTransfer == stored.vuiTransfer, "consent: stored post-pack and VUI restored");
-        Check(c.streamFrame.saturation == 62 && !c.galaxyXr.profileSupports10bit, "consent: stored settings remain untouched");
+        const auto combined = gxr::ResolveSdr10Policy(c); // StoredConfig keeps the master ON
+        Check(combined.active && combined.profileEnabled && combined.profileSupports10bit, "master ON under baseline: capability request remains active");
+        Check(gxr::ImageEnhancementsEnabled(c.streamFrame, combined), "master ON under baseline: enhancement passes enabled");
+        Check(combined.saturation == stored.saturation && combined.vibrance == stored.vibrance && combined.contrast == stored.contrast, "master ON under baseline: stored saturation/vibrance/contrast pass through");
+        Check(combined.contrastMidpoint == stored.contrastMidpoint && combined.contrastLinear == stored.contrastLinear && combined.gamma == stored.gamma && combined.brightness == stored.brightness, "master ON under baseline: stored contrast mode/gamma/brightness pass through");
+        Check(combined.colorMultiplier.r == stored.colorMultiplier.r && combined.colorMultiplier.g == stored.colorMultiplier.g && combined.colorMultiplier.b == stored.colorMultiplier.b && combined.srgbMatrix == stored.srgbMatrix, "master ON under baseline: stored tint and matrix pass through");
+        Check(combined.dither == stored.dither && combined.blackFloorRangeMode == stored.blackFloorRangeMode && combined.blackFloorShadowLift == stored.blackFloorShadowLift, "master ON under baseline: stored dither and black floor mode pass through");
+        Check(combined.blackFloorFloorCode == stored.blackFloorFloorCode && combined.blackFloorKneeCode == stored.blackFloorKneeCode && combined.blackFloorBlackPointCode == stored.blackFloorBlackPointCode, "master ON under baseline: stored black floor tuning passes through");
+        Check(combined.postPackEnable == stored.postPackEnable && combined.vuiFullRange == stored.vuiFullRange && combined.vuiMatrix == stored.vuiMatrix && combined.vuiPrimaries == stored.vuiPrimaries && combined.vuiTransfer == stored.vuiTransfer, "master ON under baseline: stored post-pack and VUI pass through");
+        Check(c.streamFrame.saturation == 62 && !c.galaxyXr.profileSupports10bit, "master ON under baseline: stored settings remain untouched");
         c.streamFrame.enable = false;
         const auto masterOff = gxr::ResolveSdr10Policy(c);
-        Check(!gxr::ImageEnhancementsEnabled(c.streamFrame, masterOff) && masterOff.saturation == 50 && !masterOff.postPackEnable && masterOff.vuiFullRange == -1, "consent with master off: neutral picture and metadata restored");
-        Check(masterOff.active && masterOff.profileSupports10bit, "master off: 10-bit request remains active");
+        Check(!gxr::ImageEnhancementsEnabled(c.streamFrame, masterOff) && masterOff.saturation == 50 && !masterOff.postPackEnable && masterOff.vuiFullRange == -1, "master OFF under baseline: neutral picture and metadata restored");
+        Check(masterOff.active && masterOff.profileSupports10bit, "master OFF under baseline: 10-bit request remains active");
         c.streamFrame.enable = true;
-        c.galaxyXr.sdr10AllowEnhancements = false;
-        const auto revoked = gxr::ResolveSdr10Policy(c);
-        Check(!gxr::ImageEnhancementsEnabled(c.streamFrame, revoked) && revoked.saturation == 50 && !revoked.postPackEnable, "consent revoked: enhancements bypassed and neutral values restored");
-        c.galaxyXr.sdr10Baseline = false;
         c.galaxyXr.sdr10AllowEnhancements = true;
+        const auto consentStamped = gxr::ResolveSdr10Policy(c);
+        c.galaxyXr.sdr10AllowEnhancements = false;
+        const auto consentCleared = gxr::ResolveSdr10Policy(c);
+        Check(consentStamped.saturation == consentCleared.saturation && consentStamped.postPackEnable == consentCleared.postPackEnable
+            && consentStamped.vuiFullRange == consentCleared.vuiFullRange && consentStamped.profileSupports10bit == consentCleared.profileSupports10bit,
+            "retired consent value never changes resolution (owner directive 2026-10-17)");
+        c.galaxyXr.sdr10Baseline = false;
         const auto off = gxr::ResolveSdr10Policy(c);
-        Check(!off.active && off.saturation == stored.saturation && off.profileSupports10bit == stored.profileSupports10bit, "baseline off: consent has no effect on existing behavior");
+        Check(!off.active && off.saturation == stored.saturation && off.profileSupports10bit == stored.profileSupports10bit, "baseline off: no effect on existing behavior");
     }
     // ---- resolve is const-correct and leaves the stored config unmodified ----
     {
@@ -224,7 +243,10 @@ int main() {
         c.customShader.enableForOther = false;
         gxr::Sdr10BaselinePolicy p = gxr::ResolveSdr10Policy(c);
         Check(p.requested && !p.conflict && p.active, "no conflict: custom shader on but not for this headset -> baseline active");
-        Check(p.saturation == 50.0 && p.postPackEnable == false, "no conflict: neutral baseline applied");
+        Check(p.saturation == c.streamFrame.saturation && p.postPackEnable == c.streamFrame.postPack.enable, "no conflict: master ON passes stored picture controls through (owner directive 2026-10-17)");
+        c.streamFrame.enable = false;
+        const auto neutral = gxr::ResolveSdr10Policy(c);
+        Check(neutral.saturation == 50.0 && neutral.postPackEnable == false, "no conflict: master OFF still applies the neutral baseline");
     }
     {
         // custom shader disabled entirely: no conflict

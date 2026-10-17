@@ -284,6 +284,11 @@ struct NvencTapStats {
 	uint32_t lastAvgBitrate = 0, lastMaxBitrate = 0;
 	uint32_t lastWidth = 0, lastHeight = 0;
 	uint32_t lastLevel = 0, lastTier = 0, lastBitDepth = 0;
+	// colour-depth fix A (2026-10-17): the raw NV_ENC_BUFFER_FORMAT vrlink
+	// passed at the last guarded init/reconfigure, unmodified by any override
+	// (overrides restore caller bytes and never touch bufferFormat). the
+	// heartbeat prints it as the inBf hex class: 0x1 NV12, 0x10000 YUV420_10BIT.
+	uint32_t lastInputBufferFormat = 0;
 };
 
 // 2026-09-30: passive session evidence, not per-frame encoder instrumentation.

@@ -25,9 +25,10 @@
 //   CAS, the black-floor ramp bar (user debug overlay), bitrate/preset/QP/
 //   split, tracking, geometry/distortion, blackout/dimming safety and the
 //   nvencTap master switch are NOT scalar overrides in this policy.
-//   ImageEnhancementsEnabled separately bypasses image-processing passes
-//   while the baseline is requested without explicit enhancement consent,
-//   including legacy overlapping settings.
+//   ImageEnhancementsEnabled is the single master rule: streamFrame.enable
+//   alone decides. Image Enhancements and the SDR 10-bit baseline are
+//   independent and fully combinable; the retired consent gate is never
+//   read (owner directive 2026-10-17).
 
 namespace gxr{
 
@@ -48,10 +49,7 @@ inline bool MigrateSdr10Settings(GalaxyXrConfig &config, bool profileWasStored =
 // policy is the neutral baseline (the safe state) and the inactive path
 // overwrites every field with the stored config.
 struct Sdr10BaselinePolicy{
-	// 2026-09-25: consent gates combined SDR10 + enhancement use separately
-	// from the capability request, preserving safe behavior for old files.
 	bool requested = false;
-	bool allowEnhancements = false;
 	bool conflict = false;
 	bool active = false;
 	// effective vrlink headset profile request (startup writer)
@@ -85,11 +83,12 @@ struct Sdr10BaselinePolicy{
 	int vuiTransfer = -1;
 };
 
-// Companion mode contract: the saved baseline has priority unless the user
-// explicitly accepted the image-quality warning. Older overlapping files
-// remain bypassed; checking settings never rewrites user files.
-inline bool ImageEnhancementsEnabled(const StreamFrameConfig &config, const Sdr10BaselinePolicy &policy){
-	return config.enable && (!policy.requested || policy.allowEnhancements);
+// 2026-10-17 (owner directive): single rule: the Image Enhancements master
+// (streamFrame.enable) alone decides. The baseline and the master are
+// independent and the combination is supported; resolution never rewrites
+// stored user files. The policy argument is kept for call-site stability.
+inline bool ImageEnhancementsEnabled(const StreamFrameConfig &config, const Sdr10BaselinePolicy &){
+	return config.enable;
 }
 
 // Resolve the effective baseline policy from one settings snapshot.
@@ -97,14 +96,16 @@ inline bool ImageEnhancementsEnabled(const StreamFrameConfig &config, const Sdr1
 inline Sdr10BaselinePolicy ResolveSdr10Policy(const Config &config){
 	Sdr10BaselinePolicy p;
 	p.requested = config.galaxyXr.sdr10Baseline;
-	p.allowEnhancements = config.galaxyXr.sdr10AllowEnhancements;
 	p.conflict = p.requested && config.customShader.enable && config.customShader.enableForOther;
 	p.active = p.requested && !p.conflict;
 	if(p.active && !ImageEnhancementsEnabled(config.streamFrame, p)){
-		return p; // neutral baseline: struct defaults already hold it
+		return p; // master OFF only: neutral baseline, struct defaults already hold it
 	}
-	// 2026-09-25: consent restores stored picture controls, but keeps the
-	// active baseline's 10-bit capability request. Master OFF stays neutral.
+	// 2026-10-17 (owner directive): Image Enhancements and the SDR10 baseline
+	// are independent: while the master is ON, stored picture controls,
+	// post-pack and VUI pass through exactly as when the baseline is off; the
+	// retired consent gate is never consulted. An active baseline keeps its
+	// 10-bit capability request (master OFF returns above).
 	// Inactive or conflicting: pass stored picture controls through exactly.
 	// This is the ONLY place the stored picture values are read, and only as-is,
 	// 2026-09-25: OFF must not inherit the old hidden profileSupports10bit=true.

@@ -79,9 +79,22 @@ pushes build without publishing. The metadata commit lands on `dev`.
 
 Every `dev` push maintains the `dev` to `main` pull request. Merging it promotes
 the series: `main` publishes the stable `X.Y.Z`, and after a successful stable
-publication CI fast-forwards the release commit back to `dev` so the next dev
-series starts from the released version. A diverged `dev` is skipped with a
-warning instead of being overwritten. The pull request requires the repository
+publication CI merges the exact published commit back into `dev`. The merge runs
+in a clean detached worktree under `../builds/GalaxyXR-Driver/build/`, with an
+explicit bot identity, so build-time changes to tracked files cannot block it.
+Before the first merge of that release, CI synchronizes all seven version files
+(eight version fields) on `dev` to the published version through `bump-version.js`.
+This carries a version increase on `main` back even if `dev` published another
+prerelease while the stable build ran. Other dev changes remain part of the merge;
+real source conflicts fail visibly instead of silently selecting a branch's code.
+Once `dev` contains the release, retrying that sync preserves any later dev
+prerelease version. The next dev release derives its version from published tags.
+Pushes are ordinary fast-forwards and never overwrite concurrent work.
+If a push is rejected because `dev` advanced, CI fetches its new tip and rebuilds
+the backmerge, for at most three attempts. Other push failures and source
+conflicts stop immediately.
+Synchronization failures fail the job visibly even though the stable release has
+already been published. The pull request requires the repository
 setting that lets GitHub Actions create pull requests; the `Open a PR to main`
 workflow reports when that setting is disabled.
 
@@ -117,7 +130,7 @@ The Windows workflow:
 9. generates release notes from the version's changelog entry without duplicating its commit list;
 10. uploads the ZIP and metadata as Actions artifacts;
 11. saves generated metadata to the release branch (`main` or `dev`), pins `v<version>` to the built commit, uploads the ZIP and checksum to a draft, and publishes after both uploads succeed. Prerelease versions are marked as prereleases.
-12. after a stable `main` publication, backmerges the release commit into `dev` with a true merge (`dev` routinely advances past the promotion merge while the release builds; conflicting hunks resolve toward `dev`, and the next dev release re-derives version and changelog from tags). A failed backmerge fails the job loudly — a silently skipped sync left dev numbering on a shipped base twice (2026-10-16).
+12. after a stable `main` publication, runs `tools/backmerge-release.cjs` to carry the published version into `dev` and merge the exact published commit using an isolated external worktree and explicit bot identity. The original build checkout is preserved. Success verifies that remote `dev` contains the published commit, including when `dev` has subsequently advanced. Successful scratch worktrees are removed; failures retain their scratch path for diagnosis and fail the job loudly.
 
 The release workflow builds and packages only. The GUI unit suite (`npm test`),
 the Rust library tests (`cargo test --locked --lib`), the service regressions
@@ -138,6 +151,11 @@ workflow above stays build-only.
 Its automatic-release fixtures cover stale version metadata, missing published
 changelog history, docs-only changes, authored notes and deterministic retries.
 These checks stay independent of the release build's installed compiler path.
+Backmerge regression fixtures use local bare Git remotes to exercise a dirty
+build checkout, simultaneous dev/main version changes, source conflicts,
+concurrent pushes, divergent branches and missing runner identity. Run them with
+`node --test tools/tests/backmerge-release.test.cjs tools/tests/workflows.test.cjs`;
+they never push to the project's GitHub branches.
 
 The local full build command is unchanged and never publishes or deploys:
 

@@ -45,7 +45,7 @@ group('driver-settings', ['Controllers', 'Controllers Advanced'], ['controllers'
 group('driver-settings', ['Controllers', 'Controllers Advanced', 'Controller Offsets'], ['controllers', 'ctrlOffsets'], true, 'controllers')('controllers.mirrorOffsetsForRightHand', 'Same Alignment Both Hands');
 
 group('app-settings', ['Application preferences'], ['heading:app-preferences'])('image-enhancements', 'Image Enhancements', {
-  keys: ['streamFrame.enable', 'galaxyXr.sdr10Baseline', 'galaxyXr.sdr10AllowEnhancements'],
+  keys: ['streamFrame.enable', 'galaxyXr.sdr10Baseline'],
 });
 group('app-settings', ['Application preferences'], ['heading:app-preferences'])('advanceMode', 'Advanced Mode', { source: 'gui-settings.json' });
 group('app-settings', ['Application preferences'], ['heading:app-preferences'])('devUpdates', 'Developer Builds', { source: 'gui-settings.json' });
@@ -71,6 +71,9 @@ const controllerDebug = group('debug', ['Controllers', 'Diagnostics'], ['debugCo
 controllerDebug('streamFrame.poseLogging', 'Motion Logging');
 controllerDebug('streamFrame.poseLogBurst', 'Motion Logging: Burst');
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.nvencTap', 'Override NVIDIA Encoder');
+// Async Spacewarp (2026-10-17): stream synthesis toggle; its page row lives in
+// the vendor build's Stream Quality branch, so it mirrors nvencTap's gate.
+group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpEnable', 'Async Spacewarp');
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencCodec', 'Video Codec');
 const encoder = group('stream-frame', ['Encoder Advanced'], ['heading:encoder'], true, 'encoder', true);
 encoder('streamFrame.nvencForceCbr', 'Force Constant Bitrate');
@@ -133,6 +136,9 @@ export function settingPresentation(id: string): SettingPresentation | undefined
  * keys must be classified explicitly so they cannot silently disappear. */
 export const INTERNAL_BOOLEAN_KEYS = [
   'galaxyXr.profileSupports10bit', 'galaxyXr.force10bit', 'galaxyXr.componentRebaseIncludeTrim', 'galaxyXr.skeletonOffsetMirror',
+  // 2026-10-17 (owner directive): the enhancements consent key is retired in
+  // place — no control, no behavior — but bundled files still inspect it.
+  'galaxyXr.sdr10AllowEnhancements',
   'generalHeadset.useViveBluetooth', 'customShader.enable', 'customShader.enableForOther',
   'customShader.contrastLinear', 'customShader.contrastPerEye', 'customShader.contrastPerEyeLinear',
   'customShader.subpixelShift', 'customShader.disableMuraCorrection', 'customShader.disableBlackLevels',

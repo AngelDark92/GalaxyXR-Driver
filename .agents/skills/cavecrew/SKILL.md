@@ -62,6 +62,14 @@ Hermes mechanics that differ from Codex: children inherit the session model
 (there is no per-child model pin), cannot ask the user questions, and return
 only a final summary the parent must verify against the cited lines and rerun
 checks — never trust a receipt alone.
+- A `delegate_task` dispatch rejected with "could not be parsed as JSON" is a
+  SIZE failure, not a content one: past roughly 2.5-3 KB of total payload the
+  arguments truncate mid-string and fail with a delimiter error — observed with
+  nested-array output schemas AND with plain prose alone. Fix = shrink the TOTAL
+  payload: dispatch ONE short task whose context names the files to read, put the
+  detailed spec into a plan/reference FILE under the evidence dir, and pass its
+  absolute path; drop the output_schema when the goal prose already fixes the
+  shape. Losing the schema loses nothing — the contract stated in prose fixes it.
 
 ## Give the agent concrete boundaries
 
@@ -79,6 +87,11 @@ settings schemas, build paths and their consumers in the main thread.
   thread holds the seam itself. Partial-TU test runners will not catch a
   consumer break: extraction-based runners compile one function body, and
   test-TU runners compile only the test file's includes.
+- An investigator's `No match.` is a self-report, not evidence: it can be a failed
+  read even when the goal carried exact symbols and paths. When the main thread
+  already holds grep hits in the same area, discard the child report and finish
+  the locate in the main thread instead of re-dispatching blind; likewise distrust
+  any report containing scope statements the dispatch never wrote.
 - Before EACH main-thread patch round, rerun `git status --short`. A parallel
   agent session live-edits the same tree mid-wave; absorb consistent owner
   work, never revert it, and reconcile seams it left half-done.
@@ -143,4 +156,4 @@ self-contained user result with the necessary evidence.
 
 ## Settings authority (2026-10-17)
 
-Explicit codec switches and reset arrows update the saved values backing each editable field. Advanced controls may remain hidden: switching codecs must still update them, and opening Advanced Mode must show their current values. Never silently coerce, replace or ignore app-visible user settings; preserve rejected requests with a visible error. Automatic internal parameters with no app setting may be derived without rewriting user settings.
+Explicit codec switches and reset arrows update the saved values backing each editable field. Advanced controls may remain hidden: switching codecs must still update them, and opening Advanced Mode must show their current values. Force CBR is On in every codec row by default, and selecting H.264 turns the SDR 10-bit baseline off (H.264 cannot carry 10-bit): its toggle reads Off and is disabled until another codec is selected. Image Enhancements defaults On and is independent of the 10-bit SDR baseline: no consent gate and no mutual warnings (owner directive 2026-10-17). The Lifted-Blacks Fix is Off in every codec by default: its toggle and reset arrow read and restore Off, and turning it on stays the user's choice. Never silently coerce, replace or ignore app-visible user settings; preserve rejected requests with a visible error. Automatic internal parameters with no app setting may be derived without rewriting user settings.

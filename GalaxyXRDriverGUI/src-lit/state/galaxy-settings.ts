@@ -49,19 +49,26 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // for H.264 (4x1024 = 4096) — proven live on 2026-10-16: with 1536 stored
 // the client negotiated 1024x4096 and the tap refused the mismatch. Every
 // applied value shows in its field, and stays user-editable.
-// 2026-10-17: AV1's row carries splitMode 0. Live evidence both sides: the
-// tap's own AU dump shows split-1 AV1 output as per-strip micro-frames
-// (188/72-byte AUs, strip-class sequence dims ~3x216; the client read
-// 32x5120), the client's av1D configure then rejects the recorded geometry
-// and rebuilds the stock HEVC decoder, and the stream stalls with zero
-// video-packet ACKs (SVLFEC lastAcknowledgeFrameNumber = 0). Unsplit AV1
-// keeps the host bitstream at the negotiated 1536x6144 the client accepts.
+// 2026-10-17 (evening, owner directive; supersedes the same-day unsplit
+// note): AV1's row carries splitMode 1 — forced, driver-chosen strips — the
+// same portable default as the HEVC row: split-frame only helps with >=2
+// NVENC engines (the tap picks P7/P5/P4 by engine count), and this table
+// ships on 1-, 2- and 3-engine GPUs. Owner live A/B on a 3-engine 5090:
+// every applied mode reached 0% of frames over the 90 Hz budget (was 100%
+// unsplit); explicit 3 measured fastest (submit->lock ~4.75-5.6 ms vs
+// ~6.6-7.0 ms at 1) and stays a user-editable value. The superseded note's
+// failure (client swap-layer geometry rejection at session init, zero ACKs)
+// did not reproduce through any live mode change; the fresh-connect init
+// path is re-verified before this default leaves dev.
 // The codec-0 row's tile and bandwidth must stay pinned to the GENERATED
-// driver defaults.
+// driver defaults. 2026-10-17 (owner directive, revised): Force CBR is ON in
+// every row — codec switches and the reset arrows apply On, and turning it off
+// is the user's own choice; selecting H.264 also turns the SDR 10-bit baseline
+// off (capability: H.264 cannot carry 10-bit; see applyCodecEncoderDefaults).
 export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number, streamFormatWidth: number, bandwidthMbit: number }> = {
   0: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
-  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1024, bandwidthMbit: 500 },
-  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 0, streamFormatWidth: 1536, bandwidthMbit: 400 },
+  1: { forceCbr: true, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1024, bandwidthMbit: 500 },
+  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 400 },
 };
 
 // 2026-10-16 (owner directive): inline per-key validation for the Stream
@@ -185,24 +192,22 @@ export class GalaxySettingsBase {
     return this.setPictureMode('baseline', enabled);
   }
 
-  async setImageEnhancements(enabled: boolean, qualityWarningAccepted = false): Promise<boolean> {
-    return this.setPictureMode('enhancements', enabled, qualityWarningAccepted);
+  async setImageEnhancements(enabled: boolean): Promise<boolean> {
+    return this.setPictureMode('enhancements', enabled);
   }
 
-  private async setPictureMode(mode: 'baseline' | 'enhancements', enabled: boolean, qualityWarningAccepted = false): Promise<boolean> {
+  private async setPictureMode(mode: 'baseline' | 'enhancements', enabled: boolean): Promise<boolean> {
     if (this.imageModeChanging() || this.dss.inspecting) return false;
     this.imageModeChanging.set(true);
     this.imageModeError.set('');
     try {
-      // Drain pending edits before taking a snapshot; both mode flags and the
-      // reset then travel through the same save/rollback path in one write.
+      // Drain pending edits before taking a snapshot; the mode change then
+      // travels through the same save/rollback path in one write.
       await this.dss.flush();
       if (this.dss.inspecting || this.dss.readFileError()) return false;
-      const next = changePictureMode(this.dss.values(), this.defaults, mode, enabled, qualityWarningAccepted);
+      const next = changePictureMode(this.dss.values(), mode, enabled);
       if (!next) {
-        this.imageModeError.set(mode === 'baseline'
-          ? 'Turn Image Enhancements off before enabling SDR 10-bit baseline.'
-          : t('Accept the image-quality warning before enabling Image Enhancements with SDR 10-bit baseline.'));
+        this.imageModeError.set(t('Settings are unavailable; reopen this page and try again.'));
         return false;
       }
       const saved = await this.dss.save(next);
@@ -520,6 +525,12 @@ export class GalaxySettingsBase {
   // multipass, QP, postPack, the H.264 recipe) keep their values;
   // the switch is an explicit user action, never a load-time or driver-side
   // rewrite.
+  // 2026-10-17 (owner directive, revised): Force CBR is On in every row. Selecting
+  // H.264 also turns the SDR 10-bit baseline off — H.264 cannot carry 10-bit
+  // — writing sdr10Baseline false only; the retired consent key and the
+  // explicit advanced 10-bit capability request (galaxyXr.profileSupports10bit)
+  // stay user-owned and untouched, and switching away leaves the baseline off
+  // until the user enables it again.
   applyCodecEncoderDefaults(codec: number): void {
     const codecDef = codecEncoderDefaults[codec] ?? codecEncoderDefaults[0];
     this.setStreamQualityValue('width', codecDef.streamFormatWidth);
@@ -530,6 +541,10 @@ export class GalaxySettingsBase {
       sf.nvencVbvFrames = codecDef.vbvFrames;
       sf.nvencLowDelayKfScale = codecDef.lowDelayKfScale;
       sf.nvencSplitMode = codecDef.splitMode;
+    }
+    const g = this.rootSetting?.galaxyXr;
+    if (codec === 1 && g?.sdr10Baseline) {
+      g.sdr10Baseline = false;
     }
     this.save();
   }
