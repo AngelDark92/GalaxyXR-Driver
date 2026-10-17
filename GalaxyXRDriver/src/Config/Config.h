@@ -236,7 +236,7 @@ struct StreamFramePostPackConfig{
 	double peripheryStrength = 0.3; // 0..1, the downscaled whole-view tile (sharpened after its downscale)
 	bool foveaTop = true;           // fovea tile is the upper of each eye's pair (from vrlink's shader); flip if the overlay says otherwise
 	double edgeFalloff = 0.12;      // fraction of the fovea tile over which sharpening ramps down to the periphery strength (seam softening)
-	bool limitedRange = true;       // Y 16..235 / C 16..240 + VUI full-range flag cleared. 09-06: FIXES the black floor with the xrvst2ue-identity APK
+	bool limitedRange = false;      // Y 16..235 / C 16..240 + VUI full-range flag cleared. 09-06: FIXES the black floor with the xrvst2ue-identity APK. 2026-10-17 (owner directive): OFF default in every codec; the toggle and its reset arrow read and restore Off, turning it on stays user tuning
 };
 
 struct StreamFrameCASConfig{
@@ -502,25 +502,30 @@ struct GalaxyXrConfig{
 	double skeletonOffsetZCm = 0.0;
 	bool skeletonOffsetMirror = true;
 	// 2026-09-19 SDR10 baseline: opt-in VD-like neutral baseline (see
-	// SdrColorPolicy.h). effective (not stored): while on, the vrlink
-	// headset profile is requested with supports10bit and the host color
-	// pipeline runs neutral unless enhancements are explicitly allowed
-	// (saturation 50 / vibrance 0 / contrast 50 / gamma
+	// SdrColorPolicy.h). effective (not stored): while on AND the Image
+	// Enhancements master (streamFrame.enable) is off, the vrlink headset
+	// profile is requested with supports10bit and the host color pipeline
+	// runs neutral (saturation 50 / vibrance 0 / contrast 50 / gamma
 	// 2.2 / tint 1 / no matrix / dither off / black-floor off / post-pack
-	// bypassed / VUI left to Valve's original pair). stored controls are
-	// untouched and resume when this goes off; the 10-bit request is disabled.
-	// force10bit stays retired regardless.
+	// bypassed / VUI left to Valve's original pair). 2026-10-17 (owner
+	// directive): with the master ON this baseline no longer resets or
+	// bypasses enhancements: stored picture controls pass through and the
+	// combination is supported. stored controls are untouched either way;
+	// with this off the 10-bit request is disabled. force10bit stays retired.
 	bool sdr10Baseline = false;
 	// Keep the pre-migration sentinel so schema 2 survives default-diff saves.
 	int sdr10SettingsVersion = 1;
-	// 2026-09-25: explicit warning consent permits image enhancements while
-	// retaining the SDR10 capability request. Old files remain neutral.
+	// 2026-09-25 legacy enhancement consent. 2026-10-17 (owner directive):
+	// retired as a gate: no driver logic may read it; parsing and
+	// serialization stay only for file compatibility; the stored value is inert.
 	bool sdr10AllowEnhancements = false;
 };
 
 struct StreamFrameConfig{
-	// process direct mode layer textures before the streaming driver consumes them
-	bool enable = false;
+	// process direct mode layer textures before the streaming driver consumes them.
+	// 2026-10-17 (owner directive): ON default; Image Enhancements and the
+	// SDR 10-bit baseline are independent.
+	bool enable = true;
 	// saturation with 50 being normal, same semantics as customShader.saturation
 	double saturation = 50;
 	// vibrance from -100 to 100 with 0 being off: saturation change weighted

@@ -33,8 +33,9 @@ int main() {
             Check(config.galaxyXr.vrlinkHeadsetProfile == profile, "resolver does not change the saved profile switch");
         }
     }
-    // 2026-09-25: combined picture modes require explicit warning consent.
-    // Older overlapping files remain bypassed without rewriting stored state.
+    // 2026-10-17 (owner directive): the Image Enhancements master alone
+    // decides; the retired consent value and the baseline no longer gate
+    // enhancement passes, and resolution never rewrites stored state.
     for(bool baseline : {false, true}) for(bool enhancements : {false, true}) for(bool consent : {false, true}) {
         Config config{};
         config.galaxyXr.sdr10Baseline = baseline;
@@ -42,11 +43,11 @@ int main() {
         config.galaxyXr.sdr10AllowEnhancements = consent;
         config.customShader.enableForOther = false;
         const auto policy = gxr::ResolveSdr10Policy(config);
-        Check(gxr::ImageEnhancementsEnabled(config.streamFrame, policy) == (enhancements && (!baseline || consent)), "baseline/master/consent truth table gates all enhancement passes");
+        Check(gxr::ImageEnhancementsEnabled(config.streamFrame, policy) == enhancements, "ImageEnhancementsEnabled equals the master in every baseline/consent combination (owner directive 2026-10-17)");
         Check(config.streamFrame.enable == enhancements, "runtime mode gate does not rewrite stored master");
         Check(config.galaxyXr.sdr10Baseline == baseline, "runtime mode gate preserves stored baseline");
-        Check(config.galaxyXr.sdr10AllowEnhancements == consent, "runtime mode gate preserves stored consent");
-        Check(!baseline || (policy.active && policy.profileSupports10bit), "baseline still requests 10-bit regardless of enhancement consent");
+        Check(config.galaxyXr.sdr10AllowEnhancements == consent, "retired consent value is preserved untouched by resolution");
+        Check(!baseline || (policy.active && policy.profileSupports10bit), "baseline still requests 10-bit regardless of the retired consent");
     }
     {
         Config config{};
@@ -56,7 +57,7 @@ int main() {
         config.customShader.enableForOther = true;
         const auto policy = gxr::ResolveSdr10Policy(config);
         Check(policy.conflict && !policy.active, "external custom-shader conflict remains detectable");
-        Check(!gxr::ImageEnhancementsEnabled(config.streamFrame, policy), "requested baseline still disables normal enhancements in conflict");
+        Check(gxr::ImageEnhancementsEnabled(config.streamFrame, policy) == config.streamFrame.enable, "enhancement passes follow the master even with a custom-shader conflict (owner directive 2026-10-17)");
     }
     Check(gxr::IsVrlinkCapabilityKey("supports10bit"), "supports10bit is classified as a capability");
     Check(gxr::IsVrlinkTuningKey("overrideRenderHeight"), "render height follows tuning route");

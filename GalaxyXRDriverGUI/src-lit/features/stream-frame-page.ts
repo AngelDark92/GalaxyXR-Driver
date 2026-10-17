@@ -268,9 +268,6 @@ parts.push(sectionHeading(t('Image Processing'), 0, 'image-processing'));
 if (galaxy.imageEnhancementsEnabled) {
         parts.push(sectionRow(t('Color'), sections['color'], 1, () => this.toggleSection('color')));
 if (sections.color) {
-if (galaxy.sdr10BaselineActive()) {
-            parts.push(statusMessage('warning', t('SDR 10-bit with Image Enhancements'), t('Image processing may reduce quality.')));
-}
           parts.push(fieldRow(t('Brightness'), html`
       <app-number .value=${settings.brightness} step="0.05" min="0.05" max="1.5" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.brightness = e.detail; } save(); }}></app-number>
       <app-slider .value=${settings.brightness} .min=${0.05} .max=${1.5} .step=${0.05} @change=${(e: CustomEvent) => { settings.brightness = e.detail; save(); }}></app-slider>
@@ -435,8 +432,7 @@ if (settings.stationaryDimming.enable) {
 }
 } else {
         parts.push(statusMessage('info', t('Image Enhancements is off'),
-          galaxy.baselineRequested ? t('Enable it in App Settings and accept the quality warning to adjust the SDR 10-bit picture.')
-            : t('Enable it in App Settings to adjust color and sharpening.'),
+          t('Enable it in App Settings to adjust color and sharpening.'),
           html`<a href="#/app-settings">${t('Open App Settings')}</a>`));
 }
 if (advancedMode) {
@@ -598,8 +594,8 @@ if (settings.nvencTap) {
                 parts.push(settingFieldRow('streamFrame.postPack.limitedRange', html`
       <app-switch .checked=${!!settings.postPack.limitedRange} @change=${(e: CustomEvent) => { settings.postPack.limitedRange = e.detail; settings.postPack.enable = settings.postPack.enable || settings.postPack.limitedRange; save(); }}></app-switch>
                 `, {
-  tip: t("Correct a mismatch between full-range and limited-range video levels. Use this only to diagnose washed-out blacks or crushed shadows; it requires the NVIDIA encoder adjustment path.\n\nSteam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.\n\nValue: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range."),
-  reset: { can: settings.postPack.limitedRange != true, on: () => { settings.postPack.limitedRange = true; settings.postPack.enable = settings.postPack.enable || true; save(); } }
+  tip: t("Correct a mismatch between full-range and limited-range video levels. Off by default; turn it on only if the headset shows washed-out blacks or crushed shadows. The reset arrow restores Off; it requires the NVIDIA encoder adjustment path.\n\nSteam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.\n\nValue: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range."),
+  reset: { can: settings.postPack.limitedRange != false, on: () => { settings.postPack.limitedRange = false; save(); } }
                 }));
 
 }

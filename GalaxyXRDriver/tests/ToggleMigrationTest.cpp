@@ -100,7 +100,8 @@ int main(int argc, char** argv) {
         driverConfig.streamFrame.nvencBitrateMbit = 123;
         driverConfig.streamFrame.postPack.enable = false;
         driverConfig.streamFrame.postPack.casEnable = false;
-        driverConfig.streamFrame.enable = true;
+        driverConfig.streamFrame.postPack.limitedRange = true; // pre-set ON: the reset payload must discard it (owner directive 2026-10-17)
+        driverConfig.streamFrame.enable = false; // pre-set OFF: reset must discard it and apply the new ON default (owner directive 2026-10-17)
         driverConfig.streamFrame.gamma = 1.3;
         driverConfig.streamFrame.brightness = 0.2;
         driverConfig.streamFrame.saturation = 87;
@@ -211,9 +212,11 @@ int main(int argc, char** argv) {
             Check(s.nvencVuiFullRange == -1 && s.nvencVuiMatrix == -1 && s.nvencVuiPrimaries == -1
                 && s.nvencVuiTransfer == -1, "fresh/reset config uses automatic VUI metadata");
             Check(s.postPack.enable && s.postPack.casEnable && !s.cas.enable, "fresh/reset config uses only post-pack sharpening");
+            Check(!s.postPack.limitedRange, "fresh/reset config keeps the lifted-blacks remap OFF (owner directive 2026-10-17)");
             Check(driverConfig.galaxyXr.nativeIdentity && driverConfig.galaxyXr.nativeResolution, "fresh/reset config enables native identity and resolution");
             Check(!driverConfig.galaxyXr.sdr10Baseline && !driverConfig.galaxyXr.profileSupports10bit, "fresh/reset config keeps current SDR10 OFF policy");
-            Check(!s.enable && !driverConfig.customShader.enable, "old picture processing is inactive after reset");
+            Check(s.enable, "fresh/reset config resolves the Image Enhancements master ON (owner directive 2026-10-17)");
+            Check(!driverConfig.customShader.enable, "old custom-shader processing is inactive after reset");
             Check(s.gamma == 2.2 && s.brightness == 1.0 && s.saturation == 50, "old picture tuning returns to defaults");
             Check(!s.calib.blackout && !s.calib.captureMode && s.calib.pattern == -1, "old blackout and calibration patterns are inactive");
             Check(!s.eyeGaze.debugGrid && !s.eyeGaze.calibDot && !s.eyeGaze.probeCapture, "old gaze calibration overlays are inactive");

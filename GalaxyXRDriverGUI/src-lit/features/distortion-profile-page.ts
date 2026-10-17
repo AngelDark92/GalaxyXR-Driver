@@ -264,8 +264,7 @@ if (sections.share) {
 } else {
         parts.push(sectionHeading(t('Distortion Correction')));
         parts.push(statusMessage('info', t('Image Enhancements is off'),
-          galaxy.baselineRequested ? t('Enable it in App Settings and accept the quality warning to adjust the SDR 10-bit picture.')
-            : t('Enable it in App Settings to use lens correction and profile sharing.'),
+          t('Enable it in App Settings to use lens correction and profile sharing.'),
           html`<a href="#/app-settings">${t('Open App Settings')}</a>`));
 }
 }

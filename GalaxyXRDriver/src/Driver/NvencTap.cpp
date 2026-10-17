@@ -863,6 +863,45 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		snap.hevcRefs = c->encodeCodecConfig.hevcConfig.maxNumRefFramesInDPB;
 		snap.hevcVui = c->encodeCodecConfig.hevcConfig.hevcVUIParameters;
 	}
+	// colour-depth fix B (2026-10-17): a stock HEVC session (tap codec 0 —
+	// no codec override ran) that carries vrlink's 10-bit surface class is
+	// otherwise encoded Main-8 in the P010 container (bit depths DEFAULT).
+	// Live sessions are stamped SDK 12.1, whose fields do not compile-map
+	// to the vendored 13.1 header, so the depth is written by raw offset
+	// inside the guarded window: the capture above already saved the
+	// 256-byte codec union and this session's profileGUID, and Restore
+	// returns Valve's original bytes after every NVENC call.
+	// 12.1 _NV_ENC_CONFIG_HEVC (SteamFrame-Advanced-Options/Native/vendor/
+	// nvEncodeAPI12.h 1770-1846): level +0, tier +4, min/maxCUSize +8/+12,
+	// packed uint32 flags word +16 (idrPeriod follows at +20): bits 0-8
+	// single-bit fields, bits 9-10 chromaFormatIDC, bits 11-13
+	// pixelBitDepthMinus8 (:3; 0=8-bit, 2=10-bit — header line 1792), bits
+	// 20-31 reserved; the window has NO depth/profile member — the profile
+	// GUID lives on the OUTER NV_ENC_CONFIG.profileGUID.
+	if(cfg.codec == 0 && IsHevc(p->encodeGUID) && p->bufferFormat == NV_ENC_BUFFER_FORMAT_YUV420_10BIT){
+		// era split like the AV1 branch: a >=13-stamped session carries the
+		// depths as typed 13.1 members (compile-visible here); 12.1 and
+		// older carry the packed bitfield, written by raw offset.
+		if(ApiMajor(p->version) >= 13){
+			// 13.1 header (ThirdParty/nvenc/nvEncodeAPI.h 2023/2026):
+			// outputBitDepth/inputBitDepth are NV_ENC_BIT_DEPTH members.
+			c->encodeCodecConfig.hevcConfig.inputBitDepth = NV_ENC_BIT_DEPTH_10;
+			c->encodeCodecConfig.hevcConfig.outputBitDepth = NV_ENC_BIT_DEPTH_10;
+		}else{
+			// 12.1 session: packed flags word at +16 — clear bits 11-13,
+			// set them to 2 (pixelBitDepthMinus8 = 10-bit); every other
+			// bit, chromaFormatIDC bits 9-10 included, stays Valve's value
+			uint32_t* hevcFlags = (uint32_t*)((unsigned char*)&c->encodeCodecConfig.hevcConfig + 16);
+			*hevcFlags = (*hevcFlags & ~(0x7u << 11)) | (0x2u << 11);
+		}
+		if(memcmp(&c->profileGUID, &NV_ENC_HEVC_PROFILE_MAIN10_GUID, sizeof(GUID)) != 0){ c->profileGUID = NV_ENC_HEVC_PROFILE_MAIN10_GUID; }
+		// one-shot visibility: the 10-bit surface class is the whole gate —
+		// never a settings read, never a user-setting rewrite
+		static std::atomic<int> hevcSdr10Logged{0};
+		if(hevcSdr10Logged.fetch_add(1) < 1){
+			DriverLog("NvencTap: HEVC session carries a 10-bit surface; writing Main10 bit depth (pixelBitDepthMinus8 2) and Main10 profile for the SDR10 request.");
+		}
+	}
 	bool changed = false;
 	char* w = what;
 	if(ApplyCodecOverride(encoder, p, cfg, snap, w, whatLen, what)){ changed = true; }
@@ -1305,6 +1344,14 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 	const NvencTapConfig cfg = NvencTap::Get().GetConfig();
 	{ std::lock_guard<std::mutex> guard(statsLock); calls++; }
 	RecordRequest(p);
+	// colour-depth fix A (2026-10-17): record the caller's raw input surface
+	// class at every guarded init/reconfigure. No override writes bufferFormat
+	// (overrides restore caller bytes), so this is the format vrlink passed,
+	// before/after override alike — captured even when validation or an
+	// override failure path returns early below.
+	if(p){
+		std::lock_guard<std::mutex> guard(statsLock); stats.lastInputBufferFormat = (uint32_t)p->bufferFormat;
+	}
 	if(logThis){ Describe(tag, p, cfg.verbose); }
 	const std::string callerGeometry = p ? std::to_string(p->encodeWidth) + "x" + std::to_string(p->encodeHeight)
 		+ " max=" + std::to_string(p->maxEncodeWidth) + "x" + std::to_string(p->maxEncodeHeight) : "null";
@@ -2036,8 +2083,8 @@ void NvencTap::MaybeHeartbeat(){
 	const uint32_t hbLastEncFailStatus = lastEncFailStatus.load();
 	char errCopy[96];
 	{ std::lock_guard<std::mutex> g(statsLock); snprintf(errCopy, sizeof(errCopy), "%s", lastEncFailStr); }
-	DriverLog("NvencTap: heartbeat api=%u enabled=%d %ux%u avg=%.0fM max=%.0fM level=%u tier=%u bitDepth=%u | init %u (ovr %u, ovrFail->ok %u, fail %u) | reconf %u (ovr %u, ovrFail->ok %u, fail %u, stockFail %u) | register %u encode %u lock %lld (last %u bytes) encFail %lld | lastEncFail %u \"%s\"",
-		s.apiMajor, (int)c.enabled, s.lastWidth, s.lastHeight, s.lastAvgBitrate / 1e6, s.lastMaxBitrate / 1e6, s.lastLevel, s.lastTier, s.lastBitDepth,
+	DriverLog("NvencTap: heartbeat api=%u enabled=%d %ux%u avg=%.0fM max=%.0fM level=%u tier=%u bitDepth=%u inBf=0x%x | init %u (ovr %u, ovrFail->ok %u, fail %u) | reconf %u (ovr %u, ovrFail->ok %u, fail %u, stockFail %u) | register %u encode %u lock %lld (last %u bytes) encFail %lld | lastEncFail %u \"%s\"",
+		s.apiMajor, (int)c.enabled, s.lastWidth, s.lastHeight, s.lastAvgBitrate / 1e6, s.lastMaxBitrate / 1e6, s.lastLevel, s.lastTier, s.lastBitDepth, s.lastInputBufferFormat,
 		s.initCalls, s.initOverridden, s.initFailedThenPristineOk, s.initFailed,
 		s.reconfCalls, s.reconfOverridden, s.reconfFailedThenPristineOk, s.reconfFailed, s.reconfFailedStock,
 		s.registerCalls, s.encodeCalls, hbLock, hbLockLast, hbEncFail, hbLastEncFailStatus, errCopy);

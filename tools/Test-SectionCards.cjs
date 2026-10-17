@@ -131,10 +131,13 @@ const ts=process.env.FLUENT_TEST_TYPESCRIPT?require(process.env.FLUENT_TEST_TYPE
    });
    h.BasePage.prototype.clearSettingTarget.call(page);
    const countBefore=updates;
+   const masterOff=JSON.parse(JSON.stringify(defaults));masterOff.streamFrame.enable=false;
+   page.ctx.dss.values=()=>masterOff;
    const blocked=await h.BasePage.prototype.showSetting.call(page,'streamFrame.dither');
+   page.ctx.dss.values=()=>defaults;
    test('Leaving a target removes temporary visibility and hidden features stay off',()=>{
      assert.equal(page.revealAdvanced,false);assert.match(blocked,/Image Enhancements is off/);assert.equal(updates,countBefore);
-     assert.equal(defaults.streamFrame.enable,false);assert.equal(JSON.stringify(defaults),snapshot);
+     assert.equal(defaults.streamFrame.enable,true);assert.equal(JSON.stringify(defaults),snapshot);
    });
  }
  test('Checker fields share their catalog label and stable focus ID',()=>{

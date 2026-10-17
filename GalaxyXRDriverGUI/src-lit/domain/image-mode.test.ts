@@ -3,8 +3,6 @@ import { driverDefaults } from './driver-defaults';
 import { baselineRequested, changePictureMode, imageEnhancementsEnabled } from './image-mode';
 import type { Settings } from './types';
 
-const pictureDefaults = driverDefaults.streamFrame!;
-
 function tunedSettings(baseline = true): Settings {
   const settings = structuredClone(driverDefaults);
   settings.galaxyXr = { ...settings.galaxyXr!, sdr10Baseline: baseline, sdr10AllowEnhancements: false };
@@ -16,126 +14,110 @@ function tunedSettings(baseline = true): Settings {
   return settings;
 }
 
-describe('SDR 10-bit image enhancement consent', () => {
-  it('keeps legacy overlapping flags blocked without changing saved tuning', () => {
+describe('Image Enhancements and the SDR 10-bit baseline are independent (2026-10-17)', () => {
+  it('reads the master from streamFrame.enable alone and ignores the retired consent key', () => {
     const settings = tunedSettings();
     settings.streamFrame!.enable = true;
-    delete settings.galaxyXr!.sdr10AllowEnhancements;
-    const before = structuredClone(settings);
-
+    settings.galaxyXr!.sdr10AllowEnhancements = false;
     expect(baselineRequested(settings)).toBe(true);
+    expect(imageEnhancementsEnabled(settings)).toBe(true);
+
+    settings.galaxyXr!.sdr10AllowEnhancements = true;
+    expect(imageEnhancementsEnabled(settings)).toBe(true);
+
+    settings.streamFrame!.enable = false;
     expect(imageEnhancementsEnabled(settings)).toBe(false);
-    expect(settings).toEqual(before);
   });
 
-  it('requires explicit acceptance before enabling enhancements with the baseline', () => {
+  it('enabling enhancements under the baseline succeeds with no warning and writes only the master', () => {
     const settings = tunedSettings();
     const before = structuredClone(settings);
-
-    expect(changePictureMode(settings, pictureDefaults, 'enhancements', true)).toBeUndefined();
-    expect(changePictureMode(settings, pictureDefaults, 'enhancements', true, false)).toBeUndefined();
-    expect(settings).toEqual(before);
-  });
-
-  it('allows confirmed enhancements while retaining the baseline and all tuning', () => {
-    const settings = tunedSettings();
-    const before = structuredClone(settings);
-    const next = changePictureMode(settings, pictureDefaults, 'enhancements', true, true)!;
+    const next = changePictureMode(settings, 'enhancements', true)!;
 
     expect(baselineRequested(next)).toBe(true);
     expect(imageEnhancementsEnabled(next)).toBe(true);
-    expect(next.galaxyXr!.sdr10AllowEnhancements).toBe(true);
     expect(next.streamFrame).toEqual({ ...before.streamFrame, enable: true });
+    expect(next.galaxyXr).toEqual(before.galaxyXr);
     expect(next.controllers).toEqual(before.controllers);
     expect(next.customShader).toEqual(before.customShader);
     expect(settings).toEqual(before);
   });
 
-  it('retains confirmed access after saving and reopening settings', () => {
-    const next = changePictureMode(tunedSettings(), pictureDefaults, 'enhancements', true, true)!;
+  it('keeps both switches enabled across a save-and-reopen round trip', () => {
+    const next = changePictureMode(tunedSettings(), 'enhancements', true)!;
     const reopened = JSON.parse(JSON.stringify(next)) as Settings;
 
     expect(imageEnhancementsEnabled(reopened)).toBe(true);
     expect(baselineRequested(reopened)).toBe(true);
   });
 
-  it('turns enhancements off without losing baseline or tuning and clears consent', () => {
-    const enabled = changePictureMode(tunedSettings(), pictureDefaults, 'enhancements', true, true)!;
+  it('turns enhancements off without touching baseline values or tuning, and re-enables without renewed consent', () => {
+    const enabled = changePictureMode(tunedSettings(), 'enhancements', true)!;
     const before = structuredClone(enabled);
-    const next = changePictureMode(enabled, pictureDefaults, 'enhancements', false)!;
+    const next = changePictureMode(enabled, 'enhancements', false)!;
 
     expect(imageEnhancementsEnabled(next)).toBe(false);
     expect(baselineRequested(next)).toBe(true);
-    expect(next.galaxyXr!.sdr10AllowEnhancements).toBe(false);
+    expect(next.galaxyXr).toEqual(before.galaxyXr);
     expect(next.streamFrame).toEqual({ ...before.streamFrame, enable: false });
-    expect(changePictureMode(next, pictureDefaults, 'enhancements', true)).toBeUndefined();
     expect(enabled).toEqual(before);
+
+    const again = changePictureMode(next, 'enhancements', true)!;
+    expect(imageEnhancementsEnabled(again)).toBe(true);
+    expect(baselineRequested(again)).toBe(true);
   });
 
-  it('does not treat consent alone as an enabled enhancement pipeline', () => {
-    const settings = tunedSettings();
-    settings.galaxyXr!.sdr10AllowEnhancements = true;
-
-    expect(imageEnhancementsEnabled(settings)).toBe(false);
-  });
-
-  it('leaving the baseline clears consent and does not silently enable enhancements', () => {
-    const enabled = changePictureMode(tunedSettings(), pictureDefaults, 'enhancements', true, true)!;
-    const next = changePictureMode(enabled, pictureDefaults, 'baseline', false)!;
-
-    expect(baselineRequested(next)).toBe(false);
-    expect(imageEnhancementsEnabled(next)).toBe(false);
-    expect(next.galaxyXr!.sdr10AllowEnhancements).toBe(false);
-    expect(next.streamFrame).toEqual({ ...enabled.streamFrame, enable: false });
-    expect(next.galaxyXr!.profileSupports10bit).toBe(false);
-  });
-
-  it('enabling the baseline resets picture settings and old consent but preserves unrelated tuning', () => {
+  it('enabling the baseline under an enabled master succeeds in one write and never rewrites the capability request', () => {
     const settings = tunedSettings(false);
-    settings.galaxyXr!.sdr10AllowEnhancements = true;
+    settings.streamFrame!.enable = true;
+    settings.galaxyXr!.profileSupports10bit = true; // explicit capability request stays user-owned
+    const before = structuredClone(settings);
+    const next = changePictureMode(settings, 'baseline', true)!;
+
+    expect(baselineRequested(next)).toBe(true);
+    expect(imageEnhancementsEnabled(next)).toBe(true);
+    expect(next.streamFrame).toEqual(before.streamFrame);
+    expect(next.galaxyXr!.sdr10Baseline).toBe(true);
+    expect(next.galaxyXr!.profileSupports10bit).toBe(true);
+    expect(next.galaxyXr!.sdr10AllowEnhancements).toBe(before.galaxyXr!.sdr10AllowEnhancements);
+    expect(next.controllers).toEqual(before.controllers);
+    expect(settings).toEqual(before);
+  });
+
+  it('enabling the baseline never resets picture values and clears the custom shader target for this headset', () => {
+    const settings = tunedSettings(false);
     settings.customShader!.enableForOther = true;
     const before = structuredClone(settings);
-    const next = changePictureMode(settings, pictureDefaults, 'baseline', true)!;
+    const next = changePictureMode(settings, 'baseline', true)!;
 
     expect(baselineRequested(next)).toBe(true);
-    expect(imageEnhancementsEnabled(next)).toBe(false);
-    expect(next.galaxyXr!.sdr10AllowEnhancements).toBe(false);
-    expect(next.streamFrame!.brightness).toBe(pictureDefaults.brightness);
-    expect(next.streamFrame!.cas).toEqual(pictureDefaults.cas);
+    expect(next.streamFrame).toEqual(before.streamFrame);
+    expect(next.streamFrame!.brightness).toBe(0.73);
+    expect(next.streamFrame!.cas).toEqual(before.streamFrame!.cas);
     expect(next.streamFrame!.nvencBitrateMbit).toBe(175);
     expect(next.streamFrame!.kalmanProcessAccel).toBe(3.5);
-    expect(next.controllers).toEqual(before.controllers);
     expect(next.customShader!.enableForOther).toBe(false);
     expect(settings).toEqual(before);
   });
 
-  it('retains normal enhancement switching outside the baseline', () => {
-    const settings = tunedSettings(false);
-    const next = changePictureMode(settings, pictureDefaults, 'enhancements', true)!;
-
-    expect(imageEnhancementsEnabled(next)).toBe(true);
-    expect(baselineRequested(next)).toBe(false);
-    expect(next.galaxyXr!.sdr10AllowEnhancements).toBe(false);
-    expect(next.streamFrame).toEqual({ ...settings.streamFrame, enable: true });
-    const disabled = changePictureMode(next, pictureDefaults, 'enhancements', false)!;
-    expect(imageEnhancementsEnabled(disabled)).toBe(false);
-    expect(disabled.streamFrame).toEqual(settings.streamFrame);
-  });
-
-  it('keeps baseline activation blocked while ordinary enhancements are enabled', () => {
-    const settings = tunedSettings(false);
+  it('disabling the baseline writes sdr10Baseline false plus the capability-off write and leaves the master untouched', () => {
+    const settings = tunedSettings();
     settings.streamFrame!.enable = true;
-    const before = structuredClone(settings);
+    settings.galaxyXr!.profileSupports10bit = true; // non-default: the disable write must clear it
+    const next = changePictureMode(settings, 'baseline', false)!;
 
-    expect(changePictureMode(settings, pictureDefaults, 'baseline', true)).toBeUndefined();
-    expect(settings).toEqual(before);
+    expect(baselineRequested(next)).toBe(false);
+    expect(imageEnhancementsEnabled(next)).toBe(true);
+    expect(next.streamFrame).toEqual(settings.streamFrame);
+    expect(next.galaxyXr!.sdr10Baseline).toBe(false);
+    expect(next.galaxyXr!.profileSupports10bit).toBe(false);
   });
 
-  it('cannot enable either mode without loaded driver settings', () => {
+  it('cannot change a mode without loaded driver settings', () => {
     const withoutStreamFrame = structuredClone(driverDefaults);
     delete withoutStreamFrame.streamFrame;
-    expect(changePictureMode(undefined, pictureDefaults, 'enhancements', true, true)).toBeUndefined();
-    expect(changePictureMode(withoutStreamFrame, pictureDefaults, 'baseline', true)).toBeUndefined();
+    expect(changePictureMode(undefined, 'enhancements', true)).toBeUndefined();
+    expect(changePictureMode(withoutStreamFrame, 'baseline', true)).toBeUndefined();
     expect(imageEnhancementsEnabled(undefined)).toBe(false);
   });
 });

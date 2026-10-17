@@ -150,7 +150,7 @@ const nativeDefaults = {
     "mirrorOffsetsForRightHand": true
   },
   "streamFrame": {
-    "enable": false,
+    "enable": true,
     "saturation": 50.0,
     "vibrance": 0.0,
     "contrast": 50.0,
@@ -178,7 +178,7 @@ const nativeDefaults = {
       "peripheryStrength": 0.3,
       "foveaTop": true,
       "edgeFalloff": 0.12,
-      "limitedRange": true
+      "limitedRange": false
     },
     "dither": false,
     "blackFloor": {

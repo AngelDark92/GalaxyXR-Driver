@@ -967,13 +967,11 @@ describe('per-codec encoder defaults', () => {
     gs.settings!.nvencCodec = 2;
     gs.applyCodecEncoderDefaults(2);
     const after = structuredClone(gs.rootSetting) as any;
-    // HEVC and AV1 share every optimized value except the bandwidth and the
-    // split mode: 2026-10-17 — AV1's row applies Split-Frame 0 (split-1 AV1
-    // emits per-strip micro-frames the client's av1D configure rejects, the
-    // stream stalls with zero ACKs).
+    // HEVC and AV1 share every optimized value except the bandwidth: both
+    // rows carry splitMode 1 (2026-10-17 evening — AV1's row applies the
+    // portable forced split, so the switch changes no split value).
     before.streamFrame.nvencCodec = 2;
     before.galaxyXr.customBandwidthMbit = 400;
-    before.streamFrame.nvencSplitMode = 0;
     expect(after).toEqual(before);
   });
 
@@ -1017,9 +1015,9 @@ describe('per-codec encoder defaults', () => {
 
   it('turns the SDR 10-bit baseline off when switching to H.264 and leaves it off on switch-away', async () => {
     // 2026-10-17 (owner directive): H.264 cannot carry 10-bit. Selecting it
-    // applies the baseline-off pair the Driver Settings toggle writes; the
-    // explicit advanced 10-bit capability request stays user-owned, and
-    // switching away never silently re-enables the baseline.
+    // writes sdr10Baseline false only; the retired consent key and the
+    // explicit advanced 10-bit capability request stay user-owned and
+    // untouched, and switching away never silently re-enables the baseline.
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, sdr10Baseline: true, sdr10AllowEnhancements: true, profileSupports10bit: true },
       streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0 },
@@ -1032,7 +1030,6 @@ describe('per-codec encoder defaults', () => {
     expect(saved).toHaveLength(1);
     const persisted = JSON.parse(JSON.stringify(saved[0]));
     expect(persisted.galaxyXr.sdr10Baseline).toBe(false);
-    expect(persisted.galaxyXr.sdr10AllowEnhancements).toBe(false);
     expect(persisted.galaxyXr.profileSupports10bit).toBe(true);
     gs.settings!.nvencCodec = 0;
     gs.applyCodecEncoderDefaults(0);
@@ -1082,14 +1079,14 @@ describe('per-codec encoder defaults', () => {
   });
 
   it('keeps the defaults table internally consistent', () => {
-    // AV1 matches HEVC on every key except its own default bandwidth and its
-    // split mode: 2026-10-17 live evidence — split-1 AV1 emits per-strip
-    // micro-frames the client's av1D configure rejects, so AV1 runs unsplit.
+    // AV1 matches HEVC on every key except its own default bandwidth; both
+    // rows carry splitMode 1 (2026-10-17 evening owner directive: portable
+    // forced split, live-validated; explicit strip counts stay a user choice).
     const { bandwidthMbit: av1Bandwidth, splitMode: av1Split, ...av1Rest } = codecEncoderDefaults[2];
     const { bandwidthMbit: hevcBandwidth, splitMode: hevcSplit, ...hevcRest } = codecEncoderDefaults[0];
     expect(av1Rest).toEqual(hevcRest);
     expect(av1Bandwidth).toBe(400);
-    expect(av1Split).toBe(0);
+    expect(av1Split).toBe(1);
     expect(hevcSplit).toBe(1);
     expect(hevcBandwidth).toBe(350);
     expect(codecEncoderDefaults[1].forceCbr).toBe(true);

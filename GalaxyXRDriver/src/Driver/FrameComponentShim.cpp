@@ -10,7 +10,66 @@
 #include <filesystem>
 #include <fstream>
 #include <ctime>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include "nlohmann/json.hpp"
+
+// ---------------------------------------------------------------------------
+// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C)
+// Env-gated cadence diagnostics + injection spike for the host-side Optical
+// Flow phase-0 gate (builds/GalaxyXR-Driver/build/of-20261017/). Every gate
+// is read once per process and cached in file statics (no per-call getenv);
+// GXR_OF_INJECT=1 implies the diagnostics. With the env vars absent all of
+// the OFSpike code below is inert and silent.
+// ---------------------------------------------------------------------------
+static double OfSpikeTimeMs(){
+	return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(
+		std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+static bool OfSpikeCadenceEnabled(){
+	static const bool enabled = [](){
+		const char* cadence = std::getenv("GXR_OF_CADENCE");
+		const char* inject = std::getenv("GXR_OF_INJECT");
+		// exact "1" only: any other value (or absent) leaves the driver stock
+		return (cadence && std::strcmp(cadence, "1") == 0)
+			|| (inject && std::strcmp(inject, "1") == 0);
+	}();
+	return enabled;
+}
+static bool OfSpikeInjectEnabled(){
+	static const bool enabled = [](){
+		const char* inject = std::getenv("GXR_OF_INJECT");
+		return inject && std::strcmp(inject, "1") == 0;
+	}();
+	return enabled;
+}
+static int OfSpikeInjectRatio(){
+	static const int ratio = [](){
+		const char* value = std::getenv("GXR_OF_SPIKE_RATIO");
+		int parsed = value ? std::atoi(value) : 1;
+		if(parsed < 1){ parsed = 1; }
+		if(parsed > 8){ parsed = 8; }
+		return parsed;
+	}();
+	return ratio;
+}
+static int OfSpikeInjectSyncMode(){
+	static const int mode = [](){
+		const char* value = std::getenv("GXR_OF_SPIKE_SYNC");
+		// only an explicit 1 selects the zero sync texture; any other value
+		// (or absent) keeps the default: pass the most recent real syncTexture
+		return (value && std::atoi(value) == 1) ? 1 : 0;
+	}();
+	return mode;
+}
+static const uint64_t OfSpikeRawLineCap = 20000;
+#ifdef _WIN32
+static const char* OfSpikeHrReason(char* buf, size_t bufSize, const char* what, long hr){
+	std::snprintf(buf, bufSize, "%s failed hr=0x%08lx", what, (unsigned long)hr);
+	return buf;
+}
+#endif
 
 // ---------------------------------------------------------------------------
 // DirectModeComponentShim
@@ -21,8 +80,36 @@ DirectModeComponentShim::DirectModeComponentShim(vr::IVRDriverDirectModeComponen
 	DriverLog("FrameComponentShim: wrapping IVRDriverDirectModeComponent %p", (void*)original);
 }
 
+// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C): release the
+// injection spike's private sets through the wrapped original and drop the
+// local D3D11 objects. No-op unless GXR_OF_INJECT armed the spike; safe to
+// run after DestroyAllSwapTextureSets (the handle zeroing is the guard).
+DirectModeComponentShim::~DirectModeComponentShim(){
+	OfSpikeDestroyPrivateSets();
+	ofSpike.injectArmed = false;
+#ifdef _WIN32
+	if(ofSpike.rtvL){ ofSpike.rtvL->Release(); ofSpike.rtvL = nullptr; }
+	if(ofSpike.rtvR){ ofSpike.rtvR->Release(); ofSpike.rtvR = nullptr; }
+	if(ofSpike.texL){ ofSpike.texL->Release(); ofSpike.texL = nullptr; }
+	if(ofSpike.texR){ ofSpike.texR->Release(); ofSpike.texR = nullptr; }
+	if(ofSpike.localContext){ ofSpike.localContext->Release(); ofSpike.localContext = nullptr; }
+	if(ofSpike.localDevice){ ofSpike.localDevice->Release(); ofSpike.localDevice = nullptr; }
+#endif
+}
+
 void DirectModeComponentShim::CreateSwapTextureSet(uint32_t unPid, const SwapTextureSetDesc_t* pSwapTextureSetDesc, SwapTextureSet_t* pOutSwapTextureSet){
 	original->CreateSwapTextureSet(unPid, pSwapTextureSetDesc, pOutSwapTextureSet);
+	// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C): remember the
+	// app pid and the last real swap-set desc (nWidth/nHeight/nFormat/
+	// nSampleCount + out flags) for the injection spike's private sets.
+	// Stored only while the OFSpike diagnostics are enabled.
+	if(OfSpikeCadenceEnabled() && pSwapTextureSetDesc && pOutSwapTextureSet){
+		ofSpike.appPid = unPid;
+		ofSpike.appPidValid = true;
+		ofSpike.capturedDesc = *pSwapTextureSetDesc;
+		ofSpike.capturedFlags = pOutSwapTextureSet->unTextureFlags;
+		ofSpike.capturedDescValid = true;
+	}
 	if(pSwapTextureSetDesc && pOutSwapTextureSet){
 		// nFormat is a DXGI_FORMAT on D3D11. unTextureFlags tells us about
 		// keyed-mutex / shared handle semantics (vr::VRSwapTextureFlag_*).
@@ -47,6 +134,13 @@ void DirectModeComponentShim::DestroyAllSwapTextureSets(uint32_t unPid){
 	DriverLog("FrameComponentShim: DestroyAllSwapTextureSets pid=%u", unPid);
 	// handles are not tracked per pid, drop everything and let the caches repopulate
 	processor.EvictAll();
+	// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C): if the app
+	// that owns the injection spike's private sets is being purged, release
+	// them through the wrapped original first (guarded against double
+	// destroy; no-op when the spike never armed).
+	if(ofSpike.appPidValid && unPid == ofSpike.appPid){
+		OfSpikeDestroyPrivateSets();
+	}
 	original->DestroyAllSwapTextureSets(unPid);
 }
 
@@ -55,6 +149,10 @@ void DirectModeComponentShim::GetNextSwapTextureSetIndex(vr::SharedTextureHandle
 }
 
 void DirectModeComponentShim::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]){
+	// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C): cadence
+	// logging + last-real-pair capture. Inert unless GXR_OF_CADENCE=1 or
+	// GXR_OF_INJECT=1 (both cached file statics).
+	OfSpikeSubmitLayer(perEye);
 	layersThisFrame++;
 	if(VerboseFrame()){
 		DriverLog("FrameComponentShim: SubmitLayer frame=%llu layer=%d tex=(%llx, %llx) depth=(%llx, %llx) boundsL=(%.3f %.3f %.3f %.3f) predict=%.4fs",
@@ -1720,6 +1818,15 @@ bool DirectModeComponentShim::GetActiveSettings(FrameProcessSettings &settings, 
 }
 
 void DirectModeComponentShim::Present(vr::SharedTextureHandle_t syncTexture){
+	// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C): capture the
+	// frame's cadence facts at entry, before the state below is consumed and
+	// reset. Inert unless the OFSpike env gates are set.
+	const bool ofSpike = OfSpikeCadenceEnabled();
+	const double ofT = ofSpike ? OfSpikeTimeMs() : 0.0;
+	const uint64_t ofFrame = frameCount;
+	const int ofLayers = layersThisFrame;
+	const vr::SharedTextureHandle_t ofPairL = (ofSpike && haveSceneLayer) ? sceneLeft : 0;
+	const vr::SharedTextureHandle_t ofPairR = (ofSpike && haveSceneLayer) ? sceneRight : 0;
 	if(VerboseFrame()){
 		DriverLog("FrameComponentShim: Present frame=%llu sync=%llx layersThisFrame=%d",
 			(unsigned long long)frameCount, (unsigned long long)syncTexture, layersThisFrame);
@@ -1752,7 +1859,287 @@ void DirectModeComponentShim::Present(vr::SharedTextureHandle_t syncTexture){
 	}
 	layersThisFrame = 0;
 	frameCount++;
-	original->Present(syncTexture);
+	double ofDurFwd = 0.0;
+	if(ofSpike){
+		const double ofFwdStart = OfSpikeTimeMs();
+		original->Present(syncTexture);
+		ofDurFwd = OfSpikeTimeMs() - ofFwdStart;
+	}else{
+		original->Present(syncTexture);
+	}
+	if(ofSpike){
+		// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C): the
+		// injection runs only after the real forward returned, only on
+		// single-layer frames, only every RATIO-th real Present (no-op
+		// unless GXR_OF_INJECT=1 armed it).
+		OfSpikeMaybeInject(ofFrame, ofLayers, syncTexture);
+		// P line last, so dur_total is the full Present handler duration
+		OfSpikeRecordPresent(ofFrame, ofT, ofLayers, ofPairL, ofPairR, syncTexture, ofDurFwd);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C)
+// cadence diagnostics + injection spike implementation. every entry point is
+// inert (and silent) unless its env gate was set before the process started.
+// ---------------------------------------------------------------------------
+
+void DirectModeComponentShim::OfSpikeSubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]){
+	if(!OfSpikeCadenceEnabled()){
+		return;
+	}
+	const double now = OfSpikeTimeMs();
+	ofSpike.slCalls++;
+	// last real per-eye submission, full struct copy (used by the injection
+	// spike on the next single-layer frame)
+	ofSpike.realPerEye[0] = perEye[0];
+	ofSpike.realPerEye[1] = perEye[1];
+	ofSpike.haveRealPerEye = true;
+	// distinct (L,R) pair transitions across consecutive SubmitLayer calls
+	const vr::SharedTextureHandle_t l = perEye[0].hTexture;
+	const vr::SharedTextureHandle_t r = perEye[1].hTexture;
+	if(ofSpike.slPairValid && (l != ofSpike.slPairL || r != ofSpike.slPairR)){
+		ofSpike.windowDistinctPairs++;
+	}
+	ofSpike.slPairValid = true;
+	ofSpike.slPairL = l;
+	ofSpike.slPairR = r;
+	ofSpike.windowSlCalls++;
+	if(ofSpike.rawLines < OfSpikeRawLineCap){
+		ofSpike.rawLines++;
+		DriverLog("OFSpike: SL frame=%llu t=%.3f layers=%d L=%llx R=%llx",
+			(unsigned long long)frameCount, now, layersThisFrame + 1,
+			(unsigned long long)l, (unsigned long long)r);
+	}
+	OfSpikeMaybeSum(now);
+}
+
+void DirectModeComponentShim::OfSpikeRecordPresent(uint64_t frameIdx, double tMs, int layers,
+		vr::SharedTextureHandle_t pairL, vr::SharedTextureHandle_t pairR,
+		vr::SharedTextureHandle_t sync, double durFwdMs){
+	// Present inter-call interval, entry to entry (includes injection cost)
+	if(ofSpike.lastPresentValid){
+		const double iv = tMs - ofSpike.lastPresentMs;
+		if(iv >= 0.0 && iv < 5000.0){
+			ofSpike.windowIvCount++;
+			ofSpike.windowIvSumMs += iv;
+			if(iv > ofSpike.windowIvMaxMs){
+				ofSpike.windowIvMaxMs = iv;
+			}
+		}
+	}
+	ofSpike.lastPresentValid = true;
+	ofSpike.lastPresentMs = tMs;
+	ofSpike.windowPCalls++;
+	if(ofSpike.rawLines < OfSpikeRawLineCap){
+		ofSpike.rawLines++;
+		const double durTotal = OfSpikeTimeMs() - tMs;
+		DriverLog("OFSpike: P frame=%llu t=%.3f sync=%llx layers=%d L=%llx R=%llx dur_fwd=%.2fms dur_total=%.2fms",
+			(unsigned long long)frameIdx, tMs, (unsigned long long)sync, layers,
+			(unsigned long long)pairL, (unsigned long long)pairR, durFwdMs, durTotal);
+	}
+	OfSpikeMaybeSum(OfSpikeTimeMs());
+}
+
+void DirectModeComponentShim::OfSpikeMaybeSum(double nowMs){
+	if(!ofSpike.windowStarted){
+		ofSpike.windowStarted = true;
+		ofSpike.windowStartMs = nowMs;
+		return;
+	}
+	const double elapsedMs = nowMs - ofSpike.windowStartMs;
+	if(elapsedMs < 1000.0){
+		return;
+	}
+	const double elapsedSec = elapsedMs / 1000.0;
+	const double meanIv = ofSpike.windowIvCount
+		? ofSpike.windowIvSumMs / (double)ofSpike.windowIvCount : 0.0;
+	DriverLog("OFSpike: SUM calls=%llu distinct_pairs=%llu sl_per_s=%.1f p_per_s=%.1f mean_iv=%.2fms max_iv=%.2fms",
+		(unsigned long long)ofSpike.windowPCalls,
+		(unsigned long long)ofSpike.windowDistinctPairs,
+		(double)ofSpike.windowSlCalls / elapsedSec,
+		(double)ofSpike.windowPCalls / elapsedSec,
+		meanIv, ofSpike.windowIvMaxMs);
+	ofSpike.windowStartMs = nowMs;
+	ofSpike.windowSlCalls = 0;
+	ofSpike.windowPCalls = 0;
+	ofSpike.windowDistinctPairs = 0;
+	ofSpike.windowIvCount = 0;
+	ofSpike.windowIvSumMs = 0;
+	ofSpike.windowIvMaxMs = 0;
+}
+
+void DirectModeComponentShim::OfSpikeMaybeInject(uint64_t frameIdx, int layers, vr::SharedTextureHandle_t realSync){
+	if(!OfSpikeInjectEnabled() || ofSpike.spikeDisarmed){
+		return;
+	}
+	ofSpike.realPresentCount++;
+	if(ofSpike.realPresentCount % (uint64_t)OfSpikeInjectRatio() != 0){
+		return;
+	}
+	// eligibility: exactly one submitted layer this frame (the scene layer;
+	// dashboard / multi-layer frames are skipped) and a real per-eye
+	// submission stored. zero-Submit frames are skipped too: the brief's
+	// "<= 1" is read conservatively as "exactly one" (no fresh pose to
+	// carry for a synthetic frame).
+	if(!ofSpike.haveRealPerEye || layers != 1){
+		return;
+	}
+	if(!ofSpike.injectArmed){
+		if(ofSpike.injectInitTried){
+			return;
+		}
+		if(!ofSpike.capturedDescValid || !ofSpike.appPidValid){
+			// lazy init waits for the first real CreateSwapTextureSet
+			return;
+		}
+		OfSpikeInitInjection();
+		if(!ofSpike.injectArmed || ofSpike.spikeDisarmed){
+			return;
+		}
+	}
+	OfSpikeDeliverSynthetic(frameIdx, realSync);
+}
+
+void DirectModeComponentShim::OfSpikeInitInjection(){
+	ofSpike.injectInitTried = true;
+	ofSpike.injectRatio = OfSpikeInjectRatio();
+	ofSpike.injectSyncMode = OfSpikeInjectSyncMode();
+#ifdef _WIN32
+	// two private swap sets through the wrapped original, one per eye,
+	// created with the app's own pid + the last real desc so vrlink manages
+	// them exactly like an app's sets (legacy shared handles per the
+	// FrameProcessor.h contract)
+	SwapTextureSet_t setL = {};
+	SwapTextureSet_t setR = {};
+	original->CreateSwapTextureSet(ofSpike.appPid, &ofSpike.capturedDesc, &setL);
+	if(setL.rSharedTextureHandles[0] == 0){
+		OfSpikeDisarm("private swap set L was not created");
+		return;
+	}
+	ofSpike.privateHandleL = setL.rSharedTextureHandles[0];
+	original->CreateSwapTextureSet(ofSpike.appPid, &ofSpike.capturedDesc, &setR);
+	if(setR.rSharedTextureHandles[0] == 0){
+		OfSpikeDisarm("private swap set R was not created");
+		return;
+	}
+	ofSpike.privateHandleR = setR.rSharedTextureHandles[0];
+	// local D3D11 device on the default hardware adapter; the handles are
+	// legacy-shared, so OpenSharedResource works across devices
+	D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_0 };
+	HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0,
+		levels, 1, D3D11_SDK_VERSION, &ofSpike.localDevice, nullptr, &ofSpike.localContext);
+	char reason[96];
+	if(FAILED(hr)){
+		OfSpikeDisarm(OfSpikeHrReason(reason, sizeof(reason), "D3D11CreateDevice", hr));
+		return;
+	}
+	hr = ofSpike.localDevice->OpenSharedResource((HANDLE)(uintptr_t)ofSpike.privateHandleL,
+		__uuidof(ID3D11Texture2D), (void**)&ofSpike.texL);
+	if(FAILED(hr) || !ofSpike.texL){
+		OfSpikeDisarm(OfSpikeHrReason(reason, sizeof(reason), "open L shared texture", hr));
+		return;
+	}
+	hr = ofSpike.localDevice->OpenSharedResource((HANDLE)(uintptr_t)ofSpike.privateHandleR,
+		__uuidof(ID3D11Texture2D), (void**)&ofSpike.texR);
+	if(FAILED(hr) || !ofSpike.texR){
+		OfSpikeDisarm(OfSpikeHrReason(reason, sizeof(reason), "open R shared texture", hr));
+		return;
+	}
+	D3D11_TEXTURE2D_DESC desc = {};
+	ofSpike.texL->GetDesc(&desc);
+	if(!(desc.BindFlags & D3D11_BIND_RENDER_TARGET)){
+		OfSpikeDisarm("L texture lacks D3D11_BIND_RENDER_TARGET");
+		return;
+	}
+	ofSpike.texR->GetDesc(&desc);
+	if(!(desc.BindFlags & D3D11_BIND_RENDER_TARGET)){
+		OfSpikeDisarm("R texture lacks D3D11_BIND_RENDER_TARGET");
+		return;
+	}
+	hr = ofSpike.localDevice->CreateRenderTargetView(ofSpike.texL, nullptr, &ofSpike.rtvL);
+	if(FAILED(hr) || !ofSpike.rtvL){
+		OfSpikeDisarm(OfSpikeHrReason(reason, sizeof(reason), "create L RTV", hr));
+		return;
+	}
+	hr = ofSpike.localDevice->CreateRenderTargetView(ofSpike.texR, nullptr, &ofSpike.rtvR);
+	if(FAILED(hr) || !ofSpike.rtvR){
+		OfSpikeDisarm(OfSpikeHrReason(reason, sizeof(reason), "create R RTV", hr));
+		return;
+	}
+	ofSpike.injectArmed = true;
+	DriverLog("OFSpike: injection armed pid=%u ratio=%d sync=%s colors=A=magenta B=green L=%llx R=%llx",
+		ofSpike.appPid, ofSpike.injectRatio, ofSpike.injectSyncMode == 1 ? "zero" : "real",
+		(unsigned long long)ofSpike.privateHandleL, (unsigned long long)ofSpike.privateHandleR);
+#else
+	OfSpikeDisarm("D3D11 injection is Windows-only");
+#endif
+}
+
+void DirectModeComponentShim::OfSpikeDeliverSynthetic(uint64_t frameIdx, vr::SharedTextureHandle_t realSync){
+#ifdef _WIN32
+	// alternating solid clear: magenta on even frame indexes, green on odd,
+	// so a successful extra delivery strobes in the headset (colors are
+	// documented in OWNER-PROTOCOL.md)
+	const float magenta[4] = { 1.0f, 0.0f, 1.0f, 1.0f };
+	const float green[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+	const float* color = (frameIdx % 2 == 0) ? magenta : green;
+	ofSpike.localContext->ClearRenderTargetView(ofSpike.rtvL, color);
+	ofSpike.localContext->ClearRenderTargetView(ofSpike.rtvR, color);
+	// synthetic pair: a copy of the last real per-eye submission with ONLY
+	// hTexture replaced by the private handle (bounds/pose/prediction kept)
+	SubmitLayerPerEye_t synth[2] = { ofSpike.realPerEye[0], ofSpike.realPerEye[1] };
+	synth[0].hTexture = ofSpike.privateHandleL;
+	synth[1].hTexture = ofSpike.privateHandleR;
+	const vr::SharedTextureHandle_t syncCandidate = ofSpike.injectSyncMode == 1 ? 0 : realSync;
+	double submitMs = 0.0;
+	double presentMs = 0.0;
+	{
+		const double start = OfSpikeTimeMs();
+		original->SubmitLayer(synth);
+		submitMs = OfSpikeTimeMs() - start;
+	}
+	{
+		const double start = OfSpikeTimeMs();
+		original->Present(syncCandidate);
+		presentMs = OfSpikeTimeMs() - start;
+	}
+	// NO PostPresent for the synthetic frame, and no existing shim state is
+	// touched: frameCount / layersThisFrame / haveSceneLayer /
+	// lastSyncTexture stay exactly as the real frame left them.
+	if(ofSpike.rawLines < OfSpikeRawLineCap){
+		ofSpike.rawLines++;
+		DriverLog("OFSpike: INJ frame=%llu ok submit=1 present=1 sync=%llx dur=%.2fms",
+			(unsigned long long)frameIdx, (unsigned long long)syncCandidate, submitMs + presentMs);
+	}
+#endif
+}
+
+void DirectModeComponentShim::OfSpikeDisarm(const char* reason){
+	ofSpike.spikeDisarmed = true;
+	ofSpike.injectArmed = false;
+	if(!ofSpike.disarmLogged){
+		ofSpike.disarmLogged = true;
+		DriverLog("OFSpike: injection disarmed: %s", reason);
+	}
+}
+
+void DirectModeComponentShim::OfSpikeDestroyPrivateSets(){
+	// destroy each private set once, through the wrapped original; zeroing
+	// the handle is the double-destroy guard across DestroyAllSwapTextureSets
+	// and the destructor. disarms the injection so dead handles are never
+	// submitted afterwards.
+	if(ofSpike.privateHandleL != 0){
+		const vr::SharedTextureHandle_t handle = ofSpike.privateHandleL;
+		ofSpike.privateHandleL = 0;
+		original->DestroySwapTextureSet(handle);
+	}
+	if(ofSpike.privateHandleR != 0){
+		const vr::SharedTextureHandle_t handle = ofSpike.privateHandleR;
+		ofSpike.privateHandleR = 0;
+		original->DestroySwapTextureSet(handle);
+	}
+	ofSpike.injectArmed = false;
 }
 
 void DirectModeComponentShim::PostPresent(const Throttling_t* pThrottling){
