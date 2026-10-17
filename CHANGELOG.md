@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.11.0-dev.8] - 2026-10-17
+
+### Fixes
+
+- enhance setup page behavior and routing during driver installation (`4505761`)
+
 ## [1.11.0-dev.7] - 2026-10-17
 
 ### Fixes
