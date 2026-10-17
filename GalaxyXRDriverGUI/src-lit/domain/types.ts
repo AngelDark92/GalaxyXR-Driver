@@ -30,7 +30,7 @@ export type GalaxyXrConfig = {
   nativeResolution?: boolean,
   streamQuality?: string,
   customEncodeWidth?: number,
-  customStreamFormatWidth?: number, // legacy: driver writes streamFormatWidth = customEncodeWidth
+  customStreamFormatWidth?: number, // foveated tile width; independent of legacy customEncodeWidth
   customBandwidthMbit?: number,
   customStreamFormatWidthOverride?: number, // debug: split encodeWidth/streamFormatWidth probe, settings.json only
   vrlinkHeadsetProfile?: boolean,
@@ -224,7 +224,7 @@ export type StreamFrameConfig = {
   directRender: boolean;
   zeroCopyV3: boolean;
   nvencTap: boolean;
-  // stream codec override: 0 HEVC default, 1 H.264, 2 AV1 experimental
+  // stream codec override: 0 HEVC default, 1 H.264, 2 AV1
   nvencCodec?: number;
   nvencBandwidthOverrideMbit: number;
   nvencSettingsVersion: number;
@@ -237,6 +237,20 @@ export type StreamFrameConfig = {
   nvencForceFps: number;
   nvencBitrateScale: boolean;
   nvencVrlinkClampMbit: number;
+  // Optional for settings written before the editable H.264 recipe (2026-10-16).
+  // GOP/IDR: 0 follows the encoder FPS; -1 preserves upstream parameters.
+  nvencH264GopFrames?: number;
+  nvencH264IdrFrames?: number;
+  nvencH264RefFrames?: number;
+  nvencH264Entropy?: number; // 0 automatic, 1 CABAC, 2 CAVLC
+  nvencH264SliceMode?: number;
+  nvencH264SliceData?: number;
+  nvencH264Aud?: boolean;
+  nvencH264RepeatHeaders?: boolean;
+  nvencH264DisableHeaders?: boolean;
+  nvencH264BitstreamRestriction?: boolean;
+  nvencH264VbvInitialDelay?: number;
+  nvencMultiPass?: number; // -1 automatic; 0 disabled, 1 quarter, 2 full resolution
   nvencPreset: number;
   nvencPresetMerge: boolean;
   nvencVuiFullRange: number;
@@ -454,6 +468,20 @@ export type DriverInfo = {
     upgradedSessionsRemain: boolean;
     configPath: string;
     modulePath: string;
+    requestedCodec?: number;
+    effectiveCodec?: number; // -1 until NVENC accepts a session
+    lastStatus?: number;
+    error?: string;
+    lastInitStatus?: number;
+    initError?: string; // first initialization failure in this encoder session
+    effectiveRateControl?: number; // -1 unknown; otherwise NVENC rate-control enum
+    effectiveSplit?: number;
+    encodeWidth?: number;
+    encodeHeight?: number;
+    pid?: number;
+    observedAt?: number;
+    lastPictureStatus?: number;
+    pictureError?: string;
   };
 }
 export type ResolutionInfo = {

@@ -5,6 +5,7 @@
 #include "../../../ThirdParty/minhook/include/MinHook.h"
 #include "../../../ThirdParty/nvenc/nvEncodeAPI.h"
 #include "../Config/Config.h"
+#include "../Config/StreamTiers.h"
 #include <chrono>
 #include <set>
 #include <map>
@@ -14,6 +15,10 @@
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
+#include <limits>
+#include <fstream>
+#include <sstream>
+#include "../../../ThirdParty/json/single_include/nlohmann/json.hpp"
 
 static double NowSecondsNv(){
 	return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -62,7 +67,6 @@ PNVENCLOCKBITSTREAM origLockBitstream = nullptr;
 PNVENCGETENCODEPRESETCONFIGEX origGetPresetConfigEx = nullptr;
 PNVENCGETENCODECAPS origGetEncodeCaps = nullptr;
 PNVENCGETLASTERROR origGetLastErrorString = nullptr;
-std::atomic<int> av1GateLogged{0};
 PNVENCOPENENCODESESSIONEX origOpenEncodeSessionEx = nullptr;
 PNVENCDESTROYENCODER origDestroyEncoder = nullptr;
 PNVENCGETENCODEPRESETCONFIG origGetPresetConfig = nullptr;
@@ -113,7 +117,7 @@ const int8_t* GetQpMap(uint32_t w, uint32_t h, int codec, const NvencTapConfig &
 				if(fovea){
 					float ix = px / tile, iy = py / tile - t;
 					float d = (std::min)((std::min)(ix, 1.f - ix), (std::min)(iy, 1.f - iy));
-					float k = cfg.qpEdgeFalloff > 0 ? (std::min)(1.f, d / cfg.qpEdgeFalloff) : 1.f;
+					float k = cfg.qpEdgeFalloff > 0 ? (std::max)(0.f, (std::min)(1.f, d / cfg.qpEdgeFalloff)) : 1.f;
 					k = k * k * (3.f - 2.f * k);
 					v = (float)cfg.qpPeriphery + ((float)cfg.qpFovea - (float)cfg.qpPeriphery) * k;
 				}
@@ -214,10 +218,13 @@ bool LookupUnmappedTexture(void* reg, void** texture, uint32_t* fmt){
 std::atomic<bool> splitRejected{false};
 std::atomic<int> capsLogged{0};
 std::atomic<int> h264SplitSkipLogged{0};
-// one-shot log for the caps shim's H.264 WIDTH_MAX/HEIGHT_MAX answers
-std::atomic<int> h264CapsShimLogged{0};
 // one-shot log for the caps shim's pre-publish settings-file fallback
 std::atomic<int> h264FileSelLogged{0};
+// one-shot logs for the probe-driven open-time decisions and their rejections
+std::atomic<int> openProbeLogged{0};
+std::atomic<int> openRejectLogged{0};
+// one-shot note for the observe-only encodeConfig-less init/reconfigure path
+std::atomic<int> observeOnlyLogged{0};
 // SDK 12.1 struct versions (NVENCAPI_VERSION 12|1<<24 = 0x0100000C)
 constexpr uint32_t kApi121 = 12u | (1u << 24);
 constexpr uint32_t kInit121 = kApi121 | (6u << 16) | (0x7u << 28) | (1u << 31);   // NV_ENC_INITIALIZE_PARAMS_VER 12.1
@@ -234,6 +241,88 @@ int submitHead = 0;
 
 std::mutex statsLock;
 NvencTapStats stats;
+std::mutex runtimeLock;
+NvencTapRuntimeState runtime;
+void* runtimeEncoder = nullptr;
+void* runtimePictureEncoder = nullptr;
+void* runtimeInitEncoder = nullptr;
+struct InitFailure { uint32_t status; std::string error; };
+std::map<void*, InitFailure> firstInitFailures;
+std::string acceptedRequest;
+void PublishPictureResult(void* encoder, NVENCSTATUS status, const std::string& error, bool log = true){
+	if(status == NV_ENC_ERR_NEED_MORE_INPUT){ return; }
+	std::lock_guard<std::mutex> guard(runtimeLock);
+	const std::string message = status == NV_ENC_SUCCESS ? std::string{} : error;
+	if(log && (runtime.lastPictureStatus != (uint32_t)status || runtime.pictureError != message)){
+		DriverLog("NvencTap: picture status=%u%s%s", (unsigned)status, message.empty() ? "" : ": ", message.c_str());
+	}
+	runtimePictureEncoder = encoder; runtime.lastPictureStatus = (uint32_t)status; runtime.pictureError = message;
+}
+std::string RequestDescription(const NvencTapConfig& c){
+	std::ostringstream out;
+	out << "codec=" << c.codec << " preset=" << c.preset << '/' << c.presetAuto << '/' << c.presetMerge
+		<< " split=" << c.splitMode << " multipass=" << c.multiPass << " fps=" << c.forceFps
+		<< " bitrate=" << c.bitrateMbit << '/' << c.bitrateScale << '/' << c.vrlinkClampMbit << '/' << c.maxBitrateHeadroomPct
+		<< " cbr=" << c.forceCbr << " vbv=" << c.vbvFrames << " kf=" << c.lowDelayKfScale
+		<< " qp=" << c.minQp << '/' << c.minQpIntra << '/' << c.maxQp << " aq=" << c.aqStrength
+		<< " qpMap=" << c.qpFovea << '/' << c.qpPeriphery << '/' << c.qpEdgeFalloff << '/' << c.qpFoveaTop << " fixLevel=" << c.fixLevel
+		<< " tile=" << c.effectiveTileWidth << '/' << c.enforceTile
+		<< " vui=" << c.vuiFullRange << '/' << c.vuiMatrix << '/' << c.vuiPrimaries << '/' << c.vuiTransfer
+		<< " pixelRange=" << c.postPackEnabled << '/' << c.postPackLimitedRange
+		<< " h264=" << c.h264GopFrames << '/' << c.h264IdrFrames << '/' << c.h264RefFrames << '/' << c.h264Entropy
+		<< '/' << c.h264SliceMode << '/' << c.h264SliceData << '/' << c.h264Aud << '/' << c.h264RepeatHeaders
+		<< '/' << c.h264DisableHeaders << '/' << c.h264BitstreamRestriction << '/' << c.h264VbvInitialDelay;
+	return out.str();
+}
+void PublishFailure(void* encoder, const NvencTapConfig& cfg, NVENCSTATUS status, const std::string& error, bool initializing = false){
+	std::lock_guard<std::mutex> guard(runtimeLock);
+	if(initializing){
+		// Capture at the error's origin under this same lock. Later retries,
+		// reconfigures and failures on other encoders cannot replace its cause.
+		const auto first = firstInitFailures.emplace(encoder, InitFailure{(uint32_t)status, error}).first;
+		runtimeInitEncoder = encoder;
+		runtime.lastInitStatus = first->second.status; runtime.initError = first->second.error;
+	}
+	if(runtime.lastStatus != (uint32_t)status || runtime.error != error || runtime.requestedCodec != cfg.codec){
+		DriverLog("NvencTap: requested codec=%d FAILED status=%u: %s", cfg.codec, (unsigned)status, error.c_str());
+	}
+	if(runtimeEncoder != encoder){
+		runtime.effectiveCodec = -1; runtime.effectiveRateControl = -1;
+		runtime.effectiveSplit = -1; runtime.encodeWidth = 0; runtime.encodeHeight = 0;
+	}
+	runtimeEncoder = encoder; runtime.requestedCodec = cfg.codec;
+	runtime.lastStatus = (uint32_t)status; runtime.error = error;
+}
+void PublishSuccess(void* encoder, const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_PARAMS* p, bool initializing = false){
+	std::lock_guard<std::mutex> guard(runtimeLock);
+	if(initializing){
+		firstInitFailures.erase(encoder);
+		// A successful replacement session also retires an archived failure
+		// whose encoder was destroyed. An unrelated live encoder's failure
+		// remains intact until that encoder itself initializes successfully.
+		if(runtimeInitEncoder == encoder || firstInitFailures.count(runtimeInitEncoder) == 0){
+			runtime.lastInitStatus = 0; runtime.initError.clear(); runtimeInitEncoder = nullptr;
+		}
+	}
+	const std::string description = RequestDescription(cfg);
+	if(acceptedRequest != description){
+		if(cfg.enabled){ DriverLog("NvencTap: accepted settings: %s", description.c_str()); }
+		acceptedRequest = description;
+	}
+	const int codec = memcmp(&p->encodeGUID, &NV_ENC_CODEC_H264_GUID, sizeof(GUID)) == 0 ? 1
+		: memcmp(&p->encodeGUID, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0 ? 2
+		: memcmp(&p->encodeGUID, &NV_ENC_CODEC_HEVC_GUID, sizeof(GUID)) == 0 ? 0 : -1;
+	const int rc = p->encodeConfig ? (int)p->encodeConfig->rcParams.rateControlMode : -1;
+	if(cfg.enabled && (runtime.lastStatus || !runtime.error.empty() || runtimeEncoder != encoder || runtime.effectiveCodec != codec
+		|| runtime.effectiveRateControl != rc
+		|| runtime.encodeWidth != p->encodeWidth || runtime.encodeHeight != p->encodeHeight)){
+		DriverLog("NvencTap: applied requested codec=%d effective codec=%d RC=%d size=%ux%u", cfg.codec, codec, rc, p->encodeWidth, p->encodeHeight);
+	}
+	runtimeEncoder = encoder; runtime.requestedCodec = cfg.codec; runtime.effectiveCodec = codec;
+	runtime.lastStatus = NV_ENC_SUCCESS; runtime.error.clear();
+	runtime.effectiveRateControl = rc; runtime.encodeWidth = p->encodeWidth; runtime.encodeHeight = p->encodeHeight;
+	runtime.effectiveSplit = codec == 1 ? -1 : ((p->version & 0xFFFFu) >= 12 ? (int)p->splitEncodeMode : -1);
+}
 // ---- session upgrade state ----
 std::mutex upgradedLock;
 std::set<void*> upgradedSessions;         // encoder handles opened as 12.1
@@ -246,12 +335,94 @@ constexpr size_t kPicParams11Size = 3344;   // 12.1: 3360
 constexpr size_t kLockBitstream11Size = 1544; // 12.1: 1552
 constexpr size_t kScratch = 4096;
 
+// ---------------------------------------------------------------------------
+// 2026-10-16 pre-publish settings.json probe (the caps shim's pattern, now
+// shared). An early connection reaches OpenEncodeSessionEx /
+// NvEncodeAPICreateInstance before the first SetConfig publish
+// (cfgPublished false): GetConfig() is still the empty default, so open
+// decisions would miss the user's request and hand back a pristine 11.1
+// session whose init then refuses the requested split/AV1 with no fallback.
+// Before the first publish, the open/function-list decisions read this
+// build's settings.json instead, parsing the streamFrame keys exactly like
+// the ConfigLoader: a missing key keeps the setting's default (nvencTap
+// true, nvencCodec 0, nvencSplitMode 1). Wrong-type boolean values keep the
+// boolean default, while invalid integer fields retain a visible requestError
+// like the loader instead of being truncated or silently substituted. An
+// unreadable/malformed file leaves defaults in place without rewriting it.
+struct PrePublishProbe { bool tap = true; int codec = 0; int splitMode = 1; int tile = 1536; std::string requestError; };
+PrePublishProbe ProbePrePublishConfig(){
+	PrePublishProbe probe;
+	const char* appdata = getenv("APPDATA");
+	if(!appdata){ return probe; }
+#ifdef VENDOR_GALAXYXR
+	const std::string path = std::string(appdata) + "/GalaxyXR/CustomHeadset/settings.json";
+#else
+	const std::string path = std::string(appdata) + "/CustomHeadset/settings.json";
+#endif
+	std::ifstream file(path);
+	if(!file){ return probe; }
+	const auto json = nlohmann::json::parse(file, nullptr, false, true);
+	if(!json.is_object()){ return probe; }
+	const auto readInteger = [&](const nlohmann::json& object, const char* key, int& value, const char* section){
+		if(!object.contains(key)){ return; }
+		const auto& item = object[key];
+		if(!item.is_number_integer() || item.get<double>() < -2147483648.0 || item.get<double>() > 2147483647.0){
+			probe.requestError = std::string(section) + "." + key + " must be a 32-bit integer; requested " + item.dump();
+			return;
+		}
+		value = item.get<int>();
+	};
+	// Match GalaxyXR_EffectiveTileWidth: explicit custom width or a legacy
+	// tier width. These are allocation requests, never inferred GPU limits.
+	if(json.contains("galaxyXr") && json["galaxyXr"].is_object()){
+		const auto& galaxy = json["galaxyXr"];
+		const std::string quality = galaxy.contains("streamQuality") && galaxy["streamQuality"].is_string()
+			? galaxy["streamQuality"].get<std::string>() : "custom";
+		if(quality == "custom"){
+			readInteger(galaxy, "customStreamFormatWidth", probe.tile, "galaxyXr");
+		}else if(const auto* tier = FindGxrStreamTier(quality)){ probe.tile = tier->width; }
+	}
+	if(!json.contains("streamFrame") || !json["streamFrame"].is_object()){ return probe; }
+	const auto& frame = json["streamFrame"];
+	// nvencTap: boolean only; absent or legacy-typed -> the loader default (true)
+	if(frame.contains("nvencTap") && frame["nvencTap"].is_boolean()){ probe.tap = frame["nvencTap"].get<bool>(); }
+	// Integer fields mirror the loader's explicit validation. Invalid stored
+	// requests remain on disk and surface as failures rather than truncation.
+	readInteger(frame, "nvencCodec", probe.codec, "streamFrame");
+	readInteger(frame, "nvencSplitMode", probe.splitMode, "streamFrame");
+	return probe;
+}
+// Open-time decision config: the published snapshot once one exists, else
+// the settings.json probe above (recorded once with its one-shot log).
+NvencTapConfig OpenDecisionConfig(){
+	if(NvencTap::Get().ConfigPublished()){ return NvencTap::Get().GetConfig(); }
+	const PrePublishProbe probe = ProbePrePublishConfig();
+	if(openProbeLogged.fetch_add(1) < 1){
+		DriverLog("NvencTap: pre-publish settings probe (no published config yet): nvencTap=%d nvencCodec=%d nvencSplitMode=%d — open decisions mirror the ConfigLoader parse defaults until the first publish takes over",
+			(int)probe.tap, probe.codec, probe.splitMode);
+	}
+	NvencTapConfig cfg;
+	cfg.enabled = probe.tap; cfg.codec = probe.codec; cfg.splitMode = probe.splitMode;
+	cfg.effectiveTileWidth = probe.tile;
+	cfg.requestError = probe.requestError;
+#ifdef VENDOR_GALAXYXR
+	cfg.enforceTile = true;
+#endif
+	return cfg;
+}
+
 bool UpgradeWanted(){
 	// 2026-09-25: OFF must also stop upgrades for newly opened sessions and
 	// function lists after the hook is installed. Existing upgraded sessions
 	// still use Upgraded(encoder) below: their ABI cannot change mid-session.
-	const NvencTapConfig cfg = NvencTap::Get().GetConfig();
-	return cfg.enabled && cfg.splitMode > 0 && !sessionUpgradeRejected.load();
+	// 2026-10-16 pre-publish parity: an early connection consults the
+	// caps-shim settings.json probe (OpenDecisionConfig) instead of the
+	// empty config. A genuinely rejected 12.1 open or function list keeps
+	// failing visibly (PublishFailure plus a one-shot status log); no
+	// pristine open and no silent downgrade latch, and no codec-to-codec or
+	// same-codec value substitution fallback ever runs here.
+	const NvencTapConfig cfg = OpenDecisionConfig();
+	return cfg.enabled && (cfg.codec == 2 || cfg.splitMode > 0);
 }
 bool Upgraded(void* encoder){ std::lock_guard<std::mutex> g(upgradedLock); return upgradedSessions.count(encoder) != 0; }
 inline bool Is111(uint32_t v){ return (v & 0xFFFFu) == 11u; }
@@ -320,7 +491,6 @@ NV_ENC_PIC_PARAMS* CopyPicParams111To121(const NV_ENC_PIC_PARAMS* caller, NV_ENC
 	out->qpDeltaMapSize = *(const uint32_t*)(raw + kQpDeltaMapSize11Offset);
 	return out;
 }
-std::atomic<bool> versionWarned{false};
 std::atomic<int> initLogged{0};
 std::atomic<int> reconfLogged{0};
 std::atomic<int> registerLogged{0};
@@ -353,9 +523,8 @@ bool IsH264(const GUID &g){ return memcmp(&g, &NV_ENC_CODEC_H264_GUID, sizeof(GU
 
 // Live codec of each encoder that last initialized/reconfigured SUCCESSFULLY
 // (0 HEVC / 1 H264 / 2 AV1). The per-frame map paths key off this, not the
-// tap config: a swap that fails and falls back to vrlink's pristine params
-// leaves an HEVC session live under a codec-1/2 config, and an MB/SB-grid
-// map would fail every one of its frames (status 14).
+// tap config: failed reconfiguration leaves the last accepted session
+// codec live; map conversion must follow that accepted codec.
 std::map<void*, int> sessionCodecs;   // guarded by upgradedLock
 int CodecOfGuid(const GUID &g){
 	if(IsH264(g)){ return 1; }
@@ -414,6 +583,7 @@ void SafeHexDump(const char* label, const void* ptr, size_t want){
 // ---------------------------------------------------------------------------
 struct Snapshot {
 	bool valid = false;
+	std::string error;
 	NV_ENC_INITIALIZE_PARAMS* initPtr = nullptr;
 	NV_ENC_CONFIG* cfgPtr = nullptr;
 	NV_ENC_RC_PARAMS rc{};
@@ -437,14 +607,14 @@ struct Snapshot {
 	GUID codecProfile{};
 	static constexpr size_t kCodecWindow = 256;
 	unsigned char codecWindow[kCodecWindow]{};
-	bool maxEncodeClamped = false;
-	uint32_t maxEncodeW = 0, maxEncodeH = 0;
+	uint32_t maxEncodeWidth = 0, maxEncodeHeight = 0;
 	bool h264GopCaptured = false;
 	uint32_t h264GopLength = 0;
 	bool h264IdrCaptured = false;
 	uint32_t h264IdrPeriod = 0;
+	uint32_t callerIdrPeriod = 0;
 	// 2026-10-15: the H.264 codec-window fields (refs/VUI/AUD/SPS-PPS/
-	// slices/entropy/filler) are group-captured before the first write:
+	// slices/entropy) are group-captured before the first write:
 	// a swapped call restores the codecWindow union wholesale, a direct
 	// H.264 caller (no swap) relies on this copy in Restore, like idrPeriod.
 	bool h264CfgCaptured = false;
@@ -565,8 +735,10 @@ inline size_t WhatRem(const char* w, const char* what, size_t whatLen){
 // are restored after each call (Restore), so each call re-derives from
 // vrlink's own state. Only fields inside kCodecWindow are cleared and
 // written; every HEVC-only override below skips itself because snap.hevc
-// is cleared here. H.264 and AV1 v1 force 8-bit output (NVENC rejects
-// 10-bit H.264; the client "Codecs Support" patch decodes both).
+// is cleared here. H.264 gets the 8-bit session class via the caps shim
+// (NVENC rejects 10-bit H.264); AV1 follows the session input depth
+// (10-bit when the SDR 10-bit baseline is on). The client "Codecs
+// Support" patch decodes both.
 // 2026-10-14 codec-swap fix: codec-specific fields, applied once onto the
 // hand-built window and re-applied after the merge seeds that window from
 // NVENC's own canonical preset config (valid by construction — the hand-built
@@ -603,7 +775,8 @@ void ApplyCodecFields(NV_ENC_CONFIG* c, NV_ENC_INITIALIZE_PARAMS* p, int targetC
 			case NV_ENC_BUFFER_FORMAT_ARGB10:
 			case NV_ENC_BUFFER_FORMAT_ABGR10:
 			case NV_ENC_BUFFER_FORMAT_P210:
-				*av1Flags = (*av1Flags & ~(0x3Fu << 12)) | (2u << 12) | (2u << 15);
+				if(ApiMajor(p->version) >= 13){ a.inputBitDepth = NV_ENC_BIT_DEPTH_10; a.outputBitDepth = NV_ENC_BIT_DEPTH_10; }
+				else{ *av1Flags = (*av1Flags & ~(0x3Fu << 12)) | (2u << 12) | (2u << 15); }
 				break;
 			case NV_ENC_BUFFER_FORMAT_NV12:
 			case NV_ENC_BUFFER_FORMAT_YV12:
@@ -613,7 +786,8 @@ void ApplyCodecFields(NV_ENC_CONFIG* c, NV_ENC_INITIALIZE_PARAMS* p, int targetC
 			case NV_ENC_BUFFER_FORMAT_AYUV:
 			case NV_ENC_BUFFER_FORMAT_ABGR:
 			case NV_ENC_BUFFER_FORMAT_NV16:
-				*av1Flags &= ~(0x3Fu << 12);   // 8-bit == minus8 = 0
+				if(ApiMajor(p->version) >= 13){ a.inputBitDepth = NV_ENC_BIT_DEPTH_8; a.outputBitDepth = NV_ENC_BIT_DEPTH_8; }
+				else{ *av1Flags &= ~(0x3Fu << 12); } // 8-bit == minus8 = 0
 				break;
 			default:
 				break;
@@ -633,21 +807,15 @@ bool ApplyCodecOverride(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencT
 	if(cfg.codec == 1){ codec = &NV_ENC_CODEC_H264_GUID; profile = &NV_ENC_H264_PROFILE_HIGH_GUID; name = "H264"; }
 	else if(cfg.codec == 2){ codec = &NV_ENC_CODEC_AV1_GUID; profile = &NV_ENC_AV1_PROFILE_MAIN_GUID; name = "AV1"; }
 	else { return false; }
-	if(cfg.codec == 2 && !Upgraded(encoder)){
+	if(cfg.codec == 2 && ApiMajor(p->version) < 12){
 		// AV1 exists only from NVENC API 12.0 on; this session never got the
 		// 12.1 upgrade (split mode off), so its union has no AV1 member.
-		if(av1GateLogged.fetch_add(1) < 1){ DriverLog("NvencTap: codec AV1 needs the 12.1 session upgrade (split mode is off for this session) — leaving HEVC"); }
+		// Guarded rejects this request before ApplyOverrides. Keep the helper
+		// non-mutating for direct fixture callers using an old API.
 		return false;
 	}
 	if(memcmp(&p->encodeGUID, codec, sizeof(GUID)) == 0){ // already the target
-		if(cfg.codec == 1 && (p->maxEncodeWidth > 4096 || p->maxEncodeHeight > 4096)){
-			snap.maxEncodeClamped = true;
-			snap.maxEncodeW = p->maxEncodeWidth; snap.maxEncodeH = p->maxEncodeHeight;
-			if(p->maxEncodeWidth > 4096){ p->maxEncodeWidth = 4096; }
-			if(p->maxEncodeHeight > 4096){ p->maxEncodeHeight = 4096; }
-			w += snprintf(w, WhatRem(w, what, whatLen), "maxEncode %ux%u->%ux%u; ", snap.maxEncodeW, snap.maxEncodeH, p->maxEncodeWidth, p->maxEncodeHeight);
-			return true;
-		}
+		// Caller geometry is authoritative; NVENC validates its actual limits.
 		return false;
 	}
 	if(!IsHevc(p->encodeGUID)){
@@ -667,13 +835,6 @@ bool ApplyCodecOverride(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencT
 	ApplyCodecFields(c, p, cfg.codec, w, whatLen, what);
 	snap.hevc = false; // every HEVC-only override below must skip itself
 	w += snprintf(w, WhatRem(w, what, whatLen), "codec HEVC->%s; ", name);
-	if(cfg.codec == 1 && (p->maxEncodeWidth > 4096 || p->maxEncodeHeight > 4096)){
-		snap.maxEncodeClamped = true;
-		snap.maxEncodeW = p->maxEncodeWidth; snap.maxEncodeH = p->maxEncodeHeight;
-		if(p->maxEncodeWidth > 4096){ p->maxEncodeWidth = 4096; }
-		if(p->maxEncodeHeight > 4096){ p->maxEncodeHeight = 4096; }
-		w += snprintf(w, WhatRem(w, what, whatLen), "maxEncode %ux%u->%ux%u; ", snap.maxEncodeW, snap.maxEncodeH, p->maxEncodeWidth, p->maxEncodeHeight);
-	}
 	return true;
 }
 
@@ -686,11 +847,17 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	if(!ApiSupported(ApiMajor(p->version)) || !ApiSupported(ApiMajor(c->version))){ return false; }
 	snap.valid = true; snap.initPtr = p; snap.cfgPtr = c; snap.rc = c->rcParams; snap.preset = p->presetGUID; snap.hevc = IsHevc(p->encodeGUID);
 	snap.fpsNum = p->frameRateNum; snap.fpsDen = p->frameRateDen;
+	snap.maxEncodeWidth = p->maxEncodeWidth; snap.maxEncodeHeight = p->maxEncodeHeight;
 	// the bitfield word right after enablePTD (reportSliceOffsets.. in
 	// every SDK; splitEncodeMode occupies bits 5..8 from 12.1 on)
 	uint32_t* initFlags = (uint32_t*)&p->enablePTD + 1;
 	snap.initVer = p->version; snap.cfgVer = c->version; snap.rcVer = c->rcParams.version; snap.initFlags = *initFlags;
 	snap.tuning = (uint32_t)p->tuningInfo;
+	snap.codecGuid = p->encodeGUID; snap.codecProfile = c->profileGUID;
+	memcpy(snap.codecWindow, &c->encodeCodecConfig, sizeof(snap.codecWindow));
+	snap.h264GopLength = c->gopLength;
+	snap.callerIdrPeriod = IsHevc(p->encodeGUID) ? c->encodeCodecConfig.hevcConfig.idrPeriod
+		: IsH264(p->encodeGUID) ? c->encodeCodecConfig.h264Config.idrPeriod : 0;
 	if(snap.hevc){
 		snap.hevcLevel = c->encodeCodecConfig.hevcConfig.level; snap.hevcTier = c->encodeCodecConfig.hevcConfig.tier;
 		snap.hevcRefs = c->encodeCodecConfig.hevcConfig.maxNumRefFramesInDPB;
@@ -715,6 +882,20 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			}
 		}
 	}
+	// Construct the target codec independently of the optional preset merge.
+	// Disabling merge must not leave a swapped HEVC union as an AV1 recipe.
+	int seedPreset = presetWanted;
+	if(!PresetGuid(seedPreset)){
+		for(int n = 1; n <= 7; ++n){ if(memcmp(&p->presetGUID, PresetGuid(n), sizeof(GUID)) == 0){ seedPreset = n; break; } }
+	}
+	const NV_ENC_PRESET_CONFIG* canonical = (snap.codecSwapped || cfg.presetMerge)
+		? FetchPresetConfig(encoder, p, c, seedPreset) : nullptr;
+	if(snap.codecSwapped && canonical){
+		memcpy(&c->encodeCodecConfig, &canonical->presetCfg.encodeCodecConfig, Snapshot::kCodecWindow);
+		ApplyCodecFields(c, p, snap.codecTarget, w, whatLen, what);
+		w += snprintf(w, WhatRem(w, what, whatLen), "seeded P%d@tuning%u; ", seedPreset, (unsigned)p->tuningInfo);
+		changed = true;
+	}
 	if(const GUID* pg = PresetGuid(presetWanted)){
 		if(memcmp(&p->presetGUID, pg, sizeof(GUID)) != 0){
 			w += snprintf(w, WhatRem(w, what, whatLen), "preset %s->P%d; ", PresetName(p->presetGUID), presetWanted);
@@ -727,7 +908,7 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		// init and every reconfigure derive the same values, so the running
 		// encoder state and reconfigure params never disagree.
 		if(cfg.presetMerge){
-			if(const NV_ENC_PRESET_CONFIG* pcp = FetchPresetConfig(encoder, p, c, presetWanted)){
+			if(const NV_ENC_PRESET_CONFIG* pcp = canonical){
 				const NV_ENC_CONFIG &pcc = pcp->presetCfg;
 				const NV_ENC_RC_PARAMS &prc = pcc.rcParams;
 				NV_ENC_RC_PARAMS &rc = c->rcParams;
@@ -742,21 +923,10 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 						DriverLog("NvencTap: canonical P%d wants lookahead depth %u — NOT adopted (adds %u frames of latency)", presetWanted, prc.lookaheadDepth, prc.lookaheadDepth);
 					}
 				}
-				if(snap.codecSwapped){
-					// Seed the swapped codec's config window from NVENC's own
-					// canonical preset config for [target codec, preset,
-					// tuning] — valid by construction, so every hand-built
-					// field risk in the window disappears. The intentional
-					// deltas are re-applied immediately after.
-					memcpy(&c->encodeCodecConfig, &pcc.encodeCodecConfig, Snapshot::kCodecWindow);
-					ApplyCodecFields(c, p, snap.codecTarget, w, whatLen, what);
-					w += snprintf(w, WhatRem(w, what, whatLen), "seeded P%d@tuning%u; ", presetWanted, (unsigned)p->tuningInfo);
-					changed = true;
-				}
-				if(cfg.codec == 1){
+				if(cfg.multiPass < 0 && cfg.codec == 1){
 					// 2026-10-15: H.264 runs pinned to multiPass=0 (single-pass). The canonical P2/P7@ULL reports 1, which wedged the first encode on 2026-10-15; SteamFrame's verified H.264 profile is single-pass as well.
 					if(rc.multiPass != 0){ w += snprintf(w, WhatRem(w, what, whatLen), "multipass %u->0 [h264]; ", (unsigned)rc.multiPass); rc.multiPass = (NV_ENC_MULTI_PASS)0; changed = true; }
-				}else if(rc.multiPass != prc.multiPass){
+				}else if(cfg.multiPass < 0 && rc.multiPass != prc.multiPass){
 					w += snprintf(w, WhatRem(w, what, whatLen), "multipass %u->%u; ", (unsigned)rc.multiPass, (unsigned)prc.multiPass);
 					rc.multiPass = prc.multiPass; changed = true;
 				}
@@ -778,14 +948,50 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 						h.maxNumRefFramesInDPB = prefs; changed = true;
 					}
 				}
+			}else{
+				// 2026-10-16 (owner directive): a preset-merge fetch failure keeps
+				// the user's selected codec — GUID swap only, one-shot log, never
+				// a refusal and never another codec.
+				static std::atomic<int> presetMergeUnavailableLogged{0};
+				if(presetMergeUnavailableLogged.fetch_add(1) < 1){
+					DriverLog("NvencTap: optional preset merge unavailable (streamFrame.nvencPresetMerge fetch failed); preserving selected codec and continuing all explicit settings");
+				}
+				// Continue: explicit bitrate, VBV, CBR, split and recipe settings
+				// below remain authoritative even if optional merging fails.
 			}
 		}
 	}
-	if(snap.hevc){
-		NV_ENC_CONFIG_HEVC_VUI_PARAMETERS &v = c->encodeCodecConfig.hevcConfig.hevcVUIParameters;
-		if((cfg.vuiFullRange == 0 || cfg.vuiFullRange == 1) && v.videoFullRangeFlag != (uint32_t)cfg.vuiFullRange){
-			w += snprintf(w, WhatRem(w, what, whatLen), "vuiFullRange %u->%d; ", v.videoFullRangeFlag, cfg.vuiFullRange);
-			v.videoFullRangeFlag = (uint32_t)cfg.vuiFullRange; v.videoSignalTypePresentFlag = 1; changed = true;
+	if(IsH264(p->encodeGUID) && origGetEncodeCaps){
+		// The legacy caller's HEVC allocation envelope can exceed H.264's
+		// real reservation limits. Only internal reservations are adapted;
+		// active dimensions and the user's requested tile are never lowered.
+		for(int axis = 0; axis < 2; ++axis){
+			NV_ENC_CAPS_PARAM cp{};
+			cp.version = (p->version & 0x0F00FFFFu) | (1u << 16) | (0x7u << 28);
+			cp.capsToQuery = axis ? NV_ENC_CAPS_HEIGHT_MAX : NV_ENC_CAPS_WIDTH_MAX;
+			int cap = 0;
+			if(origGetEncodeCaps(encoder, p->encodeGUID, &cp, &cap) != NV_ENC_SUCCESS || cap <= 0){ continue; }
+			const uint32_t active = axis ? p->encodeHeight : p->encodeWidth;
+			uint32_t& maximum = axis ? p->maxEncodeHeight : p->maxEncodeWidth;
+			if(active > (uint32_t)cap){
+				snap.error = std::string("Requested H.264 active ") + (axis ? "height " : "width ") + std::to_string(active)
+					+ " exceeds the selected codec's hardware limit " + std::to_string(cap) + "; the requested tile was not lowered.";
+				return changed;
+			}
+			if(maximum > (uint32_t)cap){
+				static std::atomic<int> reservationLogged[2];
+				if(reservationLogged[axis].fetch_add(1) < 3){ DriverLog("NvencTap: H.264 internal maximum %s reservation %u -> %d (active %u, requested tile %d unchanged)", axis ? "height" : "width", maximum, cap, active, cfg.effectiveTileWidth); }
+				maximum = (uint32_t)cap; changed = true;
+			}
+		}
+	}
+	if(IsHevc(p->encodeGUID) || IsH264(p->encodeGUID)){
+		NV_ENC_CONFIG_HEVC_VUI_PARAMETERS &v = IsH264(p->encodeGUID)
+			? c->encodeCodecConfig.h264Config.h264VUIParameters : c->encodeCodecConfig.hevcConfig.hevcVUIParameters;
+		const int range = cfg.vuiFullRange >= 0 ? cfg.vuiFullRange : cfg.postPackEnabled ? (cfg.postPackLimitedRange ? 0 : 1) : -1;
+		if(range >= 0 && (v.videoFullRangeFlag != (uint32_t)range || !v.videoSignalTypePresentFlag)){
+			w += snprintf(w, WhatRem(w, what, whatLen), "vuiFullRange %u->%d; ", v.videoFullRangeFlag, range);
+			v.videoFullRangeFlag = (uint32_t)range; v.videoSignalTypePresentFlag = 1; changed = true;
 		}
 		if(cfg.vuiMatrix >= 0 && (uint32_t)v.colourMatrix != (uint32_t)cfg.vuiMatrix){
 			w += snprintf(w, WhatRem(w, what, whatLen), "vuiMatrix %u->%d; ", (uint32_t)v.colourMatrix, cfg.vuiMatrix);
@@ -800,6 +1006,10 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		if(cfg.vuiTransfer >= 0 && (uint32_t)v.transferCharacteristics != (uint32_t)cfg.vuiTransfer){
 			w += snprintf(w, WhatRem(w, what, whatLen), "vuiTransfer %u->%d; ", (uint32_t)v.transferCharacteristics, cfg.vuiTransfer);
 			v.transferCharacteristics = (NV_ENC_VUI_TRANSFER_CHARACTERISTIC)cfg.vuiTransfer;
+			v.colourDescriptionPresentFlag = 1; v.videoSignalTypePresentFlag = 1; changed = true;
+		}
+		if((cfg.vuiMatrix >= 0 || cfg.vuiPrimaries >= 0 || cfg.vuiTransfer >= 0)
+			&& (!v.colourDescriptionPresentFlag || !v.videoSignalTypePresentFlag)){
 			v.colourDescriptionPresentFlag = 1; v.videoSignalTypePresentFlag = 1; changed = true;
 		}
 	}
@@ -819,9 +1029,8 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	// with INVALID_PARAM — the 2026-10-13 H.264/AV1 wedges (status 8 on both
 	// attempts, the pristine retry included).
 	// H.264 is excluded (splitEncodeMode is not applicable to H264): codec==1 skips this branch.
-	if(cfg.splitMode > 0 && !splitRejected.load() && cfg.codec != 1){
-		uint32_t mode = (uint32_t)(std::min)(15, cfg.splitMode);
-		if(mode > 4 && mode != 15){ mode = 1; }
+	if(cfg.splitMode > 0 && !IsH264(p->encodeGUID)){
+		uint32_t mode = (uint32_t)cfg.splitMode;
 		if(ApiMajor(p->version) == 11){
 			// not upgraded: the session was opened before the tap hooked
 			// it, or the 12.1 open was rejected. U0 proved in-place struct
@@ -835,9 +1044,9 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			*initFlags = (snap.initFlags & ~(0xFu << 5)) | (mode << 5);
 			snap.split = true; snap.splitModeApplied = mode; changed = true;
 		}
-	}else if(cfg.splitMode > 0 && !splitRejected.load() && cfg.codec == 1){
+	}else if(cfg.splitMode > 0 && IsH264(p->encodeGUID)){
 		if(h264SplitSkipLogged.fetch_add(1) < 1){
-			DriverLog("NvencTap: split skipped: splitEncodeMode is not applicable to H264 (codec=1)");
+			DriverLog("NvencTap: split not applicable to H.264; saved preference retained and effectiveSplit=-1");
 		}
 	}
 	if(cfg.codec == 1){
@@ -850,29 +1059,47 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		// effective rate: forceFps when set (vrlink's measured-rate
 		// reconfigures otherwise drift gop/idr per reconf - SteamFrame
 		// normalizes first), else the caller's rate.
-		const uint32_t fps = cfg.forceFps > 0 ? (uint32_t)cfg.forceFps : (p->frameRateNum ? p->frameRateNum : 90);
-		if(c->gopLength != fps){ snap.h264GopCaptured = true; snap.h264GopLength = c->gopLength; w += snprintf(w, WhatRem(w, what, whatLen), "gop %u->%u [h264]; ", c->gopLength, fps); c->gopLength = fps; changed = true; }
-		if(c->encodeCodecConfig.h264Config.idrPeriod != fps){ snap.h264IdrCaptured = true; snap.h264IdrPeriod = c->encodeCodecConfig.h264Config.idrPeriod; w += snprintf(w, WhatRem(w, what, whatLen), "idr %u->%u [h264]; ", c->encodeCodecConfig.h264Config.idrPeriod, fps); c->encodeCodecConfig.h264Config.idrPeriod = fps; changed = true; }
+		const uint32_t fps = cfg.forceFps > 0 ? (uint32_t)cfg.forceFps : p->frameRateDen ? (uint32_t)std::floor((double)p->frameRateNum / p->frameRateDen + 0.5) : 0;
+		const uint32_t gop = cfg.h264GopFrames == 0 ? fps : (uint32_t)cfg.h264GopFrames;
+		const uint32_t idr = cfg.h264IdrFrames < 0 ? snap.callerIdrPeriod : cfg.h264IdrFrames == 0 ? fps : (uint32_t)cfg.h264IdrFrames;
+		if(cfg.h264GopFrames >= 0 && c->gopLength != gop){ snap.h264GopCaptured = true; snap.h264GopLength = c->gopLength; w += snprintf(w, WhatRem(w, what, whatLen), "gop %u->%u [h264]; ", c->gopLength, gop); c->gopLength = gop; changed = true; }
+		if(h.idrPeriod != idr){ snap.h264IdrCaptured = true; snap.h264IdrPeriod = c->encodeCodecConfig.h264Config.idrPeriod; w += snprintf(w, WhatRem(w, what, whatLen), "idr %u->%u [h264]; ", h.idrPeriod, idr); h.idrPeriod = idr; changed = true; }
 		// the rest of the SteamFrame H.264 recipe: DPB refs, VUI bitstream
 		// restriction (client buffer allocation), AUD + SPS/PPS every IDR
 		// (client resync), numSlices-in-picture, entropy by session rate
 		// (CAVLC above ~200 Mbit), no filler, no VBV initial delay.
-		if(h.maxNumRefFrames != 3){ w += snprintf(w, WhatRem(w, what, whatLen), "refs %u->3 [h264]; ", h.maxNumRefFrames); h.maxNumRefFrames = 3; changed = true; }
-		if(h.h264VUIParameters.bitstreamRestrictionFlag != 1){ w += snprintf(w, WhatRem(w, what, whatLen), "vuiRestrict %u->1 [h264]; ", h.h264VUIParameters.bitstreamRestrictionFlag); h.h264VUIParameters.bitstreamRestrictionFlag = 1; changed = true; }
-		if(h.outputAUD != 1){ w += snprintf(w, WhatRem(w, what, whatLen), "aud %u->1 [h264]; ", h.outputAUD); h.outputAUD = 1; changed = true; }
-		if(h.repeatSPSPPS != 1){ w += snprintf(w, WhatRem(w, what, whatLen), "repeatSPS %u->1 [h264]; ", h.repeatSPSPPS); h.repeatSPSPPS = 1; changed = true; }
-		if(h.disableSPSPPS != 0){ w += snprintf(w, WhatRem(w, what, whatLen), "disableSPS %u->0 [h264]; ", h.disableSPSPPS); h.disableSPSPPS = 0; changed = true; }
-		if(h.sliceMode != 3){ w += snprintf(w, WhatRem(w, what, whatLen), "slice %u->3 [h264]; ", h.sliceMode); h.sliceMode = 3; changed = true; }
-		if(h.sliceModeData != 1){ w += snprintf(w, WhatRem(w, what, whatLen), "sliceData %u->1 [h264]; ", h.sliceModeData); h.sliceModeData = 1; changed = true; }
+		if(h.maxNumRefFrames != (uint32_t)cfg.h264RefFrames){ w += snprintf(w, WhatRem(w, what, whatLen), "maxNumRefFrames %u->%d [h264]; ", h.maxNumRefFrames, cfg.h264RefFrames); h.maxNumRefFrames = (uint32_t)cfg.h264RefFrames; changed = true; }
+		if(h.h264VUIParameters.bitstreamRestrictionFlag != (uint32_t)cfg.h264BitstreamRestriction){ w += snprintf(w, WhatRem(w, what, whatLen), "h264BitstreamRestriction %u->%u; ", h.h264VUIParameters.bitstreamRestrictionFlag, (unsigned)cfg.h264BitstreamRestriction); h.h264VUIParameters.bitstreamRestrictionFlag = cfg.h264BitstreamRestriction ? 1u : 0u; changed = true; }
+		if(h.outputAUD != (uint32_t)cfg.h264Aud){ w += snprintf(w, WhatRem(w, what, whatLen), "h264Aud %u->%u; ", h.outputAUD, (unsigned)cfg.h264Aud); h.outputAUD = cfg.h264Aud ? 1u : 0u; changed = true; }
+		if(h.repeatSPSPPS != (uint32_t)cfg.h264RepeatHeaders){ w += snprintf(w, WhatRem(w, what, whatLen), "h264RepeatHeaders %u->%u; ", h.repeatSPSPPS, (unsigned)cfg.h264RepeatHeaders); h.repeatSPSPPS = cfg.h264RepeatHeaders ? 1u : 0u; changed = true; }
+		if(h.disableSPSPPS != (uint32_t)cfg.h264DisableHeaders){ w += snprintf(w, WhatRem(w, what, whatLen), "h264DisableHeaders %u->%u; ", h.disableSPSPPS, (unsigned)cfg.h264DisableHeaders); h.disableSPSPPS = cfg.h264DisableHeaders ? 1u : 0u; changed = true; }
+		if(h.sliceMode != (uint32_t)cfg.h264SliceMode){ w += snprintf(w, WhatRem(w, what, whatLen), "sliceMode %u->%d [h264]; ", h.sliceMode, cfg.h264SliceMode); h.sliceMode = (uint32_t)cfg.h264SliceMode; changed = true; }
+		if(h.sliceModeData != (uint32_t)cfg.h264SliceData){ w += snprintf(w, WhatRem(w, what, whatLen), "sliceModeData %u->%d [h264]; ", h.sliceModeData, cfg.h264SliceData); h.sliceModeData = (uint32_t)cfg.h264SliceData; changed = true; }
 		// entropy by session rate: deterministic from the configured target
 		// (cfg.bitrateMbit), not the caller's pre-override rc value — the
 		// avg-bitrate override below would otherwise leave init at CABAC and
 		// only a later reconfigure at CAVLC.
 		const uint32_t rateMbit = cfg.bitrateMbit > 0 ? (uint32_t)cfg.bitrateMbit : (uint32_t)(c->rcParams.averageBitRate / 1000000u);
-		const NV_ENC_H264_ENTROPY_CODING_MODE ent = rateMbit > 200u ? NV_ENC_H264_ENTROPY_CODING_MODE_CAVLC : NV_ENC_H264_ENTROPY_CODING_MODE_CABAC;
+		const NV_ENC_H264_ENTROPY_CODING_MODE ent = (cfg.h264Entropy == 2 || (cfg.h264Entropy == 0 && rateMbit > 200u)) ? NV_ENC_H264_ENTROPY_CODING_MODE_CAVLC : NV_ENC_H264_ENTROPY_CODING_MODE_CABAC;
 		if(h.entropyCodingMode != ent){ w += snprintf(w, WhatRem(w, what, whatLen), "entropy %u->%u [h264]; ", (uint32_t)h.entropyCodingMode, (uint32_t)ent); h.entropyCodingMode = ent; changed = true; }
+		// the recipe-internal filler pin, restored from the pre-0cf0cf7
+		// commit (its codec 1 recipe kept the bit at 0; kept here so H.264
+		// output stays byte-identical to that era): a caller-carried bit is
+		// pinned back to 0.
 		if(h.enableFillerDataInsertion != 0){ w += snprintf(w, WhatRem(w, what, whatLen), "filler %u->0 [h264]; ", h.enableFillerDataInsertion); h.enableFillerDataInsertion = 0; changed = true; }
-		if(c->rcParams.vbvInitialDelay != 0){ w += snprintf(w, WhatRem(w, what, whatLen), "vbvInitDelay %u->0 [h264]; ", c->rcParams.vbvInitialDelay); c->rcParams.vbvInitialDelay = 0; changed = true; }
+		if(c->rcParams.vbvInitialDelay != (uint32_t)cfg.h264VbvInitialDelay){ w += snprintf(w, WhatRem(w, what, whatLen), "vbvInitDelay %u->%d [h264]; ", c->rcParams.vbvInitialDelay, cfg.h264VbvInitialDelay); c->rcParams.vbvInitialDelay = (uint32_t)cfg.h264VbvInitialDelay; changed = true; }
+	}
+	if(cfg.multiPass >= 0 && c->rcParams.multiPass != (NV_ENC_MULTI_PASS)cfg.multiPass){
+		w += snprintf(w, WhatRem(w, what, whatLen), "multipass %u->%d [explicit]; ", (unsigned)c->rcParams.multiPass, cfg.multiPass);
+		c->rcParams.multiPass = (NV_ENC_MULTI_PASS)cfg.multiPass; changed = true;
+	}
+	if(CodecOfGuid(p->encodeGUID) == 2){
+		auto& a = c->encodeCodecConfig.av1Config;
+		const int range = cfg.vuiFullRange >= 0 ? cfg.vuiFullRange : cfg.postPackEnabled ? (cfg.postPackLimitedRange ? 0 : 1) : -1;
+		if(range >= 0 && a.colorRange != (uint32_t)range){ a.colorRange = range; changed = true; }
+		if(cfg.vuiMatrix >= 0 && a.matrixCoefficients != (NV_ENC_VUI_MATRIX_COEFFS)cfg.vuiMatrix){ a.matrixCoefficients = (NV_ENC_VUI_MATRIX_COEFFS)cfg.vuiMatrix; changed = true; }
+		if(cfg.vuiPrimaries >= 0 && a.colorPrimaries != (NV_ENC_VUI_COLOR_PRIMARIES)cfg.vuiPrimaries){ a.colorPrimaries = (NV_ENC_VUI_COLOR_PRIMARIES)cfg.vuiPrimaries; changed = true; }
+		if(cfg.vuiTransfer >= 0 && a.transferCharacteristics != (NV_ENC_VUI_TRANSFER_CHARACTERISTIC)cfg.vuiTransfer){ a.transferCharacteristics = (NV_ENC_VUI_TRANSFER_CHARACTERISTIC)cfg.vuiTransfer; changed = true; }
 	}
 	if(cfg.forceFps > 0 && (p->frameRateNum != (uint32_t)cfg.forceFps || p->frameRateDen != 1)){
 		w += snprintf(w, WhatRem(w, what, whatLen), "fps %u/%u->%d/1; ", p->frameRateNum, p->frameRateDen, cfg.forceFps);
@@ -887,15 +1114,15 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			target = (int64_t)((double)rc.averageBitRate * (double)cfg.bitrateMbit / (double)cfg.vrlinkClampMbit);
 			target = (std::min<int64_t>)(target, cfg.bitrateMbit * 1000000ll);
 		}
-		uint32_t avg = (uint32_t)(std::min<int64_t>)(target, 2000000000ll);
-		double head = 1.0 + (std::max)(0, cfg.maxBitrateHeadroomPct) / 100.0;
-		uint32_t mx = (uint32_t)(std::min<double>)(avg * head, 2000000000.0);
+		uint32_t avg = (uint32_t)target;
+		double head = 1.0 + cfg.maxBitrateHeadroomPct / 100.0;
+		uint32_t mx = (uint32_t)(avg * head);
 		if(rc.averageBitRate != avg || rc.maxBitRate != mx){
 			double ratio = rc.averageBitRate ? (double)avg / rc.averageBitRate : 1.0;
 			w += snprintf(w, WhatRem(w, what, whatLen), "avg %.0fM->%.0fM max %.0fM->%.0fM; ", rc.averageBitRate / 1e6, avg / 1e6, rc.maxBitRate / 1e6, mx / 1e6);
 			rc.averageBitRate = avg;
 			rc.maxBitRate = mx;
-			if(rc.vbvBufferSize){ rc.vbvBufferSize = (uint32_t)(std::min<double>)(rc.vbvBufferSize * ratio, 2000000000.0); }
+			if(rc.vbvBufferSize){ rc.vbvBufferSize = (uint32_t)(rc.vbvBufferSize * ratio); }
 			changed = true;
 		}
 	}
@@ -908,7 +1135,7 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		// nominal rate, never vrlink's per-call estimate (see forceFps)
 		double fps = cfg.forceFps > 0 ? (double)cfg.forceFps : 90.0;
 		int vbvFr = cfg.vbvFrames;
-		uint32_t vbv = (uint32_t)(std::min<double>)(rc.averageBitRate / fps * vbvFr, 2000000000.0);
+		uint32_t vbv = (uint32_t)(rc.averageBitRate / fps * vbvFr);
 		if(vbv && rc.vbvBufferSize != vbv){
 			w += snprintf(w, WhatRem(w, what, whatLen), "vbv %.2fM->%.2fM(%d fr); ", rc.vbvBufferSize / 1e6, vbv / 1e6, vbvFr);
 			rc.vbvBufferSize = vbv; changed = true;
@@ -916,25 +1143,26 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	}
 	if(cfg.maxQp > 0){
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
-		uint32_t q = (uint32_t)(std::min)(51, cfg.maxQp);
-		if(!rc.enableMaxQP || rc.maxQP.qpInterP != q){
+		uint32_t q = (uint32_t)cfg.maxQp;
+		if(!rc.enableMaxQP || rc.maxQP.qpInterP != q || rc.maxQP.qpInterB != q || rc.maxQP.qpIntra != q){
 			w += snprintf(w, WhatRem(w, what, whatLen), "maxQP %u(%u)->%u; ", rc.enableMaxQP, rc.maxQP.qpInterP, q);
 			rc.enableMaxQP = 1; rc.maxQP.qpInterP = q; rc.maxQP.qpInterB = q; rc.maxQP.qpIntra = q; changed = true;
 		}
 	}
 	if(cfg.minQp > 0 || cfg.minQpIntra > 0){
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
-		uint32_t q = (uint32_t)(std::min)(51, cfg.minQp > 0 ? cfg.minQp : 1);
-		uint32_t qi = (uint32_t)(std::min)(51, cfg.minQpIntra > 0 ? cfg.minQpIntra : (int)q);
-		if(!rc.enableMinQP || rc.minQP.qpInterP != q || rc.minQP.qpIntra != qi){
+		uint32_t q = cfg.minQp > 0 ? (uint32_t)cfg.minQp : rc.minQP.qpInterP;
+		uint32_t qb = cfg.minQp > 0 ? (uint32_t)cfg.minQp : rc.minQP.qpInterB;
+		uint32_t qi = (uint32_t)(cfg.minQpIntra > 0 ? cfg.minQpIntra : (int)q);
+		if(!rc.enableMinQP || rc.minQP.qpInterP != q || rc.minQP.qpInterB != qb || rc.minQP.qpIntra != qi){
 			w += snprintf(w, WhatRem(w, what, whatLen), "minQP %u(P%u/I%u)->P%u/I%u; ", rc.enableMinQP, rc.minQP.qpInterP, rc.minQP.qpIntra, q, qi);
-			rc.enableMinQP = 1; rc.minQP.qpInterP = q; rc.minQP.qpInterB = q; rc.minQP.qpIntra = qi; changed = true;
+			rc.enableMinQP = 1; rc.minQP.qpInterP = q; rc.minQP.qpInterB = qb; rc.minQP.qpIntra = qi; changed = true;
 		}
 	}
 	if(cfg.forceCbr){
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
-		uint8_t kf = (uint8_t)(std::max)(1, (std::min)(4, cfg.lowDelayKfScale));
-		if(rc.rateControlMode != NV_ENC_PARAMS_RC_CBR || rc.lowDelayKeyFrameScale != kf){
+		uint8_t kf = (uint8_t)cfg.lowDelayKfScale;
+		if(rc.rateControlMode != NV_ENC_PARAMS_RC_CBR || rc.lowDelayKeyFrameScale != kf || rc.maxBitRate != rc.averageBitRate){
 			w += snprintf(w, WhatRem(w, what, whatLen), "rc %s->CBR lowDelayKF %u->%u; ", RcName(rc.rateControlMode), rc.lowDelayKeyFrameScale, (unsigned)kf);
 			rc.rateControlMode = NV_ENC_PARAMS_RC_CBR; rc.lowDelayKeyFrameScale = kf;
 			if(rc.maxBitRate != rc.averageBitRate){ rc.maxBitRate = rc.averageBitRate; }
@@ -943,7 +1171,7 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	}
 	if(cfg.aqStrength > 0){
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
-		uint32_t s = (uint32_t)(std::min)(15, cfg.aqStrength);
+		uint32_t s = (uint32_t)cfg.aqStrength;
 		if(!rc.enableAQ || rc.aqStrength != s){
 			w += snprintf(w, WhatRem(w, what, whatLen), "AQ %u(%u)->on(%u); ", rc.enableAQ, rc.aqStrength, s);
 			rc.enableAQ = 1; rc.aqStrength = s; changed = true;
@@ -953,32 +1181,19 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 }
 
 void Restore(const Snapshot &snap){
-	if(!snap.valid || !snap.cfgPtr){ return; }
+	if(!snap.valid || !snap.cfgPtr || !snap.initPtr){ return; }
 	snap.cfgPtr->rcParams = snap.rc;
-	if(snap.codecSwapped && snap.initPtr){
-		snap.initPtr->encodeGUID = snap.codecGuid;
-		snap.cfgPtr->profileGUID = snap.codecProfile;
-		memcpy(&snap.cfgPtr->encodeCodecConfig, snap.codecWindow, sizeof(snap.codecWindow));
-	}
-	if(snap.initPtr){ snap.initPtr->presetGUID = snap.preset; snap.initPtr->frameRateNum = snap.fpsNum; snap.initPtr->frameRateDen = snap.fpsDen; snap.initPtr->tuningInfo = (NV_ENC_TUNING_INFO)snap.tuning; }
-	if(snap.split && snap.initPtr){
-		snap.initPtr->version = snap.initVer; snap.cfgPtr->version = snap.cfgVer; snap.cfgPtr->rcParams.version = snap.rcVer; // no-ops on the native path
+	snap.initPtr->encodeGUID = snap.codecGuid;
+	snap.cfgPtr->profileGUID = snap.codecProfile;
+	memcpy(&snap.cfgPtr->encodeCodecConfig, snap.codecWindow, sizeof(snap.codecWindow));
+	snap.cfgPtr->gopLength = snap.h264GopLength;
+	snap.initPtr->presetGUID = snap.preset;
+	snap.initPtr->frameRateNum = snap.fpsNum; snap.initPtr->frameRateDen = snap.fpsDen;
+	snap.initPtr->maxEncodeWidth = snap.maxEncodeWidth; snap.initPtr->maxEncodeHeight = snap.maxEncodeHeight;
+	snap.initPtr->tuningInfo = (NV_ENC_TUNING_INFO)snap.tuning;
+	if(snap.split){
+		snap.initPtr->version = snap.initVer; snap.cfgPtr->version = snap.cfgVer;
 		*((uint32_t*)&snap.initPtr->enablePTD + 1) = snap.initFlags;
-	}
-	if(snap.maxEncodeClamped && snap.initPtr){
-		snap.initPtr->maxEncodeWidth = snap.maxEncodeW;
-		snap.initPtr->maxEncodeHeight = snap.maxEncodeH;
-	}
-	if(snap.h264GopCaptured){ snap.cfgPtr->gopLength = snap.h264GopLength; }
-	// idrPeriod lives inside the codecWindow union; a swapped call restores it wholesale
-	if(snap.h264IdrCaptured && !snap.codecSwapped){ snap.cfgPtr->encodeCodecConfig.h264Config.idrPeriod = snap.h264IdrPeriod; }
-	// the H.264 codec-window group; a swapped call restores the union wholesale
-	if(snap.h264CfgCaptured && !snap.codecSwapped){ snap.cfgPtr->encodeCodecConfig.h264Config = snap.h264Cfg; }
-	if(snap.hevc){
-		snap.cfgPtr->encodeCodecConfig.hevcConfig.level = snap.hevcLevel;
-		snap.cfgPtr->encodeCodecConfig.hevcConfig.tier = snap.hevcTier;
-		snap.cfgPtr->encodeCodecConfig.hevcConfig.maxNumRefFramesInDPB = snap.hevcRefs;
-		snap.cfgPtr->encodeCodecConfig.hevcConfig.hevcVUIParameters = snap.hevcVui;
 	}
 }
 
@@ -1007,98 +1222,168 @@ void RecordLast(const NV_ENC_INITIALIZE_PARAMS* p){
 	}
 }
 
-// common body for init and reconfigure: override -> call -> restore ->
-// retry pristine on failure
+// Validate explicit values before writing caller-owned memory. Capability errors
+// are returned unchanged by NVENC; invalid settings are reported, never coerced.
+std::string ValidateQpMap(const NvencTapConfig& cfg){
+	if(cfg.qpFovea < -128 || cfg.qpFovea > 127 || cfg.qpPeriphery < -128 || cfg.qpPeriphery > 127){
+		return "streamFrame.nvencQpFovea/nvencQpPeriphery must fit the NVENC signed-byte map (-128..127).";
+	}
+	if(!std::isfinite(cfg.qpEdgeFalloff) || cfg.qpEdgeFalloff < 0 || cfg.qpEdgeFalloff > 1){
+		return "streamFrame.postPack.edgeFalloff must be a finite fraction from 0 to 1.";
+	}
+	return {};
+}
+std::string ValidateRequest(const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_PARAMS* p, bool initializing = false){
+	if(!cfg.enabled){ return {}; }
+	if(!cfg.requestError.empty()){ return cfg.requestError; }
+	if(cfg.effectiveTileWidth <= 0 || (uint64_t)cfg.effectiveTileWidth * 4u > (std::numeric_limits<uint32_t>::max)()){
+		return "streamFrame.streamFormatWidth must be positive and its four-tile height must fit the NVENC uint32 dimension.";
+	}
+	// Initial dimensions may describe the allocation envelope; enforce the
+	// packed picture at reconfiguration and actual non-EOS submission.
+	if(!initializing && cfg.enforceTile && p && (p->encodeWidth != (uint32_t)cfg.effectiveTileWidth || p->encodeHeight != (uint32_t)cfg.effectiveTileWidth * 4u)){
+		std::ostringstream error;
+		error << "Requested stream geometry (streamFrame.streamFormatWidth) " << cfg.effectiveTileWidth << 'x' << (uint64_t)cfg.effectiveTileWidth * 4u
+			<< " differs from negotiated NVENC geometry " << p->encodeWidth << 'x' << p->encodeHeight
+			<< "; refusing a stream geometry mismatch. Fix streamFrame.streamFormatWidth or reconnect after correcting the requested geometry or device capability.";
+		return error.str();
+	}
+	// 2026-10-16: the QP-map checks apply only when the map is actually
+	// configured (the per-frame encode path validates the same way); an
+	// unconfigured map can no longer refuse a session.
+	if(QpMapWanted(cfg)){
+		const std::string invalidQpMap = ValidateQpMap(cfg);
+		if(!invalidQpMap.empty()){ return invalidQpMap; }
+	}
+	if(!p || !p->encodeConfig){
+		// 2026-10-16 restore (pre-0cf0cf7 behavior): initialization or a
+		// reconfigure without an explicit encodeConfig is valid NVENC usage
+		// (the request is built from the preset GUID): observe-only — the
+		// call passes through after explicit active-geometry validation;
+		// no codec substitution runs on this path.
+		if(observeOnlyLogged.fetch_add(1) < 1){
+			DriverLog("NvencTap: request without an explicit encodeConfig: observe-only pass-through (no overrides attempted, success still recorded)");
+		}
+		return {};
+	}
+	if(!ApiSupported(ApiMajor(p->version)) || !ApiSupported(ApiMajor(p->encodeConfig->version))){ return "Unsupported NVENC structure version for explicit settings."; }
+	if(cfg.codec < 0 || cfg.codec > 2){ return "streamFrame.nvencCodec must be 0 (HEVC), 1 (H.264) or 2 (AV1)."; }
+	if(cfg.codec == 2 && ApiMajor(p->version) < 12){ return "streamFrame.nvencCodec=2 (AV1) requires an accepted NVENC API 12.1 session upgrade."; }
+	if(cfg.codec > 0 && !IsHevc(p->encodeGUID) && CodecOfGuid(p->encodeGUID) != cfg.codec){ return "streamFrame.nvencCodec cannot be applied to this caller codec."; }
+	if(cfg.splitMode < 0 || (cfg.splitMode > 4 && cfg.splitMode != 15)){ return "streamFrame.nvencSplitMode must be 0, 1, 2, 3, 4 or 15."; }
+	if(cfg.splitMode > 0 && cfg.codec != 1 && !IsH264(p->encodeGUID) && (ApiMajor(p->version) < 12 || StructVer(p->version) < 6)){ return "streamFrame.nvencSplitMode requires NVENC API 12.1 initialization parameters."; }
+	if(cfg.preset < 0 || cfg.preset > 7 || cfg.multiPass < -1 || cfg.multiPass > 2){ return "streamFrame.nvencPreset must be 0..7 and streamFrame.nvencMultiPass must be -1..2."; }
+	if(cfg.forceFps < 0 || cfg.bitrateMbit < 0 || cfg.vbvFrames < 0 || cfg.maxBitrateHeadroomPct < 0){ return "streamFrame.nvencForceFps, streamFrame.nvencBitrateMbit, streamFrame.nvencVbvFrames and streamFrame.nvencMaxBitrateHeadroomPct cannot be negative."; }
+	if(cfg.bitrateScale && cfg.bitrateMbit > 0 && cfg.vrlinkClampMbit <= 0){ return "Bitrate scaling (streamFrame.nvencBitrateScale) requires a positive streamFrame.nvencVrlinkClampMbit."; }
+	const double maxValue = (double)(std::numeric_limits<uint32_t>::max)();
+	const double bitrate = cfg.bitrateMbit > 0 ? cfg.bitrateMbit * 1000000.0 : p->encodeConfig->rcParams.averageBitRate;
+	if(bitrate * (1.0 + cfg.maxBitrateHeadroomPct / 100.0) > maxValue){ return "streamFrame.nvencBitrateMbit with streamFrame.nvencMaxBitrateHeadroomPct exceeds the NVENC uint32 bit-rate field."; }
+	if(cfg.vbvFrames > 0 && bitrate / (cfg.forceFps > 0 ? cfg.forceFps : 90.0) * cfg.vbvFrames > maxValue){ return "streamFrame.nvencVbvFrames at this streamFrame.nvencBitrateMbit exceeds the NVENC uint32 field."; }
+	if(cfg.bitrateMbit > 0 && p->encodeConfig->rcParams.averageBitRate > 0 && p->encodeConfig->rcParams.vbvBufferSize * (bitrate / p->encodeConfig->rcParams.averageBitRate) > maxValue){ return "The scaled VBV buffer (streamFrame.nvencVbvFrames with streamFrame.nvencBitrateMbit) exceeds the NVENC uint32 field."; }
+	if(cfg.maxQp < 0 || cfg.minQp < 0 || cfg.minQpIntra < 0){ return "streamFrame.nvencMaxQp, streamFrame.nvencMinQp and streamFrame.nvencMinQpIntra must be nonnegative; NVENC validates the codec-specific range."; }
+	if(cfg.maxQp > 0 && (cfg.minQp > cfg.maxQp || cfg.minQpIntra > cfg.maxQp)){ return "streamFrame.nvencMinQp/streamFrame.nvencMinQpIntra exceed streamFrame.nvencMaxQp."; }
+	if(cfg.aqStrength < 0 || cfg.aqStrength > 15 || (cfg.forceCbr && (cfg.lowDelayKfScale < 0 || cfg.lowDelayKfScale > 255))){ return "streamFrame.nvencAqStrength must fit 4 bits (0..15) and streamFrame.nvencLowDelayKfScale a byte (0..255) while streamFrame.nvencForceCbr is on."; }
+	if(cfg.vuiFullRange < -1 || cfg.vuiFullRange > 1 || cfg.vuiMatrix < -1 || cfg.vuiMatrix > 255 || cfg.vuiPrimaries < -1 || cfg.vuiPrimaries > 255 || cfg.vuiTransfer < -1 || cfg.vuiTransfer > 255){ return "Invalid streamFrame.nvencVuiFullRange/nvencVuiMatrix/nvencVuiPrimaries/nvencVuiTransfer value."; }
+	if(cfg.postPackEnabled && cfg.vuiFullRange >= 0 && cfg.vuiFullRange != (cfg.postPackLimitedRange ? 0 : 1)){ return "streamFrame.nvencVuiFullRange conflicts with streamFrame.postPack.limitedRange; change the range request or the post-pack output."; }
+	if(cfg.codec == 1){
+		if(cfg.h264GopFrames < -1 || cfg.h264IdrFrames < -1 || cfg.h264RefFrames < 0 || cfg.h264RefFrames > 16
+			|| cfg.h264Entropy < 0 || cfg.h264Entropy > 2 || cfg.h264SliceMode < 0 || cfg.h264SliceMode > 3
+			|| cfg.h264SliceData < 0 || cfg.h264VbvInitialDelay < 0){ return "Invalid streamFrame.nvencH264 recipe value (GOP, IDR, references, entropy, slices or initial VBV delay)."; }
+		if((cfg.h264GopFrames == 0 || cfg.h264IdrFrames == 0) && cfg.forceFps == 0
+			&& (!p->frameRateNum || !p->frameRateDen || (double)p->frameRateNum / p->frameRateDen < 0.5)){ return "Automatic streamFrame.nvencH264GopFrames/nvencH264IdrFrames requires a valid nonzero rational frame rate (streamFrame.nvencForceFps or the caller's rate)."; }
+	}
+	return {};
+}
+
+// One requested configuration, one NVENC call, unconditional restoration.
+// A failed explicit override must never become a successful HEVC fallback.
 template<typename Call>
 NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p, Call call, bool logThis,
 		uint32_t &calls, uint32_t &overridden, uint32_t &failedThenOk, uint32_t &failed, uint32_t* failedStock,
-		uint32_t* outerVersion = nullptr){
-	NvencTapConfig cfg = NvencTap::Get().GetConfig();
-	{ std::lock_guard<std::mutex> g(statsLock); calls++; }
+		uint32_t* outerVersion = nullptr, bool initializing = false){
+	(void)failedThenOk; (void)outerVersion;
+	const NvencTapConfig cfg = NvencTap::Get().GetConfig();
+	{ std::lock_guard<std::mutex> guard(statsLock); calls++; }
 	RecordRequest(p);
 	if(logThis){ Describe(tag, p, cfg.verbose); }
-	if(!ApiSupported(ApiMajor(p->version))){
-		if(!versionWarned.exchange(true)){
-			DriverLog("NvencTap: unsupported NVENC API major %u (struct version 0x%08x) — observe only", ApiMajor(p->version), p->version);
+	const std::string callerGeometry = p ? std::to_string(p->encodeWidth) + "x" + std::to_string(p->encodeHeight)
+		+ " max=" + std::to_string(p->maxEncodeWidth) + "x" + std::to_string(p->maxEncodeHeight) : "null";
+	const auto fail = [&](NVENCSTATUS status, std::string error){
+		if(initializing && p){
+			error += " | caller init: " + callerGeometry + " | applied init: " + std::to_string(p->encodeWidth) + "x" + std::to_string(p->encodeHeight)
+				+ " max=" + std::to_string(p->maxEncodeWidth) + "x" + std::to_string(p->maxEncodeHeight)
+				+ " api=" + std::to_string(p->version) + " format=" + std::to_string((uint32_t)p->bufferFormat);
 		}
-		RecordLast(p);
-		NVENCSTATUS stObserve = call();
-		if(stObserve == NV_ENC_SUCCESS){ SetSessionCodec(encoder, CodecOfGuid(p->encodeGUID)); }
-		return stObserve;
+		PublishFailure(encoder, cfg, status, error, initializing);
+	};
+	const std::string invalid = ValidateRequest(cfg, p, initializing);
+	if(!invalid.empty()){
+		fail(NV_ENC_ERR_INVALID_PARAM, invalid);
+		std::lock_guard<std::mutex> guard(statsLock); failed++;
+		return NV_ENC_ERR_INVALID_PARAM;
 	}
-	Snapshot snap; char what[256];
-	bool changed = cfg.enabled && ApplyOverrides(encoder, p, cfg, snap, what, sizeof(what));
-	if(changed){
-		if(logThis){ DriverLog("NvencTap: %s override: %s", tag, what); }
-		RecordLast(p);
-		uint32_t outerSaved = 0;
-		if(snap.split && outerVersion){ outerSaved = *outerVersion; *outerVersion = kReconf121; }
-		const int effCodec = CodecOfGuid(p->encodeGUID);
-		NVENCSTATUS st = call();
-		Restore(snap);
-		if(snap.split && outerVersion){ *outerVersion = outerSaved; }
-		if(st == NV_ENC_SUCCESS){
-			SetSessionCodec(encoder, effCodec);
-			std::lock_guard<std::mutex> g(statsLock); overridden++;
-			if(snap.split){ stats.splitApplied++; if(stats.splitState != 1){ stats.splitState = 1; DriverLog("NvencTap: SPLIT-FRAME: 12.1-versioned structs ACCEPTED by the 11.1 session on %s — explicit split mode is live", tag); } }
-			return st;
-		}
-		if(snap.split){
-			splitRejected.store(true);
-			{ std::lock_guard<std::mutex> g(statsLock); stats.splitState = 2; stats.splitStatus = (uint32_t)st; }
-			DriverLog("NvencTap: SPLIT-FRAME: %s REJECTED the 12.1-versioned structs (status %u%s) — latched off for this session; other overrides continue", tag, (unsigned)st,
-				st == NV_ENC_ERR_INVALID_VERSION ? " = INVALID_VERSION: the session is pinned to its 11.1 apiVersion, next step is bumping nvEncOpenEncodeSessionEx" : "");
-		}
-		if(origGetLastErrorString){
-			const char* le = origGetLastErrorString(encoder);
-			if(le && *le){ DriverLog("NvencTap: %s override failure detail: %s", tag, le); }
-		}
-		DriverLog("NvencTap: %s WITH override failed (%u) — retrying with vrlink's pristine params", tag, (unsigned)st);
-		// The retry should resemble a working session: every tap-enabled
-		// session carries the forced split bits. Keep them on the retry too,
-		// but only on the init path — a reconfigure retry runs with its outer
-		// 11.1 version restored, where those bits are reserved-and-zero.
-		uint32_t* retryFlags = (!outerVersion && snap.initPtr) ? ((uint32_t*)&snap.initPtr->enablePTD + 1) : nullptr;
-		if(snap.split && retryFlags && snap.splitModeApplied){
-			*retryFlags = (snap.initFlags & ~(0xFu << 5)) | (snap.splitModeApplied << 5);
-		}
-		const int retryCodec = CodecOfGuid(p->encodeGUID);
-		NVENCSTATUS st2 = call();
-		if(snap.split && retryFlags){ *retryFlags = snap.initFlags; }
-		bool retryFailed;
-		{
-			std::lock_guard<std::mutex> g(statsLock);
-			if(st2 == NV_ENC_SUCCESS){ failedThenOk++; retryFailed = false; } else { failed++; retryFailed = true; }
-		}
-		if(st2 == NV_ENC_SUCCESS){ SetSessionCodec(encoder, retryCodec); }
-		if(retryFailed){
-			DriverLog("NvencTap: %s pristine retry ALSO failed (%u) — encoder left dead upstream, stream will wedge", tag, (unsigned)st2);
-			if(origGetLastErrorString){
-				const char* le = origGetLastErrorString(encoder);
-				if(le && *le){ DriverLog("NvencTap: %s pristine retry detail: %s", tag, le); }
-			}
-		}
-		return st2;
+	Snapshot snap; char what[256] = {};
+	const bool changed = cfg.enabled && ApplyOverrides(encoder, p, cfg, snap, what, sizeof(what));
+	if(!snap.error.empty()){
+		fail(NV_ENC_ERR_INVALID_PARAM, snap.error); Restore(snap);
+		std::lock_guard<std::mutex> guard(statsLock); failed++;
+		return NV_ENC_ERR_INVALID_PARAM;
 	}
+	if(changed && logThis){ DriverLog("NvencTap: %s override: %s", tag, what); }
 	RecordLast(p);
-	const int stockCodec = CodecOfGuid(p->encodeGUID);
-	NVENCSTATUS st = call();
-	if(st == NV_ENC_SUCCESS){ SetSessionCodec(encoder, stockCodec); }
-	if(st != NV_ENC_SUCCESS){
-		std::lock_guard<std::mutex> g(statsLock);
-		if(failedStock){ (*failedStock)++; } else { failed++; }
+	const int effectiveCodec = CodecOfGuid(p->encodeGUID);
+	const NVENCSTATUS status = call();
+	if(status == NV_ENC_SUCCESS){
+		SetSessionCodec(encoder, effectiveCodec);
+		PublishSuccess(encoder, cfg, p, initializing);
+	}else{
+		// 2026-10-16: failures must name the NVENC status number and the
+		// request itself — nvEncGetLastErrorString often returns useless
+		// text ("Success.") and early calls can precede a working log sink,
+		// so the persisted error state carries the full context.
+		std::string error = std::string(tag) + " rejected the requested configuration (NVENC status " + std::to_string((unsigned)status) + ")";
+		if(origGetLastErrorString){ const char* detail = origGetLastErrorString(encoder); if(detail && *detail){ error += ": "; error += detail; } }
+		error += " | request: " + RequestDescription(cfg);
+		fail(status, error);
 	}
-	return st;
+	Restore(snap);
+	{
+		std::lock_guard<std::mutex> guard(statsLock);
+		if(status == NV_ENC_SUCCESS){
+			if(changed){ overridden++; }
+			if(snap.split){ stats.splitApplied++; stats.splitState = 1; stats.splitStatus = 0; }
+		}else{
+			if(!cfg.enabled && failedStock){ (*failedStock)++; }else{ failed++; }
+			if(snap.split){ stats.splitState = 2; stats.splitStatus = (uint32_t)status; }
+		}
+	}
+	return status;
 }
 
 } // namespace
 
 // ---------------------------------------------------------------------------
 NVENCSTATUS NVENCAPI NvencTapShims::InitializeEncoder(void* encoder, NV_ENC_INITIALIZE_PARAMS* params){
-	if(!params){ return origInitializeEncoder(encoder, params); }
+	if(!params){
+		const NVENCSTATUS status = origInitializeEncoder(encoder, params);
+		if(status != NV_ENC_SUCCESS){ PublishFailure(encoder, NvencTap::Get().GetConfig(), status, "nvEncInitializeEncoder rejected null parameters (NVENC status " + std::to_string((unsigned)status) + ")", true); }
+		return status;
+	}
 	// re-tag first so the caps probe below and Guarded see the session's version
 	Retag rt; if(Upgraded(encoder)){ RetagInitParams(rt, params); }
-	if(!NvencTap::Get().GetConfig().enabled){ return origInitializeEncoder(encoder, params); }
+	const NvencTapConfig initConfig = NvencTap::Get().GetConfig();
+	if(!initConfig.enabled){
+		const NVENCSTATUS status = origInitializeEncoder(encoder, params);
+		if(status == NV_ENC_SUCCESS){ SetSessionCodec(encoder, CodecOfGuid(params->encodeGUID)); PublishSuccess(encoder, initConfig, params, true); }
+		else{
+			std::string error = "nvEncInitializeEncoder failed with tap OFF (NVENC status " + std::to_string((unsigned)status) + ")";
+			if(origGetLastErrorString){ const char* detail = origGetLastErrorString(encoder); if(detail && *detail){ error += ": "; error += detail; } }
+			error += " | init: " + std::to_string(params->encodeWidth) + "x" + std::to_string(params->encodeHeight)
+				+ " max=" + std::to_string(params->maxEncodeWidth) + "x" + std::to_string(params->maxEncodeHeight);
+			PublishFailure(encoder, initConfig, status, error, true);
+		}
+		return status;
+	}
 	// one-shot: how many NVENC engines does this session see (NV_ENC_CAPS_
 	// NUM_ENCODER_ENGINES is a 12.0 enum value; NV_ENC_CAPS_PARAM itself is
 	// unchanged since 11.1, so we ask with the caller's own struct version)
@@ -1107,21 +1392,27 @@ NVENCSTATUS NVENCAPI NvencTapShims::InitializeEncoder(void* encoder, NV_ENC_INIT
 		cp.version = ((params->version & 0xFFFFu) | (params->version & 0x0F000000u)) | (1u << 16) | (0x7u << 28);
 		cp.capsToQuery = NV_ENC_CAPS_NUM_ENCODER_ENGINES;
 		int v = 0;
-		NVENCSTATUS cs = origGetEncodeCaps(encoder, params->encodeGUID, &cp, &v);
+		const GUID capsCodec = initConfig.codec == 1 ? NV_ENC_CODEC_H264_GUID
+			: initConfig.codec == 2 ? NV_ENC_CODEC_AV1_GUID : params->encodeGUID;
+		NVENCSTATUS cs = origGetEncodeCaps(encoder, capsCodec, &cp, &v);
 		DriverLog("NvencTap: NV_ENC_CAPS_NUM_ENCODER_ENGINES -> %d (status %u) | frame %ux%u: implicit split needs height>=2112, NVENCs>=2, preset P1..P4 at LL/ULL",
 			v, (unsigned)cs, params->encodeWidth, params->encodeHeight);
 		std::lock_guard<std::mutex> g(statsLock); stats.numEncoderEngines = cs == NV_ENC_SUCCESS ? (uint32_t)v : 0;
 	}
 	bool logThis = initLogged.fetch_add(1) < 4 || NvencTap::Get().GetConfig().verbose;
 	return Guarded("nvEncInitializeEncoder", encoder, params, [&]{ return origInitializeEncoder(encoder, params); }, logThis,
-		stats.initCalls, stats.initOverridden, stats.initFailedThenPristineOk, stats.initFailed, nullptr);
+		stats.initCalls, stats.initOverridden, stats.initFailedThenPristineOk, stats.initFailed, nullptr, nullptr, true);
 }
 
 NVENCSTATUS NVENCAPI NvencTapShims::ReconfigureEncoder(void* encoder, NV_ENC_RECONFIGURE_PARAMS* params){
 	if(!params){ return origReconfigureEncoder(encoder, params); }
 	NvencTapConfig cfg = NvencTap::Get().GetConfig();
 	Retag rt; if(Upgraded(encoder)){ rt.add(&params->version, 1, true); RetagInitParams(rt, &params->reInitEncodeParams); }
-	if(!cfg.enabled){ return origReconfigureEncoder(encoder, params); }
+	if(!cfg.enabled){
+		const NVENCSTATUS status = origReconfigureEncoder(encoder, params);
+		if(status == NV_ENC_SUCCESS){ SetSessionCodec(encoder, CodecOfGuid(params->reInitEncodeParams.encodeGUID)); PublishSuccess(encoder, cfg, &params->reInitEncodeParams); }
+		return status;
+	}
 	bool logThis = reconfLogged.fetch_add(1) < 4 || cfg.verbose;
 	NVENCSTATUS st = Guarded("nvEncReconfigureEncoder", encoder, &params->reInitEncodeParams,
 		[&]{ return origReconfigureEncoder(encoder, params); }, logThis,
@@ -1163,14 +1454,34 @@ NVENCSTATUS NVENCAPI NvencTapShims::UnmapInputResource(void* encoder, NV_ENC_INP
 }
 
 NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARAMS* params){
+	const NvencTapConfig qcfg = NvencTap::Get().GetConfig();
 	// 2026-09-30: OFF keeps only the ABI adapter required by live 12.1 sessions.
-	if(!NvencTap::Get().GetConfig().enabled){
+	if(!qcfg.enabled){
+		NVENCSTATUS status;
 		if(params && Upgraded(encoder) && Is111(params->version)){
 			// explicit 11.1 -> 12.1 field copy (see CopyPicParams111To121)
 			alignas(16) unsigned char scratch[kScratch] = {};
-			return origEncodePicture(encoder, CopyPicParams111To121(params, (NV_ENC_PIC_PARAMS*)scratch));
-		}
-		return origEncodePicture(encoder, params);
+			status = origEncodePicture(encoder, CopyPicParams111To121(params, (NV_ENC_PIC_PARAMS*)scratch));
+		}else{ status = origEncodePicture(encoder, params); }
+		if(status == NV_ENC_SUCCESS && params && params->inputBuffer){ PublishPictureResult(encoder, status, {}, false); }
+		return status;
+	}
+	// 2026-10-16: the QP-map validation applies only when the map is actually
+	// configured (QpMapWanted); an unconfigured map can no longer refuse a
+	// submitted frame.
+	const std::string invalidQpMap = QpMapWanted(qcfg) ? ValidateQpMap(qcfg) : std::string();
+	if(params && params->inputBuffer && !(params->encodePicFlags & NV_ENC_PIC_FLAG_EOS) && qcfg.enforceTile
+		&& (qcfg.effectiveTileWidth <= 0 || (uint64_t)qcfg.effectiveTileWidth * 4u > (std::numeric_limits<uint32_t>::max)()
+			|| params->inputWidth != (uint32_t)qcfg.effectiveTileWidth || params->inputHeight != (uint64_t)qcfg.effectiveTileWidth * 4u)){
+		const std::string error = "Requested stream geometry (streamFrame.streamFormatWidth) " + std::to_string(qcfg.effectiveTileWidth)
+			+ "x" + std::to_string((int64_t)qcfg.effectiveTileWidth * 4) + " differs from submitted picture "
+			+ std::to_string(params->inputWidth) + "x" + std::to_string(params->inputHeight) + "; no alternate tile was applied.";
+		PublishPictureResult(encoder, NV_ENC_ERR_INVALID_PARAM, error);
+		return NV_ENC_ERR_INVALID_PARAM;
+	}
+	if(params && params->inputBuffer && !invalidQpMap.empty()){
+		PublishPictureResult(encoder, NV_ENC_ERR_INVALID_PARAM, invalidQpMap);
+		return NV_ENC_ERR_INVALID_PARAM;
 	}
 	{ std::lock_guard<std::mutex> g(statsLock); stats.encodeCalls++; }
 	if(params && params->outputBitstream){
@@ -1185,7 +1496,6 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 	}
 	double t0 = NowSecondsNv();
 	NVENCSTATUS st;
-	NvencTapConfig qcfg = NvencTap::Get().GetConfig();
 	const int8_t* qmap = nullptr; uint32_t qsize = 0;
 	// the per-frame map paths key off the LIVE session codec (0/1/2),
 	// falling back to the tap config while no init has been seen: a swap
@@ -1284,6 +1594,15 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 		if(encFailLogged.fetch_add(1) < 3){
 			DriverLog("NvencTap: nvEncEncodePicture -> failed (status %u) %s", (unsigned)st, le ? le : "");
 		}
+	}
+	if(params && params->inputBuffer){
+		std::string error;
+		if(st != NV_ENC_SUCCESS && st != NV_ENC_ERR_NEED_MORE_INPUT){
+			error = "nvEncEncodePicture rejected the submitted picture";
+			const char* detail = origGetLastErrorString ? origGetLastErrorString(encoder) : nullptr;
+			if(detail && *detail){ error += ": "; error += detail; }
+		}
+		PublishPictureResult(encoder, st, error);
 	}
 	double ms = (NowSecondsNv() - t0) * 1000.0;
 	if(params && params->inputBuffer){ // skip the EOS/flush calls (in=null)
@@ -1407,88 +1726,87 @@ NVENCSTATUS NVENCAPI NvencTapShims::OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSI
 	}
 	sessionUpgradeRejected.store(true);
 	{ std::lock_guard<std::mutex> g(statsLock); stats.sessionUpgrade = 2; stats.sessionUpgradeStatus = (uint32_t)st; }
-	DriverLog("NvencTap: SESSION UPGRADE: nvEncOpenEncodeSessionEx REJECTED apiVersion 12.1 (status %u) — opening pristine 11.1, upgrade latched off", (unsigned)st);
-	return origOpenEncodeSessionEx(params, encoder);
+	if(openRejectLogged.fetch_add(1) < 1){
+		DriverLog("NvencTap: open-time 12.1 session upgrade rejected by NVENC (status %u) — no pristine open and no fallback; explicit settings keep failing visibly until the upgrade is accepted", (unsigned)st);
+	}
+	PublishFailure(nullptr, OpenDecisionConfig(), st, "NVENC rejected the required API 12.1 session upgrade. No older-API fallback was attempted.");
+	return st;
 }
 NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
-	{ std::lock_guard<std::mutex> g(upgradedLock); upgradedSessions.erase(encoder); sessionCodecs.erase(encoder); }
-	return origDestroyEncoder(encoder);
+	const NVENCSTATUS status = origDestroyEncoder(encoder);
+	if(status != NV_ENC_SUCCESS){ return status; }
+	{ std::lock_guard<std::mutex> guard(upgradedLock); upgradedSessions.erase(encoder); sessionCodecs.erase(encoder); }
+	{
+		std::lock_guard<std::mutex> guard(runtimeLock);
+		firstInitFailures.erase(encoder);
+		if(runtimeEncoder == encoder){
+			runtimeEncoder = nullptr; runtime.effectiveCodec = -1;
+			runtime.effectiveRateControl = -1; runtime.effectiveSplit = -1; runtime.encodeWidth = 0; runtime.encodeHeight = 0;
+			// Keep a rejected request visible until a configuration succeeds.
+		}
+		if(runtimePictureEncoder == encoder){
+			runtimePictureEncoder = nullptr; runtime.lastPictureStatus = 0; runtime.pictureError.clear();
+		}
+	}
+	return status;
 }
 NVENCSTATUS NVENCAPI NvencTapShims::GetEncodeCaps(void* encoder, GUID encodeGUID, NV_ENC_CAPS_PARAM* params, int* capsVal){
 	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
-	// 2026-10-13 fix: NVENC H.264 cannot encode 10-bit input. vrlink probes
-	// SUPPORT_10BIT_ENCODE once during startup and turns its whole session
-	// (input textures 0x20000000 ABGR10, config depths) 10-bit when the answer
-	// is yes; the H.264 session then dies at nvEncInitializeEncoder with
-	// INVALID_PARAM (observed live 16:42:15, status 8 on both attempts, the
-	// pristine retry included) and the stream wedges with the encoder dead.
-	// While H.264 is selected, answer no to that one probe so vrlink builds
-	// its 8-bit class instead: session, textures and depths then match H.264
-	// natively and the swap succeeds. AV1 (10-bit capable) and stock HEVC
-	// keep the true answer — the driver setting stays the only switch.
-	const NvencTapConfig capsCfg = NvencTap::Get().GetConfig();
-	bool h264Sel = false;
-	if(capsCfg.enabled && capsCfg.codec == 1){
-		h264Sel = true;
-	}else if(!NvencTap::Get().cfgPublished.load()){
-		// 2026-10-15 fix: vrlink probes caps during its own init, which can
-		// run before the provider init publishes the tap config (load-order
-		// race), so capsCfg still reads codec=0 and the probe gets the TRUE
-		// 10-bit answer; vrlink then builds a 10-bit class and the forced
-		// H.264 session dies at nvEncInitializeEncoder. Until ANY live
-		// config is published, fall back to the on-disk setting
-		// (APPDATA/GalaxyXR/CustomHeadset/settings.json, nvencCodec=1 ->
-		// H.264), re-read on every use since the file can still change
-		// before publish; the log line stays one-shot. Once published, the
-		// live config is authoritative (codec != 1 or the tap off -> true
-		// caps).
-		bool sel = false;
-		const char* appdata = getenv("APPDATA");
-		if(appdata){
-			const std::string path = std::string(appdata) + "/GalaxyXR/CustomHeadset/settings.json";
-			FILE* f = fopen(path.c_str(), "rb");
-			if(f){
-				std::string content;
-				char chunk[512]; size_t n;
-				while((n = fread(chunk, 1, sizeof(chunk), f)) > 0){ content.append(chunk, n); }
-				fclose(f);
-				const size_t pos = content.find("\"nvencCodec\"");
-				if(pos != std::string::npos){
-					size_t p = pos + 12; // past "nvencCodec"
-					while(p < content.size() && ((unsigned char)content[p] <= ' ' || content[p] == ':')){ p++; }
-					int codec = 0;
-					while(p < content.size() && content[p] >= '0' && content[p] <= '9'){
-						codec = codec * 10 + (content[p] - '0'); p++;
-					}
-					if(codec == 1){ sel = true; }
-				}
-			}
-		}
-		if(h264FileSelLogged.fetch_add(1) < 1){
-			DriverLog(sel ? "NvencTap: caps shim: H.264 selection from settings file (nvencCodec=1)"
-				: "NvencTap: caps shim: H.264 selection from settings file unavailable/codec!=1");
-		}
-		h264Sel = sel;
-	}else{
-		// published config is authoritative: codec != 1 or the tap is off ->
-		// keep the real caps answer.
-		h264Sel = false;
+	NvencTapConfig cfg = NvencTap::Get().GetConfig();
+	if(!NvencTap::Get().ConfigPublished()){
+		// A caps probe may precede provider publication. Read only this
+		// build's config with the shared pre-publish probe: the ConfigLoader
+		// parse rules — missing/legacy-typed keys take the loader defaults
+		// (nvencTap true, nvencCodec 0, nvencSplitMode 1); an explicitly
+		// disabled tap is honored. (The loader's own no-APPDATA ./settings.json
+		// fallback is not followed here; the caps shim never read it either.)
+		const PrePublishProbe probe = ProbePrePublishConfig();
+		cfg.enabled = probe.tap; cfg.codec = probe.codec; cfg.splitMode = probe.splitMode; cfg.effectiveTileWidth = probe.tile; cfg.requestError = probe.requestError;
+#ifdef VENDOR_GALAXYXR
+		cfg.enforceTile = true;
+#endif
 	}
-	if(h264Sel && params && capsVal
-		&& params->capsToQuery == NV_ENC_CAPS_SUPPORT_10BIT_ENCODE){
-		*capsVal = 0;
-		return NV_ENC_SUCCESS;
-	}
-	// 2026-10-15: report the H.264-selected limits in the caps (the driver
-	// caps the H.264 stream at 1024 wide, GalaxyXR.cpp) so vrlink cannot
-	// derive an H.264 class wider than the H.264 device path can carry.
-	if(h264Sel && params && capsVal
+	if(cfg.enabled && cfg.enforceTile && params && capsVal
 		&& (params->capsToQuery == NV_ENC_CAPS_WIDTH_MAX || params->capsToQuery == NV_ENC_CAPS_HEIGHT_MAX)){
-		*capsVal = params->capsToQuery == NV_ENC_CAPS_WIDTH_MAX ? 1024 : 4096;
-		if(h264CapsShimLogged.fetch_add(1) < 1){
-			DriverLog("NvencTap: caps shim: H.264 WIDTH_MAX/HEIGHT_MAX answered 1024/4096");
+		const std::string phase = std::string("NVENC startup allocation ") + (params->capsToQuery == NV_ENC_CAPS_HEIGHT_MAX ? "height" : "width") + " capability validation: ";
+		if(!cfg.requestError.empty()){
+			PublishFailure(encoder, cfg, NV_ENC_ERR_INVALID_PARAM, phase + cfg.requestError + " | request: " + RequestDescription(cfg), true);
+			return NV_ENC_ERR_INVALID_PARAM;
 		}
+		// VRLink initializes at its advertised maximum before it picks active
+		// packed dimensions. This is the explicitly selected session allocation
+		// envelope, validated against real target-codec limits independently.
+		const GUID target = cfg.codec == 1 ? NV_ENC_CODEC_H264_GUID : cfg.codec == 2 ? NV_ENC_CODEC_AV1_GUID : encodeGUID;
+		int hardwareLimit = 0;
+		const NVENCSTATUS status = origGetEncodeCaps(encoder, target, params, &hardwareLimit);
+		if(status != NV_ENC_SUCCESS){
+			std::string error = phase + "nvEncGetEncodeCaps rejected the real selected-codec limit query (NVENC status " + std::to_string((unsigned)status) + "; real limit unavailable)";
+			if(origGetLastErrorString){ const char* detail = origGetLastErrorString(encoder); if(detail && *detail){ error += ": "; error += detail; } }
+			PublishFailure(encoder, cfg, status, error + " | request: " + RequestDescription(cfg), true);
+			return status;
+		}
+		const int64_t requested = (int64_t)cfg.effectiveTileWidth * (params->capsToQuery == NV_ENC_CAPS_HEIGHT_MAX ? 4 : 1);
+		if(requested <= 0 || requested > hardwareLimit){
+			const std::string error = phase + "Requested streamFrame.streamFormatWidth allocation " + std::to_string(requested)
+				+ " exceeds the selected codec's real " + (params->capsToQuery == NV_ENC_CAPS_HEIGHT_MAX ? "height" : "width")
+				+ " limit " + std::to_string(hardwareLimit) + "; request was not lowered.";
+			PublishFailure(encoder, cfg, NV_ENC_ERR_INVALID_PARAM, error + " | request: " + RequestDescription(cfg), true);
+			return NV_ENC_ERR_INVALID_PARAM;
+		}
+		*capsVal = (int)requested;
+		static std::atomic<int> allocationLogged[2];
+		const int axis = params->capsToQuery == NV_ENC_CAPS_HEIGHT_MAX ? 1 : 0;
+		if(allocationLogged[axis].exchange(*capsVal) != *capsVal){ DriverLog("NvencTap: explicit session allocation %s=%d (real selected-codec limit %d, requested tile %d)", axis ? "height" : "width", *capsVal, hardwareLimit, cfg.effectiveTileWidth); }
 		return NV_ENC_SUCCESS;
+	}
+	// Preserve legacy HEVC-facing feature queries. A selected AV1 codec does
+	// not make HEVC-only feature probes meaningful for AV1 (e.g. constrained
+	// encoding); direct target-codec validation above never recurses here.
+	if(cfg.enabled && cfg.codec == 1 && params && capsVal && params->capsToQuery == NV_ENC_CAPS_SUPPORT_10BIT_ENCODE){
+		// Profile restriction, not a claim about the GPU: this client path
+		// selects H.264 High 8-bit and requires matching input textures.
+		if(h264FileSelLogged.fetch_add(1) < 1){ DriverLog("NvencTap: H.264 High 8-bit profile selected; limiting input depth to 8-bit for the client contract (hardware caps otherwise unchanged)"); }
+		*capsVal = 0; return NV_ENC_SUCCESS;
 	}
 	return origGetEncodeCaps(encoder, encodeGUID, params, capsVal);
 }
@@ -1560,7 +1878,10 @@ NVENCSTATUS NVENCAPI NvencTapShims::RunMotionEstimationOnly(void* encoder, NV_EN
 }
 
 NVENCSTATUS NVENCAPI NvencTapShims::CreateInstance(NV_ENCODE_API_FUNCTION_LIST* list){
-	if(!NvencTap::Get().GetConfig().enabled){ return origCreateInstance(list); }
+	// 2026-10-16: pre-publish, the wrap decision consults the same
+	// settings.json probe as the open decisions (OpenDecisionConfig); the
+	// published snapshot is authoritative from the first SetConfig on.
+	if(!OpenDecisionConfig().enabled){ return origCreateInstance(list); }
 	// present the function list as 12.1 when an upgrade is wanted: same
 	// size (12.1 only appends pointers into 11.1's reserved tail), and it
 	// keeps the runtime's view of this client consistent with the session
@@ -1569,9 +1890,12 @@ NVENCSTATUS NVENCAPI NvencTapShims::CreateInstance(NV_ENCODE_API_FUNCTION_LIST* 
 	if(list && UpgradeWanted() && Is111(list->version)){ list->version = Tag121(2, false); listBumped = true; }
 	NVENCSTATUS status = origCreateInstance(list);
 	if(listBumped && status != NV_ENC_SUCCESS){
-		DriverLog("NvencTap: SESSION UPGRADE: NvEncodeAPICreateInstance refused a 12.1 function list (%u) — retrying as 11.1, upgrade latched off", (unsigned)status);
-		list->version = listSaved; sessionUpgradeRejected.store(true);
-		status = origCreateInstance(list);
+		if(openRejectLogged.fetch_add(1) < 1){
+			DriverLog("NvencTap: open-time 12.1 function-list presentation rejected by NVENC (status %u) — no pristine list and no fallback; explicit settings keep failing visibly until the upgrade is accepted", (unsigned)status);
+		}
+		list->version = listSaved;
+		PublishFailure(nullptr, OpenDecisionConfig(), status, "NVENC rejected the required API 12.1 function list. No older-API fallback was attempted.");
+		return status;
 	}
 	if(status != NV_ENC_SUCCESS || !list){
 		DriverLog("NvencTap: NvEncodeAPICreateInstance status=%u (list not wrapped)", (unsigned)status);
@@ -1579,8 +1903,9 @@ NVENCSTATUS NVENCAPI NvencTapShims::CreateInstance(NV_ENCODE_API_FUNCTION_LIST* 
 	}
 	uint32_t major = ApiMajor(list->version);
 	if(!ApiSupported(major)){
-		DriverLog("NvencTap: function list version 0x%08x (API major %u) outside 9..13 — NOT wrapped", list->version, major);
-		return status;
+		if(listBumped){ list->version = listSaved; }
+		PublishFailure(nullptr, NvencTap::Get().GetConfig(), NV_ENC_ERR_INVALID_VERSION, "Unsupported NVENC function-list version for explicit encoder settings.");
+		return NV_ENC_ERR_INVALID_VERSION;
 	}
 	// wrap by member name. the driver returns the same function pointers
 	// for every instance, so the static originals are stable; a re-call on
@@ -1636,10 +1961,14 @@ NvencTapConfig NvencTap::GetConfig(){
 }
 NvencTapRuntimeState NvencTap::GetRuntimeState(){
 	std::lock_guard<std::mutex> installationGuard(installationLock);
-	const bool enabled = GetConfig().enabled;
+	const NvencTapConfig config = GetConfig();
 	const bool hookInstalled = Installed();
-	std::lock_guard<std::mutex> guard(upgradedLock);
-	return {enabled, hookInstalled, !upgradedSessions.empty()};
+	bool remain; { std::lock_guard<std::mutex> guard(upgradedLock); remain = !upgradedSessions.empty(); }
+	std::lock_guard<std::mutex> guard(runtimeLock);
+	NvencTapRuntimeState state = runtime;
+	state.enabled = config.enabled; state.hookInstalled = hookInstalled; state.upgradedSessionsRemain = remain;
+	state.requestedCodec = config.codec;
+	return state;
 }
 NvencTapStats NvencTap::GetStats(){
 	std::lock_guard<std::mutex> g(statsLock);

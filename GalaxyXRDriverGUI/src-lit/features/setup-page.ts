@@ -37,6 +37,9 @@ export class SetupPage extends BasePage {
     .technical { overflow-wrap: anywhere; white-space: pre-wrap; }
     .check-details { margin-top: 12px; }
     .action-card.danger-zone { border-color: var(--colorPaletteRedBorder1, var(--colorNeutralStroke2)); }
+    /* 2026-10-17: step 2 stays highlighted until the app verifies driver
+       initialization in SteamVR (installed but not yet verified/initialized). */
+    .step-card.attention { border-color: var(--colorBrandStroke1, var(--colorNeutralStroke2)); background: var(--colorBrandBackground2, var(--colorNeutralBackground1)); }
     .action-card h3 { display: flex; align-items: center; gap: 8px; }
     .action-card .status-icon { width: 20px; height: 20px; }
     @media (max-width: 850px) { .step-grid, .maintenance-grid { grid-template-columns: 1fr; } }
@@ -76,7 +79,7 @@ export class SetupPage extends BasePage {
             <fluent-button ?disabled=${busy} @click=${() => this.checkSettings()}>${t('Check installation')}</fluent-button>
           </div>
         </article>
-        <article class="step-card">
+        <article class="step-card${installed && !initialized ? ' attention' : ''}">
           <div class="step-heading"><h3>${t('2. Connect and verify')}</h3>
             <fluent-badge appearance="tint" color=${initialized ? 'success' : 'informative'}>
               ${initialized ? t('Verified') : t('Not verified')}
@@ -198,8 +201,17 @@ export class SetupPage extends BasePage {
     super.disconnectedCallback();
   }
   private installText(version: string): string { return t(INSTALL_KEY).replace(/<x[^>]*>/g, version); }
+  // 2026-10-17: an explicit hash stops later installation-signal flips from
+  // re-defaulting an empty hash to Driver Settings mid-session; replaceState
+  // fires no hashchange and adds no history entry.
+  private pinSetupRoute(): void {
+    if (window.location.hash === '') {
+      window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + '#/setup');
+    }
+  }
   private async installDriver(): Promise<void> {
     if (await this.ctx.sds.installDriver()) {
+      this.pinSetupRoute();
       this.ctx.startup.invalidate();
       this.ctx.checks.clear();
       await this.resetVerified();
@@ -207,6 +219,7 @@ export class SetupPage extends BasePage {
     }
   }
   private async cleanSettings(): Promise<void> {
+    this.pinSetupRoute();
     await this.ctx.startup.refresh();
     if (this.ctx.startup.status()?.steamvrRunning !== false) return;
     const report = await this.ctx.sds.cleanSettings(this.ctx.appSetting);
@@ -223,6 +236,7 @@ export class SetupPage extends BasePage {
         ...(report.unresolvedItems ?? []), ...report.warnings].join('\n'));
   }
   private async uninstallDriver(): Promise<void> {
+    this.pinSetupRoute();
     await this.ctx.startup.refresh();
     if (this.ctx.startup.status()?.steamvrRunning !== false) return;
     // Confirmation and cancellation must precede all settings writes.

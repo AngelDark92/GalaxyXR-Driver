@@ -21,6 +21,7 @@ int postPackUpdates = 0;
 int installCalls = 0;
 int heartbeatCalls = 0;
 int bandwidthCalls = 0;
+int tileCalls = 0;
 NvencTapConfig lastTap;
 NvencPostPackConfig lastPostPack;
 
@@ -119,6 +120,7 @@ void NvencTap::TryInstall() { ++installCalls; }
 void NvencTap::MaybeHeartbeat() { ++heartbeatCalls; }
 void NvencPostPack::SetConfig(const NvencPostPackConfig& value) { lastPostPack = value; ++postPackUpdates; }
 int GalaxyXR_EffectiveBandwidthMbit() { ++bandwidthCalls; return 432; }
+int GalaxyXR_EffectiveTileWidth() { ++tileCalls; return 1536; }
 
 // MSVC resolves these references before removing unused eye-processing code.
 // They must never execute in this test. ConfigLoader has a data-only default
@@ -184,6 +186,7 @@ int main() {
     Check(!ZeroCopyV3::Get().Armed(), "SDR10 consent removal disarms immediately");
     config = Config{};
     bandwidthCalls = 0;
+    tileCalls = 0;
     config.streamFrame.enable = true;
     Dispatch(config, "Neutral picture with post-pack CAS");
     Check(lastPostPack.enable && lastPostPack.casEnable, "neutral picture enables post-pack CAS without an eye pass");
@@ -191,6 +194,7 @@ int main() {
     Near(lastPostPack.foveaStrength, 0.6, "default fovea strength delivered");
     Near(lastPostPack.peripheryStrength, 0.3, "default periphery strength delivered");
     Check(lastTap.bitrateMbit == 432 && bandwidthCalls == 1, "effective bandwidth used when no encoder override exists");
+    Check(lastTap.effectiveTileWidth == 1536 && tileCalls == 1 && !lastTap.enforceTile, "geometry published and unenforced in the neutral build");
 
     config.streamFrame.postPack.foveaStrength = 0.81;
     config.streamFrame.postPack.peripheryStrength = 0.17;
@@ -229,8 +233,10 @@ int main() {
     config.streamFrame.nvencVuiPrimaries = 4;
     config.streamFrame.nvencVuiTransfer = 13;
     Dispatch(config, "Limited range with manual VUI");
-    Check(lastPostPack.enable && lastPostPack.limitedRange && lastTap.vuiFullRange == 0,
-        "active limited-range pixels override manual full-range metadata");
+    Check(lastPostPack.enable && lastPostPack.limitedRange,
+        "active limited-range pixels keep the range request");
+    Check(lastTap.vuiFullRange == 1 && lastTap.postPackEnabled && lastTap.postPackLimitedRange,
+        "manual metadata kept as entered; conflicting range pair surfaces for the tap to refuse");
     Check(lastTap.vuiMatrix == 9 && lastTap.vuiPrimaries == 4 && lastTap.vuiTransfer == 13,
         "manual matrix, primaries, and transfer preserved");
     config.streamFrame.enable = false;
@@ -251,13 +257,16 @@ int main() {
     config.streamFrame.cas.enable = true;
     Dispatch(config, "Switch to pre-encode CAS");
     Check(!lastPostPack.casEnable, "pre-encode selection clears post-pack sharpening");
-    Check(lastPostPack.enable && lastPostPack.limitedRange && lastTap.vuiFullRange == 0,
-        "pre-encode selection preserves requested range remap");
+    Check(lastPostPack.enable && lastPostPack.limitedRange,
+        "pre-encode selection keeps the requested range processing");
+    Check(lastTap.vuiFullRange == 1 && lastTap.postPackEnabled && lastTap.postPackLimitedRange,
+        "conflicting manual metadata stays user-authoritative and visible to the tap");
     config.streamFrame.cas.enable = false;
     Dispatch(config, "CAS OFF with range remap");
     Check(!lastPostPack.casEnable && lastPostPack.enable && lastPostPack.limitedRange,
         "CAS OFF keeps independently requested range processing active");
-    Check(lastTap.vuiFullRange == 0, "CAS OFF retains metadata for active range remap");
+    Check(lastTap.vuiFullRange == 1 && lastPostPack.enable && lastPostPack.limitedRange,
+        "CAS OFF keeps range processing with the conflict pair visible to the tap");
 
     config.streamFrame.postPack.limitedRange = false;
     Dispatch(config, "No range remap");

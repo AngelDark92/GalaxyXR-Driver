@@ -89,36 +89,15 @@ static std::string ExpectedReadyIcon(const std::string &prefix){
 static const int kGalaxyXrRenderWidth = 3552;
 static const int kGalaxyXrRenderHeight = 3840;
 
-// tier table lives in Config/StreamTiers.h (shared with the NVENC tap
-// resolution in FrameProcessor)
-static const std::initializer_list<int> kAllTierWidths = {1536, 2048, 2560, 3072, 3200, 3584, 4032};
-static const std::initializer_list<int> kAllTierBandwidths = {250, 300, 350, 400, 450, 500};
-
-
-// remove a vrlink int key only when it holds a value we could have written,
-// so user- or tool-owned values are never clobbered
-static void RemoveIntIfOurs(const char* section, const char* key, const std::vector<int> &ourValues){
-	vr::EVRSettingsError err = vr::VRSettingsError_None;
-	int32_t v = vr::VRSettings()->GetInt32(section, key, &err);
-	if(err != vr::VRSettingsError_None){ return; }
-	for(int ours : ourValues){
-		if(v == ours){
-			gxrsettings::RestoreOwnedKey(section, key);
-			return;
-		}
-	}
-}
-
-// write encodeWidth + streamFormatWidth (always equal, see kStreamTiers) and
-// the bandwidth pair, with vrlink's automatic pickers off
+// Write the requested render/transport widths and bandwidth unchanged, with
+// vrlink's automatic pickers off. These are requests, not hardware capabilities.
 struct VrlinkPathProbe {
 	bool done = false;
 	double lastAttempt = 0;
 };
 static VrlinkPathProbe pathProbe;
 
-static void WriteStreamKeys(const char* section, int width, int bandwidth, int streamFormatWidth = 0){
-	if(streamFormatWidth <= 0){ streamFormatWidth = width; }
+static void WriteStreamKeys(const char* section, int width, int bandwidth, int streamFormatWidth){
 	gxrsettings::SetInt32(section, "encodeWidth", width);
 	gxrsettings::SetInt32(section, "streamFormatWidth", streamFormatWidth);
 	gxrsettings::SetBool(section, "automaticStreamFormatWidth", false);
@@ -127,27 +106,27 @@ static void WriteStreamKeys(const char* section, int width, int bandwidth, int s
 	gxrsettings::SetInt32(section, "targetBandwidth", bandwidth);
 }
 
-// v3: the effective tile width and bandwidth for the current mode. encode
-// width is a constant (inert in foveated mode); the Advanced bandwidth
-// override wins over tier/custom and drives pacer AND encoder.
+// 2026-10-16: Resolve the requested values without normalizing user input.
+// The Advanced bandwidth override uses zero only as its disabled sentinel.
+// Invalid or unsupported requests must be surfaced by validation/the encoder,
+// rather than becoming a different request here or in the SteamVR journal.
 int GalaxyXR_EffectiveTileWidth(){
 	const auto &g = driverConfig.galaxyXr;
 	const GxrStreamTier* tier = FindGxrStreamTier(g.streamQuality);
-	int w = g.streamQuality == "custom" ? g.customStreamFormatWidth : (tier ? tier->width : 1536);
-	const int cap = (driverConfig.streamFrame.nvencCodec == 1 && driverConfig.streamFrame.nvencTap) ? 1024 : 2048;
-	static std::atomic<bool> tileCapLogged{false};
-	if(driverConfig.streamFrame.nvencCodec == 1 && driverConfig.streamFrame.nvencTap && w > cap && !tileCapLogged.load()){
-		tileCapLogged.store(true);
-		DriverLog("GalaxyXR: tile capped to 1024 for H.264 (4x1024=4096 H.264 ceiling); requested %d", w);
+	const int requested = g.streamQuality == "custom" ? g.customStreamFormatWidth : (tier ? tier->width : 1536);
+	static std::atomic<int> lastLoggedTile{-1};
+	// One line whenever the requested tile differs from the last logged
+	// one; no per-call spam
+	if(lastLoggedTile.exchange(requested) != requested){
+		DriverLog("GalaxyXR: requested tile (streamFormatWidth) = %d (not a confirmed hardware capability)", requested);
 	}
-	return std::max(512, std::min(cap, w));
+	return requested;
 }
 int GalaxyXR_EffectiveBandwidthMbit(){
 	const auto &g = driverConfig.galaxyXr;
-	if(driverConfig.streamFrame.nvencBandwidthOverrideMbit > 0){ return std::max(10, std::min(2000, driverConfig.streamFrame.nvencBandwidthOverrideMbit)); }
+	if(driverConfig.streamFrame.nvencBandwidthOverrideMbit != 0){ return driverConfig.streamFrame.nvencBandwidthOverrideMbit; }
 	const GxrStreamTier* tier = FindGxrStreamTier(g.streamQuality);
-	int bw = g.streamQuality == "custom" ? g.customBandwidthMbit : (tier ? tier->bandwidthMbit : 350);
-	return std::max(10, std::min(2000, bw));
+	return g.streamQuality == "custom" ? g.customBandwidthMbit : (tier ? tier->bandwidthMbit : 350);
 }
 
 static void ApplyStreamQualitySettingIn(const char* section){
@@ -155,29 +134,20 @@ static void ApplyStreamQualitySettingIn(const char* section){
 	const auto &g = driverConfig.galaxyXr;
 	const GxrStreamTier* tier = FindGxrStreamTier(g.streamQuality);
 	if(g.streamQuality == "custom" || tier){
-		int encodeW = std::max(512, std::min(8192, g.customEncodeWidth > 0 ? g.customEncodeWidth : 3072));
+		int encodeW = g.customEncodeWidth;
 		int tile = GalaxyXR_EffectiveTileWidth();
 		int bw = GalaxyXR_EffectiveBandwidthMbit();
 		WriteStreamKeys(section, encodeW, bw, tile);
 		DriverLog("GalaxyXR: stream quality '%s'%s: tile (streamFormatWidth) %d, %d Mbit/s%s, encodeWidth %d (inert); encoder settings are global (see NvencTap); effective next start/connect",
 			tier ? tier->name : "custom", (tier && tier->name != g.streamQuality) ? " (mapped from legacy name)" : "", tile, bw,
-			driverConfig.streamFrame.nvencBandwidthOverrideMbit > 0 ? " (Advanced bandwidth override)" : "", encodeW);
+			driverConfig.streamFrame.nvencBandwidthOverrideMbit != 0 ? " (Advanced bandwidth override)" : "", encodeW);
 	}else{
-		// default (or unknown): remove tier keys we own so vrlink built-in
-		// defaults apply, matching the community tool's Default mode.
-		// custom values (current and legacy) are included so leaving custom
-		// mode cleans up too
-		std::vector<int> widths(kAllTierWidths);
-		widths.push_back(g.customEncodeWidth);
-		widths.push_back(g.customStreamFormatWidth);
-		widths.push_back(3072);
-		std::vector<int> bws(kAllTierBandwidths);
-		bws.push_back(g.customBandwidthMbit);
-		bws.push_back(driverConfig.streamFrame.nvencBandwidthOverrideMbit);
-		RemoveIntIfOurs(section, "encodeWidth", widths);
-		RemoveIntIfOurs(section, "streamFormatWidth", widths);
-		RemoveIntIfOurs(section, "recommendedBandwidthMbit", bws);
-		RemoveIntIfOurs(section, "targetBandwidth", bws);
+		// Restore only unchanged journal-owned requests. Arbitrary user tuning
+		// cannot be recognized safely using a list of historical default values.
+		gxrsettings::RestoreOwnedKey(section, "encodeWidth");
+		gxrsettings::RestoreOwnedKey(section, "streamFormatWidth");
+		gxrsettings::RestoreOwnedKey(section, "recommendedBandwidthMbit");
+		gxrsettings::RestoreOwnedKey(section, "targetBandwidth");
 		vr::EVRSettingsError err = vr::VRSettingsError_None;
 		bool a = vr::VRSettings()->GetBool(section, "automaticStreamFormatWidth", &err);
 		if(err == vr::VRSettingsError_None && !a){
@@ -283,13 +253,6 @@ static void RemoveBoolIfOurs(const char* section, const char* key, bool ours){
 	bool cur = vr::VRSettings()->GetBool(section, key, &err);
 	if(err == vr::VRSettingsError_None && cur == ours){ gxrsettings::RestoreOwnedKey(section, key); }
 }
-static void RemoveIntIfOursIn(const char* section, const char* key, const std::vector<int> &ours){
-	vr::EVRSettingsError err = vr::VRSettingsError_None;
-	int32_t cur = vr::VRSettings()->GetInt32(section, key, &err);
-	if(err != vr::VRSettingsError_None){ return; }
-	for(int o : ours){ if(cur == o){ gxrsettings::RestoreOwnedKey(section, key); return; } }
-}
-
 // 2026-09-19 SDR10 baseline: resolve the effective profile request from
 // ONE consistent settings snapshot under driverConfigLock. the rest of this
 // file follows the existing convention of unlocked single-field config
@@ -306,15 +269,16 @@ static gxr::Sdr10BaselinePolicy ResolveSdr10PolicyLocked(){
 
 static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const gxr::Sdr10BaselinePolicy &policy){
 	const auto &g = driverConfig.galaxyXr;
-	// v3: the profile's max tracks the tile we write (no separate field);
-	// 2048 is the hard tile ceiling anyway (4 stacked tiles, 8192 max height)
-	int maxSfw = std::max(1024, GalaxyXR_EffectiveTileWidth());
+	// 2026-10-16: This profile publishes a fixed requested tile, not a probed
+	// device limit. Keep both ends equal to the explicit request so neither
+	// a historical 1024 minimum nor a codec default changes it at negotiation.
+	int maxSfw = GalaxyXR_EffectiveTileWidth();
 	// 2026-09-19 SDR10 baseline: the profile gate and the 10-bit request
 	// follow the EFFECTIVE policy (active baseline forces both on, inactive
 	// disables the 10-bit request and keeps stored geometry). the debug overlay is not
 	// baseline-owned and keeps its stored-config read
 	for(const auto& section : gxr::VrlinkCapabilitySections(g.vrlinkHeadsetProfile, modelNumberIn)){
-		DriverLog("GalaxyXR: headset profile apply: section %s profile=%d maxSfw=%d (tracks tile) supports10bit=%d overlay=%d",
+		DriverLog("GalaxyXR: headset profile apply: section %s profile=%d requestedTile=%d (fixed requested range) supports10bit=%d overlay=%d",
 			section.c_str(), (int)policy.profileEnabled, maxSfw, (int)policy.profileSupports10bit, (int)g.vrlinkDebugOverlay);
 		const char* sec = section.c_str();
 		// 2026-09-25: write an explicit OFF even with profile geometry disabled.
@@ -324,11 +288,11 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 		if(policy.profileEnabled){
 			SetInt32IfDifferent(sec, "recommendedRenderWidth", kGalaxyXrRenderWidth);
 			SetInt32IfDifferent(sec, "recommendedRenderHeight", kGalaxyXrRenderHeight);
-			SetInt32IfDifferent(sec, "minStreamFormatWidth", 1024);
+			SetInt32IfDifferent(sec, "minStreamFormatWidth", maxSfw);
 			SetInt32IfDifferent(sec, "maxStreamFormatWidth", maxSfw);
-			SetInt32IfDifferent(sec, "minNonFoveatedStreamFormatWidth", 1024);
+			SetInt32IfDifferent(sec, "minNonFoveatedStreamFormatWidth", maxSfw);
 			SetInt32IfDifferent(sec, "maxNonFoveatedStreamFormatWidth", maxSfw);
-			DriverLog("GalaxyXR: wrote vrlink headset profile request [%s] (render %dx%d, supports10bit %d, streamFormatWidth 1024..%d). "
+			DriverLog("GalaxyXR: wrote vrlink headset profile request [%s] (render %dx%d, supports10bit %d, fixed streamFormatWidth %d). "
 				"Known Quest/PICO models use built-in capabilities; profile writes do not prove consumption. Verify driver_vrlink.txt after reconnect.",
 				sec, kGalaxyXrRenderWidth, kGalaxyXrRenderHeight, (int)policy.profileSupports10bit, maxSfw);
 			if(policy.active){
@@ -340,12 +304,12 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 					(int)g.vrlinkHeadsetProfile, (int)g.profileSupports10bit);
 			}
 		}else{
-			RemoveIntIfOursIn(sec, "recommendedRenderWidth", {kGalaxyXrRenderWidth});
-			RemoveIntIfOursIn(sec, "recommendedRenderHeight", {kGalaxyXrRenderHeight});
-			RemoveIntIfOursIn(sec, "minStreamFormatWidth", {1024});
-			RemoveIntIfOursIn(sec, "maxStreamFormatWidth", {maxSfw, 1024, 1536, 2048, 3072, 3200, 3584, 4096});
-			RemoveIntIfOursIn(sec, "minNonFoveatedStreamFormatWidth", {1024});
-			RemoveIntIfOursIn(sec, "maxNonFoveatedStreamFormatWidth", {maxSfw, 1024, 1536, 2048, 3072, 3200, 3584, 4096});
+			gxrsettings::RestoreOwnedKey(sec, "recommendedRenderWidth");
+			gxrsettings::RestoreOwnedKey(sec, "recommendedRenderHeight");
+			gxrsettings::RestoreOwnedKey(sec, "minStreamFormatWidth");
+			gxrsettings::RestoreOwnedKey(sec, "maxStreamFormatWidth");
+			gxrsettings::RestoreOwnedKey(sec, "minNonFoveatedStreamFormatWidth");
+			gxrsettings::RestoreOwnedKey(sec, "maxNonFoveatedStreamFormatWidth");
 		}
 	}
 	for(const auto& section : gxr::VrlinkTuningSections(g.vrlinkHeadsetProfile)){

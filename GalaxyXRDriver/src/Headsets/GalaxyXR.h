@@ -25,8 +25,11 @@
 // write the vrlink stream tier + headset profile keys at provider Init,
 // before vrlink reads them (see GalaxyXR.cpp)
 void GalaxyXR_EarlyApplyVrlinkSettings();
-// v3 effective stream values for the current mode (tier/custom + Advanced
-// bandwidth override); shared with the FrameProcessor's tap config
+// Requested stream values for the current mode (tier/custom + Advanced
+// bandwidth override). No range or codec coercion: validation/the encoder
+// must visibly reject unsupported input. The tile is copied into the tap
+// config under driverConfigLock; hooked NVENC calls must not read live config.
+// A requested tile is not proof of the device's width/height capabilities.
 int GalaxyXR_EffectiveTileWidth();
 int GalaxyXR_EffectiveBandwidthMbit();
 

@@ -3,6 +3,7 @@
 #include "Config/Config.h"
 #include "Config/SdrColorPolicy.h"
 #include "Config/DebugModePolicy.h"
+#include "Config/GameLinkLayoutPolicy.h"
 #include "Config/StreamTiers.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <limits>
 using json = nlohmann::json;
 Config driverConfig, driverConfigOld;
 std::mutex driverConfigLock;
@@ -37,6 +39,13 @@ int main(int argc, char** argv) {
         {"nvencMinQp",5},{"nvencMinQpIntra",7},{"nvencMaxQp",31},{"nvencVuiFullRange",1},
         {"nvencVuiMatrix",1},{"nvencVuiPrimaries",1},{"nvencVuiTransfer",1},
         {"nvencBitrateMbit",123},{"nvencBandwidthOverrideMbit",234},
+    };
+    const json h264Tuning = {
+        {"nvencFillerDataInsertion",true},{"nvencH264GopFrames",144},{"nvencH264IdrFrames",288},
+        {"nvencH264RefFrames",2},{"nvencH264Entropy",2},{"nvencH264SliceMode",0},
+        {"nvencH264SliceData",12},{"nvencH264Aud",false},{"nvencH264RepeatHeaders",false},
+        {"nvencH264DisableHeaders",true},{"nvencH264BitstreamRestriction",false},
+        {"nvencH264VbvInitialDelay",12345},{"nvencMultiPass",2},
     };
     const bool customUpgrade = scenario == 0 || scenario == 7 || scenario == 8 || scenario == 14;
     const char* toggles[] = {"nvencTap", "nvencFixLevel", "nvencForceCbr", "nvencBitrateScale", "nvencPresetMerge"};
@@ -112,6 +121,27 @@ int main(int argc, char** argv) {
         if (scenario == 17) input["debugMode"] = false;
         if (scenario == 18) input["debugMode"] = true;
         if (scenario == 19) input["debugMode"] = "true";
+    } else if (scenario == 20) {
+        // Old-schema explicit values must not be mistaken for obsolete
+        // defaults, including requests above the former artificial limits.
+        sf["nvencSettingsVersion"] = 2;
+        input["galaxyXr"] = {{"streamQuality","custom"},{"customStreamFormatWidth",3072},
+            {"customBandwidthMbit",2500},{"profileSupports10bit",true},{"sdr10SettingsVersion",1}};
+    } else if (scenario == 21) {
+        sf["nvencSettingsVersion"] = 4;
+        input["galaxyXr"] = {{"sdr10SettingsVersion",1}};
+    } else if (scenario == 22) {
+        sf["nvencSettingsVersion"] = 4;
+        sf["nvencCodec"] = 1;
+        sf["nvencForceCbr"] = false;
+        sf.update(h264Tuning);
+    } else if (scenario >= 23 && scenario <= 26) {
+        sf["nvencSettingsVersion"] = 4;
+        sf["nvencCodec"] = 1;
+        if (scenario == 23) sf["nvencH264GopFrames"] = 120.5;
+        if (scenario == 24) sf["nvencMultiPass"] = 1.5;
+        if (scenario == 25) sf["nvencH264GopFrames"] = std::numeric_limits<int64_t>::max();
+        if (scenario == 26) input["galaxyXr"]["customStreamFormatWidth"] = std::numeric_limits<uint64_t>::max();
     } else return 2;
     const auto path = testFolder + "settings.json";
     { std::ofstream out(path); out << input.dump(); }
@@ -121,7 +151,7 @@ int main(int argc, char** argv) {
         Check(s.nvencSettingsVersion == 4, "version reaches current schema");
         Check(s.hitchDiag == (scenario == 11 || scenario == 18), "hitch diagnostics require master and preserve explicit choices");
         Check(s.streamFrameSchema == 5, "debug policy version stamp reaches schema 5");
-        if (scenario >= 16) {
+        if (scenario >= 16 && scenario <= 19) {
             const bool enabled = scenario == 18;
             Check(driverConfig.debugMode == enabled, "master is strictly boolean and defaults OFF");
             Check(s.blackFloor.rampBar == enabled && s.eyeGaze.debugRing == enabled
@@ -187,6 +217,41 @@ int main(int argc, char** argv) {
             Check(s.gamma == 2.2 && s.brightness == 1.0 && s.saturation == 50, "old picture tuning returns to defaults");
             Check(!s.calib.blackout && !s.calib.captureMode && s.calib.pattern == -1, "old blackout and calibration patterns are inactive");
             Check(!s.eyeGaze.debugGrid && !s.eyeGaze.calibDot && !s.eyeGaze.probeCapture, "old gaze calibration overlays are inactive");
+        } else if (scenario == 20) {
+            Check(driverConfig.galaxyXr.customStreamFormatWidth == 3072, "old-schema explicit tile above former limit survives");
+            Check(driverConfig.galaxyXr.customBandwidthMbit == 2500, "old-schema explicit bandwidth above former limit survives");
+            Check(driverConfig.galaxyXr.profileSupports10bit, "old-schema explicit 10-bit capability survives migration");
+            Check(gxr::ResolveSdr10Policy(driverConfig).profileSupports10bit, "explicit capability remains effective with baseline off");
+            Check(s.nvencValidationError.empty(), "valid unbounded scalar requests have no parse error");
+        } else if (scenario == 21) {
+            Check(!driverConfig.galaxyXr.profileSupports10bit, "absent capability uses false default");
+            Check(s.nvencH264GopFrames == 0 && s.nvencH264IdrFrames == 0 && s.nvencMultiPass == -1,
+                "absent recipe timing and multipass use automatic defaults");
+            Check(s.nvencValidationError.empty(), "absent optional fields are not invalid requests");
+        } else if (scenario == 22) {
+            // h264Tuning still carries the retired nvencFillerDataInsertion
+            // key: an old settings.json with it must parse cleanly, keep the
+            // key untouched on disk and enable nothing.
+            Check(!s.nvencForceCbr, "retired filler key parses cleanly, is ignored and leaves Force CBR unset");
+            Check(s.nvencH264GopFrames == 144 && s.nvencH264IdrFrames == 288 && s.nvencH264RefFrames == 2,
+                "explicit GOP, IDR and reference frames reach runtime config");
+            Check(s.nvencH264Entropy == 2 && s.nvencH264SliceMode == 0 && s.nvencH264SliceData == 12,
+                "explicit entropy and slice settings reach runtime config");
+            Check(!s.nvencH264Aud && !s.nvencH264RepeatHeaders && s.nvencH264DisableHeaders && !s.nvencH264BitstreamRestriction,
+                "explicit header and restriction toggles reach runtime config");
+            Check(s.nvencH264VbvInitialDelay == 12345 && s.nvencMultiPass == 2,
+                "explicit VBV delay and multipass reach runtime config");
+            Check(s.nvencValidationError.empty(), "valid explicit recipe has no parse error");
+        } else if (scenario >= 23 && scenario <= 26) {
+            const std::string field = scenario == 24 ? "streamFrame.nvencMultiPass"
+                : scenario == 26 ? "galaxyXr.customStreamFormatWidth" : "streamFrame.nvencH264GopFrames";
+            Check(s.nvencValidationError.find(field) != std::string::npos, "invalid integer request exposes its exact field");
+            Check(s.nvencValidationError.find("32-bit integer") != std::string::npos, "fraction or overflow fails visibly instead of accepting defaults");
+        }
+        if (scenario >= 21 && scenario <= 26) {
+            json stored; { std::ifstream in(path); in >> stored; }
+            Check(stored == input, "recipe and invalid raw requests remain unchanged on disk");
+            Check(!stored["streamFrame"].contains("nvencValidationError"), "transient validation error is never persisted");
         }
     };
     checkExpected();
@@ -197,6 +262,11 @@ int main(int argc, char** argv) {
             Check(persisted["streamFrame"][entry.key()] == entry.value(), (entry.key() + " persists after migration").c_str());
         }
         Check(persisted["galaxyXr"]["customStreamFormatWidth"] == 1856, "custom stream width persists after migration");
+    }
+    if (scenario == 20) {
+        Check(persisted["galaxyXr"]["customStreamFormatWidth"] == 3072 && persisted["galaxyXr"]["customBandwidthMbit"] == 2500,
+            "migration writeback retains explicit geometry and bandwidth");
+        Check(persisted["galaxyXr"]["profileSupports10bit"] == true, "migration writeback retains explicit capability true");
     }
     ParseConfig();
     checkExpected();

@@ -26,7 +26,7 @@ describe('human-readable settings inspection', () => {
     expect(ids.sort()).toEqual(SETTINGS_PRESENTATION.map(setting => setting.id).sort());
     const rows = presentSettings([], context());
     expect(rows.find(row => row.id === 'streamFrame.nvencForceCbr')?.location)
-      .toEqual(['Image Settings', 'Encoder', 'Advanced', 'Force CBR']);
+      .toEqual(['Image Settings', 'Encoder Advanced', 'Force Constant Bitrate']);
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
   });
 
@@ -66,7 +66,7 @@ describe('human-readable settings inspection', () => {
     const before = structuredClone(c);
     expect(reason('streamFrame.dither')).toMatch(/Image Enhancements is off/);
     expect(reason('streamFrame.kalmanGripEnable')).toMatch(/Retired experiments/);
-    expect(reason('galaxyXr.synthesizeGripTouch')).toMatch(/Official Controller Input Profile is off/);
+    expect(reason('galaxyXr.synthesizeGripTouch')).toMatch(/Official Controller Layout is off/);
     expect(c).toEqual(before);
     c.settings.streamFrame!.enable = true;
     expect(reason('streamFrame.distortion.tune.forceGrid')).toMatch(/Interactive Tuner is off/);
@@ -74,14 +74,48 @@ describe('human-readable settings inspection', () => {
     expect(reason('streamFrame.eyeGaze.debugGrid')).toMatch(/Force Calibration Grid/);
     c.settings.streamFrame!.distortion.tune.forceGrid = false;
     expect(reason('streamFrame.eyeGaze.debugGrid')).toBeUndefined();
+    // the codec selector is encoder-gated: with the tap off it is inert
+    c.settings.streamFrame!.nvencTap = true;
+    expect(reason('streamFrame.nvencCodec')).toBeUndefined();
+    c.settings.streamFrame!.nvencTap = false;
+    expect(reason('streamFrame.nvencCodec')).toMatch(/NVENC Tap is off/);
+    c.settings.streamFrame!.nvencTap = true;
     c.driverInstalled = false;
     expect(reason('streamFrame.nvencTap')).toMatch(/Install the driver/);
     expect(reason('advanceMode')).toBeUndefined();
   });
 
+  it('removes the retired filler-data switch from catalog, page source and catalog strings', () => {
+    // Owner directive 2026-10-16: the nvencFillerDataInsertion knob is gone
+    // from the GUI entirely; reintroducing any of these would silently
+    // resurrect a switched-off knob. The DriverInfo evidence type and the
+    // page's evidence row lost their filler segment with it.
+    const catalogText = readFileSync(new URL('./settings-presentation.ts', import.meta.url), 'utf8');
+    const pageText = readFileSync(new URL('../features/stream-frame-page.ts', import.meta.url), 'utf8');
+    const defaultsText = readFileSync(new URL('./driver-defaults.ts', import.meta.url), 'utf8');
+    const typesText = readFileSync(new URL('./types.ts', import.meta.url), 'utf8');
+    const xlf = readFileSync(new URL('../../src/locale/messages.xlf', import.meta.url), 'utf8');
+    for (const text of [catalogText, pageText, defaultsText, typesText, xlf]) {
+      expect(text.includes('nvencFillerDataInsertion')).toBe(false);
+      expect(text.includes('Filler')).toBe(false);
+      expect(text.includes('filler')).toBe(false);
+    }
+    expect(SETTINGS_PRESENTATION.some(setting => setting.id.includes('Filler'))).toBe(false);
+  });
+
   it('keeps target IDs stable when the display locale changes', () => {
+    const c = context();
+    c.settings.streamFrame!.nvencH264Aud = false;
+    const saved = structuredClone(c.settings);
+    for (const codec of [0, 2]) {
+      c.settings.streamFrame!.nvencCodec = codec;
+      expect(settingUnavailable(settingPresentation('streamFrame.nvencH264Aud')!, c)).toMatch(/Select H.264/);
+    }
+    c.settings.streamFrame!.nvencCodec = 1;
+    expect(settingUnavailable(settingPresentation('streamFrame.nvencH264Aud')!, c)).toBeUndefined();
+    expect(c.settings.streamFrame!.nvencH264Aud).toBe(saved.streamFrame!.nvencH264Aud);
     const before = presentSettings([], context()).map(row => row.href);
-    setLocale('ja', { 'Image Settings': '画像', 'Force CBR': '固定レート' });
+    setLocale('ja', { 'Image Settings': '画像', 'Force Constant Bitrate': '固定レート' });
     try { expect(presentSettings([], context()).map(row => row.href)).toEqual(before); }
     finally { setLocale('en-US', {}); }
   });
@@ -95,7 +129,7 @@ describe('human-readable settings inspection', () => {
     expect(setting.advanced).toBe(false);
     expect(settingUnavailable(setting, c)).toMatch(/Enable Debug Mode/);
     const row = presentSettings([], c).find(row => row.id === setting.id)!;
-    expect(row.location).toEqual(['Debug', 'Controllers', 'Diagnostics', 'Pose Logging (diagnostic)']);
+    expect(row.location).toEqual(['Debug', 'Controllers', 'Diagnostics', 'Motion Logging']);
     expect(row.state).toBe('On');
     expect(row.unavailableReason).toMatch(/Enable Debug Mode/);
     expect(c.settings).toEqual(before);

@@ -860,7 +860,7 @@
         <source>The driver install needs a SteamVR installation. If SteamVR is already installed, launch it once (this registers its OpenVR paths) and then retry. You can also install SteamVR from the Driver Settings tab.</source>
       </trans-unit>
       <trans-unit id="fluent-fix-f751a210dcb542ed" datatype="html">
-        <source>AV1 (experimental)</source>
+        <source>AV1</source>
       </trans-unit>
       <trans-unit id="fluent-fix-eb2286ed0abbf29e" datatype="html">
         <source>Adaptive Direction Lead - EXPERIMENT A</source>
@@ -905,7 +905,7 @@
         <source>Black Floor: Black Point (sRGB code)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-9f20bb5737f87bd1" datatype="html">
-        <source>Black Floor: Diagnostic Ramp Bar</source>
+        <source>Black-Level Test Bar</source>
       </trans-unit>
       <trans-unit id="fluent-fix-ef07872ad2b6fc0b" datatype="html">
         <source>Black Floor: Range Remap</source>
@@ -914,7 +914,7 @@
         <source>Black Floor: Shadow Lift (floor / knee, sRGB codes)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-586b4264dc260578" datatype="html">
-        <source>Blackout Headset Screens</source>
+        <source>Panel Blackout (Testing)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-67a214347074def3" datatype="html">
         <source>Both drivers are installed, and SteamVR only lets one of them run. Nothing on this page takes effect until you switch.</source>
@@ -923,7 +923,7 @@
         <source>Brightness</source>
       </trans-unit>
       <trans-unit id="fluent-fix-bb06da6c3263c408" datatype="html">
-        <source>CAS Sharpening</source>
+        <source>Sharpening (CAS)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-198f2711e662218d" datatype="html">
         <source>CBR Key Frame Budget (x frames)</source>
@@ -947,7 +947,7 @@
         <source>Checking…</source>
       </trans-unit>
       <trans-unit id="fluent-fix-db71f02ee461e9e9" datatype="html">
-        <source>Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 (experimental) are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 and AV1 run 8-bit. Requires a SteamVR restart and reconnect.</source>
+        <source>Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Requires a SteamVR restart and reconnect.</source>
       </trans-unit>
       <trans-unit id="fluent-fix-6b73191a0a4b6742" datatype="html">
         <source>Color</source>
@@ -1000,11 +1000,11 @@
       <trans-unit id="fluent-fix-252001c1b33cd274" datatype="html">
         <source>Custom Headset's driver is disabled</source>
       </trans-unit>
-      <trans-unit id="fluent-fix-2a14ced3f79de809" datatype="html">
-        <source>Custom: Bandwidth (Mbit/s)</source>
+      <trans-unit id="stream-quality-20261016-1" datatype="html">
+        <source>Tile Width</source>
       </trans-unit>
-      <trans-unit id="fluent-fix-aede1721bfe969e3" datatype="html">
-        <source>Custom: Tile Width (streamFormatWidth)</source>
+      <trans-unit id="stream-quality-20261016-2" datatype="html">
+        <source>Bandwidth (Mbit/s)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-1a03bd2fd107c453" datatype="html">
         <source>Debug</source>
@@ -1022,7 +1022,7 @@
         <source>Default value</source>
       </trans-unit>
       <trans-unit id="fluent-fix-733e1d98fa906224" datatype="html">
-        <source>Deferred Scratch Eviction</source>
+        <source>Smooth Switching</source>
       </trans-unit>
       <trans-unit id="fluent-fix-7868af598c4a5fc4" datatype="html">
         <source>Derive Smoothing (tau slow/fast ms, speed low/high)</source>
@@ -1037,7 +1037,7 @@
         <source>Dimming Timing</source>
       </trans-unit>
       <trans-unit id="fluent-fix-7688275f01e91a05" datatype="html">
-        <source>Direct Render Path</source>
+        <source>Fast Render Path</source>
       </trans-unit>
       <trans-unit id="fluent-fix-1eba444748a72808" datatype="html">
         <source>Disables CustomHeadsetOpenVR and enables this driver. Restart SteamVR afterwards. You can switch back from the other GUI at any time.</source>
@@ -1076,13 +1076,13 @@
         <source>Editable driver settings</source>
       </trans-unit>
       <trans-unit id="fluent-fix-3693e7913a44ffcf" datatype="html">
-        <source>Encoder</source>
+        <source>Encoder Advanced</source>
       </trans-unit>
       <trans-unit id="fluent-fix-311b116f8ad02bec" datatype="html">
         <source>Encoder Bitrate (separate, Mbit/s)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-40cbc8527370c5db" datatype="html">
-        <source>Exact Covariance Transition (A/B)</source>
+        <source>Exact Covariance Model (Experimental)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-0ad5815853141ab2" datatype="html">
         <source>Experimental: Simulate Oculus Touch</source>
@@ -1118,7 +1118,7 @@
         <source>Fixation Dot (VOR probe)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-6b5fd77b24ac046b" datatype="html">
-        <source>Force CBR</source>
+        <source>Constant Bitrate</source>
       </trans-unit>
       <trans-unit id="fluent-fix-561da2de904c4ca1" datatype="html">
         <source>Force Calibration Grid</source>
@@ -1133,19 +1133,19 @@
         <source>Fovea Strength</source>
       </trans-unit>
       <trans-unit id="fluent-fix-124ca43453ea408e" datatype="html">
-        <source>Fovea Tile On Top</source>
+        <source>Center Tile at Top</source>
       </trans-unit>
       <trans-unit id="fluent-fix-e0a2cb29d8d882c9" datatype="html">
         <source>Foveated QP: Fovea / Periphery Delta</source>
       </trans-unit>
       <trans-unit id="fluent-fix-3c8b566bf8daf8f4" datatype="html">
-        <source>Galaxy XR Native Identity</source>
+        <source>Galaxy XR Recognition</source>
       </trans-unit>
       <trans-unit id="fluent-fix-1d121761d9c61d53" datatype="html">
         <source>Gaze Aim Assist (strength 0-1 / max bend deg / min speed m/s)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-106d32f0bffe1517" datatype="html">
-        <source>Gaze Debug Ring</source>
+        <source>Gaze Position Ring</source>
       </trans-unit>
       <trans-unit id="fluent-fix-3ebf784618938631" datatype="html">
         <source>Gaze FOV Tangents</source>
@@ -1163,7 +1163,7 @@
         <source>Grip Point r - Left / Right (cm, controller local frame)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-a06b8356ec503f8f" datatype="html">
-        <source>Grip Touch From Grip Pressure</source>
+        <source>Grip Touch From Pressure</source>
       </trans-unit>
       <trans-unit id="fluent-fix-b52850be81a88a45" datatype="html">
         <source>Grip-Point Velocity Compensator</source>
@@ -1199,7 +1199,7 @@
         <source>Headset and controller identity changes apply after restarting SteamVR.</source>
       </trans-unit>
       <trans-unit id="fluent-fix-f1d7f28f78abaa3c" datatype="html">
-        <source>Hitch Diagnostics (HITCHDIAG)</source>
+        <source>Stutter Diagnostics</source>
       </trans-unit>
       <trans-unit id="fluent-fix-85995741fbe65514" datatype="html">
         <source>Host processing inactive (enable Image Processing on the Stream Frame page).</source>
@@ -1220,7 +1220,7 @@
         <source>Installation and settings check</source>
       </trans-unit>
       <trans-unit id="fluent-fix-6dc79adbdcc55d6b" datatype="html">
-        <source>Interactive Tuner (in-headset)</source>
+        <source>Tuner (In-Headset)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-9cc3eeee319c524e" datatype="html">
         <source>Kalman Advanced Settings</source>
@@ -1241,7 +1241,7 @@
         <source>Kalman CA: Report Acceleration</source>
       </trans-unit>
       <trans-unit id="fluent-fix-434ff48015876c19" datatype="html">
-        <source>Kalman Device-Time Measurements</source>
+        <source>Use Tracking Timestamps</source>
       </trans-unit>
       <trans-unit id="fluent-fix-51c6141c412c6450" datatype="html">
         <source>Kalman Direction Lead (ms)</source>
@@ -1292,10 +1292,10 @@
         <source>Left Hand Rotation Offset (deg)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-561bc8925bee076c" datatype="html">
-        <source>Limited Range Video (fixes the black floor)</source>
+        <source>Lifted-Blacks Fix</source>
       </trans-unit>
       <trans-unit id="fluent-fix-67bf54adf1850d50" datatype="html">
-        <source>Mirror Offsets For Right Hand</source>
+        <source>Same Alignment Both Hands</source>
       </trans-unit>
       <trans-unit id="fluent-fix-5e23ec6a300dc60a" datatype="html">
         <source>Mode</source>
@@ -1319,16 +1319,16 @@
         <source>NVENC (retired): VUI Full Range / Matrix / Primaries / Transfer</source>
       </trans-unit>
       <trans-unit id="fluent-fix-a8319b9fd0f613f2" datatype="html">
-        <source>NVENC Tap</source>
+        <source>Override NVIDIA Encoder</source>
       </trans-unit>
       <trans-unit id="fluent-fix-f550f813fcfb3225" datatype="html">
-        <source>NVENC: Fix Level</source>
+        <source>Encoder Auto-Fixes</source>
       </trans-unit>
       <trans-unit id="fluent-fix-fb394c97daf69a3b" datatype="html">
-        <source>NVENC: Verbose Log</source>
+        <source>Encoder Verbose Log</source>
       </trans-unit>
       <trans-unit id="fluent-fix-fbb7cfb237019f0d" datatype="html">
-        <source>Native Render Resolution</source>
+        <source>Native Panel Resolution</source>
       </trans-unit>
       <trans-unit id="fluent-fix-4a4582b56301fa2b" datatype="html">
         <source>Native identity changes take effect after restarting SteamVR.</source>
@@ -1346,7 +1346,7 @@
         <source>Off</source>
       </trans-unit>
       <trans-unit id="fluent-fix-5c37c0ab037543f3" datatype="html">
-        <source>Official Controller Input Profile</source>
+        <source>Official Controller Layout</source>
       </trans-unit>
       <trans-unit id="fluent-fix-0c5fa1c78bb59c0f" datatype="html">
         <source>Official Pose Components</source>
@@ -1373,7 +1373,7 @@
         <source>Per Eye Curves</source>
       </trans-unit>
       <trans-unit id="fluent-fix-1cd41267c5208c94" datatype="html">
-        <source>Per Eye Strength</source>
+        <source>Per-Eye Values</source>
       </trans-unit>
       <trans-unit id="fluent-fix-5d413b3f28524c6f" datatype="html">
         <source>Per-hand trims are added on top of the shared offsets above, unmirrored. Turn Mirror Offsets on to hide them and drive both hands from one set.</source>
@@ -1394,16 +1394,16 @@
         <source>Pointer Tip Trim Z (cm)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-997cd805e0e8da95" datatype="html">
-        <source>Pose Logging (diagnostic)</source>
+        <source>Motion Logging</source>
       </trans-unit>
       <trans-unit id="fluent-fix-c1f15fbac12f2111" datatype="html">
-        <source>Pose Logging: Burst Channel</source>
+        <source>Motion Logging: Burst</source>
       </trans-unit>
       <trans-unit id="fluent-fix-22542dd88e630597" datatype="html">
         <source>Position Offset (cm)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-38cd7925ee776bdb" datatype="html">
-        <source>Position-Freeze Protection (3dof Fallback)</source>
+        <source>Freeze Protection</source>
       </trans-unit>
       <trans-unit id="fluent-fix-cb54d989018df9ed" datatype="html">
         <source>Position-Freeze Velocity Decay (ms)</source>
@@ -1415,7 +1415,7 @@
         <source>Probe Capture (scoring run)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-64542bdbaed1ff87" datatype="html">
-        <source>Process At Submit Layer</source>
+        <source>Alternative Processing Hook</source>
       </trans-unit>
       <trans-unit id="fluent-fix-0241291147a16fab" datatype="html">
         <source>Profile: Supports 10-bit</source>
@@ -1451,7 +1451,7 @@
         <source>Rotation Offset (deg)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-5110f9cce3e75918" datatype="html">
-        <source>SDR 10-bit baseline</source>
+        <source>10-Bit SDR Mode</source>
       </trans-unit>
       <trans-unit id="fluent-fix-d7ee5449db745dd8" datatype="html">
         <source>SDR 10-bit baseline is active: the values below are stored but not applied (the host pipeline runs neutral). Turn it off on the Driver Settings page to restore them.</source>
@@ -1502,7 +1502,7 @@
         <source>State</source>
       </trans-unit>
       <trans-unit id="fluent-fix-b918b214081dcd72" datatype="html">
-        <source>Stationary Dimming</source>
+        <source>Dim Screen When Idle</source>
       </trans-unit>
       <trans-unit id="fluent-fix-a30ccc0a7f7c15e1" datatype="html">
         <source>Stop calibration</source>
@@ -1510,11 +1510,8 @@
       <trans-unit id="fluent-fix-f059348cf984d83c" datatype="html">
         <source>Stream Quality</source>
       </trans-unit>
-      <trans-unit id="fluent-fix-8bd4c368c8dc7322" datatype="html">
-        <source>Stream Quality Preset</source>
-      </trans-unit>
       <trans-unit id="fluent-fix-d39c7b29903b6054" datatype="html">
-        <source>Stream codec</source>
+        <source>Video Codec</source>
       </trans-unit>
       <trans-unit id="fluent-fix-3589b7f5bc2b8a3e" datatype="html">
         <source>Strength Left</source>
@@ -1577,7 +1574,7 @@
         <source>Warning</source>
       </trans-unit>
       <trans-unit id="fluent-fix-390699113913ffbe" datatype="html">
-        <source>Warped Overlays (profile validation)</source>
+        <source>Show Corrected Overlays</source>
       </trans-unit>
       <trans-unit id="fluent-fix-ea9c2052cfcfe5bb" datatype="html">
         <source>World-Locked Grid</source>
@@ -1607,10 +1604,10 @@
         <source>vrlink (retired): Max Video Queue Latency (us) / Backoff Recovery Coefficient</source>
       </trans-unit>
       <trans-unit id="fluent-fix-1099c901b0573e57" datatype="html">
-        <source>vrlink Debug Overlay</source>
+        <source>Steam Link Debug Overlay</source>
       </trans-unit>
       <trans-unit id="fluent-fix-53f595c13ea3a4a1" datatype="html">
-        <source>vrlink Headset Profile</source>
+        <source>Mirror to Steam Link Aliases</source>
       </trans-unit>
       <trans-unit id="setup-layout-7c8218244501762b" datatype="html">
         <source>A standalone SteamVR vendor driver for the Samsung Galaxy XR over Steam Link. It gives the headset and its controllers their native identity, models and bindings in SteamVR, corrects controller tracking and throw velocity, and adds the ability to process the streamed image (color, sharpening, distortion correction) before it is encoded.</source>
@@ -2007,7 +2004,7 @@ Continue only if you accept this image-quality tradeoff. Turn enhancements off t
         <source>Not verified</source>
       </trans-unit>
       <trans-unit id="companion-20260926-39452a74667ef074" datatype="html">
-        <source>Official Controller Input Profile is off. Its saved adjustments are kept.</source>
+        <source>Official Controller Layout is off. Its saved adjustments are kept.</source>
       </trans-unit>
       <trans-unit id="companion-20260926-1bcddc4b9a965a6f" datatype="html">
         <source>Open App Settings</source>
@@ -2239,10 +2236,10 @@ Use the calibration grid to inspect alignment, then turn calibration off before 
         <source>This control is available in the Galaxy XR build.</source>
       </trans-unit>
       <trans-unit id="companion-20260926-6f356506ec360ff8" datatype="html">
-        <source>This control is available when CAS Sharpening uses Post-pack.</source>
+        <source>This control is available when Sharpening (CAS) uses Post-pack.</source>
       </trans-unit>
       <trans-unit id="companion-20260926-1d31f076f980f3df" datatype="html">
-        <source>This control is available when CAS Sharpening uses Pre-encode.</source>
+        <source>This control is available when Sharpening (CAS) uses Pre-encode.</source>
       </trans-unit>
       <trans-unit id="companion-20260926-f2045ceece9aa8a5" datatype="html">
         <source>This control is available with a Kalman CA controller mode.</source>
@@ -2484,10 +2481,1039 @@ An encoder already created with the tap can retain its earlier parameters and AP
         <source>Show encoder, controller, and calibration controls. Hiding them keeps their values.</source>
       </trans-unit>
       <trans-unit id="dev-updates-20261013-1" datatype="html">
-        <source>Dev Updates</source>
+        <source>Developer Builds</source>
       </trans-unit>
       <trans-unit id="dev-updates-20261013-2" datatype="html">
         <source>Also check for dev (pre-release) builds when checking for updates.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-1" datatype="html">
+        <source>Tile width is sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. Requires a SteamVR restart.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-2" datatype="html">
+        <source>Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is shown with the codec defaults; H.264 recommends Off.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-3" datatype="html">
+        <source>0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-5" datatype="html">
+        <source>Preset merge adopts canonical preset settings. Explicit multipass and H.264 controls below remain authoritative. Automatic multipass uses the tested H.264 single-pass default or the HEVC/AV1 preset recommendation.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-6" datatype="html">
+        <source>H.264 GOP Frames</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-7" datatype="html">
+        <source>0 = automatic nominal frame rate; -1 = leave upstream GOP unchanged. Positive values are applied exactly.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-8" datatype="html">
+        <source>H.264 IDR Frames</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-9" datatype="html">
+        <source>0 = automatic nominal frame rate; -1 = leave upstream IDR unchanged. Positive values are applied exactly.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-10" datatype="html">
+        <source>H.264 Reference Frames</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-11" datatype="html">
+        <source>Set the reference-frame count. Unsupported requests fail instead of falling back.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-12" datatype="html">
+        <source>H.264 Entropy Mode</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-13" datatype="html">
+        <source>0 = automatic; 1 = CABAC; 2 = CAVLC. Automatic uses CAVLC above 200 Mbit/s.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-14" datatype="html">
+        <source>H.264 Slice Mode</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-15" datatype="html">
+        <source>NVENC slice mode: 0 = macroblocks; 1 = bytes; 2 = rows; 3 = slice count.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-16" datatype="html">
+        <source>H.264 Slice Value</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-17" datatype="html">
+        <source>Value for the selected NVENC slice mode.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-18" datatype="html">
+        <source>H.264 Initial VBV Delay</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-19" datatype="html">
+        <source>Initial VBV delay in bits. Zero preserves the tested low-latency default.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-20" datatype="html">
+        <source>H.264 Access Unit Delimiters</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-21" datatype="html">
+        <source>H.264 Repeat SPS/PPS</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-22" datatype="html">
+        <source>H.264 Disable SPS/PPS</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-23" datatype="html">
+        <source>H.264 Bitstream Restriction</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-24" datatype="html">
+        <source>Encoder Multipass</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-29" datatype="html">
+        <source>Encoder request failed</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-30" datatype="html">
+        <source>Latest accepted encoder: {codec}; {width} × {height}; rate control {rc}; split {split}.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-31" datatype="html">
+        <source>Not applicable</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-32" datatype="html">
+        <source>Automatic (codec / preset)</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-33" datatype="html">
+        <source>Single pass</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-34" datatype="html">
+        <source>Two passes, quarter resolution</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-35" datatype="html">
+        <source>Two passes, full resolution</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-36" datatype="html">
+        <source>Explicit multipass selection applies even when preset merge is off. Automatic keeps the codec and preset recommendation. Unsupported requests fail without fallback.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-37" datatype="html">
+        <source>H.264 compatibility defaults are editable below. Reset arrows restore the tested values. Split-Frame is not applicable to H.264; its saved choice is retained.</source>
+      </trans-unit>
+      <trans-unit id="encoder-controls-20261016-38" datatype="html"><source>Invalid stream setting</source></trans-unit>
+      <trans-unit id="encoder-controls-20261016-39" datatype="html"><source>Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.</source></trans-unit>
+      <trans-unit id="encoder-controls-20261016-40" datatype="html"><source>With Force CBR, set the key-frame to P-frame budget ratio (0–255, NVENC byte field). The optimized recommendation is 2. Unsupported requests fail without rewriting the value.</source></trans-unit>
+      <trans-unit id="encoder-controls-20261016-41" datatype="html"><source>Select H.264 to edit this setting. Its saved value is kept.</source></trans-unit>
+      <trans-unit id="encoder-controls-20261016-42" datatype="html"><source>{key} must be {range}; the entered value is kept until corrected.</source></trans-unit>
+      <trans-unit id="encoder-controls-20261016-43" datatype="html"><source>{key} must be a whole number ({range}); the entered value is kept until corrected.</source></trans-unit>
+      <trans-unit id="encoder-controls-20261016-44" datatype="html"><source>Last observed encoder rejection, {seconds} seconds ago: {error}</source></trans-unit>
+      <trans-unit id="3883825347" datatype="html">
+        <source>0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.
+
+Value: streamFrame.nvencSplitMode (settings.json). Encoder side — multi-engine split; nonzero opens the API 12.1 encoder session.</source>
+      </trans-unit>
+      <trans-unit id="352684092" datatype="html">
+        <source>Acceleration Decay Time</source>
+      </trans-unit>
+      <trans-unit id="279998743" datatype="html">
+        <source>Add a small amount of noise to make color banding less obvious. It can improve smooth gradients but does not add real color detail.
+
+Adds a small amount of noise before the encode to reduce banding in dark gradients.
+
+Value: streamFrame.dither (settings.json). Driver side — pre-encode noise against banding.</source>
+      </trans-unit>
+      <trans-unit id="418031780" datatype="html">
+        <source>Adjust horizontal and vertical lens correction separately. Start with a shared curve unless you have measured a difference between the two directions.
+
+Separate horizontal and vertical curves blended around the ring, capturing elliptic error such as lens tilt. Existing curve is copied to both axes as a starting point.
+
+Value: streamFrame.distortion.perAxis (settings.json). Driver side — separate horizontal/vertical curve evaluation.</source>
+      </trans-unit>
+      <trans-unit id="1500723145" datatype="html">
+        <source>Adjust how far ahead eye movement is predicted for processing. Too much prediction can place the correction ahead of your actual gaze.
+
+Leads the gaze point by extrapolating recent eye motion, compensating the capture-to-display latency that makes the ring trail your eyes. Raise if the ring lags behind saccades, lower if it overshoots. 0 disables.
+
+Value: streamFrame.eyeGaze.predictionMs (settings.json). Driver side — gaze-point lead time, in ms; 0 disables.</source>
+      </trans-unit>
+      <trans-unit id="686253578" datatype="html">
+        <source>Adjust how strongly the older acceleration-based mode contributes to reported speed. This only affects the filter modes described below.
+
+CA-Magnitude mode: everything about the standard Kalman mode stays identical (calm direction, the A/P/W/O/L tuning above, duplicate handling), except the fast magnitude channel becomes a constant-acceleration estimator. J (jerk) is its responsiveness: higher follows the throw ramp harder. The decay bounds phantom speed across repeated-sample coasts (~150ms matches a real throw's acceleration duration). Success looks like Throw Strength Trim converging to 1.0.
+
+Value: streamFrame.kalmanCaMagJerk, kalmanCaMagAccelTauMs (settings.json). Driver side — responsiveness and decay of the CA filter's fast magnitude channel.</source>
+      </trans-unit>
+      <trans-unit id="2683529141" datatype="html">
+        <source>Adjust lens correction mostly toward the image edges. Tune the broad correction first, then use this for the outer areas.
+
+Quartic radial term. Mostly affects the periphery.
+
+Value: streamFrame.k2 (settings.json). Driver side — quartic radial term of the curve.</source>
+      </trans-unit>
+      <trans-unit id="3506078198" datatype="html">
+        <source>Adjust midtone brightness without using the overall brightness control. The neutral pipeline value is 2.2.
+
+Gamma of the output. 2.2 is neutral, lower brightens midtones.
+
+Value: streamFrame.gamma (settings.json). Driver side — output gamma; 2.2 neutral.</source>
+      </trans-unit>
+      <trans-unit id="1373462957" datatype="html">
+        <source>Adjust sharpening for the upper and lower center tiles. These values fine-tune the streamed image layout.
+
+Which tile of each eye's pair is the gaze cut-out. On = upper tile (what the streamer's shader indicates). If the wrong region looks sharpened - e.g. periphery crisp, fovea soft - flip this.
+
+Value: streamFrame.postPack.foveaTop (settings.json). Encoder side — selects which tile is the gaze cut-out.</source>
+      </trans-unit>
+      <trans-unit id="453933360" datatype="html">
+        <source>Adjust sharpening in the high-detail center of the streamed image. Too much sharpening can create bright outlines or noise.
+
+Sharpening for the gaze cut-out tile (1:1 render-target pixels), 0 to 1. Under CBR sharpening costs bits: spend them here.
+
+Value: streamFrame.postPack.foveaStrength (settings.json). Encoder side — post-pack sharpening of the gaze tile.</source>
+      </trans-unit>
+      <trans-unit id="4201035317" datatype="html">
+        <source>Adjust sharpening outside the high-detail center. This affects the lower-detail edges of the streamed image.
+
+Sharpening for the downscaled whole-view tile, 0 to 1. Applied after the downscale, so it is visible on the panel; keep it lower than the fovea to avoid haloing on the stretched periphery.
+
+Value: streamFrame.postPack.peripheryStrength (settings.json). Encoder side — post-pack sharpening of the downscaled whole-view tile.</source>
+      </trans-unit>
+      <trans-unit id="1794930729" datatype="html">
+        <source>Adjust the broad lens-correction curve across the image. Make small changes and compare them using the reference grid.
+
+Quadratic radial term. Affects the whole field, growing with distance from the center.
+
+Value: streamFrame.k1 (settings.json). Driver side — quadratic radial term of the curve.</source>
+      </trans-unit>
+      <trans-unit id="4141158895" datatype="html">
+        <source>Adjust the difference between light and dark areas. Stronger contrast can hide details in shadows or highlights.
+
+Contrast around the midpoint. 50 is neutral.
+
+Value: streamFrame.contrast (settings.json). Driver side — midpoint contrast; mirrored into the compositor-shader path.</source>
+      </trans-unit>
+      <trans-unit id="3630225586" datatype="html">
+        <source>Adjust the grip-pose convention for games whose held objects look tilted or misplaced. Compare with a known-good game before changing other offsets.
+
+Shifts the raw streamed controller pose (22° pitch, 5 cm) into SteamVR's grip convention so held objects sit where games expect them and the official pose components land on the right spots. Recommended on. Turn off only if a Steam Link build already reports a grip-convention pose and the controllers sit visibly wrong.
+
+Value: galaxyXr.gripConvention (settings.json). Driver side — shifts Steam Link's raw pose into SteamVR's grip convention.</source>
+      </trans-unit>
+      <trans-unit id="4094585521" datatype="html">
+        <source>Adjust the left and right eye separately when one shared correction does not suit both eyes. Your current curve is copied before you start.
+
+Separate correction curves for the left and right eye. Existing curve is copied to both eyes as a starting point.
+
+Value: streamFrame.distortion.perEye (settings.json). Driver side — separate left/right curve evaluation.</source>
+      </trans-unit>
+      <trans-unit id="2730816871" datatype="html">
+        <source>Adjust the overall picture brightness. Lower values darken the image; this is a display preference, not a guarantee about panel lifespan.
+
+Scales output brightness in the host image-processing path. Compare against a known neutral setting and avoid compensating for a video-range mismatch with brightness alone. Panel wear depends on many factors; this control does not provide a measured or guaranteed lifespan improvement.
+
+Value: streamFrame.brightness (settings.json). Driver side — per-frame brightness scale in the host image pipeline.</source>
+      </trans-unit>
+      <trans-unit id="2666491543" datatype="html">
+        <source>Adjust the overall strength and direction of lens correction. 1 uses the saved curve, 0 disables it, and negative values reverse its direction.
+
+Multiplies the whole correction: 1 = curve as authored, 0 = off, -1 = opposite-sign correction, values between scale it. THE perceptual search knob: turn on Warped Overlays + the angular grid, fixate a grid intersection, slowly rotate your head, and sweep the gain until the lines swim least. Settles the correction's sign and strength in one pass, without trusting eye tracking.
+
+Value: streamFrame.distortion.gain (settings.json). Driver side — global multiplier on the correction.</source>
+      </trans-unit>
+      <trans-unit id="2491658830" datatype="html">
+        <source>Adjust the red, green, and blue channels separately to correct a color tint. 1 on every channel leaves the balance unchanged.
+
+Per channel tint multiplier applied to the image. 1 for each channel is neutral.
+
+Value: streamFrame.colorMultiplier.r/g/b (settings.json). Driver side — per-channel tint multipliers.</source>
+      </trans-unit>
+      <trans-unit id="2611071783" datatype="html">
+        <source>Adjust the strength of colors. The neutral value keeps the original color saturation.
+
+Increase or decrease the variation of the colors. 50 is neutral, 0 is grayscale.
+
+Value: streamFrame.saturation (settings.json). Driver side — per-frame color saturation; mirrored into the compositor-shader path.</source>
+      </trans-unit>
+      <trans-unit id="737430366" datatype="html">
+        <source>Allow temporary bitrate peaks above the target budget. This mainly affects modes that are not strict constant bitrate.
+
+Peak bitrate over the average, in percent. Only meaningful without Force CBR (under CBR peak = average). 0 measured safe.
+
+Value: streamFrame.nvencMaxBitrateHeadroomPct (settings.json). Encoder side — peak bitrate over the average, in percent.</source>
+      </trans-unit>
+      <trans-unit id="1097346392" datatype="html">
+        <source>Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.
+
+An encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.
+
+Value: streamFrame.nvencTap (settings.json). Encoder side — hooks NVIDIA NVENC session creation and reconfiguration.</source>
+      </trans-unit>
+      <trans-unit id="4265782877" datatype="html">
+        <source>Also offer pre-release developer builds when checking for updates.
+
+Value: devUpdates (gui-settings.json). GUI-only update-channel preference.</source>
+      </trans-unit>
+      <trans-unit id="2026841661" datatype="html">
+        <source>Apply a nine-value color correction matrix. This is an advanced calibration tool; an incorrect matrix can strongly distort colors.
+
+Optional 3x3 linear rgb matrix, row major, 9 comma separated numbers. Used for gamut or white point correction. Leave empty to disable.
+
+Value: streamFrame.srgbMatrix - 9 comma-separated values (settings.json). Driver side — 3x3 linear RGB matrix applied per frame; empty disables.</source>
+      </trans-unit>
+      <trans-unit id="3598137517" datatype="html">
+        <source>Apply contrast in linear light rather than the usual display-encoded space. This changes the effect of the contrast control.
+
+Apply the contrast in linear space instead of gamma space.
+
+Value: streamFrame.contrastLinear (settings.json). Driver side — applies contrast in linear light instead of gamma space.</source>
+      </trans-unit>
+      <trans-unit id="267112014" datatype="html">
+        <source>Apply one controller alignment to both hands with left/right mirroring. Turn this off to tune each hand independently.
+
+Author the offsets above for the LEFT controller and mirror them for the right hand. Position X and rotations Y/Z flip sign. Pitch and position Y/Z stay the same. Turn it off if the hands need different corrections.
+
+Value: controllers.mirrorOffsetsForRightHand (settings.json). Driver side — mirrors position X and rotation Y/Z for the right hand.</source>
+      </trans-unit>
+      <trans-unit id="2389820202" datatype="html">
+        <source>Apply your lens correction to the calibration overlays too. Use this when checking how well the current correction works.
+
+Draws the calibration grid and the fixation dot in content space, so the active distortion profile warps them exactly like scene content. With the ANGULAR grid: a correct profile makes the lines look straight through the lens. With the fixation dot + swim probe: run probe sessions with profile off / A / B and let the fitter score which one flattens the residual. Leave off for plain measurement runs.
+
+Value: streamFrame.eyeGaze.overlayWarped (settings.json). Driver side — draws the overlays through the active distortion profile.</source>
+      </trans-unit>
+      <trans-unit id="2381294401" datatype="html">
+        <source>Ask SteamVR to render at the Galaxy XR's native per-eye size. This improves the requested resolution but can increase GPU load. Restart SteamVR to apply it.
+
+Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With vrlink Headset Profile On, the same values are also copied to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.
+
+Value: galaxyXr.nativeResolution (settings.json). SteamVR side — writes renderWidth, renderHeight, overrideRenderWidth and overrideRenderHeight into the vrlink section of steamvr.vrsettings.</source>
+      </trans-unit>
+      <trans-unit id="2116191658" datatype="html">
+        <source>Automatically show the reference grid while using the lens tuner. Turn this off only when you want to control the overlays yourself.
+
+On (default): the tuner forces the angular grid + warped overlays on while active. Off: overlays follow your own toggles below.
+
+Value: streamFrame.distortion.tune.forceGrid (settings.json). Driver side — forces grid overlays during tuner sessions.</source>
+      </trans-unit>
+      <trans-unit id="1607213352" datatype="html">
+        <source>Bitrate (Mbit/s)</source>
+      </trans-unit>
+      <trans-unit id="2290962057" datatype="html">
+        <source>Bitrate Headroom (%)</source>
+      </trans-unit>
+      <trans-unit id="330451955" datatype="html">
+        <source>Black Point (sRGB code)</source>
+      </trans-unit>
+      <trans-unit id="1060664072" datatype="html">
+        <source>Boost quieter colors without changing all colors equally. Use small adjustments to avoid an unnatural-looking picture.
+
+Smart saturation: changes muted colors the most and already vivid colors the least. Positive enriches dull colors with far less clipping and skin tone blowout than raw saturation; negative fades muted colors toward gray while vivid accents remain. 0 is off, stacks with Saturation.
+
+Value: streamFrame.vibrance (settings.json). Driver side — selective saturation boost for muted colors.</source>
+      </trans-unit>
+      <trans-unit id="512420747" datatype="html">
+        <source>Bypass this driver's controller adjustments while leaving the headset path active. Use this to compare with Steam Link's controller behavior.
+
+Leave the streamed controllers exactly as vrlink presents them: no Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, no offsets. Kalman is not part of the bypass; use Controller Motion Filter to turn it off. For A/B tests against stock, or if you only want the image processing. Identity and input profile changes take effect after a SteamVR restart.
+
+Value: galaxyXr.controllerBypass (settings.json). Driver side — skips pose corrections and controller identity; the motion filter follows Controller Motion Filter.</source>
+      </trans-unit>
+      <trans-unit id="3072309701" datatype="html">
+        <source>Center Quality Boost (QP)</source>
+      </trans-unit>
+      <trans-unit id="2089714645" datatype="html">
+        <source>Center Sharpness</source>
+      </trans-unit>
+      <trans-unit id="2674798793" datatype="html">
+        <source>Center-Edge Blend</source>
+      </trans-unit>
+      <trans-unit id="2945140986" datatype="html">
+        <source>Change the size of the controller model shown in VR. This affects its appearance, not tracking scale or the size of your hands.
+
+Uniform scale for the controller models. The official assets measure about 124x63mm while the physical controller is about 145x70mm; 1.15 (default) overlays the real shell in SteamVR Home. Scales the visible model only (geometry, button and stick pivots). Pose anchors, hand skeleton and game hand meshes are never scaled, so this cannot change hand size in games. Applied live within about a second. 1.0 = stock assets.
+
+Value: galaxyXr.renderModelScale (settings.json). Driver side — scales the controller render-model mesh only; applies live.</source>
+      </trans-unit>
+      <trans-unit id="2064470470" datatype="html">
+        <source>Choose an alternate point in the rendering pipeline for image processing. This is a compatibility and performance experiment.
+
+Processes frames during SubmitLayer instead of Present. Only needed if processing at Present has no visible effect on your driver.
+
+Value: streamFrame.processAtSubmitLayer (settings.json). Driver side — processes frames in SubmitLayer instead of Present.</source>
+      </trans-unit>
+      <trans-unit id="4023595749" datatype="html">
+        <source>Choose how controller motion is smoothed and predicted. Start with the normal defaults; advanced filter parameters can trade steadiness for lag or overshoot.
+
+For the Kalman velocity mode: a single estimator produces position, rotation, velocity and spin together, the same architecture native lighthouse controllers use. A adjusts the responsiveness: higher trusts your motion more (snappier throws, a bit noisier), lower trusts smoothness (calmer hands, slight lag). W does the same for rotation: responsiveness of the spin estimator. P/O are the sensor noise floors. L leads the reported position to counter streaming latency.
+
+Value: streamFrame.kalmanProcessAccel, kalmanPosNoiseMm, kalmanProcessAngAccel, kalmanOriNoiseDeg, kalmanLeadMs (settings.json). Driver side — the Kalman filter's responsiveness and trust parameters (A/P/W/O/L).</source>
+      </trans-unit>
+      <trans-unit id="3162825818" datatype="html">
+        <source>Choose how controller rotation speed is reported. The wrong coordinate convention can change throwing or aiming behavior; use the default unless testing.
+
+Frame the reported angular velocity is expressed in. Body (default, field-verified 2026-08-24): SteamVR's motion prediction rotates about controller-local axes, so this is what it expects. World: the previous behaviour, which made horizontal sword swings pitch up at the peak of the swing. Zero: diagnostic only - no angular prediction, laggier rotation.
+
+Value: streamFrame.kalmanAngularOutFrame (settings.json). Driver side — frame of the reported angular velocity (body/world/zero).</source>
+      </trans-unit>
+      <trans-unit id="2997897302" datatype="html">
+        <source>Choose how finely you can adjust the lens correction. Start with the two-number curve; use a spline for more control over different parts of the image.
+
+k1/k2 is a simple two value polynomial curve. Spline gives per radius control points. Convert from k1/k2 keeps the current shape as a starting point.
+
+Value: streamFrame.distortion.mode (settings.json). Driver side — selects the radial curve model evaluated per frame.</source>
+      </trans-unit>
+      <trans-unit id="283021145" datatype="html">
+        <source>Choose how long controller movement may continue briefly after tracking is lost. Longer coasting can hide interruptions but can also move the controller incorrectly.
+
+When the controller briefly leaves tracking (hand out of camera view), the stream freezes the hand in place with zero velocity until it is seen again. For up to this many ms of tracking loss, the driver instead keeps the hand moving along the filter's last known motion (with the usual acceleration decay so it cannot run away).
+
+Value: streamFrame.kalmanLossCoastMs (settings.json). Driver side — coast duration in ms after tracking loss.</source>
+      </trans-unit>
+      <trans-unit id="3742741704" datatype="html">
+        <source>Choose how many rings the lens tuner uses and how much of the image they cover. More rings give finer control but take longer to tune.
+
+How many radius bands the tuner edits and where they start and end, spaced evenly (defaults: 7 bands, 0.15 to 0.65). More bands = finer control but a longer session. Edits regenerate the band list; the active session picks it up next time the tuner is toggled on.
+
+Value: streamFrame.distortion.tune.bands (settings.json). Driver side — band count and radius span.</source>
+      </trans-unit>
+      <trans-unit id="2028408786" datatype="html">
+        <source>Choose how repeated tracking samples are handled. The default avoids treating a repeated sample as fresh movement.
+
+The streamer repeats the last pose when fresh tracking hasn't arrived, about 2 of 3 samples during fast throws. Soft (recommended): repeats are processed but distrusted by the scale below. Off: repeats are trusted fully, slight speed drag. Age: distrust grows with speed and time since the last fresh sample. Coast and Drop are not recommended. Sustained repeats are always treated as genuine stillness.
+
+Value: streamFrame.kalmanDupMode (settings.json). Driver side — duplicate-sample policy (off/coast/drop/soft/age).</source>
+      </trans-unit>
+      <trans-unit id="392437508" datatype="html">
+        <source>Choose smooth thumbstick adjustment or fixed-size steps. Set this to 0 for smooth adjustment.
+
+0 = analog mode. For higher values apply this step per 0.1s while the joystick is deflected.
+
+Value: streamFrame.distortion.tune.stepSize (settings.json). Driver side — fixed step per 0.1 s; 0 = analog.</source>
+      </trans-unit>
+      <trans-unit id="3710197346" datatype="html">
+        <source>Choose the NVIDIA encoding preset. Keep automatic selection unless you are testing a specific quality or latency trade-off.
+
+0 = automatic by NVENC engine count (3 engines: P7, 2: P5, 1: P4; logged as 'preset AUTO'). Higher presets spend more encoder time for better quality at the same bitrate; P7 needs the split across three engines to hold 90 fps. Auto resolves to P2 for H.264 (P7/P5/P4 by engine count otherwise).
+
+Value: streamFrame.nvencPreset (settings.json). Encoder side — NVENC preset selector; 0 = automatic by engine count.</source>
+      </trans-unit>
+      <trans-unit id="2371672289" datatype="html">
+        <source>Choose the brightness level around which contrast is adjusted. Change this only when the normal contrast control does not give the desired balance.
+
+The brightness level from 0 to 100 percent of white that the contrast pivots around.
+
+Value: streamFrame.contrastMidpoint (settings.json). Driver side — the brightness pivot of the contrast curve.</source>
+      </trans-unit>
+      <trans-unit id="969013015" datatype="html">
+        <source>Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Requires a SteamVR restart and reconnect.
+
+Value: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.</source>
+      </trans-unit>
+      <trans-unit id="494743694" datatype="html">
+        <source>Choose where contrast-adaptive sharpening is applied. The modes use different processing paths; avoid adding the same sharpening twice.
+
+Contrast adaptive sharpening. POST-PACK (recommended, NVIDIA + NVENC Tap): runs on the frame the encoder actually sends - the foveated transport image - with separate strengths for the gaze region and the periphery; the periphery is sharpened after Steam Link downscales it, so it survives to the panel, at ~0.04 ms per frame. PRE-ENCODE: the older full-resolution pass on the eye textures; only for AMD GPUs or with the NVENC Tap off. Never run both.
+
+Value: streamFrame.cas.enable + streamFrame.postPack.enable/casEnable (settings.json). Driver + encoder sides — post-pack sharpening runs on the encoded frame through the tap; pre-encode is the full-resolution driver pass.</source>
+      </trans-unit>
+      <trans-unit id="2362391263" datatype="html">
+        <source>Controller Motion Filter</source>
+      </trans-unit>
+      <trans-unit id="1797307847" datatype="html">
+        <source>Correct a mismatch between full-range and limited-range video levels. Use this only to diagnose washed-out blacks or crushed shadows; it requires the NVIDIA encoder adjustment path.
+
+Steam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.
+
+Value: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range.</source>
+      </trans-unit>
+      <trans-unit id="3548023599" datatype="html">
+        <source>Detect when controller position has stopped updating even if other tracking data still changes. This helps avoid treating a tracking freeze as real stillness.
+
+Detects the tracker's position-only loss: the position payload freezes while the quaternion keeps moving (fast or occluded hand falling back to IMU orientation). When detected, the stale position stays distrusted for the whole freeze instead of being adopted after the duplicate-run cap, and orientation keeps tracking live in every duplicate-handling mode. Fixes the hand parking a meter away while still rotating with the wrist, then teleporting back.
+
+Value: streamFrame.kalmanPosFreeze3dof (settings.json). Driver side — detects the position-only tracking freeze.</source>
+      </trans-unit>
+      <trans-unit id="799246967" datatype="html">
+        <source>Dim the picture when the headset is not moving. This reduces visible brightness during still periods rather than pausing the game.
+
+Fades the streamed image uniformly toward black when the headset has not moved for the configured time, then restores brightness on movement. This reduces time spent showing a bright stationary image; it does not guarantee protection from panel wear. Tracking and the game can continue while the picture is dimmed.
+
+Value: streamFrame.stationaryDimming.enable (settings.json). Driver side — fades the streamed image to black when the headset is still.</source>
+      </trans-unit>
+      <trans-unit id="1685203235" datatype="html">
+        <source>Disable NVENC Tap without deleting your custom tuning. Stream quality, bandwidth, resolution, 10-bit requests and other settings are kept. Close SteamVR completely before restoring.
+
+Value: streamFrame.nvencTap off + journal restore. Driver action — removes the encoder hook for the next session; needs SteamVR fully stopped.</source>
+      </trans-unit>
+      <trans-unit id="1781309983" datatype="html">
+        <source>Edge Sharpness</source>
+      </trans-unit>
+      <trans-unit id="1887618440" datatype="html">
+        <source>Edge Smoothing (FXAA)</source>
+      </trans-unit>
+      <trans-unit id="3978947916" datatype="html">
+        <source>Encoder</source>
+      </trans-unit>
+      <trans-unit id="2068612643" datatype="html">
+        <source>Encoder Bitrate Override (Mbit/s)</source>
+      </trans-unit>
+      <trans-unit id="408236908" datatype="html">
+        <source>Encoder Quality Preset</source>
+      </trans-unit>
+      <trans-unit id="3148341543" datatype="html">
+        <source>Explicit multipass selection applies even when preset merge is off. Automatic keeps the codec and preset recommendation. Unsupported requests fail without fallback.
+
+Value: streamFrame.nvencMultiPass (settings.json). Encoder side — pass count hint; automatic follows the codec/preset recommendation.</source>
+      </trans-unit>
+      <trans-unit id="494607785" datatype="html">
+        <source>Find the center of each lens correction before tuning the surrounding rings. A gently pulsing image and a cross mark the point you are adjusting.
+
+Interactive tuning of the distortion CENTER offsets. While on: the image gently 'breathes' (pulses radially) around the currently configured center, an amber cross marks it, and the fine grid is shown. The lens's true center is the point where color fringing on the grid lines vanishes and sharpness peaks. Drag the breathing's still-point onto it with the stick. X cycles both-shift / both-mirrored(IPD) / left / right. Y resets, holding a grip 1.5s saves a centers profile + paste block. Do this BEFORE band tuning.
+
+Value: streamFrame.distortion.centerTune.enable (settings.json). Driver side — the in-headset center-offset tuner.</source>
+      </trans-unit>
+      <trans-unit id="379854560" datatype="html">
+        <source>Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is shown with the codec defaults; H.264 recommends Off.
+
+Value: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes.</source>
+      </trans-unit>
+      <trans-unit id="2062785449" datatype="html">
+        <source>Force FPS</source>
+      </trans-unit>
+      <trans-unit id="4009830004" datatype="html">
+        <source>Frame Size Cap</source>
+      </trans-unit>
+      <trans-unit id="1726393207" datatype="html">
+        <source>Frame Sync Timeout (ms)</source>
+      </trans-unit>
+      <trans-unit id="1599742644" datatype="html">
+        <source>Game Link Layout</source>
+      </trans-unit>
+      <trans-unit id="1321848747" datatype="html">
+        <source>Game Link Layout Offsets</source>
+      </trans-unit>
+      <trans-unit id="3179348921" datatype="html">
+        <source>Game Link Layout is on: these offsets are not applied, the offsets in the Game Link Layout section are.</source>
+      </trans-unit>
+      <trans-unit id="584609589" datatype="html">
+        <source>Give different tuning rings different numbers of adjustment areas. Leave the list empty to use the same number everywhere.
+
+Optional: a comma list of segment counts, one per band from INNER to OUTER (e.g. 4, 4, 8, 8, 12, 16, 16). Outer bands cover far more circumference, so they usually deserve more segments than inner ones. Empty = the uniform Band Segments value everywhere. Shorter than the band list = the last entry repeats. Counts 1-32. The X walk covers the current band's own segments; switching bands restarts at ALL. Applies when the tuner is next toggled on.
+
+Value: streamFrame.distortion.tune.segmentLayout (settings.json). Driver side — per-band segment counts, inner to outer.</source>
+      </trans-unit>
+      <trans-unit id="1468753268" datatype="html">
+        <source>H.264 is always 8-bit</source>
+      </trans-unit>
+      <trans-unit id="2924050806" datatype="html">
+        <source>How the updater installs a new build of the Companion app.
+
+Value: updateMode (gui-settings.json). GUI-only preference.
+
+Value: debugMode (settings.json). Driver side — unlocks the Debug tab's diagnostics and the SteamVR-side Steam Link debug keys.</source>
+      </trans-unit>
+      <trans-unit id="3230631667" datatype="html">
+        <source>Kalman CA Filter Fine-Tuning</source>
+      </trans-unit>
+      <trans-unit id="3268910243" datatype="html">
+        <source>Kalman CA Speed Channel</source>
+      </trans-unit>
+      <trans-unit id="2495797775" datatype="html">
+        <source>Kalman Filter Fine-Tuning</source>
+      </trans-unit>
+      <trans-unit id="4228246021" datatype="html">
+        <source>Keep cached resources longer to try to reduce short stutters. This changes resource handling and may use more memory.
+
+Performance: when the scratch texture cache is full and a new resolution arrives, the old set's release is postponed a few frames and performed after the frame sync mutex is released, instead of inside the same frame that already pays the unavoidable creation stall. Spreads transition cost so resolution/app switches hitch less. Off restores the old synchronous eviction for A/B; score the difference with Hitch Diagnostics on ('creates'/'evicts' counters and HITCH tags mark the transitions).
+
+Value: streamFrame.deferredEviction (settings.json). Driver side — postpones scratch-texture release past the frame-sync mutex.</source>
+      </trans-unit>
+      <trans-unit id="217438059" datatype="html">
+        <source>Keep the reference grid fixed in the virtual world instead of moving it with your head. This only affects the angular grid.
+
+Draws the angular grid at fixed WORLD azimuth/elevation instead of head-locked lens angles. Angular grid mode only.
+
+Value: streamFrame.eyeGaze.gridWorldLocked (settings.json). Driver side — world-locked placement of the angular grid.</source>
+      </trans-unit>
+      <trans-unit id="3093830680" datatype="html">
+        <source>Keep this on so SteamVR identifies the headset as Galaxy XR and uses its device icons. Turning it off can show Unknown or the identity provided by a patched Steam Link app instead. Restart SteamVR after changing it.
+
+Enabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link; a patched APK may report a different headset. The vrlink Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity.
+
+Value: galaxyXr.nativeIdentity (settings.json). Driver side — sets OpenVR model/manufacturer and device-icon properties; identity changes need a SteamVR restart.</source>
+      </trans-unit>
+      <trans-unit id="3871973304" datatype="html">
+        <source>Keep this on to keep settings copies under the supported Steam Link headset identities. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.
+
+Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also mirrors those settings and capability requests to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection. Recognized Quest Pro and PICO 4 Pro identities select VRLink's built-in capabilities; this SteamVR build bypasses their per-model capability sections. Profile copies alone therefore do not prove that capability requests were consumed. Off releases journal-owned tuning copies and preserves the original-model capability destination (xrvst2ue fallback); an active SDR 10-bit baseline can still request capabilities there. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.
+
+Value: galaxyXr.vrlinkHeadsetProfile (settings.json). SteamVR side — journal-mirrors the vrlink tuning sections in steamvr.vrsettings.</source>
+      </trans-unit>
+      <trans-unit id="270763785" datatype="html">
+        <source>Keyframe Size Budget</source>
+      </trans-unit>
+      <trans-unit id="3089799504" datatype="html">
+        <source>Let the encoder choose an HEVC level and tier suitable for the stream. Incorrect manual choices can prevent a stream from starting.
+
+Sets HEVC level to auto-select and tier to High on every encoder init and reconfigure. The streamer hardcodes level 6.1, which the 8192-row canvas exceeds at 90 Hz, so its reconfigures were being rejected. Keep on. Inert for H.264/AV1: those codec paths set level auto-select internally.
+
+Value: streamFrame.nvencFixLevel (settings.json). Encoder side — HEVC level/tier auto-selection at encoder init and reconfigure.</source>
+      </trans-unit>
+      <trans-unit id="507885664" datatype="html">
+        <source>Light, dark, or follow your Windows theme.
+
+Value: colorScheme (gui-settings.json). GUI-only presentation preference.</source>
+      </trans-unit>
+      <trans-unit id="1345152372" datatype="html">
+        <source>Make the headset image black while keeping tracking and the game running. Use this for testing, not as a way to stop or pause the application.
+
+Black out the headset's screens to protect from burn in. Tracking, streaming and the game keep running; only the panels go black. Useful while developing or leaving the headset connected. Needs Enable Image Processing on.
+
+Value: streamFrame.calib.blackout (settings.json). Driver side — renders black to the panels; tracking and streaming continue.</source>
+      </trans-unit>
+      <trans-unit id="23304829" datatype="html">
+        <source>Master switch for the color, sharpening and lens-correction tools. Off restores the neutral picture without changing your saved values.
+
+Value: streamFrame.enable + galaxyXr.sdr10AllowEnhancements (settings.json). Driver side — the effective color-processing gate; the 10-bit quality warning applies when the baseline is on.</source>
+      </trans-unit>
+      <trans-unit id="1870302641" datatype="html">
+        <source>Move both controller poses by the same adjustment. This shifts the virtual controller relative to the tracked hand position.
+
+Local frame position offset added to both controllers' poses, live reloaded. Use when the virtual grip point sits offset from where the controller feels like it is (beam parallel but displaced): Z = forward/back along the controller, Y = up/down, X = sideways.
+
+Value: controllers.positionOffsetCm (settings.json). Driver side — local-frame position (Z along the controller, Y up/down, X sideways), live.</source>
+      </trans-unit>
+      <trans-unit id="520043644" datatype="html">
+        <source>Move both controllers while Game Link Layout is on. Used instead of the Controller Offsets.
+
+Local frame position offset on Steam Link's raw pose, authored for the LEFT controller and mirrored for the right (X flips sign), live reloaded. Z = along the controller, Y = up/down, X = sideways.
+
+Value: controllers.gameLinkLayout.positionOffsetCm (settings.json). Driver side — left-hand authored (X mirrored), live.</source>
+      </trans-unit>
+      <trans-unit id="1966507204" datatype="html">
+        <source>Move only the left controller's pose. The offsets change where held objects appear, not the tracking space itself.
+
+Per-hand position trim for the left controller only, unmirrored, applied after the shared offsets. Same axes as the shared Position Offset: Z = along the controller, Y = up/down, X = sideways.
+
+Value: controllers.left.positionOffsetCm (settings.json). Driver side — same axes as the shared offset, left hand only, live.</source>
+      </trans-unit>
+      <trans-unit id="1093509582" datatype="html">
+        <source>Move only the right controller's pose. The offsets change where held objects appear, not the tracking space itself.
+
+Per-hand position trim for the right controller only, unmirrored, applied after the shared offsets. Same axes as the shared Position Offset: Z = along the controller, Y = up/down, X = sideways.
+
+Value: controllers.right.positionOffsetCm (settings.json). Driver side — same axes as the shared offset, right hand only, live.</source>
+      </trans-unit>
+      <trans-unit id="1362637987" datatype="html">
+        <source>Move the center around which the lens correction is applied. Small changes can affect both image sharpness and apparent movement.
+
+Moves the center the correction rings are anchored to, in uv units per eye. Use if the residual wobble is asymmetric.
+
+Value: streamFrame.centerOffsetXLeft, centerOffsetXRight, centerOffsetY (settings.json). Driver side — per-eye uv-space center of the correction.</source>
+      </trans-unit>
+      <trans-unit id="1383641432" datatype="html">
+        <source>Move the controller's aiming tip forward or backward. This adjusts the ray or tip position used by compatible games.
+
+Along-the-controller correction of the pointer origin. Positive moves it back toward the wrist: if the pointer starts 1 cm beyond the real tip, set +1.
+
+Value: galaxyXr.aimTrimZCm (settings.json). Driver side — along-controller pointer correction, applies live.</source>
+      </trans-unit>
+      <trans-unit id="2682196424" datatype="html">
+        <source>Move the controller's aiming tip sideways. The adjustment is mirrored between the left and right hand.
+
+Measured correction of the dashboard pointer origin (tip and OpenXR aim together). Sideways; mirrored for the right hand. Applies live.
+
+Value: galaxyXr.aimTrimXCm (settings.json). Driver side — pointer-origin correction, mirrored for the right hand, applies live.</source>
+      </trans-unit>
+      <trans-unit id="162454967" datatype="html">
+        <source>Move the controller's aiming tip vertically. This adjusts the ray or tip position used by compatible games.
+
+Up/down correction of the pointer origin. If the pointer emanates 1 cm above the real tip, set -1.
+
+Value: galaxyXr.aimTrimYCm (settings.json). Driver side — vertical pointer correction, applies live.</source>
+      </trans-unit>
+      <trans-unit id="1329551038" datatype="html">
+        <source>Move the left-eye image sideways for alignment. Change this carefully: a poor setting can affect comfort and depth perception.
+
+Prism correction: shifts the LEFT eye's whole image horizontally, in fractions of the image (positive = right). Corrects binocular misalignment when an eye sits off its lens axis. Use sparingly: horizontal shift also changes apparent depth. Typical useful values are within a few thousandths.
+
+Value: streamFrame.alignment.leftH (settings.json). Driver side — horizontal prism shift for the left eye (fractions of image width).</source>
+      </trans-unit>
+      <trans-unit id="678457169" datatype="html">
+        <source>Move the left-eye image up or down for alignment. A mismatch between the eyes can be uncomfortable; keep a known-good profile to restore.
+
+Prism correction: shifts the LEFT eye's whole image vertically, in fractions of the image (positive = up). Vertical misalignment between the eyes is can contribute to one-eye 'something is off' strain: fusional range is tiny vertically. Tune while alternately closing each eye against a horizontal line until the line does not jump.
+
+Value: streamFrame.alignment.leftV (settings.json). Driver side — vertical prism shift for the left eye.</source>
+      </trans-unit>
+      <trans-unit id="2533757387" datatype="html">
+        <source>Move the right-eye image sideways for alignment. Change this carefully and compare both eyes together.
+
+Prism correction: shifts the RIGHT eye's whole image horizontally, in fractions of the image (positive = right).
+
+Value: streamFrame.alignment.rightH (settings.json). Driver side — horizontal prism shift for the right eye.</source>
+      </trans-unit>
+      <trans-unit id="1815486862" datatype="html">
+        <source>Move the right-eye image up or down for alignment. Use small changes and stop if the result is uncomfortable.
+
+Prism correction: shifts the RIGHT eye's whole image vertically, in fractions of the image (positive = up). Usually only ONE eye needs a vertical correction; pick the eye that feels off.
+
+Value: streamFrame.alignment.rightV (settings.json). Driver side — vertical prism shift for the right eye.</source>
+      </trans-unit>
+      <trans-unit id="2266992629" datatype="html">
+        <source>Multi-Engine Encoding</source>
+      </trans-unit>
+      <trans-unit id="805317965" datatype="html">
+        <source>Override only the encoder's bitrate budget. This does not automatically change network pacing, so mismatched values can cause problems.
+
+0 = the encoder bitrate equals the pacer bandwidth (normal). Nonzero sets only the encoder, for experiments where the pacer and the encoder should differ.
+
+Value: streamFrame.nvencBitrateMbit (settings.json). Encoder side — encoder-only bitrate override.</source>
+      </trans-unit>
+      <trans-unit id="1392487683" datatype="html">
+        <source>Override the normal stream bandwidth budget. 0 follows the Bitrate row above instead of forcing a separate value.
+
+0 uses the Tile Width and Bandwidth settings. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the Bandwidth row's value.
+
+Value: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — nonzero writes the network pacer and the encoder bitrate, replacing the Bitrate row.</source>
+      </trans-unit>
+      <trans-unit id="4190754806" datatype="html">
+        <source>Present the controllers the way Samsung's own PC driver (Game Link) does. An add-on to the selected Controller Motion Filter: the motion stays the mode's.
+
+The controllers get Samsung's model at its authored size, Samsung's pose points and Samsung's input profile, on Steam Link's raw pose. While it is on, the Grip Convention, the Controller Offsets, the model scale and the aim trim are not applied; the Game Link Layout Offsets are used instead. Everything comes back when it goes off. With Controller Bypass on, the layout still applies, without this driver's other corrections. Requires a SteamVR restart.
+
+Value: galaxyXr.gameLinkLayout (settings.json). Driver side — swaps in Samsung's Game Link model, pose points and input profile; its offsets below replace the shared ones.</source>
+      </trans-unit>
+      <trans-unit id="1038873169" datatype="html">
+        <source>Record a short, high-detail burst of tracking samples. The extra work can itself cause stutters, so use it only for a focused test.
+
+High-rate diagnostic lines (up to 100/s per device) during fast motion, on top of Pose Logging. Log storms during hard throws can hitch the game/stream, so leave this off unless a session is specifically collecting throw diagnostics.
+
+Value: streamFrame.poseLogBurst (settings.json). Driver side — high-rate burst lines during fast motion.</source>
+      </trans-unit>
+      <trans-unit id="3239372922" datatype="html">
+        <source>Record information about frame-time spikes. Enable it while reproducing stutters, then turn it off to limit log size and overhead.
+
+Render-side cadence instrumentation, the frame-path analog of KALDIAG. Every 2 seconds a HITCHDIAG log line summarizes the frame callback rhythm: mean/max gap between frames, counts over 16.7ms and 33ms, sync-mutex wait, this driver's own work time, and skip/scratch-create/evict counters. Any single gap over 25ms also logs a one-shot HITCH line tagged with what the previous frame did (scratch creation, distortion LUT bake, shader compile, sync skip) so stutters name their own cause.
+
+Value: streamFrame.hitchDiag (settings.json). Driver side — HITCHDIAG frame-cadence logging.</source>
+      </trans-unit>
+      <trans-unit id="2692021242" datatype="html">
+        <source>Record tracking samples for troubleshooting or calibration. Logs can contain movement data and may become large.
+
+Writes throttled controller pose lines to vrserver.txt (positions, reported vs position-derived velocity, tracking state), with burst capture during fast motion. Only needed when collecting data for a report; leave off otherwise.
+
+Value: streamFrame.poseLogging (settings.json). Driver side — throttled pose lines in vrserver.txt.</source>
+      </trans-unit>
+      <trans-unit id="3649807944" datatype="html">
+        <source>Reduce jagged edges with a post-processing filter. The quality mode does more work than the fast mode and may cost performance.
+
+FXAA applied BEFORE CAS so sharpening enhances resolved edges instead of amplifying jagged staircases. Best for titles with heavy edge shimmer (specular geometry, foliage, thin railings); slightly softens fine text - leave off for text-heavy apps. Fast: integrated into the main pass; CAS sharpens raw neighbors around the AA-resolved center (can faintly re-jag very strong edges at high CAS strength). Quality: a separate FXAA pre-pass, so CAS sees fully resolved edges - costs one extra full-frame pass and VRAM for an intermediate texture; falls back to Fast automatically (with a log line) if the pass shader or intermediate is unavailable. Check 'pixel shader ready (... fxaa: yes, fxaaPass: yes)' in the log after updating.
+
+Value: streamFrame.fxaa (settings.json). Driver side — FXAA pass applied before CAS.</source>
+      </trans-unit>
+      <trans-unit id="1411763985" datatype="html">
+        <source>Remap the darkest part of the picture. Too much correction can erase shadow detail; compare against the near-black test patches.
+
+Adjustable black level: remaps [BP, 255] onto [0, 255], darkening blacks. Calibration recipe: turn the Ramp Bar on, raise BP until the two darkest patches just merge into one black, then back off one notch, that is maximum contrast with zero crushed detail.
+
+Value: streamFrame.blackFloor.blackPointCode (settings.json). Driver side — near-black remap in sRGB code units.</source>
+      </trans-unit>
+      <trans-unit id="608938792" datatype="html">
+        <source>Repeat Distrust Strength</source>
+      </trans-unit>
+      <trans-unit id="4005475653" datatype="html">
+        <source>Repeated Sample Handling</source>
+      </trans-unit>
+      <trans-unit id="2282270466" datatype="html">
+        <source>Replace the game view with a colored calibration pattern for camera measurements. This is a measurement tool, not a normal-play setting.
+
+The sboys pattern draws per-axis angle lines whose COLOR encodes their angular index (hue = line number / 6), so the calibrated camera and the fit script can identify every line absolutely - no counting from center, and residual camera pose can be solved jointly with the distortion. This toggle replaces game content with a dim grey background so the camera sees only the pattern. Turn on Warped Overlays for measurement runs: the pattern must pass through the active distortion profile exactly like game content, so the camera reads the residual OF the correction, not the raw lens. Keep 2.5 deg spacing to match the reference tooling.
+
+Value: streamFrame.eyeGaze.gridOpaque (settings.json). Driver side — swaps game content for the camera calibration pattern.</source>
+      </trans-unit>
+      <trans-unit id="59204464" datatype="html">
+        <source>Request a more direct rendering path. Performance and compatibility depend on the runtime; compare carefully before leaving it enabled.
+
+Performance: draws the processed frame directly into the layer texture instead of a scratch target plus copy-back (about a third less GPU memory traffic). Falls back automatically per texture if a layer refuses a render target view. Only turn off to A/B against the old path; the log line 'direct render path' / 'copy-back path' shows which is active per app.
+
+Value: streamFrame.directRender (settings.json). Driver side — renders the processed frame directly into the layer texture.</source>
+      </trans-unit>
+      <trans-unit id="1339468676" datatype="html">
+        <source>Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. You can then enable Image Enhancements in App Settings after accepting the image-quality warning. Turning the baseline off disables its 10-bit request, including when vrlink Headset Profile is off. Requires a SteamVR restart and reconnect. Explicit advanced overrides still apply.
+
+The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_&lt;original model&gt; destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.
+
+Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the driver's color policy; the encoder bit depth follows (H.264 stays 8-bit).</source>
+      </trans-unit>
+      <trans-unit id="1199181185" datatype="html">
+        <source>Reveals the advanced and encoder controls. Hiding them never changes their values.
+
+Value: advanceMode (gui-settings.json). GUI-only visibility fence.</source>
+      </trans-unit>
+      <trans-unit id="1493525908" datatype="html">
+        <source>Rotate both controller poses by the same adjustment. Use small changes to align virtual objects with how you hold the controllers.
+
+Local frame rotation added to both controllers' poses, live reloaded. X (pitch): positive tilts the top back toward you. Typical useful range 5-20. Y = yaw, Z = roll.
+
+Value: controllers.rotationOffsetDeg (settings.json). Driver side — local-frame rotation on both controllers (X pitch, Y yaw, Z roll), live.</source>
+      </trans-unit>
+      <trans-unit id="3267119198" datatype="html">
+        <source>Rotate both controllers while Game Link Layout is on. Used instead of the Controller Offsets.
+
+Local frame rotation on Steam Link's raw pose, authored for the LEFT controller and mirrored for the right, live reloaded. X = pitch, Y = yaw, Z = roll.
+
+Value: controllers.gameLinkLayout.rotationOffsetDeg (settings.json). Driver side — left-hand authored, mirrored for the right, live.</source>
+      </trans-unit>
+      <trans-unit id="3760585569" datatype="html">
+        <source>Rotate only the left controller's pose. Use this when the two hands need different alignment.
+
+Per-hand trim applied UNMIRRORED to the left controller only, after the shared offsets above. Use when the two hands need different corrections (the tracked origins are not exact mirror images). X = pitch, Y = yaw, Z = roll. Live reloaded.
+
+Value: controllers.left.rotationOffsetDeg (settings.json). Driver side — unmirrored left-hand trim after the shared offsets, live.</source>
+      </trans-unit>
+      <trans-unit id="2774837566" datatype="html">
+        <source>Rotate only the right controller's pose. Use this when the two hands need different alignment.
+
+Per-hand trim applied UNMIRRORED to the right controller only, after the shared offsets above. Use when the two hands need different corrections (the tracked origins are not exact mirror images). X = pitch, Y = yaw, Z = roll. Live reloaded.
+
+Value: controllers.right.rotationOffsetDeg (settings.json). Driver side — unmirrored right-hand trim after the shared offsets, live.</source>
+      </trans-unit>
+      <trans-unit id="1254755932" datatype="html">
+        <source>Rotation Output Frame</source>
+      </trans-unit>
+      <trans-unit id="723816795" datatype="html">
+        <source>Scale the controller speeds sent to games. 1 leaves the speed unchanged; other values can change throwing strength and rotational movement.
+
+Fixes weak throws at low Accel without giving up the calm direction. S/Sa globally scale reported speed. Leave at 1 unless a specific title needs it.
+
+Value: streamFrame.kalmanMagSource, kalmanMagAccel, kalmanMagScale, kalmanAngMagScale (settings.json). Driver side — scaling of the reported speed and spin.</source>
+      </trans-unit>
+      <trans-unit id="2526269836" datatype="html">
+        <source>Set for the LEFT controller. The right controller gets the mirror image automatically: position X and rotation Y/Z flip sign.</source>
+      </trans-unit>
+      <trans-unit id="3535053236" datatype="html">
+        <source>Set how far the ring band reaches into the image and how soft its edge is. Match the band you are tuning.
+
+Value: streamFrame.distortion.annulus.rMin, rMax, feather (settings.json). Driver side — radius span and soft edge of the tuning band.</source>
+      </trans-unit>
+      <trans-unit id="555398528" datatype="html">
+        <source>Set how little the filter trusts a repeated tracking sample. Larger values make duplicate samples have less influence.
+
+Only used when duplicate handling is Soft. A repeated sample is a true position of unknown age, so its honest uncertainty at hand speed is far above the sensor floor; this multiplies the measurement noise for detected repeats. 1 behaves exactly like Off; the default of 3 halves motion jitter with no measured cost; 6 and above re-create Coast's rejected snap character. Repeats sustained past the run cap are always accepted at full weight.
+
+Value: streamFrame.kalmanDupRScale (settings.json). Driver side — measurement-noise multiplier for repeated samples (Soft mode only).</source>
+      </trans-unit>
+      <trans-unit id="1904323598" datatype="html">
+        <source>Set how long the headset must stay still before dimming starts and how quickly the picture fades.
+
+Seconds of stillness before dimming starts, and seconds to fade fully to black.
+
+Value: streamFrame.stationaryDimming.movementTime + dimSeconds (settings.json). Driver side — stillness threshold and fade duration, in seconds.</source>
+      </trans-unit>
+      <trans-unit id="3000084157" datatype="html">
+        <source>Set how much video the encoder may buffer. A smaller buffer can reduce delay but makes sudden complex scenes harder to encode cleanly.
+
+VBV = average bitrate per frame times this, which bounds how large any single frame can be. 2 caps vegetation peaks and reset key frames at about two frame budgets, far below the streamer's 2 MB send limit. 0 leaves the streamer's value.
+
+Value: streamFrame.nvencVbvFrames (settings.json). Encoder side — VBV buffer sized as frame budgets; caps single-frame size.</source>
+      </trans-unit>
+      <trans-unit id="34752632" datatype="html">
+        <source>Set how quickly the correction changes when you move the thumbstick. A lower speed makes small final adjustments easier.
+
+Scale change per second at full stick deflection (analog mode, used when Step Size is 0). The response is squared, so partial deflection is much slower for fine nulling. Lower it if the last bit of swim is hard to dial in.
+
+Value: streamFrame.distortion.tune.rate (settings.json). Driver side — tuner stick-response rate.</source>
+      </trans-unit>
+      <trans-unit id="451854015" datatype="html">
+        <source>Set how quickly the filter stops trusting an earlier acceleration estimate. Shorter persistence can reduce overshoot but changes the feel of motion.
+
+The acceleration state decays toward zero with this time constant (Singer model). It bounds phantom speed during repeated-sample coasts and abrupt stops.
+
+Value: streamFrame.kalmanCaAccelTauMs (settings.json). Driver side — time constant, in ms, of the acceleration state's decay (Singer model).</source>
+      </trans-unit>
+      <trans-unit id="3438484838" datatype="html">
+        <source>Set how visible the orange tuning ring is. Lower it when the marker distracts you from judging image movement; 0 hides it.
+
+Opacity of the orange ring marking the band being edited. 0 hides it entirely (the band position is still logged); lower it if the ring itself distracts from judging the swim.
+
+Value: streamFrame.distortion.tune.ringOpacity (settings.json). Driver side — band ring highlight opacity.</source>
+      </trans-unit>
+      <trans-unit id="695802665" datatype="html">
+        <source>Set sharpening strength for the left eye. Compare both eyes to avoid an uneven-looking image.
+
+Sharpening strength for the left eye only, 0 to 1.
+
+Value: streamFrame.cas.strengthLeft (settings.json). Driver side — per-eye pre-encode strength, left (0-1).</source>
+      </trans-unit>
+      <trans-unit id="1486718320" datatype="html">
+        <source>Set sharpening strength for the right eye. Compare both eyes to avoid an uneven-looking image.
+
+Sharpening strength for the right eye only, 0 to 1.
+
+Value: streamFrame.cas.strengthRight (settings.json). Driver side — per-eye pre-encode strength, right (0-1).</source>
+      </trans-unit>
+      <trans-unit id="2511117222" datatype="html">
+        <source>Set the frame-rate value used for encoder budgeting. Match the intended stream rate; changing this alone does not change the headset refresh rate.
+
+Pins the encoder's frame rate so the per-frame budget is constant. Without it the streamer passes its momentary estimate (down to 12 fps while hitching) and under CBR the next key frame balloons. Recommended 90. 0 leaves the streamer's value.
+
+Value: streamFrame.nvencForceFps (settings.json). Encoder side — pinned encoder frame rate for the per-frame budget.</source>
+      </trans-unit>
+      <trans-unit id="961095576" datatype="html">
+        <source>Set the overall sharpening strength. Higher values can improve apparent detail but may also amplify noise or create halos.
+
+Strength of the sharpening from 0 to 1.
+
+Value: streamFrame.cas.strength (settings.json). Driver side — pre-encode sharpening strength (0-1).</source>
+      </trans-unit>
+      <trans-unit id="3859474374" datatype="html">
+        <source>Show grayscale ramps and near-black patches to help judge shadow detail and video levels. Turn the test pattern off for normal play.
+
+Draws two near-black test strips per eye (17 patches, sRGB codes 0 to 32 in steps of 2, white ticks over codes 0/8/16/24/32): one across screen center and one near the bottom.
+
+Value: streamFrame.blackFloor.rampBar (settings.json). Driver side — near-black test-strip overlay draw.</source>
+      </trans-unit>
+      <trans-unit id="2265424295" datatype="html">
+        <source>Show reference lines to check whether the image bends or moves as your eyes move. This unwanted movement is often called pupil swim.
+
+Overlays straight reference lines for pupil swim tuning. Fixate a grid intersection, then move only your eyes around it: if the nearby lines bend or shift as your gaze moves, that's pupil swim.
+
+Value: streamFrame.eyeGaze.debugGrid, gridMode, gridAngularDeg (settings.json). Driver side — reference grid overlay, its mode and spacing.</source>
+      </trans-unit>
+      <trans-unit id="1911519310" datatype="html">
+        <source>Show the area of the image affected by a tuning ring. Turn this diagnostic display off for normal play.
+
+Diagnostic: limit the correction to a radius band so one region of the curve can be tuned against untouched surroundings. Disable for normal use, the band edges are intentionally not geometric.
+
+Value: streamFrame.distortion.annulus.enable (settings.json). Driver side — limits the correction to a radius band.</source>
+      </trans-unit>
+      <trans-unit id="1882400697" datatype="html">
+        <source>Show the encoder's diagnostic overlay. Turn it off for normal play after collecting the information you need.
+
+Displays a coloured overlay on the foveated area and the streamer's advanced graphs (encode time, RFOV %). Diagnostic only; takes effect at the next connect.
+
+Value: galaxyXr.vrlinkDebugOverlay (settings.json). SteamVR side — writes the vrlink debug overlay keys; needs the NVENC Tap and a reconnect.</source>
+      </trans-unit>
+      <trans-unit id="1371545810" datatype="html">
+        <source>Show the lens-correction controls inside the headset. Use the GxR Tuner and Scoring guide before changing a working profile.
+
+In-headset configurable distortion profile tuner. For usage refer to the GxR Tuner and Scoring guide.
+
+Value: streamFrame.distortion.tune.enable (settings.json). Driver side — runs the in-headset tuner session.</source>
+      </trans-unit>
+      <trans-unit id="1225779013" datatype="html">
+        <source>Show where eye tracking reports you are looking. Eye tracking and the appropriate Steam Link sharing setting must be available.
+
+Draws a small red ring where the eye tracker says you are looking (requires SteamVR's Steam Link tab's 'Share ET data with other apps' to be on).
+
+Value: streamFrame.eyeGaze.debugRing (settings.json). Driver side — gaze ring overlay.</source>
+      </trans-unit>
+      <trans-unit id="3666655391" datatype="html">
+        <source>Skip a synchronization wait in the image-processing path. This is a latency experiment and can cause flashes or other display artifacts.
+
+How long to wait for the frame sync before letting a frame through unprocessed (a brief 'flash' of ungraded color). Higher values trade flashes under heavy load for slightly later frames. After a skipped frame the wait automatically escalates to break flash streaks. Default 10, sensible range 3-15.
+
+Value: streamFrame.syncTimeoutMs (settings.json). Driver side — frame-sync wait before passing a frame unprocessed, in ms.</source>
+      </trans-unit>
+      <trans-unit id="2541227371" datatype="html">
+        <source>Smooth the transition between center and edge sharpening. Use this when a visible boundary appears around the sharp region.
+
+Fraction of the fovea tile (0 to 0.5) over which its sharpening ramps down to the periphery strength at the tile border, so the seam where the headset composites the cut-out over the stretched periphery is not a sharpness step. 0 = hard edge. Raise if a halo is visible around the fovea region.
+
+Value: streamFrame.postPack.edgeFalloff (settings.json). Encoder side — ramp width of the center-to-edge sharpening transition.</source>
+      </trans-unit>
+      <trans-unit id="2934521238" datatype="html">
+        <source>Spend more encoding quality on the center of the image than on the edges. This advanced option can change artifacts in different areas.
+
+Moves bits within the same bitrate: a QP offset per block, negative for the gaze cut-out tile (finer, more bits) and positive for the periphery tile (coarser, fewer bits), blended over the same edge falloff as the sharpening. 0 / 0 = off. Small values (-2 / 2, -3 / 3) work; large ones starve the whole frame. The ramp shape and fovea-tile parity come from the Edge Falloff and fovea-top controls (shown with CAS in post-process mode) — one value drives both the sharpening and the encoder QP ramp.
+
+Value: streamFrame.nvencQpFovea + nvencQpPeriphery (settings.json). Encoder side — per-block QP offsets that move bits to the gaze tile.</source>
+      </trans-unit>
+      <trans-unit id="982257468" datatype="html">
+        <source>Split each tuning ring into smaller areas for local corrections. Adjust the lens center first, then the rings, and only then these smaller areas.
+
+1 = classic radial tuning. 4 or 8 splits every band into angular segments with their own adjustment: in the headset, the X button walks ALL -&gt; segment 0..N-1 -&gt; ALL, and a joystick CLICK cycles the eye (linked/L/R) instead of X. ALL edits the whole band as before; a segment nudges only that sector (the band ring dims outside it). Positional correction for top/bottom or nasal/temporal asymmetry that radial bands cannot express. Tune segments LAST: center first, radial bands second - a wrong center masquerades as exactly the asymmetry segments would absorb. Applies when the tuner is next toggled on.
+
+Value: streamFrame.distortion.tune.segments (settings.json). Driver side — angular segment count per tuning band.</source>
+      </trans-unit>
+      <trans-unit id="93620499" datatype="html">
+        <source>Streaming bandwidth budget, written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally.
+
+HEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.
+
+Value: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; used as the encoder bitrate.</source>
+      </trans-unit>
+      <trans-unit id="2731911702" datatype="html">
+        <source>The 10-bit request is not applied to the H.264 codec. AV1 and HEVC honor it.</source>
+      </trans-unit>
+      <trans-unit id="1454688268" datatype="html">
+        <source>Theme</source>
+      </trans-unit>
+      <trans-unit id="3745532758" datatype="html">
+        <source>Throw Strength Trims</source>
+      </trans-unit>
+      <trans-unit id="655348590" datatype="html">
+        <source>Tile width is sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. Requires a SteamVR restart.
+
+Value: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap's tile answers.</source>
+      </trans-unit>
+      <trans-unit id="3268882204" datatype="html">
+        <source>Tracking-Loss Coasting</source>
+      </trans-unit>
+      <trans-unit id="2022778049" datatype="html">
+        <source>Treat a light grip press as touching the grip sensor. This helps games that expect a separate touch signal from controllers that do not supply one.
+
+Steam Link sends no capacitive state for the grip (only its pressure), so the official profile's grip touch never lit. On: the driver creates /input/grip/touch and drives it from the grip value. The threshold is the grip value that counts as touched (release at half of it); lower feels more like a touch sensor but resting fingers may trigger it.
+
+Value: galaxyXr.synthesizeGripTouch + galaxyXr.gripTouchThreshold (settings.json). Driver side — synthesizes the /input/grip/touch component from the grip pressure value.</source>
+      </trans-unit>
+      <trans-unit id="1879995739" datatype="html">
+        <source>Try an experimental acceleration model with a matching noise calculation. Leave it off unless you are comparing filter behavior deliberately.
+
+Experiment: propagate the filter's uncertainty with the same Singer transition the state prediction actually uses, instead of the simpler approximation. Makes the filter's self-model consistent, which matters most at low Acceleration Decay Time values (in CA-Magnitude mode it applies to the fast magnitude channel). Changes effective gains slightly, so NIS and the J/P/O tuning shift a little; off reproduces the previously tuned behavior exactly.
+
+Value: streamFrame.kalmanCaExactCov (settings.json). Driver side — covariance-propagation experiment.</source>
+      </trans-unit>
+      <trans-unit id="4137961504" datatype="html">
+        <source>Update Install Style</source>
+      </trans-unit>
+      <trans-unit id="7607970" datatype="html">
+        <source>Use a motion filter that also estimates acceleration. It can change throwing behavior and responsiveness; compare carefully with the normal filter.
+
+The constant-acceleration state tracks a changing speed estimate rather than treating every speed change as noise. It can reduce lag in some motions but can also change overshoot and throwing behavior; compare it with the normal filter. J (jerk noise) adjusts responsiveness: higher follows faster changes, lower is calmer. Wj is the rotation equivalent. P/O are sensor-noise settings. L leads the report to compensate for timing delay.
+
+Value: streamFrame.kalmanCaJerk, kalmanCaAngJerk, kalmanCaPosNoiseMm, kalmanCaOriNoiseDeg, kalmanLeadMs (settings.json). Driver side — the constant-acceleration filter's parameters (J/Wj/P/O/L).</source>
+      </trans-unit>
+      <trans-unit id="3970692840" datatype="html">
+        <source>Use different sharpening values for the left and right eye. Leave linked unless you need an eye-specific correction.
+
+Sharpen each eye independently. Useful when one eye sits slightly off its lens axis (facial asymmetry) and only that eye needs extra sharpening to mask the mild off-axis blur; the other eye is spared the over-sharpening.
+
+Value: streamFrame.cas.perEye (settings.json). Driver side — independent pre-encode strengths per eye.</source>
+      </trans-unit>
+      <trans-unit id="2339076428" datatype="html">
+        <source>Use the Galaxy XR controller button layout and default game bindings. Restart SteamVR after changing it; some games still use a compatible fallback layout.
+
+Uses the official Steam Link Galaxy XR input profile: real button layout in the bindings UI, official default and per-app bindings, and correct grip/aim/tip poses for held items. Games without a native Galaxy XR binding see the controllers as Index controllers. Requires a SteamVR restart.
+
+Value: galaxyXr.nativeInputProfile (settings.json). Driver side — official Steam Link input profile and binding paths. SteamVR restart needed.</source>
+      </trans-unit>
+      <trans-unit id="2776356373" datatype="html">
+        <source>Use the official controller grip, aim, and tip positions. This changes how held objects and pointing rays line up with the controller.
+
+Use Samsung's official pose points (Game Link's render model: OpenXR grip/aim, dashboard laser tip, handgrip, base), rebased into our grip-convention frame so each named pose lands on the same physical spot as under Game Link. Only affects bindings that select a named pose (OpenXR games, the dashboard laser, /pose/handgrip bindings) - never raw, so SteamVR Home keeps the stock behavior.
+
+Value: galaxyXr.officialComponents (settings.json). Driver side — rebases Samsung's pose points into the driver grip frame.</source>
+      </trans-unit>
+      <trans-unit id="4282162982" datatype="html">
+        <source>Use timestamps supplied with controller tracking rather than assuming every update is new. This can improve timing when sample delivery is uneven.
+
+The streamer stamps every hand pose with WHEN it was actually true (poseTimeOffset). When this is on, the filter uses the device's own timestamps for its time steps and quietly discards out-of-order samples. Leave on.
+
+Value: streamFrame.kalmanDeviceTime (settings.json). Driver side — uses the streamer's poseTimeOffset timestamps for filter time steps.</source>
+      </trans-unit>
+      <trans-unit id="2099847124" datatype="html">
+        <source>With Force CBR, set the key-frame to P-frame budget ratio (0–255, NVENC byte field). The optimized recommendation is 2. Unsupported requests fail without rewriting the value.
+
+Value: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — keyframe budget in P-frame units under CBR.</source>
+      </trans-unit>
+      <trans-unit id="2463326475" datatype="html">
+        <source>Write detailed NVIDIA encoder diagnostics to the log. Use this for troubleshooting; extra logging can add overhead and large files.
+
+Logs every reconfigure and hex-dumps the encoder structs. For offline decoding of driver_vrlink's encoder setup; leave off. Only published while Debug Mode is on; with it off the value is kept but not applied.
+
+Value: streamFrame.nvencVerbose (settings.json). Encoder side — per-reconfigure encoder struct dumps. Debug Mode gates the application.</source>
+      </trans-unit>
+      <trans-unit id="1027570191" datatype="html">
+        <source>Preset merge adopts canonical preset settings. Explicit multipass and H.264 controls below remain authoritative. Automatic multipass uses the tested H.264 single-pass default or the HEVC/AV1 preset recommendation.
+
+Value: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset merge adoption on encoder session setup; the H.264 multipass adoption stays 0.</source>
+      </trans-unit>
+      <trans-unit id="3177210294" datatype="html">
+        <source>Show the Debug tab and allow its selected diagnostic overlays and logging. Turning this off stops diagnostic effects while keeping their saved selections. Black-point correction and encoder compatibility/rate tuning remain active. Requires a SteamVR restart and reconnect for the Steam Link debug overlay.</source>
       </trans-unit>
     </body>
   </file>

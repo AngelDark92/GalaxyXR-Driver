@@ -35,7 +35,13 @@ export class AppShell extends LitElement {
   private readonly systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
   private readonly onSystemTheme = () => applyTheme(this.ctx.appSetting.values().colorScheme);
   private readonly onHash = () => this.syncRoute();
-  private readonly onInstallation = () => { this.syncRoute(); this.requestUpdate(); };
+  private readonly onInstallation = () => {
+    // 2026-10-17: a mid-session install must keep the user on Setup; the
+    // empty-hash re-default to Driver Settings serves fresh opens only and
+    // must not fire while an install is running.
+    if (!(this.ctx.sds.installingDriver() && this.route === 'setup')) this.syncRoute();
+    this.requestUpdate();
+  };
   private readonly onDriverSettings = () => {
     // Saved selections/default emissions must not erase a guarded-link message.
     if (this.debugAllowed !== (this.driverAvailable && this.ctx.galaxy.debugMode)) this.syncRoute();

@@ -1,6 +1,8 @@
+[CmdletBinding()]
+param([switch]$NoDownload)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-. (Join-Path $repo 'tools/Enter-PortableBuildEnvironment.ps1')
+. (Join-Path $repo 'tools/Enter-PortableBuildEnvironment.ps1') -DriverOnly -NoDownload:$NoDownload
 function Get-Function([string]$source, [string]$signature) {
     $start = $source.IndexOf($signature, [StringComparison]::Ordinal)
     if ($start -lt 0) { throw "Production function missing: $signature" }
@@ -20,10 +22,14 @@ New-Item -ItemType Directory -Force -Path $build | Out-Null
 $source = Get-Content -Raw -LiteralPath (Join-Path $repo 'GalaxyXRDriver/src/Headsets/GalaxyXR.cpp')
 $functions = @(
     'static void RestoreInactiveVrlinkSettings(',
+    'static void WriteStreamKeys(',
+    'int GalaxyXR_EffectiveTileWidth()',
+    'int GalaxyXR_EffectiveBandwidthMbit()',
+    'static void ApplyStreamQualitySettingIn(',
+    'static void ApplyStreamQualitySetting()',
     'static void SetInt32IfDifferent(',
     'static void SetBoolIfDifferent(',
     'static void RemoveBoolIfOurs(',
-    'static void RemoveIntIfOursIn(',
     'static void ApplyHeadsetProfileSetting(',
     'static void ApplyVrlinkExtraKeysIn(',
     'static void ApplyVrlinkExtraKeys()',

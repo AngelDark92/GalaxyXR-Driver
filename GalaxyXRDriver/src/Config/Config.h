@@ -324,7 +324,7 @@ struct GalaxyXrConfig{
 	// actually encodes at (m_nTargetEncodeWidth tracks it) and encodeWidth
 	// alone does nothing observable, so those tiers all encoded at 1536.
 	// effective at the next SteamVR start / headset connect.
-	std::string streamQuality = "balanced"; // v3: efficient|balanced|sharp|max|custom (legacy names migrate)
+	std::string streamQuality = "custom"; // 2026-10-16: preset selector retired; custom is the mode. Legacy tier names (efficient|balanced|vivid|sharp|max + v1 names) still resolve via StreamTiers.h
 	// streamQuality == "custom": customEncodeWidth is written to both width
 	// keys; bandwidth is targetBandwidth/recommendedBandwidthMbit.
 	// customStreamFormatWidth is legacy, parsed only so old settings load
@@ -365,7 +365,7 @@ struct GalaxyXrConfig{
 	// maximum" the community measured as 1536; we raise it so the tiers
 	// above 1536 are not clamped. 3584 = next 256-multiple above the panel.
 	int profileMaxStreamFormatWidth = 0; // v3: unused, the profile max tracks the tile width (kept so old files parse)
-	bool profileSupports10bit = true; // Legacy compatibility value; SDR10 baseline now owns the request (2026-09-25).
+	bool profileSupports10bit = false; // 2026-10-16: OFF default; explicit requests remain authoritative outside the SDR10 baseline.
 	// also write the global driver_vrlink.force10bit ("Warning: Driver
 	// forcing 10bit mode via 'force10bit' setting."), the belt to the
 	// profile's braces. the community tool used to set it, then removed it.
@@ -780,7 +780,9 @@ struct StreamFrameConfig{
 	// enable BEFORE launching SteamVR (the hook must precede connect).
 	bool nvencTap = true; // v3 master switch: off = stock streamer, tiers write only width + bandwidth
 	// 2026-10-13: stream codec override for the tap. 0 = leave (vrlink's HEVC),
-	// 1 = force H.264 (8-bit), 2 = force AV1 (8-bit, experimental). rewrites
+	// 1 = force H.264 (8-bit via the caps shim), 2 = force AV1
+	// (follows the session input depth: 10-bit when the SDR 10-bit
+	// baseline is on). rewrites
 	// encodeGUID + profileGUID + the codec-config union at init and every
 	// reconfigure; requires the Steam Link client "Codecs Support" patch on
 	// the headset to decode. takes effect at the next SteamVR start.
@@ -835,6 +837,23 @@ struct StreamFrameConfig{
 	bool nvencBitrateScale = true;
 	// vrlink's own encoder ceiling (reference for the scaling), settings.json only
 	int nvencVrlinkClampMbit = 350;
+	std::string nvencValidationError; // Transient parse error, never persisted as a setting.
+	// 2026-10-16: explicit H.264 compatibility controls. Defaults retain the
+	// tested recipe; entered values are never replaced with that recipe.
+	// GOP/IDR: 0 = nominal fps, -1 = upstream. Entropy: 0 = automatic,
+	// 1 = CABAC, 2 = CAVLC. Multipass: -1 = codec/preset automatic.
+	int nvencH264GopFrames = 0;
+	int nvencH264IdrFrames = 0;
+	int nvencH264RefFrames = 3;
+	int nvencH264Entropy = 0;
+	int nvencH264SliceMode = 3;
+	int nvencH264SliceData = 1;
+	bool nvencH264Aud = true;
+	bool nvencH264RepeatHeaders = true;
+	bool nvencH264DisableHeaders = false;
+	bool nvencH264BitstreamRestriction = true;
+	int nvencH264VbvInitialDelay = 0;
+	int nvencMultiPass = -1;
 	// 0 = leave. 1..7 = NVENC preset P1..P7 (vrlink: P2 + ultra-low-latency
 	// tuning, no AQ, no lookahead). the "VD sets better defaults" lever.
 	int nvencPreset = 0; // v3: 0 = AUTO by NVENC engine count (3+ -> P7, 2 -> P5, 1 -> P4), 1..7 override

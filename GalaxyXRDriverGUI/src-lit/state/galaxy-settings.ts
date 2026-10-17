@@ -36,20 +36,111 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // SteamFrame recipe the driver used to pin in code (VBR + 1-frame VBV).
 // splitMode stays 1 for H.264 too: the key also opens the API 12.1 session the
 // tap's verified H.264 path runs on, and the tap itself skips the split bits
-// for codec 1. The codec switch and the four dependent rows' reset arrows read
-// this table; the global defaults stay untouched.
-export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number }> = {
-  0: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1 },
-  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1 },
-  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1 },
+// for codec 1. The dependent rows' reset arrows and the Stream Frame page's
+// per-codec note read this table; the global defaults stay untouched.
+// 2026-10-16 (owner directive, supersedes the same-day reset-arrows-only
+// rule): a codec switch applies this table row at once — tile width,
+// bandwidth and the four dependent encoder rows — replacing the previous
+// codec's values; afterwards every row is user-editable until the next
+// switch, and the reset arrows keep applying the row manually. 2026-10-17:
+// the dependent set also carries each codec's default Tile Width and
+// Bandwidth (owner-set: HEVC 1536/350, H.264 1024/500, AV1 1536/400);
+// H.264's 1024-tile is the class the Steam Link client actually negotiates
+// for H.264 (4x1024 = 4096) — proven live on 2026-10-16: with 1536 stored
+// the client negotiated 1024x4096 and the tap refused the mismatch. Every
+// applied value shows in its field, and stays user-editable.
+// 2026-10-17: AV1's row carries splitMode 0. Live evidence both sides: the
+// tap's own AU dump shows split-1 AV1 output as per-strip micro-frames
+// (188/72-byte AUs, strip-class sequence dims ~3x216; the client read
+// 32x5120), the client's av1D configure then rejects the recorded geometry
+// and rebuilds the stock HEVC decoder, and the stream stalls with zero
+// video-packet ACKs (SVLFEC lastAcknowledgeFrameNumber = 0). Unsplit AV1
+// keeps the host bitstream at the negotiated 1536x6144 the client accepts.
+// The codec-0 row's tile and bandwidth must stay pinned to the GENERATED
+// driver defaults.
+export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number, streamFormatWidth: number, bandwidthMbit: number }> = {
+  0: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
+  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1024, bandwidthMbit: 500 },
+  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 0, streamFormatWidth: 1536, bandwidthMbit: 400 },
 };
 
-export function applyCodecDefaults(streamFrame: StreamFrameConfig, codec: number): void {
-  const d = codecEncoderDefaults[codec] ?? codecEncoderDefaults[0];
-  streamFrame.nvencForceCbr = d.forceCbr;
-  streamFrame.nvencVbvFrames = d.vbvFrames;
-  streamFrame.nvencLowDelayKfScale = d.lowDelayKfScale;
-  streamFrame.nvencSplitMode = d.splitMode;
+// 2026-10-16 (owner directive): inline per-key validation for the Stream
+// Frame app-number rows. Each streamFrame and H.264 recipe integer key maps
+// to the exact contract NvencTap.cpp ValidateRequest enforces (source of
+// truth, read as committed at 0cf0cf7), including the native unsigned-32
+// tile math: tile width times four must fit the uint32 dimension, so the
+// accepted tile ceiling is floor((2^32 - 1) / 4), not a UI convenience cap.
+// Invalid input is displayed naming the key and its accepted range, and the
+// entered value is kept — nothing is silently rounded, clamped or replaced
+// (no-silent-settings policy); the driver still revalidates and reports any
+// request it refuses.
+export interface StreamFrameNumberContract {
+  /** Human-readable accepted range, named verbatim in the inline error. */
+  range: string;
+  /** Exactly the native check in NvencTap.cpp ValidateRequest. */
+  check: (value: number) => boolean;
+  /** Optional: the native check applies only conditionally (mirrors ValidateRequest). */
+  when?: (context: { forceCbr: boolean }) => boolean;
+}
+
+const nvencUint32Max = 4294967295;
+
+export const streamFrameNumberContracts: Record<string, StreamFrameNumberContract> = {
+  // tile width: > 0 and tile * 4 within the uint32 dimension
+  'galaxyXr.customStreamFormatWidth': {
+    range: 'at least 1, with tile width times four fitting the uint32 dimension',
+    check: value => value >= 1 && value * 4 <= nvencUint32Max,
+  },
+  'streamFrame.nvencBitrateMbit': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencMaxBitrateHeadroomPct': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencForceFps': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencVbvFrames': { range: 'nonnegative', check: value => value >= 0 },
+  // AQ strength fits 4 bits; the CBR keyframe scale is a byte field the
+  // native validator checks only while Force CBR is on
+  'streamFrame.nvencAqStrength': { range: '0 to 15', check: value => value >= 0 && value <= 15 },
+  'streamFrame.nvencLowDelayKfScale': { range: '0 to 255 while Force CBR is on', check: value => value >= 0 && value <= 255, when: context => context.forceCbr },
+  'streamFrame.nvencPreset': { range: '0 to 7', check: value => value >= 0 && value <= 7 },
+  'streamFrame.nvencMultiPass': { range: '-1 to 2', check: value => value >= -1 && value <= 2 },
+  'streamFrame.nvencSplitMode': { range: '0 to 4, or 15', check: value => (value >= 0 && value <= 4) || value === 15 },
+  // QP overrides must be nonnegative; NVENC validates the codec-specific range
+  'streamFrame.nvencMaxQp': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencMinQp': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencMinQpIntra': { range: 'nonnegative', check: value => value >= 0 },
+  // QP offsets fit the NVENC signed-byte delta map (ValidateQpMap)
+  'streamFrame.nvencQpFovea': { range: '-128 to 127', check: value => value >= -128 && value <= 127 },
+  'streamFrame.nvencQpPeriphery': { range: '-128 to 127', check: value => value >= -128 && value <= 127 },
+  // bandwidth rows: nonnegative; 0 keeps the bandwidth-override sentinel
+  'galaxyXr.customBandwidthMbit': { range: 'at least 0', check: value => value >= 0 },
+  'streamFrame.nvencBandwidthOverrideMbit': { range: 'at least 0', check: value => value >= 0 },
+  // manual VUI overrides exactly mirror ValidateRequest (-1 autoselects)
+  'streamFrame.nvencVuiFullRange': { range: '-1 to 1', check: value => value >= -1 && value <= 1 },
+  'streamFrame.nvencVuiMatrix': { range: '-1 to 255', check: value => value >= -1 && value <= 255 },
+  'streamFrame.nvencVuiPrimaries': { range: '-1 to 255', check: value => value >= -1 && value <= 255 },
+  'streamFrame.nvencVuiTransfer': { range: '-1 to 255', check: value => value >= -1 && value <= 255 },
+  // the explicit H.264 recipe (exactly the driver's codec-1 block)
+  'streamFrame.nvencH264GopFrames': { range: 'at least -1', check: value => value >= -1 },
+  'streamFrame.nvencH264IdrFrames': { range: 'at least -1', check: value => value >= -1 },
+  'streamFrame.nvencH264RefFrames': { range: '0 to 16', check: value => value >= 0 && value <= 16 },
+  'streamFrame.nvencH264Entropy': { range: '0 to 2', check: value => value >= 0 && value <= 2 },
+  'streamFrame.nvencH264SliceMode': { range: '0 to 3', check: value => value >= 0 && value <= 3 },
+  'streamFrame.nvencH264SliceData': { range: 'at least 0', check: value => value >= 0 },
+  'streamFrame.nvencH264VbvInitialDelay': { range: 'at least 0', check: value => value >= 0 },
+};
+
+/** Per-key inline validation for app-number inputs: undefined for keys with
+ * no contract or a valid value; otherwise an error naming the key and its
+ * accepted range. The entered value is kept either way. */
+export function streamFrameIntegerError(key: string, value: number | undefined, context?: { forceCbr: boolean }): string | undefined {
+  if (value === undefined) return undefined;
+  const contract = streamFrameNumberContracts[key];
+  if (!contract) return undefined;
+  if (contract.when && context && !contract.when(context)) return undefined;
+  if (!Number.isInteger(value) || !contract.check(value)) {
+    return Number.isInteger(value)
+      ? t('{key} must be {range}; the entered value is kept until corrected.', { key, range: contract.range })
+      : t('{key} must be a whole number ({range}); the entered value is kept until corrected.', { key, range: contract.range });
+  }
+  return undefined;
 }
 
 function zeroHandOffsets(): HandOffsets {
@@ -165,11 +256,14 @@ export class GalaxySettingsBase {
       // save or reset clears the error; otherwise a read-only file loops forever.
       const canMigrate = !this.dss.inspecting && !this.dss.writeFileError?.();
       if (this.rootSetting) {
-        // schema 2 (2026-09-25): mirrors MigrateSdr10Settings in the driver.
-        // Only retire the old enabled compatibility default with baseline OFF.
+        // schema-2 migration (2026-09-25), preservation fix (2026-10-16):
+        // retire only an absent compatibility default with baseline OFF.
+        // The service has already merged defaults, so inspect stored presence.
         const rawGalaxy = this.rootSetting.galaxyXr;
+        const storedSettings = this.dss.storedValues?.() as Settings | undefined;
+        const storedGalaxy = storedSettings === undefined ? rawGalaxy : storedSettings.galaxyXr;
         if (rawGalaxy && canMigrate && (rawGalaxy.sdr10SettingsVersion ?? 1) < 2) {
-          if (!rawGalaxy.sdr10Baseline && (rawGalaxy.profileSupports10bit ?? true)) {
+          if (!rawGalaxy.sdr10Baseline && storedGalaxy?.profileSupports10bit === undefined) {
             rawGalaxy.profileSupports10bit = false;
           }
           rawGalaxy.sdr10SettingsVersion = 2;
@@ -246,15 +340,10 @@ export class GalaxySettingsBase {
         }
         // NVENC settings v3 (2026-09-05), preservation fix (2026-09-26):
         // absent keys receive defaults through normal loading/fillDefaults.
-        // Direct upgrades retain supported scalar tuning and toggle choices;
-        // only the retired force10bit field and invalid tile widths migrate.
+        // Direct upgrades retain scalar tuning and toggle choices, including
+        // out-of-range tile widths; capability errors must be surfaced instead.
         if (rawSf && canMigrate && (rawSf.nvencSettingsVersion ?? 0) < 3) {
           rawSf.nvencSettingsVersion = 3;
-          const g = this.rootSetting.galaxyXr as any;
-          if (g) {
-            if (g.customStreamFormatWidth === undefined || g.customStreamFormatWidth > 2048 || g.customStreamFormatWidth < 512) { g.customStreamFormatWidth = 1536; }
-            g.force10bit = false;
-          }
           queueMicrotask(() => this.save());
         }
         // v4 (2026-09-05): post-pack CAS replaces the pre-encode CAS when the
@@ -310,23 +399,11 @@ export class GalaxySettingsBase {
           queueMicrotask(() => this.save());
         }
         this.rootSetting.streamFrame = fillDefaults(this.rootSetting.streamFrame, defaultStreamFrame());
-        // 2026-10-15 per-codec defaults: a stored H.264 profile still carrying
-        // the exact codec-0 default shape (pre-wave profiles were never
-        // adapted, and the driver's codec-1 pins are gone from this build on)
-        // is stamped to the H.264 row. Any deviation from the shape is an
-        // explicit user choice and stays — the shape guard also makes this
-        // idempotent without a version key.
-        const sfCodec = this.rootSetting.streamFrame;
-        if (sfCodec?.nvencCodec === 1) {
-          const g = codecEncoderDefaults[0];
-          if (sfCodec.nvencForceCbr === g.forceCbr && sfCodec.nvencVbvFrames === g.vbvFrames
-            && sfCodec.nvencLowDelayKfScale === g.lowDelayKfScale && sfCodec.nvencSplitMode === g.splitMode) {
-            const h = codecEncoderDefaults[1];
-            sfCodec.nvencForceCbr = h.forceCbr;
-            sfCodec.nvencVbvFrames = h.vbvFrames;
-            if (canMigrate) queueMicrotask(() => this.save());
-          }
-        }
+        // 2026-10-16 (owner policy): the per-codec load stamp is retired —
+        // user-entered values are authoritative for every codec, so nothing
+        // in this load path rewrites stored tile/bandwidth or encoder rows;
+        // the optimized defaults live in codecEncoderDefaults and are applied
+        // only through the page's per-field reset arrows.
         this.rootSetting.controllers = fillDefaults(this.rootSetting.controllers, defaultControllers());
         this.controllerSettings = this.rootSetting.controllers;
         if (this.controllerSettings && this.controllerSettings.mirrorOffsetsForRightHand === undefined) {
@@ -427,28 +504,63 @@ export class GalaxySettingsBase {
 
   // Galaxy XR native identity (vendor builds only; page hides it otherwise)
   vendor = vendor;
+  setStreamQualityValue(key: 'width' | 'bandwidth', value: number): void {
+    // Explicitly leaving a legacy tier keeps the other displayed value.
+    const shown = this.streamQualityValues;
+    const g = this.galaxyXr;
+    g.streamQuality = 'custom';
+    g.customStreamFormatWidth = key === 'width' ? value : shown.width;
+    g.customBandwidthMbit = key === 'bandwidth' ? value : shown.bandwidth;
+  }
+
+  // 2026-10-16 (owner directive): switching codecs loads this codec's
+  // optimized defaults — Tile Width, Bandwidth, Force CBR, Frame Size Cap,
+  // Keyframe Size Budget, Multi-Engine Encoding — replacing whatever the
+  // previous codec held, then saves. Rows the table does not own (preset,
+  // multipass, QP, postPack, the H.264 recipe) keep their values;
+  // the switch is an explicit user action, never a load-time or driver-side
+  // rewrite.
+  applyCodecEncoderDefaults(codec: number): void {
+    const codecDef = codecEncoderDefaults[codec] ?? codecEncoderDefaults[0];
+    this.setStreamQualityValue('width', codecDef.streamFormatWidth);
+    this.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit);
+    const sf = this.settings;
+    if (sf) {
+      sf.nvencForceCbr = codecDef.forceCbr;
+      sf.nvencVbvFrames = codecDef.vbvFrames;
+      sf.nvencLowDelayKfScale = codecDef.lowDelayKfScale;
+      sf.nvencSplitMode = codecDef.splitMode;
+    }
+    this.save();
+  }
+
+  get streamQualityValues(): { width: number; bandwidth: number } {
+    const g = this.galaxyXr;
+    const aliases: Record<string, string> = { stable: 'efficient', quality: 'balanced', default: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
+    const tiers: Record<string, { width: number; bandwidth: number }> = {
+      efficient: { width: 1536, bandwidth: 300 }, balanced: { width: 1536, bandwidth: 350 },
+      vivid: { width: 1536, bandwidth: 400 }, sharp: { width: 1536, bandwidth: 450 }, max: { width: 2048, bandwidth: 450 }
+    };
+    return tiers[aliases[g.streamQuality ?? ''] ?? g.streamQuality ?? '']
+      ?? { width: g.customStreamFormatWidth ?? 1536, bandwidth: g.customBandwidthMbit ?? 350 };
+  }
+
   get galaxyXr(): GalaxyXrConfig {
     if (this.rootSetting) {
       if (!this.rootSetting.galaxyXr) {
-        this.rootSetting.galaxyXr = { nativeIdentity: true, nativeInputProfile: false, nativeResolution: true, streamQuality: 'balanced', renderModelScale: 1.15 };
+        this.rootSetting.galaxyXr = { nativeIdentity: true, nativeInputProfile: false, nativeResolution: true, streamQuality: 'custom', renderModelScale: 1.15 };
       }
       if (this.rootSetting.galaxyXr.nativeResolution === undefined) {
         this.rootSetting.galaxyXr.nativeResolution = true;
       }
       if (this.rootSetting.galaxyXr.streamQuality === undefined) {
-        this.rootSetting.galaxyXr.streamQuality = 'balanced';
+        this.rootSetting.galaxyXr.streamQuality = 'custom'; // 2026-10-16: preset selector removed; tile/bandwidth rows are the setting
       }
       if (this.rootSetting.galaxyXr.synthesizeGripTouch === undefined) {
         this.rootSetting.galaxyXr.synthesizeGripTouch = true;
       }
       if (this.rootSetting.galaxyXr.gripTouchThreshold === undefined) {
         this.rootSetting.galaxyXr.gripTouchThreshold = 0.03;
-      }
-      // v3 tier names: legacy v1/v2 names map onto the closest tier
-      {
-        const q = this.rootSetting.galaxyXr.streamQuality;
-        const legacy: Record<string, string> = { stable: 'efficient', quality: 'balanced', default: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
-        if (legacy[q]) { this.rootSetting.galaxyXr.streamQuality = legacy[q]; }
       }
       if (this.rootSetting.galaxyXr.renderModelScale === undefined) {
         this.rootSetting.galaxyXr.renderModelScale = 1.15;
@@ -504,20 +616,24 @@ export class GalaxySettingsBase {
       if (this.rootSetting.galaxyXr.customEncodeWidth === undefined) {
         this.rootSetting.galaxyXr.customEncodeWidth = 3072;
       }
-      // streamFormatWidth now tracks customEncodeWidth (2026-08-26); the old
-      // separate field is kept in the file only so the driver can clean the
-      // legacy value out of steamvr.vrsettings
+      // 2026-10-16 preservation fix: keep legacy tier selection and every
+      // explicit custom value. Missing fields can display the selected tier's
+      // defaults; merely reading settings must never convert the stored mode.
+      const gx = this.rootSetting.galaxyXr;
+      const legacyName: Record<string, string> = { stable: 'efficient', quality: 'balanced', default: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
+      const tier = legacyName[gx.streamQuality ?? 'custom'] ?? gx.streamQuality ?? 'custom';
+      const tierValues: Record<string, { width: number; bandwidth: number }> = {
+        efficient: { width: 1536, bandwidth: 300 },
+        balanced: { width: 1536, bandwidth: 350 },
+        vivid: { width: 1536, bandwidth: 400 },
+        sharp: { width: 1536, bandwidth: 450 },
+        max: { width: 2048, bandwidth: 450 }
+      };
       if (this.rootSetting.galaxyXr.customStreamFormatWidth === undefined) {
-        this.rootSetting.galaxyXr.customStreamFormatWidth = 1536; // v3: the tile, not the (inert) encode width
-      }
-      // v1 tier names migrate to the v2 tuples (driver accepts both;
-      // migrating keeps the dropdown selection visible)
-      const tierMigration: Record<string, string> = { stable: 'efficient', quality: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
-      if (this.rootSetting.galaxyXr.streamQuality && tierMigration[this.rootSetting.galaxyXr.streamQuality]) {
-        this.rootSetting.galaxyXr.streamQuality = tierMigration[this.rootSetting.galaxyXr.streamQuality];
+        this.rootSetting.galaxyXr.customStreamFormatWidth = tierValues[tier]?.width ?? 1536;
       }
       if (this.rootSetting.galaxyXr.customBandwidthMbit === undefined) {
-        this.rootSetting.galaxyXr.customBandwidthMbit = 350;
+        this.rootSetting.galaxyXr.customBandwidthMbit = tierValues[tier]?.bandwidth ?? 350;
       }
       if (this.rootSetting.galaxyXr.customStreamFormatWidthOverride === undefined) {
         this.rootSetting.galaxyXr.customStreamFormatWidthOverride = 0;
@@ -532,7 +648,7 @@ export class GalaxySettingsBase {
         this.rootSetting.galaxyXr.profileMaxStreamFormatWidth = 3200;
       }
       if (this.rootSetting.galaxyXr.profileSupports10bit === undefined) {
-        this.rootSetting.galaxyXr.profileSupports10bit = true;
+        this.rootSetting.galaxyXr.profileSupports10bit = false;
       }
       if (this.rootSetting.galaxyXr.force10bit === undefined) {
         this.rootSetting.galaxyXr.force10bit = false;

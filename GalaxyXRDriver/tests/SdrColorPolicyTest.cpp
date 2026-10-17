@@ -67,14 +67,18 @@ int main() {
         Check(gxr::MigrateSdr10Settings(g), "legacy SDR10 settings migrate once");
         Check(g.sdr10SettingsVersion == 2 && g.sdr10Baseline == baseline,
             "migration stamps version 2 without changing baseline selection");
-        Check(g.profileSupports10bit == (baseline && legacy10bit),
-            "migration only clears the old true default when baseline is off");
+        Check(g.profileSupports10bit == legacy10bit,
+            "migration preserves explicitly stored compatibility values");
         Check(g.customBandwidthMbit == 177 && std::get<2>(g.vrlinkExtraKeys.front()) == 1,
             "migration preserves custom tuning and advanced overrides");
         Check(!gxr::MigrateSdr10Settings(g), "SDR10 migration is idempotent");
     }
     {
         GalaxyXrConfig current{};
+        current.profileSupports10bit = true;
+        GalaxyXrConfig absent{};
+        Check(gxr::MigrateSdr10Settings(absent, false) && !absent.profileSupports10bit,
+            "never-set compatibility field receives legacy OFF default");
         current.sdr10SettingsVersion = 3;
         Check(!gxr::MigrateSdr10Settings(current) && current.profileSupports10bit,
             "migration leaves current/future compatibility values untouched");
@@ -89,7 +93,7 @@ int main() {
         const auto on = gxr::ResolveSdr10Policy(c);
         c.galaxyXr.sdr10Baseline = false;
         const auto off = gxr::ResolveSdr10Policy(c);
-        Check(on.profileSupports10bit && !off.profileSupports10bit,
+        Check(on.profileSupports10bit && off.profileSupports10bit == legacy10bit,
             "ON -> OFF disables the 10-bit request for both profile routes and legacy values");
         Check(off.profileEnabled == profile, "OFF preserves the profile geometry switch");
         Check(c.galaxyXr.profileSupports10bit == legacy10bit, "policy does not rewrite legacy stored values");

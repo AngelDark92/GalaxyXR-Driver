@@ -114,17 +114,19 @@ const ts=process.env.FLUENT_TEST_TYPESCRIPT?require(process.env.FLUENT_TEST_TYPE
  // write is provided: revealing a destination must only touch presentation.
  {
    const defaults=load(root+'/src-lit/domain/driver-defaults.ts').driverDefaults;
-   const snapshot=JSON.stringify(defaults);let state={},focused='',scrolled=false,updates=0;
+   const snapshot=JSON.stringify(defaults);let state={},focused='',scrolled=false,updates=0,revealedClass='',blurHook=false;
    const page={
      ctx:{dss:{values:()=>defaults},appSetting:{values:()=>({advanceMode:false}),readFileError:()=>undefined},sds:{driverInstalled:()=> '1.2.3'},
        galaxy:{vendor:'galaxyxr',sections:Object.assign(()=>state,{set:next=>{state=next;updates++;}})}},
      revealAdvanced:false,requestUpdate:()=>{},updateComplete:Promise.resolve(),isConnected:true,
-     shadowRoot:{getElementById:id=>({focus:()=>{focused=id;},scrollIntoView:()=>{scrolled=true;}})},
+     shadowRoot:{getElementById:id=>({focus:()=>{focused=id;},scrollIntoView:()=>{scrolled=true;},
+       classList:{add:c=>{revealedClass=c;},remove:()=>{revealedClass='';}},addEventListener:ev=>{blurHook=ev==='blur';}})},
    };
    const reason=await h.BasePage.prototype.showSetting.call(page,'streamFrame.nvencForceCbr');
    test('Show setting expands stable ancestors and focuses the field without saving',()=>{
      assert.equal(reason,undefined);assert.equal(state['heading:encoder'],true);assert.equal(Object.hasOwn(state,'encoderAdv'),false);
      assert.equal(focused,'setting-streamFrame.nvencForceCbr');assert.equal(scrolled,true);assert.equal(page.revealAdvanced,true);
+     assert.equal(revealedClass,'revealed');assert.equal(blurHook,true);
      assert.equal(page.ctx.appSetting.values().advanceMode,false);assert.equal(JSON.stringify(defaults),snapshot);
    });
    h.BasePage.prototype.clearSettingTarget.call(page);
@@ -137,7 +139,7 @@ const ts=process.env.FLUENT_TEST_TYPESCRIPT?require(process.env.FLUENT_TEST_TYPE
  }
  test('Checker fields share their catalog label and stable focus ID',()=>{
    const row=flatten(h.settingFieldRow('streamFrame.nvencForceCbr',html`<input type="checkbox">`));
-   assert.match(row,/setting-streamFrame.nvencForceCbr/);assert.match(row,/Force CBR/);assert.match(row,/tabindex=-1/);
+   assert.match(row,/setting-streamFrame.nvencForceCbr/);assert.match(row,/Constant Bitrate/);assert.match(row,/tabindex=-1/);
  });
  test('Explicit heading keys survive localized label changes',()=>{
    const cards=h.sectionCards([h.sectionHeading('Translated encoder',0,'encoder'),imageRow],{sections:{'heading:encoder':false},onToggle:()=>{}});
