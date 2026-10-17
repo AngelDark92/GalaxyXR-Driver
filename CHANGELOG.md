@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.12.0-dev.4] - 2026-10-17
+
+### Fixes
+
+- SDR 10-bit baseline handling and image enhancements, various improvements (`d979a23`)
+
 ## [1.12.0-dev.3] - 2026-10-17
 
 ### Fixes
