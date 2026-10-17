@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
         driverConfig.galaxyXr.sdr10Baseline = true;
         driverConfig.streamFrame.nvencTap = false;
         driverConfig.streamFrame.nvencFixLevel = false;
-        driverConfig.streamFrame.nvencForceCbr = true; // opposite of the new OFF default: the fresh parse must discard it
+        driverConfig.streamFrame.nvencForceCbr = false;
         driverConfig.streamFrame.nvencBitrateScale = false;
         driverConfig.streamFrame.nvencPresetMerge = false;
         driverConfig.streamFrame.nvencVbvFrames = 5;
@@ -202,9 +202,8 @@ int main(int argc, char** argv) {
             Check(s.nvencVbvFrames == 0 && s.nvencLowDelayKfScale == 0
                 && s.nvencForceFps == 0 && s.nvencSplitMode == 0, "upgrade preserves disabled encoder budgeting overrides");
         } else if (scenario == 13 || scenario == 15) {
-            Check(s.nvencTap && s.nvencFixLevel && s.nvencBitrateScale && s.nvencPresetMerge,
-                "fresh/reset config enables reference encoder switches");
-            Check(!s.nvencForceCbr, "fresh/reset config keeps Force CBR OFF (owner directive 2026-10-17)");
+            Check(s.nvencTap && s.nvencFixLevel && s.nvencForceCbr
+                && s.nvencBitrateScale && s.nvencPresetMerge, "fresh/reset config enables reference encoder switches");
             Check(s.nvencPreset == 0 && s.nvencVbvFrames == 2 && s.nvencLowDelayKfScale == 2
                 && s.nvencForceFps == 90 && s.nvencSplitMode == 1, "fresh/reset config uses reference encoder tuning");
             Check(s.nvencAqStrength == 0 && s.nvencMinQp == 0 && s.nvencMinQpIntra == 0 && s.nvencMaxQp == 0

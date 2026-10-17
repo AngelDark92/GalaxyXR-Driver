@@ -304,7 +304,7 @@ const nativeDefaults = {
     "nvencVuiFullRange": -1,
     "nvencMinQp": 0,
     "nvencMinQpIntra": 0,
-    "nvencForceCbr": false,
+    "nvencForceCbr": true,
     "spacewarpEnable": false,
     "nvencLowDelayKfScale": 2,
     "nvencVuiMatrix": -1,

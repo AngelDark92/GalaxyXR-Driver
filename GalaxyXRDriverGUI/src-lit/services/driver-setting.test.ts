@@ -28,12 +28,12 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 const filePath = '/settings/settings.json';
 const services: DriverSettingService[] = [];
 // Config.h in the user-selected CustomHeadsetOpenVrGxR reference, 2026-09-26;
-// Force CBR OFF per the 2026-10-17 owner directive.
+// Force CBR ON per the 2026-10-17 owner directive (revised same day).
 // Literal expectations pin parity independently of generated GUI defaults.
 const referenceEncoderDefaults = {
   nvencTap: true, nvencFixLevel: true, nvencBitrateMbit: 0, nvencBandwidthOverrideMbit: 0,
   nvencSettingsVersion: 0, nvencMaxQp: 0, nvencAqStrength: 0, nvencMinQp: 0,
-  nvencMinQpIntra: 0, nvencForceCbr: false, nvencLowDelayKfScale: 2,
+  nvencMinQpIntra: 0, nvencForceCbr: true, nvencLowDelayKfScale: 2,
   nvencMaxBitrateHeadroomPct: 0, nvencVbvFrames: 2, nvencForceFps: 90,
   nvencBitrateScale: true, nvencVrlinkClampMbit: 350, nvencPreset: 0,
   nvencPresetMerge: true, nvencVuiFullRange: -1, nvencVuiMatrix: -1,
@@ -92,13 +92,7 @@ describe('vendor defaults before info.json exists', () => {
     const service = await load('galaxyxr', { streamFrame: stock }, { streamFrame: stock });
     expect(service.values()?.streamFrame).toMatchObject(stock);
     expect(await service.save(service.values()!)).toBe(true);
-    // 2026-10-17 (owner directive): Off equals the native Force CBR default,
-    // so a sparse save omits the key while the choice still reads back Off.
-    const savedStock = JSON.parse(storage.files.get(filePath)!).streamFrame;
-    const stockPersisted: Record<string, unknown> = { ...stock };
-    delete stockPersisted.nvencForceCbr;
-    expect(savedStock).toMatchObject(stockPersisted);
-    expect(savedStock.nvencForceCbr).toBeUndefined();
+    expect(JSON.parse(storage.files.get(filePath)!).streamFrame).toMatchObject(stock);
     expect(await service.loadSetting()).toBe(true);
     expect(service.values()?.streamFrame).toMatchObject(stock);
   });
@@ -189,20 +183,14 @@ describe('vendor defaults before info.json exists', () => {
     await new Promise<void>(resolve => setTimeout(resolve, 0));
     await service.flush();
     expect(state.settings).toMatchObject(stock);
-    // 2026-10-17 (owner directive): Off equals the native Force CBR default,
-    // so sparse saves omit the key; it still reads back Off on every reopen.
-    const stockPersisted: Record<string, unknown> = { ...stock };
-    delete stockPersisted.nvencForceCbr;
-    expect(JSON.parse(storage.files.get(filePath)!).streamFrame).toMatchObject(stockPersisted);
+    expect(JSON.parse(storage.files.get(filePath)!).streamFrame).toMatchObject(stock);
     expect(await service.save(service.values()!)).toBe(true);
     expect(await service.loadSetting()).toBe(true);
     await new Promise<void>(resolve => setTimeout(resolve, 0));
     await service.flush();
     expect(state.settings).toMatchObject(stock);
     expect(service.values()?.streamFrame).toMatchObject(stock);
-    const savedAgain = JSON.parse(storage.files.get(filePath)!).streamFrame;
-    expect(savedAgain).toMatchObject(stockPersisted);
-    expect(savedAgain.nvencForceCbr).toBeUndefined();
+    expect(JSON.parse(storage.files.get(filePath)!).streamFrame).toMatchObject(stock);
   });
 
   it.each(['', 'galaxyxr'])('keeps Hitch Diagnostics off by default for %s and preserves opt-in on reload', async vendor => {

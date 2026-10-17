@@ -2490,7 +2490,7 @@ An encoder already created with the tap can retain its earlier parameters and AP
         <source>Tile width is sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. Requires a SteamVR restart.</source>
       </trans-unit>
       <trans-unit id="encoder-controls-20261016-2" datatype="html">
-        <source>Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is Off for every codec; the reset arrow applies it.</source>
+        <source>Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.</source>
       </trans-unit>
       <trans-unit id="encoder-controls-20261016-3" datatype="html">
         <source>0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.</source>
@@ -2981,7 +2981,7 @@ Interactive tuning of the distortion CENTER offsets. While on: the image gently 
 Value: streamFrame.distortion.centerTune.enable (settings.json). Driver side — the in-headset center-offset tuner.</source>
       </trans-unit>
       <trans-unit id="379854560" datatype="html">
-        <source>Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is Off for every codec; the reset arrow applies it.
+        <source>Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.
 
 Value: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes.</source>
       </trans-unit>

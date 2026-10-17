@@ -897,7 +897,7 @@ describe('profile import/export', () => {
 
 describe('per-codec encoder defaults', () => {
   // each codec owns a default rate-control profile (galaxy-settings.ts):
-  // Force CBR is OFF in every row (owner directive 2026-10-17); HEVC/AV1 carry a 2-frame VBV, H.264 one frame
+  // Force CBR is ON in every row (owner directive 2026-10-17, revised); HEVC/AV1 carry a 2-frame VBV, H.264 one frame
   // (splitMode stays 1 everywhere — it also opens the 12.1 session; the
   // tap skips the split bits for codec 1 itself). 2026-10-16 owner directive:
   // a codec switch applies that codec's table row at once — tile, bandwidth
@@ -931,7 +931,7 @@ describe('per-codec encoder defaults', () => {
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
     expect(reopened.gs.galaxyXr.customBandwidthMbit).toBe(500);
-    expect(reopened.gs.settings?.nvencForceCbr).toBe(false);
+    expect(reopened.gs.settings?.nvencForceCbr).toBe(true);
   });
 
   it.each([0, 2])('switches to codec %s loading its optimized defaults', async codec => {
@@ -959,7 +959,7 @@ describe('per-codec encoder defaults', () => {
   it('switches only the codec and the codec-owned keys that actually differ (HEVC -> AV1)', () => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, streamQuality: 'custom', customStreamFormatWidth: 1536, customBandwidthMbit: 350 },
-      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0, nvencForceCbr: false, nvencVbvFrames: 2, nvencLowDelayKfScale: 2, nvencSplitMode: 1 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0, nvencForceCbr: true, nvencVbvFrames: 2, nvencLowDelayKfScale: 2, nvencSplitMode: 1 },
     };
     const { gs } = buildHarness(stored);
     void gs.galaxyXr; void gs.settings; // materialize getter default fills before the baseline clone
@@ -1007,7 +1007,7 @@ describe('per-codec encoder defaults', () => {
       expect(harness.gs.settings).toMatchObject({ nvencCodec: codec, ...chosen });
     }
     // the final apply (codec 1) replaced the codec-owned rows with the table
-    expect(harness.gs.settings!.nvencForceCbr).toBe(false);
+    expect(harness.gs.settings!.nvencForceCbr).toBe(true);
     expect(harness.gs.settings!.nvencVbvFrames).toBe(1);
     expect(harness.gs.settings!.nvencLowDelayKfScale).toBe(2);
     expect(harness.gs.settings!.nvencSplitMode).toBe(1);
@@ -1092,7 +1092,7 @@ describe('per-codec encoder defaults', () => {
     expect(av1Split).toBe(0);
     expect(hevcSplit).toBe(1);
     expect(hevcBandwidth).toBe(350);
-    expect(codecEncoderDefaults[1].forceCbr).toBe(false);
+    expect(codecEncoderDefaults[1].forceCbr).toBe(true);
     expect(codecEncoderDefaults[1].vbvFrames).toBe(1);
     expect(codecEncoderDefaults[1].splitMode).toBe(1); // split bits are skipped for codec 1 in the tap, but the key still opens the 12.1 session
     expect(codecEncoderDefaults[1].lowDelayKfScale).toBe(codecEncoderDefaults[0].lowDelayKfScale);
@@ -1223,7 +1223,7 @@ describe('H.264 stored-profile migration', () => {
     expect(gs.galaxyXr.customBandwidthMbit).toBe(450);
     expect(gs.galaxyXr.customStreamFormatWidth).toBe(1536);
     expect(gs.galaxyXr.streamQuality).toBe('sharp');
-    expect(gs.settings?.nvencForceCbr).toBe(false);
+    expect(gs.settings?.nvencForceCbr).toBe(true);
     expect(gs.settings?.nvencVbvFrames).toBe(2);
   });
 
@@ -1245,7 +1245,7 @@ describe('H.264 stored-profile migration', () => {
     };
     const { gs, flush } = buildHarness(stored);
     await flush();
-    expect(gs.settings?.nvencForceCbr).toBe(false);
+    expect(gs.settings?.nvencForceCbr).toBe(true);
     expect(gs.settings?.nvencVbvFrames).toBe(2);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();

@@ -819,7 +819,7 @@ struct StreamFrameConfig{
 	// exactly 2 MB/frame; IDR at QP 16 = 2.3 MB, at QP 24 = 1.45 MB)
 	int nvencMinQpIntra = 0;
 	// CBR + low-delay key-frame scale: VBV honoured on key frames
-	bool nvencForceCbr = false; // 2026-10-17 (owner directive): OFF default for every codec; the GUI codec rows + reset arrows apply Off; explicit On stays user tuning (v3 default was true, X2 runs)
+	bool nvencForceCbr = true; // 2026-10-17 (owner directive, revised): ON default for every codec; the GUI codec rows + reset arrows apply On; turning it off stays user tuning (v3 default was true, X2 runs)
 	// with Force CBR: reset-IDR budget as a multiple of a P frame (1..4).
 	// 1 = one frame budget (soft IDR, QP 34-48 in the R runs); 2 = two,
 	// still under vbvFrames=2. see NvencTapConfig::lowDelayKfScale

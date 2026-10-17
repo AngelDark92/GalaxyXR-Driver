@@ -386,7 +386,7 @@
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 401,
-    "summary": "Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is Off for every codec; the reset arrow applies it.",
+    "summary": "Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.",
     "details": "Value: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."
   },
   {

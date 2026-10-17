@@ -508,7 +508,7 @@ if (settings.nvencTap) {
         rc: evidence.effectiveRateControl === 2 ? 'CBR' : evidence.effectiveRateControl === 1 ? 'VBR'
           : evidence.effectiveRateControl === 0 ? t('Constant QP') : t('Unknown') })}</span>` : html``}
                 `, {
-  tip: t("Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is Off for every codec; the reset arrow applies it.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."),
+  tip: t("Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."),
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
                 parts.push(settingFieldRow('streamFrame.nvencMultiPass', html`

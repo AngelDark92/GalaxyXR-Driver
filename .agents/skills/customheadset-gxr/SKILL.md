@@ -40,7 +40,7 @@ Applied values always match their editable fields. Codec switching updates
 Advanced settings even while Advanced Mode is off; opening it shows the
 current values. Do not reveal Advanced Mode automatically.
 Per-codec rows carry that codec's negotiated-carryable class (H.264 = the
-1024x4096 tile the Steam Link client negotiates; proven live 2026-10-16). Force CBR is OFF in every codec row (owner directive 2026-10-17) — codec switches and reset arrows apply Off; turning it on stays the user's choice. Selecting H.264 cannot carry 10-bit: it turns the SDR 10-bit baseline off (writing the toggle's own baseline-off pair, never the explicit profileSupports10bit request) and the toggle reads Off and stays disabled until another codec is selected.
+1024x4096 tile the Steam Link client negotiates; proven live 2026-10-16). Force CBR is ON in every codec row by default (owner directive 2026-10-17, revised same day) — codec switches and reset arrows apply On; turning it off stays the user's choice. Selecting H.264 cannot carry 10-bit: it turns the SDR 10-bit baseline off (writing the toggle's own baseline-off pair, never the explicit profileSupports10bit request) and the toggle reads Off and stays disabled until another codec is selected.
 Selected codecs are running codecs: no codec-to-codec fallback ever; a failed
 selection fails loudly with its NVENC status and request in the log plus the
 evidence row. When
