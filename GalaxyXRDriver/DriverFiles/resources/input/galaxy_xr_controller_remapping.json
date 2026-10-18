@@ -2,7 +2,7 @@
   "to_controller_type": "galaxy_xr_controller",
   "layouts": [
     {
-      "priority": 110,
+      "priority": 20,
       "from_controller_type": "knuckles",
       "simulate_controller_type": true,
       "simulate_render_model": true,
@@ -44,48 +44,6 @@
         {
           "from": "/user/hand/left/input/b",
           "to": "/user/hand/left/input/y",
-          "mirror": false
-        }
-      ],
-      "remappings": [
-        {
-          "from": "/user/hand/right/input/thumbstick/click",
-          "to": "/user/hand/right/input/joystick/click"
-        },
-        {
-          "from": "/user/hand/right/input/thumbstick/touch",
-          "to": "/user/hand/right/input/joystick/touch"
-        },
-        {
-          "from": "/user/hand/right/input/trigger/touch",
-          "to": "/user/hand/right/input/trigger/touch"
-        },
-        {
-          "from": "/user/hand/right/input/trigger/value",
-          "to": "/user/hand/right/input/trigger/value"
-        },
-        {
-          "from": "/user/hand/right/input/grip/touch",
-          "to": "/user/hand/right/input/grip/touch"
-        },
-        {
-          "from": "/user/hand/right/input/a/touch",
-          "to": "/user/hand/right/input/a/touch",
-          "mirror": false
-        },
-        {
-          "from": "/user/hand/right/input/b/touch",
-          "to": "/user/hand/right/input/b/touch",
-          "mirror": false
-        },
-        {
-          "from": "/user/hand/left/input/a/touch",
-          "to": "/user/hand/left/input/x/touch",
-          "mirror": false
-        },
-        {
-          "from": "/user/hand/left/input/b/touch",
-          "to": "/user/hand/left/input/y/touch",
           "mirror": false
         }
       ]
