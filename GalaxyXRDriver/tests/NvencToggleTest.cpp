@@ -239,7 +239,11 @@ void CheckCodecOverride(void* encoder){
 	// (INVALID_PARAM). 2026-10-18 fresh-connect deferral: the bits never ride
 	// nvEncInitializeEncoder — with them on the first keyframe the Steam Link
 	// client acknowledges zero frames and the stream dies — they engage at the
-	// first reconfigure, which re-applies the codec swap too.
+	// first reconfigure, which re-applies the codec swap too. The handshake
+	// grace (splitHandshakeGraceSeconds) is zeroed here: tests run
+	// instant-clear so reconfigure engagement is deterministic; the deferral
+	// during grace is its own check below.
+	splitHandshakeGraceSeconds = 0.0;
 	driverConfig.streamFrame.nvencTap = true;
 	driverConfig.streamFrame.nvencCodec = 2;
 	driverConfig.streamFrame.nvencSplitMode = 1;
@@ -267,6 +271,22 @@ void CheckCodecOverride(void* encoder){
 	reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
 	Check(((seenInitFlags >> 5) & 0xFu) == 1, "codec+split: forced split bits applied at reconfigure on the swapped session");
 	Check(memcmp(&sreconf, &savedReconf, sizeof(sreconf)) == 0, "codec+split: reconfigure caller bytes restored");
+
+	// handshake grace (2026-10-18): during grace a reconfigure ALSO defers
+	// the bits — the first reconfigure lands ~100 ms after init, ahead of
+	// the first keyframe, so first-reconfigure engagement alone still
+	// poisons the client. After the grace they engage like the verified
+	// mid-stream mode change (covered by the checks above at grace 0).
+	splitHandshakeGraceSeconds = 1e9;
+	NV_ENC_RECONFIGURE_PARAMS gsrconf = {}; gsrconf.version = Tag111(1, true);
+	gsrconf.reInitEncodeParams = sinit;
+	const auto savedGsrconf = gsrconf;
+	reconfigureDriverStatus = NV_ENC_SUCCESS;
+	Check(NvencTapShims::ReconfigureEncoder(upgraded2, &gsrconf) == NV_ENC_SUCCESS, "split grace: reconfigure delegated");
+	reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+	Check(((seenInitFlags >> 5) & 0xFu) == 0u, "split grace: split bits deferred during the handshake grace");
+	Check(memcmp(&gsrconf, &savedGsrconf, sizeof(gsrconf)) == 0, "split grace: caller bytes restored");
+	splitHandshakeGraceSeconds = 0.0;
 
 	// h264+split: with codec==1 the split application is skipped outright —
 	// even on the upgraded (12.1-ABI) session the forced split bits must stay

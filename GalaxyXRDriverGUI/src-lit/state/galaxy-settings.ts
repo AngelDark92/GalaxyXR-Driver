@@ -59,11 +59,13 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // 0%; unsplit was 100% over); explicit 3 measured fastest (submit->lock
 // ~4.75-5.6 ms vs ~6.6-7.0 ms at 1). The superseded note's failure (client
 // swap-layer geometry rejection at session init, zero ACKs) resolved
-// 2026-10-18: a fresh connect whose FIRST encoder init already carries
-// split bits gets zero client ACKs and dies in a watchdog reset storm; the
-// driver now defers the split bits to the first reconfigure (ms later),
-// keeping the proven-healthy fresh-connect shape, and the row value keeps
-// applying exactly as saved.
+// 2026-10-18: with split on the connect-time init — or on the connect-time
+// reconfigure, which lands before the first keyframe — the client ACKs zero
+// frames and never recovers mid-session (reconnect required); the driver
+// now holds split through a ~5 s handshake grace from the first init and
+// engages it at the next reconfigure, reproducing the owner-verified
+// mid-stream-change flow automatically. The row value applies exactly as
+// saved.
 // The codec-0 row's tile and bandwidth must stay pinned to the GENERATED
 // driver defaults. 2026-10-17 (owner directive, revised): Force CBR is ON in
 // every row — codec switches and the reset arrows apply On, and turning it off

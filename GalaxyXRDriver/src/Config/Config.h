@@ -901,8 +901,11 @@ struct StreamFrameConfig{
 	// into vrlink's 11.1 session; rejection is logged and latched off.
 	// Fresh-connect deferral (2026-10-18): the split bits never ride
 	// nvEncInitializeEncoder — with them on the first keyframe the Steam Link
-	// client acknowledges zero frames and the stream dies. They engage at the
-	// first reconfigure; the saved value and its fields are unchanged.
+	// client acknowledges zero frames and the stream dies. They also stay off
+	// the connect-time reconfigures until a ~5 s handshake grace past the
+	// first successful init (tap-internal knob, see NvencTap.cpp); a session
+	// wedged by an earlier split start never recovers mid-stream. The saved
+	// value and its fields are unchanged.
 	int nvencSplitMode = 1; // v3 default: driver-chosen strips (RUN6/X2); implies the 12.1 session upgrade
 	// 2026-09-05 foveated bit allocation (option, off by default): QP delta
 	// for the fovea tile (<= 0) and the periphery tile (>= 0), with the

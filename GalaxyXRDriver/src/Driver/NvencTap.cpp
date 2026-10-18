@@ -292,10 +292,30 @@ void PublishFailure(void* encoder, const NvencTapConfig& cfg, NVENCSTATUS status
 	}
 	runtimeEncoder = encoder; runtime.requestedCodec = cfg.codec;
 	runtime.lastStatus = (uint32_t)status; runtime.error = error;
-}
-void PublishSuccess(void* encoder, const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_PARAMS* p, bool initializing = false){
+	}
+	// 2026-10-18 handshake grace (see the ApplyOverrides split block): split
+	// waits for a reconfigure AND this many seconds past the first successful
+	// init of the connection. Facts: the Galaxy XR Steam Link client ACKs zero
+	// frames when its first decoded frame is split-encoded (the first
+	// reconfigure lands ~100 ms after init, still ahead of the first keyframe),
+	// and a session wedged that way never recovers — even unsplit frames stay
+	// unACKed (observed 11:39-11:40: switching the value to 0 did not restore
+	// ACKs). The owner-verified healthy flow is: init unsplit, split engages
+	// seconds later through reconfigure; the tap reproduces that automatically
+	// and never rewrites the saved setting. Internal knob, not a user setting.
+	double splitHandshakeGraceSeconds = 5.0;
+	std::atomic<long long> splitArmSteadyMs{0}; // armed at the first successful init (NowSecondsNv * 1000)
+	bool SplitHandshakeCleared(){
+		const long long arm = splitArmSteadyMs.load(std::memory_order_relaxed);
+		if(arm <= 0){ return false; }
+		return NowSecondsNv() * 1000.0 - (double)arm >= splitHandshakeGraceSeconds * 1000.0;
+	}
+	void PublishSuccess(void* encoder, const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_PARAMS* p, bool initializing = false){
 	std::lock_guard<std::mutex> guard(runtimeLock);
 	if(initializing){
+		// arm the split handshake grace clock at each fresh connection's
+		// first successful init (see the grace note above)
+		splitArmSteadyMs.store((long long)(NowSecondsNv() * 1000.0), std::memory_order_relaxed);
 		firstInitFailures.erase(encoder);
 		// A successful replacement session also retires an archived failure
 		// whose encoder was destroyed. An unrelated live encoder's failure
@@ -1092,14 +1112,20 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			if(sessionNoteLogged.fetch_add(1) < 1){
 				DriverLog("NvencTap: split-frame: session is 11.1 (not upgraded) — splitEncodeMode unavailable on this encoder");
 			}
-		}else if(initializing){
-			// deferred at init (see the 2026-10-18 note above): the split
-			// mode engages at nvEncReconfigureEncoder, which vrlink issues
-			// within a tenth of a second of init. Init stays exactly the
-			// client-proven healthy shape.
-			w += snprintf(w, WhatRem(w, what, whatLen), "split init-deferred; ");
+		}else if(initializing || !SplitHandshakeCleared()){
+			// 2026-10-18 deferral, two layers: the bits never ride
+			// nvEncInitializeEncoder (fresh-connect zero-ACK death), and —
+			// because vrlink's FIRST reconfigure lands ~100 ms after init,
+			// still ahead of the first keyframe — they also stay off every
+			// reconfigure until the handshake grace (armed at the first
+			// successful init; see the grace note above) clears. After that
+			// split engages at the next reconfigure exactly like the
+			// owner-verified mid-stream mode change. Once the client's
+			// decoder wedges on a split first frame, switching the value
+			// does not recover the session; a reconnect does.
+			w += snprintf(w, WhatRem(w, what, whatLen), "split deferred; ");
 			if(splitInitDeferLogged.fetch_add(1) < 1){
-				DriverLog("NvencTap: split-frame: deferring splitEncodeMode at nvEncInitializeEncoder — with split bits on the first keyframe the client acknowledges zero frames (watchdog reset storm); the mode engages at the first nvEncReconfigureEncoder instead. Saved streamFrame.nvencSplitMode is unchanged.");
+				DriverLog("NvencTap: split-frame: deferring splitEncodeMode — the client ACKs zero frames when the first decoded frame is split (and never recovers mid-session), so the bits wait for the handshake grace (armed at first init, +%.0f s) and engage at the next reconfigure. Saved streamFrame.nvencSplitMode is unchanged.", splitHandshakeGraceSeconds);
 			}
 		}else if(ApiMajor(p->version) >= 12 && StructVer(p->version) >= 6 && p->splitEncodeMode != mode){
 			// native field (a future vrlink built against 12.1+)
