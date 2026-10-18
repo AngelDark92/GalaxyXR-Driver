@@ -50,16 +50,18 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // the client negotiated 1024x4096 and the tap refused the mismatch. Every
 // applied value shows in its field, and stays user-editable.
 // 2026-10-17 (evening, owner directive; supersedes the same-day unsplit
-// note): AV1's row carries splitMode 1 — forced, driver-chosen strips — the
-// same portable default as the HEVC row: split-frame only helps with >=2
-// NVENC engines (the tap picks P7/P5/P4 by engine count), and this table
-// ships on 1-, 2- and 3-engine GPUs. Owner live A/B on a 3-engine 5090:
-// every applied mode reached 0% of frames over the 90 Hz budget (was 100%
-// unsplit); explicit 3 measured fastest (submit->lock ~4.75-5.6 ms vs
-// ~6.6-7.0 ms at 1) and stays a user-editable value. The superseded note's
-// failure (client swap-layer geometry rejection at session init, zero ACKs)
-// did not reproduce through any live mode change; the fresh-connect init
-// path is re-verified before this default leaves dev.
+// note): AV1's row carries splitMode 1 — NV_ENC_SPLIT_AUTO_FORCED: forced,
+// with the strip count automatically selected by the driver; it engages
+// only when NVENC number > 1 (nvEncodeAPI.h), so the row is portable across
+// 1-, 2- and 3-engine GPUs, and the tap picks P7/P5/P4 by engine count.
+// Owner live A/B on a 3-engine 5090: 0% of frames over the 90 Hz budget in
+// every applied mode except one congestion window at 1 (11 of 12 windows at
+// 0%; unsplit was 100% over); explicit 3 measured fastest (submit->lock
+// ~4.75-5.6 ms vs ~6.6-7.0 ms at 1) and stays a user-editable value. The
+// superseded note's failure (client swap-layer geometry rejection at
+// session init, zero ACKs) did not reproduce through any live mode change;
+// one fresh-connect init with split active is still pending verification
+// before this default leaves dev.
 // The codec-0 row's tile and bandwidth must stay pinned to the GENERATED
 // driver defaults. 2026-10-17 (owner directive, revised): Force CBR is ON in
 // every row — codec switches and the reset arrows apply On, and turning it off
@@ -408,7 +410,8 @@ export class GalaxySettingsBase {
         // user-entered values are authoritative for every codec, so nothing
         // in this load path rewrites stored tile/bandwidth or encoder rows;
         // the optimized defaults live in codecEncoderDefaults and are applied
-        // only through the page's per-field reset arrows.
+        // only through the two explicit user actions: a codec switch and the
+        // page's per-field reset arrows.
         this.rootSetting.controllers = fillDefaults(this.rootSetting.controllers, defaultControllers());
         this.controllerSettings = this.rootSetting.controllers;
         if (this.controllerSettings && this.controllerSettings.mirrorOffsetsForRightHand === undefined) {

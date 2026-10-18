@@ -21,6 +21,7 @@
         "resizable": false,
         "fullscreen": false,
         "maximizable": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --enable-features=RemoveRedirectionBitmap --disable-renderer-backgrounding --disable-background-timer-throttling",
         "url": "en-US/index.html"
       }
     ],

@@ -1,4 +1,4 @@
-import { effect, signal } from '../reactive';
+import { effect, signal, untracked } from '../reactive';
 import { exists, readTextFile, watchImmediate } from '@tauri-apps/plugin-fs';
 import { cleanJsonComments, deepCopy, deepMerge } from '../domain/pure';
 import { validateBooleanSettings } from '../domain/settings-inspection';
@@ -9,6 +9,21 @@ export enum FileReadErrorReason {
   NotExists = 'File not exists', ParsingFailed = 'Parsing failed', ReadFailed = 'Read failed',
 }
 export type FileReadError = { reason: FileReadErrorReason; message?: string };
+
+/** Content-equality for JSON-derived settings trees (key order independent). */
+function sameJsonValues(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((entry, index) => sameJsonValues(entry, b[index]));
+  }
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return Object.is(a, b);
+  const held = Object.entries(a as Record<string, unknown>), incoming = Object.entries(b as Record<string, unknown>);
+  if (held.length !== incoming.length) return false;
+  const incomingKeys = new Map(incoming);
+  return held.every(([key, value]) => incomingKeys.has(key) && sameJsonValues(value, incomingKeys.get(key)));
+}
 
 export abstract class JsonSettingServiceBase<T> {
   protected _values = signal<T | undefined>(undefined);
@@ -74,7 +89,27 @@ export abstract class JsonSettingServiceBase<T> {
     this.stopWatching = undefined;
     if (!this.watchFileforAutoReload || this.disposed) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let visibilityListener: (() => void) | undefined;
+    let hiddenReloadPending = false;
     const normalize = (path: string) => path.replaceAll('\\', '/').toLowerCase();
+    // Driver heartbeat rewrites keep arriving while the window is hidden (or in
+    // a headless test environment, where document does not exist and behavior
+    // must stay "always visible"). Hide-period reloads are deferred, not dropped.
+    const windowHidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    const onVisibility = () => {
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+      if (!hiddenReloadPending) return;
+      hiddenReloadPending = false;
+      if (this.disposed || this.inspecting || this.debouncedFileWriter.isSavingFile()) return;
+      void this.loadSetting(); // Run the one missed reload, not every missed rewrite.
+    };
+    const stopWatchResources = () => {
+      if (timer !== undefined) { clearTimeout(timer); timer = undefined; }
+      if (visibilityListener !== undefined) {
+        document.removeEventListener('visibilitychange', visibilityListener);
+        visibilityListener = undefined;
+      }
+    };
     try {
       if (!await exists(this._fileDir)) return;
       const unwatch = await watchImmediate(this._fileDir, event => {
@@ -82,12 +117,19 @@ export abstract class JsonSettingServiceBase<T> {
         if (!event.paths.some(path => normalize(path) === normalize(this._filePath))) return;
         if (timer !== undefined) clearTimeout(timer);
         timer = setTimeout(() => {
-          if (!this.disposed && !this.inspecting && !this.debouncedFileWriter.isSavingFile()) void this.loadSetting();
+          if (this.disposed || this.inspecting || this.debouncedFileWriter.isSavingFile()) return;
+          // Defer the debounced reload while the settings window is hidden.
+          if (windowHidden()) { hiddenReloadPending = true; return; }
+          void this.loadSetting();
         }, 100);
       });
-      this.stopWatching = () => { unwatch(); if (timer !== undefined) clearTimeout(timer); };
+      if (typeof document !== 'undefined') {
+        visibilityListener = onVisibility;
+        document.addEventListener('visibilitychange', onVisibility);
+      }
+      this.stopWatching = () => { unwatch(); stopWatchResources(); };
     } catch (error) {
-      if (timer !== undefined) clearTimeout(timer);
+      stopWatchResources();
       console.warn('Cannot watch settings directory; the Setup check can reload it manually', error);
     }
   }
@@ -131,6 +173,17 @@ export abstract class JsonSettingServiceBase<T> {
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Settings must be a JSON object');
             validateBooleanSettings(parsed, this.defaults);
             const values = this.migrateLoadedValues(deepMerge(deepCopy(this.defaults) as any, parsed));
+            // The driver rewrites files in this directory every couple of
+            // seconds. A clean read that parses to the same stored and computed
+            // values must not replace the held objects: fresh identities make
+            // signal listeners re-render over an unchanged document. Reads are
+            // untracked because they observe held state, not effect inputs.
+            // First loads and changed/error reads still notify below.
+            if (sameJsonValues(parsed, untracked(() => this._storedValues())) &&
+                sameJsonValues(values, untracked(() => this._values()))) {
+              this._readFileError.set(undefined);
+              return true;
+            }
             this._storedValues.set(structuredClone(parsed));
             this.verified = structuredClone(values);
             this._values.set(values);

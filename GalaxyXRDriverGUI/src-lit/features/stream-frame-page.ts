@@ -23,7 +23,15 @@ export class StreamFramePage extends BasePage {
   private evidenceExpiryTimer?: ReturnType<typeof setTimeout>;
   private runtimeUnsub?: () => void;
   private evidenceUnsub?: () => void;
-  private readonly onVisibilityChange = () => this.requestUpdate();
+  // 2026-10-18: extended for the hidden-window guard in updateRuntimeEvidence.
+  // Becoming visible again re-runs updateRuntimeEvidence once (re-render plus
+  // expiry timer re-arm); hiding keeps the direct requestUpdate from before.
+  // The listener stays registered exactly once (connectedCallback add,
+  // disconnectedCallback remove).
+  private readonly onVisibilityChange = () => {
+    if (document.visibilityState !== 'hidden') this.updateRuntimeEvidence();
+    else this.requestUpdate();
+  };
   private pollGeneration = 0;
   private readonly streamNumberErrors = new Map<string, string>();
   // 2026-10-16: inline per-key validation for app-number rows (the driver
@@ -40,14 +48,23 @@ export class StreamFramePage extends BasePage {
     return message ? noteRow(html`${message}`) : html``;
   }
   private updateRuntimeEvidence(): void {
+    // 2026-10-18: while the window is hidden (minimized/occluded), skip the
+    // re-render and do not re-arm the expiry timers — the 2 s poll
+    // subscriptions would otherwise churn requestUpdate and amplify low fps
+    // during window drags. A return to visible re-runs this once through
+    // onVisibilityChange, so no evidence state is lost, only deferred.
+    if (document.visibilityState === 'hidden') return;
     this.requestUpdate();
     if (this.runtimeExpiryTimer !== undefined) clearTimeout(this.runtimeExpiryTimer);
     if (this.evidenceExpiryTimer !== undefined) clearTimeout(this.evidenceExpiryTimer);
     const checkedAt = this.ctx.startup.status()?.checkedAt;
     // Expire evidence independently: an unresolved native poll cannot keep
     // the previous confirmed-OFF badge alive indefinitely (2026-09-30).
-    if (checkedAt !== undefined) this.runtimeExpiryTimer = setTimeout(() => this.requestUpdate(),
-      Math.max(0, checkedAt + 5001 - Date.now()));
+    if (checkedAt !== undefined) this.runtimeExpiryTimer = setTimeout(() => {
+      // 2026-10-18: the expiry render waits for a visible window; a visible
+      // transition re-runs updateRuntimeEvidence, which re-arms this timer.
+      if (document.visibilityState !== 'hidden') this.requestUpdate();
+    }, Math.max(0, checkedAt + 5001 - Date.now()));
     // Expired encoder evidence triggers a real refresh of the runtime status
     // (2026-10-16), not merely a waiting re-render: the rejection keeps its
     // age on screen until a newer observation replaces it.
