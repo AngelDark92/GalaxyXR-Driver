@@ -50,16 +50,22 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // the client negotiated 1024x4096 and the tap refused the mismatch. Every
 // applied value shows in its field, and stays user-editable.
 // 2026-10-17 (evening, owner directive; supersedes the same-day unsplit
-// note): AV1's row carries splitMode 1 — forced, driver-chosen strips — the
-// same portable default as the HEVC row: split-frame only helps with >=2
-// NVENC engines (the tap picks P7/P5/P4 by engine count), and this table
-// ships on 1-, 2- and 3-engine GPUs. Owner live A/B on a 3-engine 5090:
-// every applied mode reached 0% of frames over the 90 Hz budget (was 100%
-// unsplit); explicit 3 measured fastest (submit->lock ~4.75-5.6 ms vs
-// ~6.6-7.0 ms at 1) and stays a user-editable value. The superseded note's
-// failure (client swap-layer geometry rejection at session init, zero ACKs)
-// did not reproduce through any live mode change; the fresh-connect init
-// path is re-verified before this default leaves dev.
+// note): AV1's row carries splitMode 1 — NV_ENC_SPLIT_AUTO_FORCED: forced,
+// with the strip count automatically selected by the driver; it engages
+// only when NVENC number > 1 (nvEncodeAPI.h), so the row is portable across
+// 1-, 2- and 3-engine GPUs, and the tap picks P7/P5/P4 by engine count.
+// Owner live A/B on a 3-engine 5090: 0% of frames over the 90 Hz budget in
+// every applied mode except one congestion window at 1 (11 of 12 windows at
+// 0%; unsplit was 100% over); explicit 3 measured fastest (submit->lock
+// ~4.75-5.6 ms vs ~6.6-7.0 ms at 1). The superseded note's failure (client
+// swap-layer geometry rejection at session init, zero ACKs) resolved
+// 2026-10-18: with split on the connect-time init — or on the connect-time
+// reconfigure, which lands before the first keyframe — the client ACKs zero
+// frames and never recovers mid-session (reconnect required); the driver
+// now holds split through a ~5 s handshake grace from the first init and
+// engages it at the next reconfigure, reproducing the owner-verified
+// mid-stream-change flow automatically. The row value applies exactly as
+// saved.
 // The codec-0 row's tile and bandwidth must stay pinned to the GENERATED
 // driver defaults. 2026-10-17 (owner directive, revised): Force CBR is ON in
 // every row — codec switches and the reset arrows apply On, and turning it off
@@ -408,7 +414,8 @@ export class GalaxySettingsBase {
         // user-entered values are authoritative for every codec, so nothing
         // in this load path rewrites stored tile/bandwidth or encoder rows;
         // the optimized defaults live in codecEncoderDefaults and are applied
-        // only through the page's per-field reset arrows.
+        // only through the two explicit user actions: a codec switch and the
+        // page's per-field reset arrows.
         this.rootSetting.controllers = fillDefaults(this.rootSetting.controllers, defaultControllers());
         this.controllerSettings = this.rootSetting.controllers;
         if (this.controllerSettings && this.controllerSettings.mirrorOffsetsForRightHand === undefined) {
@@ -563,7 +570,7 @@ export class GalaxySettingsBase {
   get galaxyXr(): GalaxyXrConfig {
     if (this.rootSetting) {
       if (!this.rootSetting.galaxyXr) {
-        this.rootSetting.galaxyXr = { nativeIdentity: true, nativeInputProfile: false, nativeResolution: true, streamQuality: 'custom', renderModelScale: 1.15 };
+        this.rootSetting.galaxyXr = { nativeIdentity: true, nativeInputProfile: true, nativeResolution: true, streamQuality: 'custom', renderModelScale: 1.15 };
       }
       if (this.rootSetting.galaxyXr.nativeResolution === undefined) {
         this.rootSetting.galaxyXr.nativeResolution = true;
@@ -695,9 +702,15 @@ export class GalaxySettingsBase {
       if (this.rootSetting.galaxyXr.sdr10Baseline === undefined) {
         this.rootSetting.galaxyXr.sdr10Baseline = false;
       }
+      // 2026-10-18: the driver default for the official controller layout is
+      // now On; a stored file without the key must read the same value here
+      // instead of showing the switch Off while the driver runs it.
+      if (this.rootSetting.galaxyXr.nativeInputProfile === undefined) {
+        this.rootSetting.galaxyXr.nativeInputProfile = true;
+      }
       return this.rootSetting.galaxyXr;
     }
-    return { nativeIdentity: true };
+    return { nativeIdentity: true, nativeInputProfile: true };
   }
 
   // 2026-09-19 SDR10 baseline (see SdrColorPolicy.h): the baseline yields to

@@ -164,6 +164,17 @@ export class SetupPage extends BasePage {
       ` : nothing}`;
   }
 
+  // 2026-10-18: the 2 s runtime poll must not churn requestUpdate while the
+  // window is hidden — shared-signal subscriptions re-fire on every tick from
+  // any visible page and amplified low fps during window drags. The
+  // subscriptions still run their state updates (rememberVerified and
+  // friends); returning to visible re-renders once through onVisibilityChange.
+  private readonly onVisibilityChange = () => {
+    if (document.visibilityState !== 'hidden') this.requestUpdate();
+  };
+  private requestVisibleUpdate(): void {
+    if (document.visibilityState !== 'hidden') this.requestUpdate();
+  }
   private runtimeUnsubs: Array<() => void> = [];
   private runtimeTimer?: ReturnType<typeof setTimeout>;
   private pollGeneration = 0;
@@ -177,10 +188,11 @@ export class SetupPage extends BasePage {
   connectedCallback(): void {
     super.connectedCallback();
     this.runtimeUnsubs = [
-      this.ctx.startup.status.subscribe(() => { this.rememberVerified(); this.requestUpdate(); }),
-      this.ctx.startup.error.subscribe(() => this.requestUpdate()),
-      this.ctx.startup.launching.subscribe(() => this.requestUpdate()),
+      this.ctx.startup.status.subscribe(() => { this.rememberVerified(); this.requestVisibleUpdate(); }),
+      this.ctx.startup.error.subscribe(() => this.requestVisibleUpdate()),
+      this.ctx.startup.launching.subscribe(() => this.requestVisibleUpdate()),
     ];
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
     void this.pollRuntime(++this.pollGeneration);
   }
   private rememberVerified(): void {
@@ -196,6 +208,7 @@ export class SetupPage extends BasePage {
   disconnectedCallback(): void {
     ++this.pollGeneration;
     if (this.runtimeTimer !== undefined) clearTimeout(this.runtimeTimer);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
     for (const unsubscribe of this.runtimeUnsubs) unsubscribe();
     this.runtimeUnsubs = [];
     super.disconnectedCallback();

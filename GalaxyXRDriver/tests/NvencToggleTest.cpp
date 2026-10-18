@@ -234,8 +234,16 @@ void CheckCodecOverride(void* encoder){
 	ConfigureCodec(true, 0);
 
 	// split forcing must survive the codec swap (2026-10-13 fix): with split
-	// enabled — the shipping default — a swapped session must still carry the
-	// forced split bits, or NVENC rejects the big stream frame (INVALID_PARAM).
+	// enabled — the shipping default — a swapped session must still get the
+	// forced bits via reconfigure, or NVENC rejects the big stream frame
+	// (INVALID_PARAM). 2026-10-18 fresh-connect deferral: the bits never ride
+	// nvEncInitializeEncoder — with them on the first keyframe the Steam Link
+	// client acknowledges zero frames and the stream dies — they engage at the
+	// first reconfigure, which re-applies the codec swap too. The handshake
+	// grace (splitHandshakeGraceSeconds) is zeroed here: tests run
+	// instant-clear so reconfigure engagement is deterministic; the deferral
+	// during grace is its own check below.
+	splitHandshakeGraceSeconds = 0.0;
 	driverConfig.streamFrame.nvencTap = true;
 	driverConfig.streamFrame.nvencCodec = 2;
 	driverConfig.streamFrame.nvencSplitMode = 1;
@@ -252,9 +260,33 @@ void CheckCodecOverride(void* encoder){
 	Check(memcmp(&seenCodecGuid, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0, "codec+split: AV1 GUID applied");
 	Check(seenAv1BitDepth == 0u, "codec+split: unknown buffer format leaves depths unset");
 	Check((seenAv1Flags & 0x3F000u) == 0u, "codec+split: unknown buffer format leaves 12.1 depth bits at 8-bit");
-	Check(((seenInitFlags >> 5) & 0xFu) == 1, "codec+split: forced split bits present on the swapped session");
+	Check(((seenInitFlags >> 5) & 0xFu) == 0u, "codec+split: forced split bits deferred at init on the swapped session");
 	Check(*((uint32_t*)&sinit.enablePTD + 1) == 0, "codec+split: caller flags word restored");
 	Check(sinit.version == Tag111(5, true), "codec+split: caller version restored");
+	NV_ENC_RECONFIGURE_PARAMS sreconf = {}; sreconf.version = Tag111(1, true);
+	sreconf.reInitEncodeParams = sinit;
+	const auto savedReconf = sreconf;
+	reconfigureDriverStatus = NV_ENC_SUCCESS;
+	Check(NvencTapShims::ReconfigureEncoder(upgraded2, &sreconf) == NV_ENC_SUCCESS, "codec+split: reconfigure delegated");
+	reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+	Check(((seenInitFlags >> 5) & 0xFu) == 1, "codec+split: forced split bits applied at reconfigure on the swapped session");
+	Check(memcmp(&sreconf, &savedReconf, sizeof(sreconf)) == 0, "codec+split: reconfigure caller bytes restored");
+
+	// handshake grace (2026-10-18): during grace a reconfigure ALSO defers
+	// the bits — the first reconfigure lands ~100 ms after init, ahead of
+	// the first keyframe, so first-reconfigure engagement alone still
+	// poisons the client. After the grace they engage like the verified
+	// mid-stream mode change (covered by the checks above at grace 0).
+	splitHandshakeGraceSeconds = 1e9;
+	NV_ENC_RECONFIGURE_PARAMS gsrconf = {}; gsrconf.version = Tag111(1, true);
+	gsrconf.reInitEncodeParams = sinit;
+	const auto savedGsrconf = gsrconf;
+	reconfigureDriverStatus = NV_ENC_SUCCESS;
+	Check(NvencTapShims::ReconfigureEncoder(upgraded2, &gsrconf) == NV_ENC_SUCCESS, "split grace: reconfigure delegated");
+	reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+	Check(((seenInitFlags >> 5) & 0xFu) == 0u, "split grace: split bits deferred during the handshake grace");
+	Check(memcmp(&gsrconf, &savedGsrconf, sizeof(gsrconf)) == 0, "split grace: caller bytes restored");
+	splitHandshakeGraceSeconds = 0.0;
 
 	// h264+split: with codec==1 the split application is skipped outright —
 	// even on the upgraded (12.1-ABI) session the forced split bits must stay
@@ -283,8 +315,9 @@ void CheckCodecOverride(void* encoder){
 	Check(sinit.maxEncodeWidth == 3200u && sinit.maxEncodeHeight == 8192u, "h264 reservations: caller bounds restored");
 	strictCapabilities = false;
 
-	// hevc+split regression: codec 0 keeps the forced split bits — the skip
-	// must only drop them for H.264.
+	// hevc+split regression: codec 0 keeps split via reconfigure — the skip
+	// must only drop it for H.264, and the 2026-10-18 deferral keeps the bits
+	// off the first init.
 	driverConfig.streamFrame.nvencTap = true;
 	driverConfig.streamFrame.nvencCodec = 0;
 	driverConfig.streamFrame.nvencSplitMode = 1;
@@ -292,8 +325,16 @@ void CheckCodecOverride(void* encoder){
 	NvencTap::Get().SetConfig(hevcCfg);
 	void* hevcEnc = OpenSession();
 	Check(NvencTapShims::InitializeEncoder(hevcEnc, &sinit) == NV_ENC_SUCCESS, "hevc+split: init delegated");
-	Check(((seenInitFlags >> 5) & 0xFu) == 1, "hevc+split: forced split bits still present for HEVC");
+	Check(((seenInitFlags >> 5) & 0xFu) == 0u, "hevc+split: forced split bits deferred at init for HEVC");
 	Check(*((uint32_t*)&sinit.enablePTD + 1) == 0, "hevc+split: caller flags word restored");
+	NV_ENC_RECONFIGURE_PARAMS hreconf = {}; hreconf.version = Tag111(1, true);
+	hreconf.reInitEncodeParams = sinit;
+	const auto savedHreconf = hreconf;
+	reconfigureDriverStatus = NV_ENC_SUCCESS;
+	Check(NvencTapShims::ReconfigureEncoder(hevcEnc, &hreconf) == NV_ENC_SUCCESS, "hevc+split: reconfigure delegated");
+	reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+	Check(((seenInitFlags >> 5) & 0xFu) == 1, "hevc+split: forced split bits applied at reconfigure for HEVC");
+	Check(memcmp(&hreconf, &savedHreconf, sizeof(hreconf)) == 0, "hevc+split: reconfigure caller bytes restored");
 
 	// The same reservation rule must also work for a direct H.264 caller.
 	driverConfig.streamFrame.nvencTap = true;
@@ -1091,8 +1132,16 @@ void CheckSplitGateAndRefusalKeys(){
 	hinit.frameRateNum = 90; hinit.frameRateDen = 1;
 	const auto savedInit = hinit; const auto savedCfg = hcfg;
 	Check(NvencTapShims::InitializeEncoder(upgradedEnc, &hinit) == NV_ENC_SUCCESS, "split gate: upgraded session passes the split request");
-	Check(((seenInitFlags >> 5) & 0xFu) == 1u, "split gate: forced split bits applied on the upgraded session");
+	Check(((seenInitFlags >> 5) & 0xFu) == 0u, "split gate: forced split bits deferred at init on the upgraded session");
 	Check(memcmp(&hinit, &savedInit, sizeof(hinit)) == 0 && memcmp(&hcfg, &savedCfg, sizeof(savedCfg)) == 0, "split gate: caller bytes restored");
+	NV_ENC_RECONFIGURE_PARAMS greconf = {}; greconf.version = Tag111(1, true);
+	greconf.reInitEncodeParams = hinit;
+	const auto savedGreconf = greconf;
+	reconfigureDriverStatus = NV_ENC_SUCCESS;
+	Check(NvencTapShims::ReconfigureEncoder(upgradedEnc, &greconf) == NV_ENC_SUCCESS, "split gate: reconfigure delegated");
+	reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+	Check(((seenInitFlags >> 5) & 0xFu) == 1u, "split gate: forced split bits applied at reconfigure on the upgraded session");
+	Check(memcmp(&greconf, &savedGreconf, sizeof(greconf)) == 0, "split gate: reconfigure caller bytes restored");
 	// stock 11.1 session, same request: refused before NVENC with the named key
 	NvencTapConfig cfgStock; cfgStock.enabled = true; cfgStock.splitMode = 0;
 	NvencTap::Get().SetConfig(cfgStock);

@@ -289,13 +289,21 @@ struct GalaxyXrConfig{
 	// transform is baked into the shipped assets.
 	std::string renderModelVariant = "";
 	// override the controllers' InputProfilePath to the shipped official
-	// samsung_input_profile.json (controller type stays oculus_touch, so
-	// existing Touch bindings keep working; adds official legacy bindings,
-	// per-app bindings and grip/aim/tip pose components). replaces the
-	// dangling {vrlink}/input/samsung_input_profile.json reference that
-	// currently makes SteamVR fall back to generic Touch handling.
-	// requires a SteamVR restart.
-	bool nativeInputProfile = false;
+	// galaxy_xr_controller_profile.json and set Prop_ControllerType to
+	// galaxy_xr_controller (real Galaxy XR button layout, official default
+	// and per-app bindings, grip/aim/tip poses; games without a native
+	// Galaxy XR binding use the shipped fallbacks). with it off SteamVR
+	// keeps vrlink's {vrlink}/input/samsung_input_profile.json reference,
+	// logs "Failed to load input profile" and falls back to the generic
+	// Touch/Rift type. requires a SteamVR restart.
+	// 2026-10-18: default ON. with it off the shim never overrides the
+	// headset client's input profile path, so vrlink requests
+	// {vrlink}/input/samsung_input_profile.json from its own resource dir
+	// where that file does not exist, SteamVR logs "Failed to load input
+	// profile" and falls back to the generic Touch/Rift type, leaving the
+	// shipped galaxy_xr_controller bindings unused (vrserver.previous.txt
+	// lines 1163 and 1233, 2026-10-18 default change).
+	bool nativeInputProfile = true;
 	// 2026-09-06: create /input/grip/touch from grip/value (vrlink does not
 	// send a grip capacitive state for these controllers). native profile only.
 	bool synthesizeGripTouch = true;
@@ -891,6 +899,13 @@ struct StreamFrameConfig{
 	// driver picks strips. 2/3/4 = forced strip count (5090 has 3 NVENCs).
 	// 15 = disable split (probe). requires passing 12.1-versioned structs
 	// into vrlink's 11.1 session; rejection is logged and latched off.
+	// Fresh-connect deferral (2026-10-18): the split bits never ride
+	// nvEncInitializeEncoder — with them on the first keyframe the Steam Link
+	// client acknowledges zero frames and the stream dies. They also stay off
+	// the connect-time reconfigures until a ~5 s handshake grace past the
+	// first successful init (tap-internal knob, see NvencTap.cpp); a session
+	// wedged by an earlier split start never recovers mid-stream. The saved
+	// value and its fields are unchanged.
 	int nvencSplitMode = 1; // v3 default: driver-chosen strips (RUN6/X2); implies the 12.1 session upgrade
 	// 2026-09-05 foveated bit allocation (option, off by default): QP delta
 	// for the fovea tile (<= 0) and the periphery tile (>= 0), with the

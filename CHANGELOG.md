@@ -6,6 +6,24 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.12.1-dev.3] - 2026-10-18
+
+### Fixes
+
+- implement split handshake grace of 5s to prevent zero ACKs on first frame in encoder initialization (`1f41b46`)
+
+## [1.12.1-dev.2] - 2026-10-18
+
+### Fixes
+
+- update native input profile to default ON and adjust split handling in encoder initialization (`3be5068`)
+
+## [1.12.1-dev.1] - 2026-10-18
+
+### Fixes
+
+- enhance visibility handling and performance optimizations across components (`b16f84f`)
+
 ## [1.12.0] - 2026-10-17
 
 ### Features

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Galaxy XR Companion",
-  "version": "1.12.0",
+  "version": "1.12.1-dev.3",
   "identifier": "com.sboys3.custom-headset",
   "build": {
     "frontendDist": "../../../builds/GalaxyXR-Driver/gui/dist/fluent",
@@ -21,6 +21,7 @@
         "resizable": false,
         "fullscreen": false,
         "maximizable": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --enable-features=RemoveRedirectionBitmap --disable-renderer-backgrounding --disable-background-timer-throttling",
         "url": "en-US/index.html"
       }
     ],

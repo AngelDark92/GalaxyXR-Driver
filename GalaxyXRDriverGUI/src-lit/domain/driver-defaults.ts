@@ -11,7 +11,7 @@ const nativeDefaults = {
     "sdr10SettingsVersion": 1,
     "nativeIdentity": true,
     "renderModelVariant": "",
-    "nativeInputProfile": false,
+    "nativeInputProfile": true,
     "synthesizeGripTouch": true,
     "gripTouchThreshold": 0.03,
     "nativeResolution": true,
