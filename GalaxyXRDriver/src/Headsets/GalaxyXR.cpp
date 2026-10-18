@@ -750,7 +750,7 @@ static void SyncTouchLayout(){
 		nlohmann::json &layouts = j["layouts"];
 		bool sim = driverConfig.galaxyXr.simulateTouch;
 		nlohmann::json touch = {
-			{"priority", 100}, // knuckles (110) leads, then Touch, then generic/hands/wands
+			{"priority", 100}, // Touch (100) leads over knuckles (20): apps with Touch bindings keep their Touch route, like Samsung's own remapping
 			{"from_controller_type", "oculus_touch"},
 			{"simulate_controller_type", true},
 			{"simulate_render_model", sim},
