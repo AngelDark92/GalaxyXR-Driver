@@ -3,4 +3,4 @@ Config driverConfig = {};
 Config driverConfigOld = {};
 Config defaultDriverConfig = {};
 std::mutex driverConfigLock;
-std::string driverVersion = "1.12.1-dev.2";
+std::string driverVersion = "1.12.1-dev.3";
