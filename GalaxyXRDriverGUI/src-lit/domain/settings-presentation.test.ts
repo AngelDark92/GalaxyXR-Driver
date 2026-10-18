@@ -73,6 +73,7 @@ describe('human-readable settings inspection', () => {
     const c = context();
     const reason = (id: string) => settingUnavailable(settingPresentation(id)!, c);
     c.settings.streamFrame!.enable = false; // 2026-10-17 (owner directive): master defaults On; exercise the master-off gate explicitly
+    c.settings.galaxyXr!.nativeInputProfile = false; // 2026-10-18: Official Controller Layout now defaults On; exercise its off gate explicitly
     const before = structuredClone(c);
     expect(reason('streamFrame.dither')).toMatch(/Image Enhancements is off/);
     expect(reason('streamFrame.kalmanGripEnable')).toMatch(/Retired experiments/);

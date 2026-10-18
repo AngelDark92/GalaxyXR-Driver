@@ -57,11 +57,13 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // Owner live A/B on a 3-engine 5090: 0% of frames over the 90 Hz budget in
 // every applied mode except one congestion window at 1 (11 of 12 windows at
 // 0%; unsplit was 100% over); explicit 3 measured fastest (submit->lock
-// ~4.75-5.6 ms vs ~6.6-7.0 ms at 1) and stays a user-editable value. The
-// superseded note's failure (client swap-layer geometry rejection at
-// session init, zero ACKs) did not reproduce through any live mode change;
-// one fresh-connect init with split active is still pending verification
-// before this default leaves dev.
+// ~4.75-5.6 ms vs ~6.6-7.0 ms at 1). The superseded note's failure (client
+// swap-layer geometry rejection at session init, zero ACKs) resolved
+// 2026-10-18: a fresh connect whose FIRST encoder init already carries
+// split bits gets zero client ACKs and dies in a watchdog reset storm; the
+// driver now defers the split bits to the first reconfigure (ms later),
+// keeping the proven-healthy fresh-connect shape, and the row value keeps
+// applying exactly as saved.
 // The codec-0 row's tile and bandwidth must stay pinned to the GENERATED
 // driver defaults. 2026-10-17 (owner directive, revised): Force CBR is ON in
 // every row — codec switches and the reset arrows apply On, and turning it off
@@ -566,7 +568,7 @@ export class GalaxySettingsBase {
   get galaxyXr(): GalaxyXrConfig {
     if (this.rootSetting) {
       if (!this.rootSetting.galaxyXr) {
-        this.rootSetting.galaxyXr = { nativeIdentity: true, nativeInputProfile: false, nativeResolution: true, streamQuality: 'custom', renderModelScale: 1.15 };
+        this.rootSetting.galaxyXr = { nativeIdentity: true, nativeInputProfile: true, nativeResolution: true, streamQuality: 'custom', renderModelScale: 1.15 };
       }
       if (this.rootSetting.galaxyXr.nativeResolution === undefined) {
         this.rootSetting.galaxyXr.nativeResolution = true;
@@ -698,9 +700,15 @@ export class GalaxySettingsBase {
       if (this.rootSetting.galaxyXr.sdr10Baseline === undefined) {
         this.rootSetting.galaxyXr.sdr10Baseline = false;
       }
+      // 2026-10-18: the driver default for the official controller layout is
+      // now On; a stored file without the key must read the same value here
+      // instead of showing the switch Off while the driver runs it.
+      if (this.rootSetting.galaxyXr.nativeInputProfile === undefined) {
+        this.rootSetting.galaxyXr.nativeInputProfile = true;
+      }
       return this.rootSetting.galaxyXr;
     }
-    return { nativeIdentity: true };
+    return { nativeIdentity: true, nativeInputProfile: true };
   }
 
   // 2026-09-19 SDR10 baseline (see SdrColorPolicy.h): the baseline yields to
