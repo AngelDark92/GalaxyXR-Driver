@@ -6,6 +6,13 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.12.2] - 2026-10-18
+
+### Fixes
+
+- adjust controller priority and remove unused remappings in galaxy\_xr\_controller\_remapping.json (`ac1065e`)
+- update attention step card styles for better visibility (`fb009f1`)
+
 ## [1.12.2-dev.2] - 2026-10-18
 
 ### Fixes
