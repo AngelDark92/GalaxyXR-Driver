@@ -39,7 +39,7 @@ export class SetupPage extends BasePage {
     .action-card.danger-zone { border-color: var(--colorPaletteRedBorder1, var(--colorNeutralStroke2)); }
     /* 2026-10-17: step 2 stays highlighted until the app verifies driver
        initialization in SteamVR (installed but not yet verified/initialized). */
-    .step-card.attention { border-color: var(--colorBrandStroke1, var(--colorNeutralStroke2)); background: var(--colorBrandBackground2, var(--colorNeutralBackground1)); }
+    .step-card.attention { border-color: var(--colorPaletteRedBorder1, var(--colorNeutralStroke2)); background: var(--colorPaletteRedBackground2, var(--colorNeutralBackground1)); }
     .action-card h3 { display: flex; align-items: center; gap: 8px; }
     .action-card .status-icon { width: 20px; height: 20px; }
     @media (max-width: 850px) { .step-grid, .maintenance-grid { grid-template-columns: 1fr; } }
