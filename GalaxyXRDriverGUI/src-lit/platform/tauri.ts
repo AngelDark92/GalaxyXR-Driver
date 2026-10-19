@@ -107,8 +107,8 @@ export function get_galaxyxr_runtime_status(steamvrPath: string | undefined, exp
 // ofxr_status() -> OfxrStatus, ofxr_arm(prefs) -> OfxrStatus,
 // ofxr_disarm() -> OfxrStatus, ofxr_apply(prefs) -> void. The Rust side owns
 // the layer registration, the version gate and the INI write-through.
-export function ofxr_status(): Promise<OfxrStatus> {
-    return invoke('ofxr_status');
+export function ofxr_status(selected: string): Promise<OfxrStatus> {
+    return invoke('ofxr_status', { selected: selected || null });
 }
 export function ofxr_arm(prefs: OfxrPreferences): Promise<OfxrStatus> {
     return invoke('ofxr_arm', { prefs });
@@ -118,4 +118,12 @@ export function ofxr_disarm(): Promise<OfxrStatus> {
 }
 export function ofxr_apply(prefs: OfxrPreferences): Promise<void> {
     return invoke('ofxr_apply', { prefs });
+}
+
+export function ofxr_reinstall(prefs: OfxrPreferences): Promise<OfxrStatus> {
+    return invoke('ofxr_reinstall', { prefs });
+}
+
+export function ofxr_remove(): Promise<OfxrStatus> {
+    return invoke('ofxr_remove');
 }

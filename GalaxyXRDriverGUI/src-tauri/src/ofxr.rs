@@ -34,6 +34,10 @@ pub struct OfxrPreferences {
     pub max_log_mb: u32,
     pub flush_each_event: bool,
     pub overlay: String,
+    /// Selected OFXR runtime version (numeric, e.g. "116"); empty = newest /
+    /// bundled seed. The GUI owns the value in gui-settings.json.
+    #[serde(default)]
+    pub version: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -43,6 +47,16 @@ pub struct OfxrStatus {
     pub version: Option<String>,
     pub runtime_dir: Option<String>,
     pub reason: Option<String>,
+    pub versions: Vec<OfxrVersion>,
+}
+
+/// One selectable runtime payload: a versioned directory (or the bundled
+/// seed). `source` is `bundled`, `downloaded` or `external` (OFXR's own tray).
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OfxrVersion {
+    pub version: String,
+    pub source: String,
 }
 
 const STATE_NOT_INSTALLED: &str = "not_installed";
@@ -62,6 +76,10 @@ const MANIFEST_SUFFIX: &str = ".json";
 /// One Companion-owned manifest per runtime directory; re-arming refreshes it.
 const STABLE_MANIFEST_NAME: &str = "XR_APILAYER_XRFrameBridge_manual-1-1.json";
 const DISABLE_ENVIRONMENT: &str = "XRFG_DISABLE_OFXR_BRIDGE";
+const PAYLOAD_NAME: &str = "payload.json";
+/// Companion ownership ledger: which runtime directories this app created.
+/// Only ledger-listed directories are ever deleted; OFXR tray installs are not.
+const RECEIPT_NAME: &str = "companion-managed.json";
 
 /// The layer only trusts a managed session while this named event exists.
 /// OFXR creates it manual-reset (standalone_launcher.cpp:127-142).
@@ -625,6 +643,165 @@ fn read_manifest_version(manifest: &Path) -> Result<String, String> {
     Ok(version)
 }
 
+/// Reads the packaging provenance file shipped with a bundled payload.
+fn read_payload_version(directory: &Path) -> Option<String> {
+    let text = fs::read_to_string(directory.join(PAYLOAD_NAME)).ok()?;
+    let document: Value = serde_json::from_str(&text).ok()?;
+    let version = match document.get("version")? {
+        Value::String(value) => value.clone(),
+        Value::Number(value) => value.to_string(),
+        _ => return None,
+    };
+    let trimmed = version.trim_start_matches('0');
+    let normalized = if trimmed.is_empty() { "0" } else { trimmed };
+    if !normalized.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    Some(normalized.to_string())
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct ReceiptEntry {
+    version: String,
+    source: String,
+}
+
+fn receipt_path(local_directory: &Path) -> PathBuf {
+    local_directory.join(RECEIPT_NAME)
+}
+
+fn read_receipt(local_directory: &Path) -> Vec<ReceiptEntry> {
+    let text = match fs::read_to_string(receipt_path(local_directory)) {
+        Ok(text) => text,
+        Err(_) => return Vec::new(),
+    };
+    let document: Value = match serde_json::from_str(&text) {
+        Ok(document) => document,
+        Err(_) => return Vec::new(),
+    };
+    document
+        .get("versions")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| {
+                    Some(ReceiptEntry {
+                        version: entry.get("version")?.as_str()?.to_string(),
+                        source: entry.get("source")?.as_str()?.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn write_receipt(local_directory: &Path, entries: &[ReceiptEntry]) -> Result<(), String> {
+    let document = json!({ "schema": 1, "versions": entries });
+    let mut text = serde_json::to_string_pretty(&document)
+        .map_err(|error| format!("Rendering the OFXR ownership receipt failed: {error}"))?;
+    text.push('\n');
+    write_atomic(&receipt_path(local_directory), text.as_bytes())
+}
+
+fn receipt_record(local_directory: &Path, version: &str, source: &str) -> Result<(), String> {
+    let mut entries = read_receipt(local_directory);
+    match entries.iter_mut().find(|entry| entry.version == version) {
+        Some(entry) => entry.source = source.to_string(),
+        None => entries.push(ReceiptEntry {
+            version: version.to_string(),
+            source: source.to_string(),
+        }),
+    }
+    write_receipt(local_directory, &entries)
+}
+
+fn receipt_remove(local_directory: &Path, version: &str) -> Result<(), String> {
+    let entries: Vec<ReceiptEntry> = read_receipt(local_directory)
+        .into_iter()
+        .filter(|entry| entry.version != version)
+        .collect();
+    write_receipt(local_directory, &entries)
+}
+
+/// Deletes exactly the runtime directories this Companion created. External
+/// OFXR tray installs are never listed here and therefore never deleted.
+fn remove_owned_runtime_dirs(local_directory: &Path) -> Result<Vec<String>, String> {
+    let entries = read_receipt(local_directory);
+    let mut removed = Vec::new();
+    for entry in entries {
+        let directory = runtime_version_directory(local_directory, &entry.version)?;
+        if !is_real_directory(&directory) {
+            continue;
+        }
+        fs::remove_dir_all(&directory)
+            .map_err(|error| format!("Removing {} failed: {error}", directory.display()))?;
+        removed.push(entry.version);
+    }
+    match fs::remove_file(receipt_path(local_directory)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "Removing {} failed: {error}",
+                receipt_path(local_directory).display()
+            ))
+        }
+    }
+    Ok(removed)
+}
+
+/// Every selectable version: versioned runtime directories plus the bundled
+/// seed. `source` comes from the ownership receipt, else `external`.
+fn collect_versions(local_directory: &Path, bundled_directory: Option<&Path>) -> Vec<OfxrVersion> {
+    let owned = read_receipt(local_directory);
+    let mut versions: Vec<OfxrVersion> = Vec::new();
+    if let Ok(entries) = fs::read_dir(local_directory.join(RUNTIME_ROOT_NAME)) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !is_real_directory(&path) {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let Some(version) = version_from_dir_name(name) else {
+                continue;
+            };
+            if !path.join(LAYER_DLL_NAME).is_file() {
+                continue;
+            }
+            let source = owned
+                .iter()
+                .find(|entry| entry.version == version)
+                .map(|entry| entry.source.clone())
+                .unwrap_or_else(|| "external".to_string());
+            versions.push(OfxrVersion { version, source });
+        }
+    }
+    if let Some(bundled) = bundled_directory {
+        if is_real_directory(bundled) && bundled.join(LAYER_DLL_NAME).is_file() {
+            if let Some(version) = read_payload_version(bundled) {
+                if !versions.iter().any(|candidate| candidate.version == version) {
+                    versions.push(OfxrVersion {
+                        version,
+                        source: "bundled".to_string(),
+                    });
+                }
+            }
+        }
+    }
+    versions.sort_by(|left, right| {
+        right
+            .version
+            .parse::<u64>()
+            .unwrap_or(0)
+            .cmp(&left.version.parse::<u64>().unwrap_or(0))
+    });
+    versions
+}
+
 fn consider_candidate(
     slot: &mut Option<(u64, String, PathBuf)>,
     numeric: u64,
@@ -643,6 +820,7 @@ fn consider_candidate(
 fn discover_runtime(
     local_directory: &Path,
     bundled_directory: Option<&Path>,
+    selected: Option<&str>,
 ) -> Result<Discovery, String> {
     let root = local_directory.join(RUNTIME_ROOT_NAME);
     let mut best: Option<(u64, String, PathBuf)> = None;
@@ -681,6 +859,18 @@ fn discover_runtime(
         Err(error) => return Err(format!("Reading {} failed: {error}", root.display())),
     }
 
+    // An explicitly selected version wins over the newest one.
+    if let Some(selected) = selected {
+        if let Ok(directory) = runtime_version_directory(local_directory, selected) {
+            if is_real_directory(&directory) && directory.join(LAYER_DLL_NAME).is_file() {
+                return Ok(Discovery::Installed(RuntimeComponent {
+                    runtime_dir: directory,
+                    version: selected.to_string(),
+                }));
+            }
+        }
+    }
+
     if let Some((_, version, runtime_dir)) = best {
         return Ok(Discovery::Installed(RuntimeComponent {
             runtime_dir,
@@ -690,12 +880,21 @@ fn discover_runtime(
 
     if let Some(bundled) = bundled_directory {
         if is_real_directory(bundled) && bundled.join(LAYER_DLL_NAME).is_file() {
-            if let Some(manifest) = newest_manifest(manifest_files(bundled)?) {
-                let version = read_manifest_version(&manifest)?;
-                return Ok(Discovery::Bundled(BundledComponent {
-                    directory: bundled.to_path_buf(),
-                    version,
-                }));
+            let version = match read_payload_version(bundled) {
+                Some(version) => Some(version),
+                None => newest_manifest(manifest_files(bundled)?)
+                    .map(|manifest| read_manifest_version(&manifest))
+                    .transpose()?,
+            };
+            if let Some(version) = version {
+                // A specifically selected version is only satisfiable by that
+                // payload; never stage a different bundled build.
+                if selected.is_none_or(|wanted| wanted == version) {
+                    return Ok(Discovery::Bundled(BundledComponent {
+                        directory: bundled.to_path_buf(),
+                        version,
+                    }));
+                }
             }
         }
     }
@@ -730,6 +929,7 @@ fn stage_bundled(
             )
         })?;
     }
+    receipt_record(local_directory, &bundled.version, "bundled")?;
     Ok(RuntimeComponent {
         runtime_dir,
         version: bundled.version.clone(),
@@ -752,6 +952,7 @@ fn classify_status(facts: &StatusFacts) -> OfxrStatus {
             state: STATE_UNAVAILABLE.to_string(),
             version: facts.version.clone(),
             runtime_dir: facts.runtime_dir.clone(),
+            versions: Vec::new(),
             reason: Some(reason.clone()),
         };
     }
@@ -760,6 +961,7 @@ fn classify_status(facts: &StatusFacts) -> OfxrStatus {
             state: STATE_ARMED.to_string(),
             version: facts.version.clone(),
             runtime_dir: facts.runtime_dir.clone(),
+            versions: Vec::new(),
             reason: None,
         };
     }
@@ -768,6 +970,7 @@ fn classify_status(facts: &StatusFacts) -> OfxrStatus {
             state: STATE_ARMED_EXTERNAL.to_string(),
             version: facts.version.clone(),
             runtime_dir: facts.runtime_dir.clone(),
+            versions: Vec::new(),
             reason: Some(
                 "An OFXR Bridge layer is registered but not held by this Companion session (the OFXR tray, or a previous session). Arming takes ownership when the registration is the Companion's own."
                     .to_string(),
@@ -786,6 +989,7 @@ fn classify_status(facts: &StatusFacts) -> OfxrStatus {
             state: STATE_READY.to_string(),
             version: facts.version.clone(),
             runtime_dir: facts.runtime_dir.clone(),
+            versions: Vec::new(),
             reason,
         };
     }
@@ -793,6 +997,7 @@ fn classify_status(facts: &StatusFacts) -> OfxrStatus {
         state: STATE_NOT_INSTALLED.to_string(),
         version: None,
         runtime_dir: None,
+        versions: Vec::new(),
         reason: Some(
             "OFXR Bridge is not installed: no versioned runtime layer was found under %LOCALAPPDATA%\\OFXR Bridge\\RuntimeLayer."
                 .to_string(),
@@ -805,6 +1010,7 @@ fn unavailable(reason: String, version: Option<String>, runtime_dir: Option<Stri
         state: STATE_UNAVAILABLE.to_string(),
         version,
         runtime_dir,
+        versions: Vec::new(),
         reason: Some(reason),
     }
 }
@@ -854,13 +1060,13 @@ fn store_held_event(handle: isize) {
 // Operations
 // ---------------------------------------------------------------------------
 
-fn status_impl() -> OfxrStatus {
+fn status_impl(selected: Option<&str>) -> OfxrStatus {
     let local_directory = match platform::local_directory() {
         Ok(path) => path,
         Err(reason) => return unavailable(reason, None, None),
     };
     let bundled = platform::bundled_directory();
-    let discovery = match discover_runtime(&local_directory, bundled.as_deref()) {
+    let discovery = match discover_runtime(&local_directory, bundled.as_deref(), selected) {
         Ok(discovery) => discovery,
         Err(reason) => return unavailable(reason, None, None),
     };
@@ -905,7 +1111,9 @@ fn status_impl() -> OfxrStatus {
         }
         Discovery::Missing => {}
     }
-    classify_status(&facts)
+    let mut status = classify_status(&facts);
+    status.versions = collect_versions(&local_directory, bundled.as_deref());
+    status
 }
 
 fn arm_impl(prefs: OfxrPreferences) -> Result<OfxrStatus, String> {
@@ -913,14 +1121,18 @@ fn arm_impl(prefs: OfxrPreferences) -> Result<OfxrStatus, String> {
     let values = map_preferences(&prefs)?;
     let local_directory = platform::local_directory()?;
     let bundled = platform::bundled_directory();
-    let component = match discover_runtime(&local_directory, bundled.as_deref())? {
+    let selected = prefs.version.as_deref().filter(|version| !version.is_empty());
+    let component = match discover_runtime(&local_directory, bundled.as_deref(), selected)? {
         Discovery::Installed(component) => component,
         Discovery::Bundled(bundled) => stage_bundled(&local_directory, &bundled)?,
         Discovery::Missing => {
-            return Err(
-                "OFXR Bridge is not installed: no versioned runtime layer was found under %LOCALAPPDATA%\\OFXR Bridge\\RuntimeLayer."
+            return Err(match selected {
+                Some(version) => format!(
+                    "OFXR Bridge v{version} is not installed and no bundled payload provides it."
+                ),
+                None => "OFXR Bridge is not installed: no versioned runtime layer was found under %LOCALAPPDATA%\\OFXR Bridge\\RuntimeLayer."
                     .to_string(),
-            )
+            })
         }
     };
 
@@ -991,7 +1203,7 @@ fn arm_impl(prefs: OfxrPreferences) -> Result<OfxrStatus, String> {
     }
 
     store_held_event(handle);
-    Ok(status_impl())
+    Ok(status_impl(selected))
 }
 
 fn disarm_impl() -> Result<OfxrStatus, String> {
@@ -1009,10 +1221,65 @@ fn disarm_impl() -> Result<OfxrStatus, String> {
         errors.push(reason);
     }
     if errors.is_empty() {
-        Ok(status_impl())
+        Ok(status_impl(None))
     } else {
         Err(errors.join("\n"))
     }
+}
+
+/// Reinstalls the selected (or newest bundled) version: disarm, drop the
+/// receipt-owned directory, re-stage the bundled payload, keep the selection.
+fn reinstall_impl(prefs: OfxrPreferences) -> Result<OfxrStatus, String> {
+    let _command = command_guard();
+    let local_directory = platform::local_directory()?;
+    let selected = prefs.version.as_deref().filter(|version| !version.is_empty());
+    if let Some(handle) = take_held_event() {
+        platform::release_handle(handle, true)?;
+    }
+    remove_companion_registrations()?;
+    remove_companion_manifests()?;
+    if let Some(version) = selected {
+        if read_receipt(&local_directory)
+            .iter()
+            .any(|entry| entry.version == version)
+        {
+            let directory = runtime_version_directory(&local_directory, version)?;
+            if is_real_directory(&directory) {
+                fs::remove_dir_all(&directory).map_err(|error| {
+                    format!("Removing {} failed: {error}", directory.display())
+                })?;
+            }
+            receipt_remove(&local_directory, version)?;
+        }
+        let bundled = platform::bundled_directory();
+        match discover_runtime(&local_directory, bundled.as_deref(), Some(version))? {
+            Discovery::Bundled(bundled) => {
+                stage_bundled(&local_directory, &bundled)?;
+            }
+            Discovery::Installed(_) => {}
+            Discovery::Missing => {
+                return Err(format!(
+                    "OFXR Bridge v{version} is not available to reinstall: no owned runtime directory and no bundled payload for that version."
+                ))
+            }
+        }
+    }
+    Ok(status_impl(selected))
+}
+
+/// Explicit OFXR uninstall: disarm, retire the registration and delete every
+/// receipt-owned runtime directory. External OFXR installs are reported by the
+/// status but never deleted.
+fn remove_impl() -> Result<OfxrStatus, String> {
+    let _command = command_guard();
+    if let Some(handle) = take_held_event() {
+        platform::release_handle(handle, true)?;
+    }
+    remove_companion_registrations()?;
+    remove_companion_manifests()?;
+    let local_directory = platform::local_directory()?;
+    remove_owned_runtime_dirs(&local_directory)?;
+    Ok(status_impl(None))
 }
 
 /// Removes every Companion-owned registration for this install, including an
@@ -1125,6 +1392,11 @@ pub fn cleanup_companion_state() -> Result<(), String> {
     if let Err(reason) = remove_companion_ini_files() {
         errors.push(reason);
     }
+    if let Ok(local_directory) = platform::local_directory() {
+        if let Err(reason) = remove_owned_runtime_dirs(&local_directory) {
+            errors.push(reason);
+        }
+    }
     if errors.is_empty() {
         Ok(())
     } else {
@@ -1156,7 +1428,8 @@ fn apply_impl(prefs: OfxrPreferences) -> Result<(), String> {
     let values = map_preferences(&prefs)?;
     let local_directory = platform::local_directory()?;
     let bundled = platform::bundled_directory();
-    match discover_runtime(&local_directory, bundled.as_deref())? {
+    let selected = prefs.version.as_deref().filter(|version| !version.is_empty());
+    match discover_runtime(&local_directory, bundled.as_deref(), selected)? {
         Discovery::Installed(component) => {
             write_ini(&component.runtime_dir, &values, None)
         }
@@ -1171,8 +1444,8 @@ fn apply_impl(prefs: OfxrPreferences) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn ofxr_status() -> OfxrStatus {
-    status_impl()
+pub fn ofxr_status(selected: Option<String>) -> OfxrStatus {
+    status_impl(selected.as_deref())
 }
 
 #[tauri::command]
@@ -1188,6 +1461,16 @@ pub fn ofxr_disarm() -> Result<OfxrStatus, String> {
 #[tauri::command]
 pub fn ofxr_apply(prefs: OfxrPreferences) -> Result<(), String> {
     apply_impl(prefs)
+}
+
+#[tauri::command]
+pub fn ofxr_reinstall(prefs: OfxrPreferences) -> Result<OfxrStatus, String> {
+    reinstall_impl(prefs)
+}
+
+#[tauri::command]
+pub fn ofxr_remove() -> Result<OfxrStatus, String> {
+    remove_impl()
 }
 
 // ---------------------------------------------------------------------------
@@ -1688,6 +1971,7 @@ mod tests {
             max_log_mb,
             flush_each_event,
             overlay: overlay.to_string(),
+            version: None,
         }
     }
 
@@ -1981,7 +2265,7 @@ mod tests {
         write_layer_files(&local.join("RuntimeLayer").join("v003"), None);
         fs::create_dir_all(local.join("RuntimeLayer").join("scratch")).expect("scratch dir");
 
-        match discover_runtime(&local, None).expect("discover") {
+        match discover_runtime(&local, None, None).expect("discover") {
             Discovery::Installed(component) => {
                 assert_eq!(component.version, "3");
                 assert!(component.runtime_dir.ends_with(Path::new("v003")));
@@ -1998,7 +2282,8 @@ mod tests {
         write_layer_files(&bundled_dir, Some("5"));
         fs::write(bundled_dir.join(INI_NAME), "[ofxr]\nenabled=1\n").expect("bundled ini");
 
-        let discovery = discover_runtime(&local, Some(&bundled_dir)).expect("discover bundled");
+        let discovery =
+            discover_runtime(&local, Some(&bundled_dir), None).expect("discover bundled");
         let bundled = match discovery {
             Discovery::Bundled(bundled) => bundled,
             other => panic!("unexpected discovery: {other:?}"),
@@ -2013,7 +2298,7 @@ mod tests {
         assert!(component.runtime_dir.join(LAYER_DLL_NAME).is_file());
         assert!(component.runtime_dir.join(INI_NAME).is_file());
 
-        match discover_runtime(&local, None).expect("rediscover") {
+        match discover_runtime(&local, None, Some("5")).expect("rediscover") {
             Discovery::Installed(component) => {
                 assert_eq!(component.version, "5");
                 assert!(component.runtime_dir.ends_with(Path::new("v005")));

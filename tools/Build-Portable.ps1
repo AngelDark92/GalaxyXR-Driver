@@ -129,7 +129,7 @@ if (-not $DriverOnly) {
     }
     $guiOutput = Join-Path $OutputDirectory 'GalaxyXRDriverGUI'
     New-Item -ItemType Directory -Force -Path $guiOutput | Out-Null
-    & node (Join-Path $repo 'tools/lib/stage-companion.cjs') (Join-Path $guiTarget 'release') $guiOutput
+    & node (Join-Path $repo 'tools/lib/stage-companion.cjs') (Join-Path $guiTarget 'release') $guiOutput (Join-Path $repo 'GalaxyXRDriverGUI/ofxr')
     if ($LASTEXITCODE -ne 0) { throw 'Galaxy XR Companion executable staging failed.' }
 }
 if ($KeepBuildArtifacts) {

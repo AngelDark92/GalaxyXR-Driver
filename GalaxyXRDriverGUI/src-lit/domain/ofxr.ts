@@ -8,6 +8,7 @@ import type { OfxrPreferences, OfxrStatus } from './types';
 
 export const ofxrDefaults: OfxrPreferences = {
   enabled: false,
+  version: '',
   mode: 'fidelityfx',
   scale: 50,
   bidirectional: false,
@@ -48,6 +49,7 @@ export function normalizeOfxrPreferences(value: Partial<OfxrPreferences> | null 
   const candidate = value ?? {};
   return {
     enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : ofxrDefaults.enabled,
+    version: typeof candidate.version === 'string' ? candidate.version : ofxrDefaults.version,
     mode: MODES.includes(candidate.mode as OfxrPreferences['mode']) ? candidate.mode! : ofxrDefaults.mode,
     scale: SCALES.includes(candidate.scale as OfxrPreferences['scale']) ? candidate.scale! : ofxrDefaults.scale,
     bidirectional: typeof candidate.bidirectional === 'boolean' ? candidate.bidirectional : ofxrDefaults.bidirectional,

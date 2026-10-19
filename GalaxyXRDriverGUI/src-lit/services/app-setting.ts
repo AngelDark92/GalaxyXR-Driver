@@ -20,6 +20,7 @@ const appDefaults: AppSetting = {
   // gui-settings.json files, and migrateLoadedValues keeps the block.
   ofxr: {
     enabled: false,
+    version: '',
     mode: 'fidelityfx',
     scale: 50,
     bidirectional: false,

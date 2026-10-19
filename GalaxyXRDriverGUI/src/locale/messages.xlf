@@ -3723,6 +3723,35 @@ Value: none (preview only). Client side — no driver call.</source>
 
 The graph reads the saved bandwidth, override and clamp values, so editing those updates it. It does not measure the stream; delivered rate stays content- and transport-bound.</source>
       </trans-unit>
+      <trans-unit id="ofxr-20261019-1" datatype="html">
+        <source>OFXR Bridge version</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261019-2" datatype="html">
+        <source>Automatic (newest installed)</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261019-3" datatype="html">
+        <source>Bundled</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261019-4" datatype="html">
+        <source>Downloaded</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261019-5" datatype="html">
+        <source>External</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261019-6" datatype="html">
+        <source>Reinstall</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261019-7" datatype="html">
+        <source>Uninstall Optical Flow</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261019-8" datatype="html">
+        <source>Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Downloaded was imported by you; External belongs to OFXR's own tray and is never modified by the Companion. Switching versions disarms first because the layer's arm event belongs to the payload path.
+
+Value: ofxr.version (gui-settings.json).</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261019-9" datatype="html">
+        <source>Reinstall deletes the Companion-owned runtime directory for the selected version and stages the bundled payload again, verifying its files. Uninstall disarms the layer, removes the Companion registration and deletes every payload directory the Companion created; OFXR tray installs are left untouched. The driver uninstall performs the same cleanup.</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>

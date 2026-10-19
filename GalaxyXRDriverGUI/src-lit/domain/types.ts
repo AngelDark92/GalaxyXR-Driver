@@ -442,6 +442,9 @@ export type GeneralHeadsetConfig = {
 // layer configuration through the Rust commands pinned in brief W4A.
 export type OfxrPreferences = {
   enabled: boolean;
+  // Selected runtime version (numeric, e.g. '116'); '' = newest installed or
+  // the bundled seed. The dropdown lists versions reported by ofxr_status.
+  version: string;
   mode: 'fidelityfx' | 'nvidia-fast' | 'nvidia-medium' | 'nvidia-slow';
   scale: 50 | 75 | 100;
   bidirectional: boolean;
@@ -453,11 +456,17 @@ export type OfxrPreferences = {
 
 // Pinned IPC result (brief W4A): the Rust side reports the managed layer's
 // registration state, never a synthesized value.
+export type OfxrVersion = {
+  version: string;
+  source: 'bundled' | 'downloaded' | 'external' | string;
+};
+
 export type OfxrStatus = {
   state: 'not_installed' | 'unavailable' | 'ready' | 'armed' | 'armed_external';
   version: string | null;
   runtimeDir: string | null;
   reason: string | null;
+  versions: OfxrVersion[];
 };
 
 export type AppSetting = {

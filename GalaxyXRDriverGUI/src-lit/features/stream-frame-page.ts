@@ -13,7 +13,7 @@ import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../do
 import { spacewarpStatus } from '../domain/spacewarp-status';
 import { codecSwitchState } from '../domain/codec-selection';
 import { normalizeOfxrPreferences, ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
-import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_status } from '../platform/tauri';
+import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_remove, ofxr_reinstall, ofxr_status } from '../platform/tauri';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 import { codecEncoderDefaults, streamFrameIntegerError } from '../state/galaxy-settings';
 import { BITRATE_CURVE_FAMILIES } from '../domain/bitrate-curve';
@@ -143,8 +143,8 @@ export class StreamFramePage extends BasePage {
     return normalizeOfxrPreferences(this.ctx.appSetting.values().ofxr);
   }
   private async refreshOfxrStatus(): Promise<void> {
-    try { this.ofxrStatus = await ofxr_status(); }
-    catch { this.ofxrStatus = { state: 'unavailable', version: null, runtimeDir: null, reason: null }; }
+    try { this.ofxrStatus = await ofxr_status(this.ofxrPreferences().version); }
+    catch { this.ofxrStatus = { state: 'unavailable', version: null, runtimeDir: null, reason: null, versions: [] }; }
     this.requestUpdate();
   }
   /** Saves the OFXR block through gui-settings.json. Returns null when the
@@ -160,6 +160,53 @@ export class StreamFramePage extends BasePage {
   }
   private async setOfxrEnabled(enabled: boolean): Promise<void> {
     return this.serializeOfxr(() => this.applyOfxrEnabled(enabled));
+  }
+  private async selectOfxrVersion(version: string): Promise<void> {
+    return this.serializeOfxr(async () => {
+      const armed = this.ofxrStatus?.state === 'armed' || this.ofxrStatus?.state === 'armed_external';
+      if (armed) {
+        try {
+          this.ofxrStatus = await ofxr_disarm();
+        } catch (error) {
+          this.ofxrError = error instanceof Error ? error.message : String(error);
+          await this.refreshOfxrStatus();
+          return;
+        }
+      }
+      if (!(await this.saveOfxr({ version }))) return;
+      if (this.ofxrPreferences().enabled) {
+        try {
+          this.ofxrStatus = await ofxr_arm(this.ofxrPreferences());
+          this.ofxrError = undefined;
+        } catch (error) {
+          this.ofxrError = error instanceof Error ? error.message : String(error);
+        }
+      }
+      await this.refreshOfxrStatus();
+    });
+  }
+  private async reinstallOfxr(): Promise<void> {
+    return this.serializeOfxr(async () => {
+      try {
+        this.ofxrStatus = await ofxr_reinstall(this.ofxrPreferences());
+        this.ofxrError = undefined;
+      } catch (error) {
+        this.ofxrError = error instanceof Error ? error.message : String(error);
+      }
+      await this.refreshOfxrStatus();
+    });
+  }
+  private async removeOfxr(): Promise<void> {
+    return this.serializeOfxr(async () => {
+      try {
+        this.ofxrStatus = await ofxr_remove();
+        this.ofxrError = undefined;
+        await this.saveOfxr({ enabled: false, version: '' });
+      } catch (error) {
+        this.ofxrError = error instanceof Error ? error.message : String(error);
+      }
+      await this.refreshOfxrStatus();
+    });
   }
   private async updateOfxr(patch: Partial<OfxrPreferences>): Promise<void> {
     return this.serializeOfxr(() => this.applyOfxrUpdate(patch));
@@ -1267,6 +1314,23 @@ if (vendor && settings) {
       <app-switch .checked=${ofxr.flushEachEvent} ?disabled=${!ofxr.enabled || !ofxr.logging} @change=${(e: CustomEvent) => { void this.updateOfxr({ flushEachEvent: e.detail }); }}></app-switch>
             `, {
   tip: t("Write each flight-log event to disk immediately. Safer for crash reports, slower.\n\nValue: ofxr.flushEachEvent (gui-settings.json). Companion side — writes flush_each_event.")
+            }));
+        parts.push(fieldRow(t('OFXR Bridge version'), html`
+      <app-select .value=${ofxr.version} .options=${[
+        { value: '', label: t('Automatic (newest installed)') },
+        ...((ofxrStatus?.versions ?? []).map(entry => ({
+          value: entry.version,
+          label: `${entry.source === 'external' ? t('External') : entry.source === 'downloaded' ? t('Downloaded') : t('Bundled')} v${entry.version}`
+        })))
+      ]} @change=${(e: CustomEvent) => { void this.selectOfxrVersion(e.detail); }}></app-select>
+            `, {
+  tip: t("Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Downloaded was imported by you; External belongs to OFXR's own tray and is never modified by the Companion. Switching versions disarms first because the layer's arm event belongs to the payload path.\n\nValue: ofxr.version (gui-settings.json).")
+            }));
+        parts.push(fieldRow(t('Manage OFXR Bridge'), html`
+      <fluent-button ?disabled=${!ofxrStatus || ofxrStatus.state === 'unavailable'} @click=${() => { void this.reinstallOfxr(); }}>${t('Reinstall')}</fluent-button>
+      <fluent-button appearance="primary" class="danger" @click=${() => { void this.removeOfxr(); }}>${t('Uninstall Optical Flow')}</fluent-button>
+            `, {
+  tip: t("Reinstall deletes the Companion-owned runtime directory for the selected version and stages the bundled payload again, verifying its files. Uninstall disarms the layer, removes the Companion registration and deletes every payload directory the Companion created; OFXR tray installs are left untouched. The driver uninstall performs the same cleanup.")
             }));
         parts.push(settingFieldRow('ofxr.overlay', html`
       <app-select .value=${ofxr.overlay} ?disabled=${!ofxr.enabled} .options=${[

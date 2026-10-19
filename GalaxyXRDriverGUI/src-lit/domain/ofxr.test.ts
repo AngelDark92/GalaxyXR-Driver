@@ -5,7 +5,7 @@ import { deepCopy, deepMerge } from './pure';
 import type { OfxrPreferences, OfxrStatus } from './types';
 
 const status = (state: OfxrStatus['state'], reason: string | null = null): OfxrStatus =>
-  ({ state, version: null, runtimeDir: null, reason });
+  ({ state, version: null, runtimeDir: null, reason, versions: [] });
 
 describe('OFRX preferences', () => {
   it('fills every missing field from the pinned defaults', () => {
@@ -16,7 +16,7 @@ describe('OFRX preferences', () => {
 
   it('keeps every valid pinned value and rounds only out-of-contract log sizes', () => {
     const full: OfxrPreferences = {
-      enabled: true, mode: 'nvidia-slow', scale: 100, bidirectional: true,
+      enabled: true, version: '116', mode: 'nvidia-slow', scale: 100, bidirectional: true,
       logging: true, maxLogMb: 512, flushEachEvent: true, overlay: 'lower-right',
     };
     expect(normalizeOfxrPreferences(full)).toEqual(full);
