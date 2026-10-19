@@ -2,6 +2,8 @@
 // Command names, argument keys and result meanings are the IPC contract with
 // src-tauri/src/js_api.rs + driver_installation.rs; keep them in lockstep.
 import { invoke } from '@tauri-apps/api/core';
+import type { OfxrPreferences, OfxrStatus } from '../domain/types';
+export type { OfxrPreferences, OfxrStatus };
 // SteamVR settings diff is pure logic in the domain layer (unit-tested by
 // tools/Test-SteamVRSettingsDiff.cjs); re-exported here so the platform
 // module keeps its public API.
@@ -99,4 +101,21 @@ export function clean_galaxyxr_settings(steamvrPath?: string): Promise<CleanSett
 }
 export function get_galaxyxr_runtime_status(steamvrPath: string | undefined, expectedVersion: string): Promise<DriverRuntimeStatus> {
     return invoke('get_galaxyxr_runtime_status', { steamvrPath: steamvrPath ?? null, expectedVersion });
+}
+
+// OFXR Bridge managed component (2026-10-17). Pinned IPC contract (brief W4A):
+// ofxr_status() -> OfxrStatus, ofxr_arm(prefs) -> OfxrStatus,
+// ofxr_disarm() -> OfxrStatus, ofxr_apply(prefs) -> void. The Rust side owns
+// the layer registration, the version gate and the INI write-through.
+export function ofxr_status(): Promise<OfxrStatus> {
+    return invoke('ofxr_status');
+}
+export function ofxr_arm(prefs: OfxrPreferences): Promise<OfxrStatus> {
+    return invoke('ofxr_arm', { prefs });
+}
+export function ofxr_disarm(): Promise<OfxrStatus> {
+    return invoke('ofxr_disarm');
+}
+export function ofxr_apply(prefs: OfxrPreferences): Promise<void> {
+    return invoke('ofxr_apply', { prefs });
 }

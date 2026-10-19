@@ -2598,7 +2598,7 @@ An encoder already created with the tap can retain its earlier parameters and AP
         <source>Async Spacewarp</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-2" datatype="html">
-        <source>Applies live to the running stream. Async Spacewarp synthesizes extra intermediate frames, smoothing motion between streamed frames. The synthesis runs on the headset client and needs the GXR spacewarp client patch (experimental) installed there; without it the stream shows extra held frames instead of synthesized frames. Off preserves the upstream frames; the switch stays honest via the status row.
+        <source>Applies live to the running stream. Async Spacewarp is the fallback when the graphics card does not support optical flow: it synthesizes intermediate frames on the headset client, which smooths motion between streamed frames. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.
 
 Value: streamFrame.spacewarpEnable (settings.json). Stream side — publishes the toggle live to the running vrlink stream; the headset synthesizes the frames.</source>
       </trans-unit>
@@ -2619,6 +2619,115 @@ Value: streamFrame.spacewarpEnable (settings.json). Stream side — publishes th
       </trans-unit>
       <trans-unit id="spacewarp-20261017-8" datatype="html">
         <source>The saved value is not confirmed by the running stream yet. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-1" datatype="html">
+        <source>Optical Flow</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-2" datatype="html">
+        <source>Enable Optical Flow</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-3" datatype="html">
+        <source>Backend</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-4" datatype="html">
+        <source>NVIDIA OFA resolution</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-5" datatype="html">
+        <source>NVIDIA bidirectional consistency</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-6" datatype="html">
+        <source>Bridge flight recorder</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-7" datatype="html">
+        <source>Flight log size limit (MB)</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-8" datatype="html">
+        <source>Flush every event</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-9" datatype="html">
+        <source>FPS overlay position</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-10" datatype="html">
+        <source>FidelityFX (any card)</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-11" datatype="html">
+        <source>NVIDIA Fast (test)</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-12" datatype="html">
+        <source>NVIDIA Medium (recommended)</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-13" datatype="html">
+        <source>NVIDIA Slow (best quality)</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-14" datatype="html">
+        <source>100% (full resolution)</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-15" datatype="html">
+        <source>75%</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-16" datatype="html">
+        <source>50% (recommended)</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-17" datatype="html">
+        <source>Upper left</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-18" datatype="html">
+        <source>Upper right</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-19" datatype="html">
+        <source>Lower left</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-20" datatype="html">
+        <source>Lower right</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-21" datatype="html">
+        <source>Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, closing the Companion disarms it. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.
+
+Value: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-22" datatype="html">
+        <source>Choose who computes the optical flow. FidelityFX runs on any graphics card. The NVIDIA options use the GPU's hardware Optical Flow engine and require an NVIDIA Turing generation or newer card with Optical Flow support (TU117-based GTX 1650 class cards are not supported). NVIDIA Medium with 50% resolution is the recommended starting point; the GPU cost and quality trade off against each other.
+
+Value: ofxr.mode (gui-settings.json). Companion side — writes backend and nvidia_preset into the OFXR layer configuration; applies at the next game start.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-23" datatype="html">
+        <source>Resolution the NVIDIA optical-flow engine runs at. Lower costs less GPU time; 50% is the recommended default, 100% is usually too expensive for little extra gain.
+
+Value: ofxr.scale (gui-settings.json). Companion side — writes nvidia_input_scale; applies at the next game start.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-24" datatype="html">
+        <source>Compute optical flow in both directions and reject inconsistent vectors. Better quality around occlusions for slightly more GPU cost.
+
+Value: ofxr.bidirectional (gui-settings.json). Companion side — writes nvidia_bidirectional; applies at the next game start.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-25" datatype="html">
+        <source>Write the OFXR diagnostic flight log for problem reports. Turn it off when not diagnosing.
+
+Value: ofxr.logging (gui-settings.json). Companion side — writes logging_enabled; applies at the next game start.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-26" datatype="html">
+        <source>Maximum size of the flight log before it rolls over.
+
+Value: ofxr.maxLogMb (gui-settings.json). Companion side — writes max_file_mb.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-27" datatype="html">
+        <source>Write each flight-log event to disk immediately. Safer for crash reports, slower.
+
+Value: ofxr.flushEachEvent (gui-settings.json). Companion side — writes flush_each_event.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-28" datatype="html">
+        <source>Show the OFXR frame counter in the headset at the chosen corner; Off hides it.
+
+Value: ofxr.overlay (gui-settings.json). Companion side — writes the overlay position.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-29" datatype="html">
+        <source>Checking the OFXR Bridge installation.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-30" datatype="html">
+        <source>OFXR Bridge is not installed.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261017-31" datatype="html">
+        <source>OFXR Bridge is unavailable.</source>
       </trans-unit>
       <trans-unit id="3883825347" datatype="html">
         <source>0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.

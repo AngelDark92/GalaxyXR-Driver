@@ -57,7 +57,7 @@ def main() -> None:
     check('Nine distinct OpenVR status properties are declared', len(mapped) == 9 and len({x[0] for x in mapped}) == 9)
     check('Every driver status points to supplied base and matching 2x art', all((driver / name).is_file() and (driver / (Path(name).stem + '_2x' + Path(name).suffix)).is_file() for _, name in mapped))
     catalog = json.loads((ROOT / 'Docs/Galaxy-XR-Companion/help-catalog.json').read_text())
-    check('167 help entries contain a plain summary and technical details', len(catalog) == 167 and all(x['summary'].strip() and x['details'].strip() for x in catalog))
+    check('175 help entries contain a plain summary and technical details', len(catalog) == 175 and all(x['summary'].strip() and x['details'].strip() for x in catalog))
     expected_by_file: dict[str, Counter] = {}
     for entry in catalog:
         text = json.dumps(entry['summary'] + '\n\n' + entry['details'], ensure_ascii=False)

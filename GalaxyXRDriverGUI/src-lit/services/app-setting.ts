@@ -13,7 +13,21 @@ const appDefaults: AppSetting = {
   // release channel stays the default.
   devUpdates: false,
   // A new installation or explicit reset requires fresh runtime verification.
-  driverVerified: false
+  driverVerified: false,
+  // OFXR Bridge (2026-10-17): disabled until the managed component reports
+  // ready; every value is written through appSetting.save and ofxr_apply.
+  // JsonSettingServiceBase deep-merges these nested defaults over older
+  // gui-settings.json files, and migrateLoadedValues keeps the block.
+  ofxr: {
+    enabled: false,
+    mode: 'fidelityfx',
+    scale: 50,
+    bidirectional: false,
+    logging: false,
+    maxLogMb: 32,
+    flushEachEvent: false,
+    overlay: 'off'
+  }
 };
 
 export class AppSettingService extends JsonSettingServiceBase<AppSetting> {

@@ -436,10 +436,36 @@ export type GeneralHeadsetConfig = {
   useViveBluetooth: boolean;
 }
 
+// OFXR Bridge managed component (2026-10-17): every user-facing OFXR setting.
+// gui-settings.json owns the block; the Companion writes it into the OFXR
+// layer configuration through the Rust commands pinned in brief W4A.
+export type OfxrPreferences = {
+  enabled: boolean;
+  mode: 'fidelityfx' | 'nvidia-fast' | 'nvidia-medium' | 'nvidia-slow';
+  scale: 50 | 75 | 100;
+  bidirectional: boolean;
+  logging: boolean;
+  maxLogMb: number;
+  flushEachEvent: boolean;
+  overlay: 'off' | 'upper-left' | 'upper-right' | 'lower-left' | 'lower-right';
+};
+
+// Pinned IPC result (brief W4A): the Rust side reports the managed layer's
+// registration state, never a synthesized value.
+export type OfxrStatus = {
+  state: 'not_installed' | 'unavailable' | 'ready' | 'armed' | 'armed_external';
+  version: string | null;
+  runtimeDir: string | null;
+  reason: string | null;
+};
+
 export type AppSetting = {
   colorScheme: 'system' | 'dark' | 'light';
   updateMode: 'replace' | 'rewrite';
   advanceMode: boolean;
+  // OFXR Bridge settings block (2026-10-17). Nested defaults are deep-merged
+  // over older gui-settings.json files, so an upgrade never hides the block.
+  ofxr: OfxrPreferences;
   // Dev Updates channel (2026-10-13): check the releases list so dev
   // (pre-release) builds are offered too. GUI-only, off by default.
   devUpdates: boolean;

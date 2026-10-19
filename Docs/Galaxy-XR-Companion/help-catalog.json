@@ -1000,5 +1000,53 @@
     "originalLine": 456,
     "summary": "Choose a controller-motion correction mode, including older experiments. Some legacy modes are kept only for compatibility and are not recommended for normal play.",
     "details": "Off: pass the native runtime velocities through untouched. Kalman: a single estimator produces position, rotation, velocity and spin as one coherent state, the same architecture native tracked controllers use. Kalman CA (recommended): A constant-acceleration variant that tracks the throw ramp itself instead of rescaling it away. Replaces the whole estimator. Graveyard modes - Classic/Full: first-generation fixes, superseded. Derive: the legacy pose-derivation pipeline; retired after field testing, kept intact for reproducibility. Kalman CA Magnitude: transitional CA variant that swapped only the throw-strength channel; superseded by CA Full (retired 2026-08-15)."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 568,
+    "summary": "Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, closing the Companion disarms it. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.",
+    "details": "Value: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 573,
+    "summary": "Choose who computes the optical flow. FidelityFX runs on any graphics card. The NVIDIA options use the GPU's hardware Optical Flow engine and require an NVIDIA Turing generation or newer card with Optical Flow support (TU117-based GTX 1650 class cards are not supported). NVIDIA Medium with 50% resolution is the recommended starting point; the GPU cost and quality trade off against each other.",
+    "details": "Value: ofxr.mode (gui-settings.json). Companion side — writes backend and nvidia_preset into the OFXR layer configuration; applies at the next game start."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 583,
+    "summary": "Resolution the NVIDIA optical-flow engine runs at. Lower costs less GPU time; 50% is the recommended default, 100% is usually too expensive for little extra gain.",
+    "details": "Value: ofxr.scale (gui-settings.json). Companion side — writes nvidia_input_scale; applies at the next game start."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 592,
+    "summary": "Compute optical flow in both directions and reject inconsistent vectors. Better quality around occlusions for slightly more GPU cost.",
+    "details": "Value: ofxr.bidirectional (gui-settings.json). Companion side — writes nvidia_bidirectional; applies at the next game start."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 597,
+    "summary": "Write the OFXR diagnostic flight log for problem reports. Turn it off when not diagnosing.",
+    "details": "Value: ofxr.logging (gui-settings.json). Companion side — writes logging_enabled; applies at the next game start."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 602,
+    "summary": "Maximum size of the flight log before it rolls over.",
+    "details": "Value: ofxr.maxLogMb (gui-settings.json). Companion side — writes max_file_mb."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 607,
+    "summary": "Write each flight-log event to disk immediately. Safer for crash reports, slower.",
+    "details": "Value: ofxr.flushEachEvent (gui-settings.json). Companion side — writes flush_each_event."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 612,
+    "summary": "Show the OFXR frame counter in the headset at the chosen corner; Off hides it.",
+    "details": "Value: ofxr.overlay (gui-settings.json). Companion side — writes the overlay position."
   }
 ]

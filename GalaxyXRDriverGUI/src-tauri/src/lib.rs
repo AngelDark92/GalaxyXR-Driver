@@ -1,6 +1,7 @@
 mod i18n;
 mod js_api;
 mod driver_installation;
+mod ofxr;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -37,7 +38,16 @@ pub fn run() {
             driver_installation::settings_cleanup::clean_galaxyxr_settings,
             driver_installation::settings_cleanup::restore_steamlink_encoder_behaviour,
             driver_installation::runtime_status::get_galaxyxr_runtime_status,
+            ofxr::ofxr_status,
+            ofxr::ofxr_arm,
+            ofxr::ofxr_disarm,
+            ofxr::ofxr_apply,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                ofxr::shutdown_on_exit();
+            }
+        });
 }

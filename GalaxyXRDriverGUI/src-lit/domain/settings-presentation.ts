@@ -16,6 +16,8 @@ export interface SettingPresentation {
   advanced: boolean;
   gate?: 'vendor' | 'enhancements' | 'postpack' | 'preencode' | 'encoder' | 'h264' | 'kalman' | 'kalman-ca' | 'graveyard' | 'grid' | 'camera-grid' | 'tuner' | 'native-input-profile' | 'controllers';
   vendorOnly?: boolean;
+  /** Non-boolean rows never appear in the boolean check report. */
+  kind?: 'boolean' | 'value';
 }
 
 const catalog: SettingPresentation[] = [];
@@ -74,6 +76,18 @@ group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 've
 // Async Spacewarp (2026-10-17): stream synthesis toggle; its page row lives in
 // the vendor build's Stream Quality branch, so it mirrors nvencTap's gate.
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpEnable', 'Async Spacewarp');
+// Optical Flow (2026-10-17): the managed OFXR Bridge card. All eight rows are
+// gui-settings.json values owned by the Companion; the page's Enable switch is
+// additionally gated by the native ofxr_status() state.
+const ofxr = group('stream-frame', ['Optical Flow'], ['heading:optical-flow'], false, 'vendor');
+ofxr('ofxr.enabled', 'Enable Optical Flow', { source: 'gui-settings.json' });
+ofxr('ofxr.mode', 'Backend', { source: 'gui-settings.json', kind: 'value' });
+ofxr('ofxr.scale', 'NVIDIA OFA resolution', { source: 'gui-settings.json', kind: 'value' });
+ofxr('ofxr.bidirectional', 'NVIDIA bidirectional consistency', { source: 'gui-settings.json' });
+ofxr('ofxr.logging', 'Bridge flight recorder', { source: 'gui-settings.json' });
+ofxr('ofxr.maxLogMb', 'Flight log size limit (MB)', { source: 'gui-settings.json', kind: 'value' });
+ofxr('ofxr.flushEachEvent', 'Flush every event', { source: 'gui-settings.json' });
+ofxr('ofxr.overlay', 'FPS overlay position', { source: 'gui-settings.json', kind: 'value' });
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencCodec', 'Video Codec');
 const encoder = group('stream-frame', ['Encoder Advanced'], ['heading:encoder'], true, 'encoder', true);
 encoder('streamFrame.nvencForceCbr', 'Force Constant Bitrate');
@@ -202,7 +216,7 @@ export function settingUnavailable(setting: SettingPresentation, context: Presen
 }
 
 export function presentSettings(checks: readonly BooleanSettingCheck[], context: PresentationContext): PresentedSettingCheck[] {
-  return SETTINGS_PRESENTATION.map(setting => {
+  return SETTINGS_PRESENTATION.filter(setting => setting.kind !== 'value').map(setting => {
     const root = setting.source === 'gui-settings.json' ? context.app : context.settings;
     const values = setting.keys.map(key => valueAt(root, key));
     // Optional legacy controls have false as their UI default, but an unreadable

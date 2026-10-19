@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { driverDefaults } from './driver-defaults';
+import { ofxrDefaults } from './ofxr';
 import { inspectBooleanSettings } from './settings-inspection';
 import { classifyBoolean, presentSettings, SETTINGS_PRESENTATION, settingPresentation, settingUnavailable } from './settings-presentation';
 import { setLocale } from '../locale/i18n';
 import type { AppSetting } from './types';
 
-const app: AppSetting = { advanceMode: false, colorScheme: 'dark', updateMode: 'rewrite', devUpdates: false, driverVerified: false };
+const app: AppSetting = { advanceMode: false, colorScheme: 'dark', updateMode: 'rewrite', devUpdates: false, driverVerified: false, ofxr: { ...ofxrDefaults } };
 const context = () => ({ settings: structuredClone(driverDefaults), app: { ...app }, driverInstalled: true, vendor: true });
 
 describe('human-readable settings inspection', () => {
@@ -31,6 +32,20 @@ describe('human-readable settings inspection', () => {
     expect(rows.find(row => row.id === 'streamFrame.spacewarpEnable')?.location)
       .toEqual(['Image Settings', 'Stream Quality', 'Async Spacewarp']);
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
+  });
+
+  it('presents the Optical Flow card as vendor-gated gui-settings.json controls', () => {
+    const c = context();
+    const row = presentSettings([], c).find(entry => entry.id === 'ofxr.enabled')!;
+    expect(row.location).toEqual(['Image Settings', 'Optical Flow', 'Enable Optical Flow']);
+    expect(row.state).toBe('Off');
+    const ofxrEntries = SETTINGS_PRESENTATION.filter(entry => entry.id.startsWith('ofxr.'));
+    expect(ofxrEntries).toHaveLength(8);
+    expect(ofxrEntries.every(entry => entry.source === 'gui-settings.json' && entry.gate === 'vendor')).toBe(true);
+    expect(settingUnavailable(settingPresentation('ofxr.enabled')!, { ...c, vendor: false })).toMatch(/Galaxy XR build/);
+    const checks = inspectBooleanSettings({ ofxr: { enabled: true, logging: false } }, {}, 'gui-settings.json');
+    expect(checks.map(check => check.key)).toEqual(['ofxr.enabled', 'ofxr.logging']);
+    expect(checks.every(check => classifyBoolean(check) === 'control')).toBe(true);
   });
 
   it('reports Image Enhancements from the master alone and compound CAS mode without changing saved values', () => {

@@ -11,6 +11,9 @@ import { t } from '../locale/i18n';
 import { pageIntro, statusMessage } from '../ui/presentation';
 import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
 import { spacewarpStatus } from '../domain/spacewarp-status';
+import { normalizeOfxrPreferences, ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
+import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_status } from '../platform/tauri';
+import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 import { codecEncoderDefaults, streamFrameIntegerError } from '../state/galaxy-settings';
 import '../ui/controls';
 import './driver-banner';
@@ -29,10 +32,19 @@ export class StreamFramePage extends BasePage {
   // The listener stays registered exactly once (connectedCallback add,
   // disconnectedCallback remove).
   private readonly onVisibilityChange = () => {
-    if (document.visibilityState !== 'hidden') this.updateRuntimeEvidence();
-    else this.requestUpdate();
+    if (document.visibilityState !== 'hidden') {
+      // A transient status failure latches 'unavailable'; regaining visibility
+      // is the bounded retry point (one status call per switch back).
+      this.ofxrStatusRequested = false;
+      this.updateRuntimeEvidence();
+    } else this.requestUpdate();
   };
   private pollGeneration = 0;
+  // 2026-10-17 OFXR Bridge: page-local status (no new service). The first
+  // vendor render asks once; arm/disarm/apply refresh it afterwards. A
+  // rejected invoke degrades to 'unavailable' so the page keeps rendering.
+  private ofxrStatus?: OfxrStatus;
+  private ofxrStatusRequested = false;
   private readonly streamNumberErrors = new Map<string, string>();
   // 2026-10-16: inline per-key validation for app-number rows (the driver
   // contract in streamFrameIntegerError). The entered value is kept and
@@ -111,6 +123,116 @@ export class StreamFramePage extends BasePage {
     await this.ctx.startup.refresh();
     this.requestUpdate();
   }
+  // 2026-10-17 OFXR Bridge: all writes go through gui-settings.json (the
+  // Companion owns the block); ofxr_apply pushes the current values into the
+  // layer configuration and every arm/disarm/apply refreshes the status.
+  // Commands are serialized through one queue: a number row dispatches change
+  // on every keystroke, and the INI/registry mutations must not interleave.
+  private ofxrQueue: Promise<unknown> = Promise.resolve();
+  private ofxrError?: string;
+  private serializeOfxr<T>(task: () => Promise<T>): Promise<T> {
+    const next = this.ofxrQueue.then(task, task);
+    this.ofxrQueue = next.catch(() => undefined);
+    return next;
+  }
+  private ofxrPreferences(): OfxrPreferences {
+    return normalizeOfxrPreferences(this.ctx.appSetting.values().ofxr);
+  }
+  private async refreshOfxrStatus(): Promise<void> {
+    try { this.ofxrStatus = await ofxr_status(); }
+    catch { this.ofxrStatus = { state: 'unavailable', version: null, runtimeDir: null, reason: null }; }
+    this.requestUpdate();
+  }
+  /** Saves the OFXR block through gui-settings.json. Returns null when the
+   * save did not land (superseded, inspecting, or write failure); callers must
+   * not apply or arm unsaved values. */
+  private async saveOfxr(patch: Partial<OfxrPreferences>): Promise<OfxrPreferences | null> {
+    const app = this.ctx.appSetting.values();
+    const ofxr = { ...this.ofxrPreferences(), ...patch };
+    const saved = await this.ctx.appSetting.save({ ...app, ofxr });
+    if (!saved) return null;
+    this.requestUpdate();
+    return ofxr;
+  }
+  private async setOfxrEnabled(enabled: boolean): Promise<void> {
+    return this.serializeOfxr(() => this.applyOfxrEnabled(enabled));
+  }
+  private async updateOfxr(patch: Partial<OfxrPreferences>): Promise<void> {
+    return this.serializeOfxr(() => this.applyOfxrUpdate(patch));
+  }
+  private async setSpacewarp(enabled: boolean): Promise<void> {
+    return this.serializeOfxr(() => this.applySpacewarp(enabled));
+  }
+  private async applyOfxrUpdate(patch: Partial<OfxrPreferences>): Promise<void> {
+    const prefs = await this.saveOfxr(patch);
+    if (!prefs) return;
+    try {
+      await ofxr_apply(prefs);
+      this.ofxrError = undefined;
+    } catch (error) {
+      // The saved value stays authoritative; the failure surfaces in the
+      // Enable switch tooltip (the owner forbade new status rows).
+      this.ofxrError = error instanceof Error ? error.message : String(error);
+    }
+    await this.refreshOfxrStatus();
+  }
+  private async applyOfxrEnabled(enabled: boolean): Promise<void> {
+    if (enabled === this.ofxrPreferences().enabled) return;
+    const galaxy = this.ctx.galaxy;
+    if (!enabled) {
+      if (!(await this.saveOfxr({ enabled: false }))) return;
+      try {
+        this.ofxrStatus = await ofxr_disarm();
+        this.ofxrError = undefined;
+      } catch (error) {
+        this.ofxrError = error instanceof Error ? error.message : String(error);
+        await this.refreshOfxrStatus();
+        return;
+      }
+      this.requestUpdate();
+      return;
+    }
+    // Two-way exclusivity (owner directive): Async Spacewarp is saved Off in
+    // the same explicit action, visibly flipping its switch, before arming.
+    // Its previous value is restored when arming fails.
+    const previousSpacewarp = !!galaxy.settings?.spacewarpEnable;
+    if (galaxy.settings && previousSpacewarp) { galaxy.settings.spacewarpEnable = false; galaxy.save(); }
+    const prefs = await this.saveOfxr({ enabled: true });
+    if (!prefs) {
+      if (galaxy.settings && previousSpacewarp) { galaxy.settings.spacewarpEnable = true; galaxy.save(); }
+      return;
+    }
+    try {
+      this.ofxrStatus = await ofxr_arm(prefs);
+      this.ofxrError = undefined;
+    } catch (error) {
+      // Revert the saved flag and restore the user's previous Spacewarp
+      // state; the failure surfaces in the tooltip.
+      await this.saveOfxr({ enabled: false });
+      if (galaxy.settings && previousSpacewarp) { galaxy.settings.spacewarpEnable = true; galaxy.save(); }
+      this.ofxrError = error instanceof Error ? error.message : String(error);
+      await this.refreshOfxrStatus();
+    }
+    this.requestUpdate();
+  }
+  private async applySpacewarp(enabled: boolean): Promise<void> {
+    const galaxy = this.ctx.galaxy;
+    if (enabled && this.ofxrPreferences().enabled) {
+      if (!(await this.saveOfxr({ enabled: false }))) return;
+      try {
+        this.ofxrStatus = await ofxr_disarm();
+        this.ofxrError = undefined;
+      } catch (error) {
+        // Never leave both synthesis modes active: keep Spacewarp off and
+        // surface the failure in the OFXR tooltip.
+        this.ofxrError = error instanceof Error ? error.message : String(error);
+        await this.refreshOfxrStatus();
+        return;
+      }
+    }
+    if (galaxy.settings) { galaxy.settings.spacewarpEnable = enabled; galaxy.save(); }
+    this.requestUpdate();
+  }
   static styles = [fieldStyles, css`
     :host { display: block; padding: 0 1rem 2rem 1rem; }
     .rgb-control { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
@@ -128,6 +250,12 @@ export class StreamFramePage extends BasePage {
     const defaults = galaxy.defaults;
     const advancedMode = galaxy.advancedMode || this.revealAdvanced;
     const vendor = galaxy.vendor;
+    // OFXR status is read once, on the first vendor render; later reads are
+    // driven by arm/disarm/apply. A rejected invoke stays 'unavailable'.
+    if (vendor && !this.ofxrStatusRequested) {
+      this.ofxrStatusRequested = true;
+      void this.refreshOfxrStatus();
+    }
     const galaxyXr = galaxy.galaxyXr;
     const sections = galaxy.sections();
     const save = () => { galaxy.save(); this.requestUpdate(); };
@@ -240,9 +368,9 @@ if (vendor) {
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
         parts.push(settingFieldRow('streamFrame.spacewarpEnable', html`
-      <app-switch .checked=${!!settings.spacewarpEnable} @change=${(e: CustomEvent) => { settings.spacewarpEnable = e.detail; save(); }}></app-switch>
+      <app-switch .checked=${!!settings.spacewarpEnable} @change=${(e: CustomEvent) => { void this.setSpacewarp(e.detail); }}></app-switch>
             `, {
-  tip: t("Applies live to the running stream. Async Spacewarp synthesizes extra intermediate frames, smoothing motion between streamed frames. The synthesis runs on the headset client and needs the GXR spacewarp client patch (experimental) installed there; without it the stream shows extra held frames instead of synthesized frames. Off preserves the upstream frames; the switch stays honest via the status row.\n\nValue: streamFrame.spacewarpEnable (settings.json). Stream side — publishes the toggle live to the running vrlink stream; the headset synthesizes the frames."),
+  tip: t("Applies live to the running stream. Async Spacewarp is the fallback when the graphics card does not support optical flow: it synthesizes intermediate frames on the headset client, which smooths motion between streamed frames. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.\n\nValue: streamFrame.spacewarpEnable (settings.json). Stream side — publishes the toggle live to the running vrlink stream; the headset synthesizes the frames."),
   reset: { can: settings.spacewarpEnable != defaults.spacewarpEnable, on: () => { galaxy.reset('spacewarpEnable'); } }
             }));
         {
@@ -1029,6 +1157,67 @@ if (vendor) {
 }
 }
 }
+if (vendor && settings) {
+        const ofxr = this.ofxrPreferences();
+        const ofxrStatus = this.ofxrStatus;
+        parts.push(sectionHeading(t('Optical Flow'), 0, 'optical-flow'));
+        parts.push(settingFieldRow('ofxr.enabled', html`
+      <app-switch .checked=${ofxr.enabled} ?disabled=${!ofxr.enabled && !ofxrCanArm(ofxrStatus)} title=${this.ofxrError ?? t(ofxrDisabledReason(ofxrStatus) ?? '')} @change=${(e: CustomEvent) => { void this.setOfxrEnabled(e.detail); }}></app-switch>
+            `, {
+  tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, closing the Companion disarms it. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
+            }));
+        parts.push(settingFieldRow('ofxr.mode', html`
+      <app-select .value=${ofxr.mode} ?disabled=${!ofxr.enabled} .options=${[
+        { value: 'fidelityfx', label: t('FidelityFX (any card)') },
+        { value: 'nvidia-fast', label: t('NVIDIA Fast (test)') },
+        { value: 'nvidia-medium', label: t('NVIDIA Medium (recommended)') },
+        { value: 'nvidia-slow', label: t('NVIDIA Slow (best quality)') }
+      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ mode: e.detail }); }}></app-select>
+            `, {
+  tip: t("Choose who computes the optical flow. FidelityFX runs on any graphics card. The NVIDIA options use the GPU's hardware Optical Flow engine and require an NVIDIA Turing generation or newer card with Optical Flow support (TU117-based GTX 1650 class cards are not supported). NVIDIA Medium with 50% resolution is the recommended starting point; the GPU cost and quality trade off against each other.\n\nValue: ofxr.mode (gui-settings.json). Companion side — writes backend and nvidia_preset into the OFXR layer configuration; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.scale', html`
+      <app-select .value=${ofxr.scale} ?disabled=${!ofxr.enabled || ofxr.mode === 'fidelityfx'} .options=${[
+        { value: 100, label: t('100% (full resolution)') },
+        { value: 75, label: t('75%') },
+        { value: 50, label: t('50% (recommended)') }
+      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ scale: e.detail }); }}></app-select>
+            `, {
+  tip: t("Resolution the NVIDIA optical-flow engine runs at. Lower costs less GPU time; 50% is the recommended default, 100% is usually too expensive for little extra gain.\n\nValue: ofxr.scale (gui-settings.json). Companion side — writes nvidia_input_scale; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.bidirectional', html`
+      <app-switch .checked=${ofxr.bidirectional} ?disabled=${!ofxr.enabled || ofxr.mode === 'fidelityfx'} @change=${(e: CustomEvent) => { void this.updateOfxr({ bidirectional: e.detail }); }}></app-switch>
+            `, {
+  tip: t("Compute optical flow in both directions and reject inconsistent vectors. Better quality around occlusions for slightly more GPU cost.\n\nValue: ofxr.bidirectional (gui-settings.json). Companion side — writes nvidia_bidirectional; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.logging', html`
+      <app-switch .checked=${ofxr.logging} ?disabled=${!ofxr.enabled} @change=${(e: CustomEvent) => { void this.updateOfxr({ logging: e.detail }); }}></app-switch>
+            `, {
+  tip: t("Write the OFXR diagnostic flight log for problem reports. Turn it off when not diagnosing.\n\nValue: ofxr.logging (gui-settings.json). Companion side — writes logging_enabled; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.maxLogMb', html`
+      <app-number .value=${ofxr.maxLogMb} step="1" min="1" max="512" ?disabled=${!ofxr.enabled || !ofxr.logging} @change=${(e: CustomEvent) => { if (e.detail !== undefined) void this.updateOfxr({ maxLogMb: e.detail }); }}></app-number>
+            `, {
+  tip: t("Maximum size of the flight log before it rolls over.\n\nValue: ofxr.maxLogMb (gui-settings.json). Companion side — writes max_file_mb.")
+            }));
+        parts.push(settingFieldRow('ofxr.flushEachEvent', html`
+      <app-switch .checked=${ofxr.flushEachEvent} ?disabled=${!ofxr.enabled || !ofxr.logging} @change=${(e: CustomEvent) => { void this.updateOfxr({ flushEachEvent: e.detail }); }}></app-switch>
+            `, {
+  tip: t("Write each flight-log event to disk immediately. Safer for crash reports, slower.\n\nValue: ofxr.flushEachEvent (gui-settings.json). Companion side — writes flush_each_event.")
+            }));
+        parts.push(settingFieldRow('ofxr.overlay', html`
+      <app-select .value=${ofxr.overlay} ?disabled=${!ofxr.enabled} .options=${[
+        { value: 'off', label: t('Off') },
+        { value: 'upper-left', label: t('Upper left') },
+        { value: 'upper-right', label: t('Upper right') },
+        { value: 'lower-left', label: t('Lower left') },
+        { value: 'lower-right', label: t('Lower right') }
+      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ overlay: e.detail }); }}></app-select>
+            `, {
+  tip: t("Show the OFXR frame counter in the headset at the chosen corner; Off hides it.\n\nValue: ofxr.overlay (gui-settings.json). Companion side — writes the overlay position.")
+            }));
+}
+
     return html`<app-system-ready .ctx=${this.ctx}>${this.sectionCardsFor(parts)}</app-system-ready>`;
   }
 }
