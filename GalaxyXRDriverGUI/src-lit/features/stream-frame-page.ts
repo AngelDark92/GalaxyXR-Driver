@@ -671,45 +671,6 @@ if (settings.stationaryDimming.enable) {
           t('Enable it in App Settings to adjust color and sharpening.'),
           html`<a href="#/app-settings">${t('Open App Settings')}</a>`));
 }
-if (advancedMode) {
-        parts.push(sectionGroup(t('Advanced'), 1));
-          parts.push(fieldRow(t('Frame Sync Timeout (ms)'), html`
-      <app-number .value=${settings.syncTimeoutMs} step="1" min="1" max="100" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.syncTimeoutMs = e.detail; } save(); }}></app-number>
-          `, {
-  tip: t("Skip a synchronization wait in the image-processing path. This is a latency experiment and can cause flashes or other display artifacts.\n\nHow long to wait for the frame sync before letting a frame through unprocessed (a brief 'flash' of ungraded color). Higher values trade flashes under heavy load for slightly later frames. After a skipped frame the wait automatically escalates to break flash streaks. Default 10, sensible range 3-15.\n\nValue: streamFrame.syncTimeoutMs (settings.json). Driver side — frame-sync wait before passing a frame unprocessed, in ms."),
-  reset: { can: settings.syncTimeoutMs != defaults.syncTimeoutMs, on: () => { galaxy.reset('syncTimeoutMs'); } }
-          }));
-          parts.push(fieldRow(t('Gaze Prediction (ms)'), html`
-      <app-number .value=${settings.eyeGaze.predictionMs} step="5" min="0" max="100" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.eyeGaze.predictionMs = e.detail; } save(); }}></app-number>
-          `, {
-  tip: t("Adjust how far ahead eye movement is predicted for processing. Too much prediction can place the correction ahead of your actual gaze.\n\nLeads the gaze point by extrapolating recent eye motion, compensating the capture-to-display latency that makes the ring trail your eyes. Raise if the ring lags behind saccades, lower if it overshoots. 0 disables.\n\nValue: streamFrame.eyeGaze.predictionMs (settings.json). Driver side — gaze-point lead time, in ms; 0 disables.")
-          }));
-          parts.push(settingFieldRow('streamFrame.directRender', html`
-      <app-switch .checked=${!!settings.directRender} @change=${(e: CustomEvent) => { settings.directRender = e.detail; save(); }}></app-switch>
-          `, {
-  tip: t("Request a more direct rendering path. Performance and compatibility depend on the runtime; compare carefully before leaving it enabled.\n\nPerformance: draws the processed frame directly into the layer texture instead of a scratch target plus copy-back (about a third less GPU memory traffic). Falls back automatically per texture if a layer refuses a render target view. Only turn off to A/B against the old path; the log line 'direct render path' / 'copy-back path' shows which is active per app.\n\nValue: streamFrame.directRender (settings.json). Driver side — renders the processed frame directly into the layer texture."),
-  reset: { can: settings.directRender != defaults.directRender, on: () => { galaxy.reset('directRender'); } }
-          }));
-          parts.push(settingFieldRow('streamFrame.deferredEviction', html`
-      <app-switch .checked=${!!settings.deferredEviction} @change=${(e: CustomEvent) => { settings.deferredEviction = e.detail; save(); }}></app-switch>
-          `, {
-  tip: t("Keep cached resources longer to try to reduce short stutters. This changes resource handling and may use more memory.\n\nPerformance: when the scratch texture cache is full and a new resolution arrives, the old set's release is postponed a few frames and performed after the frame sync mutex is released, instead of inside the same frame that already pays the unavoidable creation stall. Spreads transition cost so resolution/app switches hitch less. Off restores the old synchronous eviction for A/B; score the difference with Hitch Diagnostics on ('creates'/'evicts' counters and HITCH tags mark the transitions).\n\nValue: streamFrame.deferredEviction (settings.json). Driver side — postpones scratch-texture release past the frame-sync mutex."),
-  reset: { can: settings.deferredEviction != defaults.deferredEviction, on: () => { galaxy.reset('deferredEviction'); } }
-          }));
-          parts.push(settingFieldRow('streamFrame.processAtSubmitLayer', html`
-      <app-switch .checked=${!!settings.processAtSubmitLayer} @change=${(e: CustomEvent) => { settings.processAtSubmitLayer = e.detail; save(); }}></app-switch>
-          `, {
-  tip: t("Choose an alternate point in the rendering pipeline for image processing. This is a compatibility and performance experiment.\n\nProcesses frames during SubmitLayer instead of Present. Only needed if processing at Present has no visible effect on your driver.\n\nValue: streamFrame.processAtSubmitLayer (settings.json). Driver side — processes frames in SubmitLayer instead of Present."),
-  reset: { can: settings.processAtSubmitLayer != defaults.processAtSubmitLayer, on: () => { galaxy.reset('processAtSubmitLayer'); } }
-          }));
-          parts.push(settingFieldRow('streamFrame.calib.blackout', html`
-      <app-switch .checked=${!!settings.calib?.blackout} ?disabled=${!settings.enable} @change=${(e: CustomEvent) => { galaxy.setBlackout(e.detail); }}></app-switch>
-      ${!settings.enable ? html`<span class="note">enable Image Processing first</span>` : html``}
-          `, {
-  tip: t("Make the headset image black while keeping tracking and the game running. Use this for testing, not as a way to stop or pause the application.\n\nBlack out the headset's screens to protect from burn in. Tracking, streaming and the game keep running; only the panels go black. Useful while developing or leaving the headset connected. Needs Enable Image Processing on.\n\nValue: streamFrame.calib.blackout (settings.json). Driver side — renders black to the panels; tracking and streaming continue."),
-  reset: { can: !!settings.calib?.blackout, on: () => { galaxy.setBlackout(false); } }
-          }));
-if (vendor && settings.nvencTap) {
 if (vendor && settings) {
         const ofxr = this.ofxrPreferences();
         const ofxrStatus = this.ofxrStatus;
@@ -787,7 +748,45 @@ if (vendor && settings) {
   tip: t("Show the OFXR frame counter in the headset at the chosen corner; Off hides it.\n\nValue: ofxr.overlay (gui-settings.json). Companion side — writes the overlay position.")
             }));
 }
-
+if (advancedMode) {
+        parts.push(sectionGroup(t('Advanced'), 1));
+          parts.push(fieldRow(t('Frame Sync Timeout (ms)'), html`
+      <app-number .value=${settings.syncTimeoutMs} step="1" min="1" max="100" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.syncTimeoutMs = e.detail; } save(); }}></app-number>
+          `, {
+  tip: t("Skip a synchronization wait in the image-processing path. This is a latency experiment and can cause flashes or other display artifacts.\n\nHow long to wait for the frame sync before letting a frame through unprocessed (a brief 'flash' of ungraded color). Higher values trade flashes under heavy load for slightly later frames. After a skipped frame the wait automatically escalates to break flash streaks. Default 10, sensible range 3-15.\n\nValue: streamFrame.syncTimeoutMs (settings.json). Driver side — frame-sync wait before passing a frame unprocessed, in ms."),
+  reset: { can: settings.syncTimeoutMs != defaults.syncTimeoutMs, on: () => { galaxy.reset('syncTimeoutMs'); } }
+          }));
+          parts.push(fieldRow(t('Gaze Prediction (ms)'), html`
+      <app-number .value=${settings.eyeGaze.predictionMs} step="5" min="0" max="100" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.eyeGaze.predictionMs = e.detail; } save(); }}></app-number>
+          `, {
+  tip: t("Adjust how far ahead eye movement is predicted for processing. Too much prediction can place the correction ahead of your actual gaze.\n\nLeads the gaze point by extrapolating recent eye motion, compensating the capture-to-display latency that makes the ring trail your eyes. Raise if the ring lags behind saccades, lower if it overshoots. 0 disables.\n\nValue: streamFrame.eyeGaze.predictionMs (settings.json). Driver side — gaze-point lead time, in ms; 0 disables.")
+          }));
+          parts.push(settingFieldRow('streamFrame.directRender', html`
+      <app-switch .checked=${!!settings.directRender} @change=${(e: CustomEvent) => { settings.directRender = e.detail; save(); }}></app-switch>
+          `, {
+  tip: t("Request a more direct rendering path. Performance and compatibility depend on the runtime; compare carefully before leaving it enabled.\n\nPerformance: draws the processed frame directly into the layer texture instead of a scratch target plus copy-back (about a third less GPU memory traffic). Falls back automatically per texture if a layer refuses a render target view. Only turn off to A/B against the old path; the log line 'direct render path' / 'copy-back path' shows which is active per app.\n\nValue: streamFrame.directRender (settings.json). Driver side — renders the processed frame directly into the layer texture."),
+  reset: { can: settings.directRender != defaults.directRender, on: () => { galaxy.reset('directRender'); } }
+          }));
+          parts.push(settingFieldRow('streamFrame.deferredEviction', html`
+      <app-switch .checked=${!!settings.deferredEviction} @change=${(e: CustomEvent) => { settings.deferredEviction = e.detail; save(); }}></app-switch>
+          `, {
+  tip: t("Keep cached resources longer to try to reduce short stutters. This changes resource handling and may use more memory.\n\nPerformance: when the scratch texture cache is full and a new resolution arrives, the old set's release is postponed a few frames and performed after the frame sync mutex is released, instead of inside the same frame that already pays the unavoidable creation stall. Spreads transition cost so resolution/app switches hitch less. Off restores the old synchronous eviction for A/B; score the difference with Hitch Diagnostics on ('creates'/'evicts' counters and HITCH tags mark the transitions).\n\nValue: streamFrame.deferredEviction (settings.json). Driver side — postpones scratch-texture release past the frame-sync mutex."),
+  reset: { can: settings.deferredEviction != defaults.deferredEviction, on: () => { galaxy.reset('deferredEviction'); } }
+          }));
+          parts.push(settingFieldRow('streamFrame.processAtSubmitLayer', html`
+      <app-switch .checked=${!!settings.processAtSubmitLayer} @change=${(e: CustomEvent) => { settings.processAtSubmitLayer = e.detail; save(); }}></app-switch>
+          `, {
+  tip: t("Choose an alternate point in the rendering pipeline for image processing. This is a compatibility and performance experiment.\n\nProcesses frames during SubmitLayer instead of Present. Only needed if processing at Present has no visible effect on your driver.\n\nValue: streamFrame.processAtSubmitLayer (settings.json). Driver side — processes frames in SubmitLayer instead of Present."),
+  reset: { can: settings.processAtSubmitLayer != defaults.processAtSubmitLayer, on: () => { galaxy.reset('processAtSubmitLayer'); } }
+          }));
+          parts.push(settingFieldRow('streamFrame.calib.blackout', html`
+      <app-switch .checked=${!!settings.calib?.blackout} ?disabled=${!settings.enable} @change=${(e: CustomEvent) => { galaxy.setBlackout(e.detail); }}></app-switch>
+      ${!settings.enable ? html`<span class="note">enable Image Processing first</span>` : html``}
+          `, {
+  tip: t("Make the headset image black while keeping tracking and the game running. Use this for testing, not as a way to stop or pause the application.\n\nBlack out the headset's screens to protect from burn in. Tracking, streaming and the game keep running; only the panels go black. Useful while developing or leaving the headset connected. Needs Enable Image Processing on.\n\nValue: streamFrame.calib.blackout (settings.json). Driver side — renders black to the panels; tracking and streaming continue."),
+  reset: { can: !!settings.calib?.blackout, on: () => { galaxy.setBlackout(false); } }
+          }));
+if (vendor && settings.nvencTap) {
         parts.push(sectionHeading(t('Encoder Advanced'), 0, 'encoder'));
 if (settings.nvencTap) {
   const codecDef = codecEncoderDefaults[settings.nvencCodec ?? 0] ?? codecEncoderDefaults[0];
@@ -822,12 +821,11 @@ if (settings.nvencTap) {
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
                 {
-                  // 2026-10-19 owner request: curve family + constancy, both
-                  // locked while SteamVR runs, plus an on-request graph that
-                  // mirrors CurveMath.h. The gate is the codec selector's
-                  // freshness-checked predicate, not a raw steamvrRunning read:
-                  // a stale stopped report is never proof SteamVR is closed.
-                  const curveLocked = codecSwitchState(this.ctx.startup.status()) !== 'allowed';
+                  // 2026-10-19: lock only on an observed running session. The
+                  // freshness-checked predicate treated a missing or stale
+                  // report as "running", which locked these rows permanently
+                  // when SteamVR was closed; the page already polls every 2 s.
+                  const curveLocked = this.ctx.startup.status()?.steamvrRunning === true;
                   parts.push(settingFieldRow('streamFrame.nvencBitrateCurve', html`
       <app-select ?disabled=${curveLocked} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { settings.nvencBitrateCurve = Number(e.detail); save(); }}></app-select>
       ${curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``}

@@ -15,7 +15,9 @@ import { setLocale } from './locale/i18n';
 import { appCustomElements } from './register';
 import { applyTheme } from './ui/theme';
 import { applyUiScale } from './ui/ui-scale';
-import { CurvePreviewWindow } from './features/curve-preview-window';
+// 2026-10-19: side-effect import so the preview element is actually defined.
+// A type-only import is erased by the bundler, which left the window blank.
+import './features/curve-preview-window';
 
 function localeFromPath(): string {
   const segments = window.location.pathname.split('/').filter(Boolean);
@@ -49,13 +51,24 @@ async function boot(): Promise<void> {
   // 2026-10-19: the bitrate curve graph runs in its own window (#view=curve).
   // It must not build the service composition root: no settings writer, no
   // directory creation and no migrations. Locale and theme are all it needs.
-  const view = window.location.hash.replace(/^#/, '') || new URLSearchParams(window.location.search).get('view');
+  const view = window.location.hash.replace(/^#/, '') || new URLSearchParams(window.location.search).get('view')
+    || document.documentElement.dataset.view;
   if (view === 'curve') {
     applyTheme('system');
-    await loadLocale();
     document.title = 'Bitrate Curve';
-    const preview = document.createElement('app-curve-preview') as CurvePreviewWindow;
+    if (!customElements.get('app-curve-preview')) {
+      // Never leave a silent white window: say what failed.
+      const message = document.createElement('p');
+      message.style.cssText = 'font: 14px system-ui; padding: 1rem; margin: 0;';
+      message.textContent = 'The bitrate curve preview failed to load.';
+      document.body.appendChild(message);
+      return;
+    }
+    const preview = document.createElement('app-curve-preview');
     document.body.appendChild(preview);
+    // Mount first, then localize: a stalled locale fetch must not leave the
+    // window empty.
+    void loadLocale().then(() => (preview as unknown as { requestUpdate?: () => void }).requestUpdate?.());
     return;
   }
 

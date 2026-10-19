@@ -105,9 +105,20 @@ pub fn open_curve_preview(app: AppHandle, locale: String) -> Result<(), String> 
     .inner_size(760.0, 520.0)
     .min_inner_size(480.0, 320.0)
     .resizable(true)
+    // Belt and braces: even if the fragment is stripped from the App URL, the
+    // page knows it is the preview and never boots the shell.
+    .initialization_script("document.documentElement.dataset.view='curve';")
     .build()
     .map(|_| ())
     .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn close_curve_preview(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(PREVIEW_LABEL) {
+        return window.close().map_err(|error| error.to_string());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

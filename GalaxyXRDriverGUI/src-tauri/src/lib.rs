@@ -47,6 +47,7 @@ pub fn run() {
             webview_zoom::set_webview_zoom,
             curve_preview::open_curve_preview,
             curve_preview::curve_preview_state,
+            curve_preview::close_curve_preview,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

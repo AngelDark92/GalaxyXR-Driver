@@ -151,3 +151,6 @@ export async function open_curve_preview(locale: string): Promise<void> {
 export async function curve_preview_state(): Promise<CurvePreviewState> {
     return invoke('curve_preview_state');
 }
+export async function close_curve_preview(): Promise<void> {
+    return invoke('close_curve_preview');
+}

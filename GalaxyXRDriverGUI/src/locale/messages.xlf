@@ -3772,6 +3772,9 @@ Value: uiScale (gui-settings.json). GUI-only presentation preference.</source>
         <source>Could not read settings.json: {reason}</source>
 
       </trans-unit>
+      <trans-unit id="3535843008" datatype="html">
+        <source>Close</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>

@@ -8,7 +8,7 @@
 // while they are edited in the Companion.
 import { LitElement, html, css } from 'lit';
 import { customElement } from 'lit/decorators.js';
-import { curve_preview_state, type CurvePreviewState } from '../platform/tauri';
+import { close_curve_preview, curve_preview_state, type CurvePreviewState } from '../platform/tauri';
 import { t } from '../locale/i18n';
 import './bitrate-curve';
 
@@ -18,9 +18,10 @@ const POLL_MS = 250;
 export class CurvePreviewWindow extends LitElement {
   static styles = css`
     :host { display: block; padding: 1rem 1.25rem; }
-    header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.35rem; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.35rem; }
     h1 { font-size: 1rem; font-weight: 600; margin: 0; }
-    .meta { font-size: 0.85rem; opacity: 0.8; }
+    .meta { font-size: 0.85rem; opacity: 0.8; margin-left: auto; }
+    button.close { font: inherit; font-size: 0.85rem; padding: 0.15rem 0.6rem; }
     .error { color: #c42b1c; font-size: 0.85rem; margin: 0.5rem 0 0; }
   `;
 
@@ -32,13 +33,20 @@ export class CurvePreviewWindow extends LitElement {
     super.connectedCallback();
     void this.refresh();
     this.timer = window.setInterval(() => { void this.refresh(); }, POLL_MS);
+    window.addEventListener('keydown', this.onKeyDown);
   }
 
   disconnectedCallback() {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;
+    window.removeEventListener('keydown', this.onKeyDown);
     super.disconnectedCallback();
   }
+
+  // Escape always closes the window, even if the title bar misbehaves.
+  private readonly onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') void close_curve_preview();
+  };
 
   private async refresh(): Promise<void> {
     try {
@@ -64,6 +72,7 @@ export class CurvePreviewWindow extends LitElement {
         <span class="meta">${t('Ceiling {ceiling} Mbit/s, clamp {clamp} Mbit/s', {
           ceiling: String(this.state.ceilingMbit), clamp: String(this.state.clampMbit),
         })}</span>
+        <button class="close" type="button" @click=${() => { void close_curve_preview(); }}>${t('Close')}</button>
       </header>
       <app-bitrate-curve .curve=${this.state.curve} .pct=${this.state.constancyPct}
         .ceiling=${this.state.ceilingMbit} .clamp=${this.state.clampMbit}></app-bitrate-curve>
