@@ -697,6 +697,84 @@ if (advancedMode) {
   reset: { can: !!settings.calib?.blackout, on: () => { galaxy.setBlackout(false); } }
           }));
 if (vendor && settings.nvencTap) {
+if (vendor && settings) {
+        const ofxr = this.ofxrPreferences();
+        const ofxrStatus = this.ofxrStatus;
+        parts.push(sectionHeading(t('Optical Flow'), 0, 'optical-flow'));
+        parts.push(settingFieldRow('ofxr.enabled', html`
+      <app-switch .checked=${ofxr.enabled} ?disabled=${!ofxr.enabled && !ofxrCanArm(ofxrStatus)} title=${this.ofxrError ?? t(ofxrDisabledReason(ofxrStatus) ?? '')} @change=${(e: CustomEvent) => { void this.setOfxrEnabled(e.detail); }}></app-switch>
+            `, {
+  tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, closing the Companion disarms it. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
+            }));
+        parts.push(settingFieldRow('ofxr.mode', html`
+      <app-select .value=${ofxr.mode} ?disabled=${!ofxr.enabled} .options=${[
+        { value: 'fidelityfx', label: t('FidelityFX (any card)') },
+        { value: 'nvidia-fast', label: t('NVIDIA Fast (test)') },
+        { value: 'nvidia-medium', label: t('NVIDIA Medium (recommended)') },
+        { value: 'nvidia-slow', label: t('NVIDIA Slow (best quality)') }
+      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ mode: e.detail }); }}></app-select>
+            `, {
+  tip: t("Choose who computes the optical flow. FidelityFX runs on any graphics card. The NVIDIA options use the GPU's hardware Optical Flow engine and require an NVIDIA Turing generation or newer card with Optical Flow support (TU117-based GTX 1650 class cards are not supported). NVIDIA Medium with 50% resolution is the recommended starting point; the GPU cost and quality trade off against each other.\n\nValue: ofxr.mode (gui-settings.json). Companion side — writes backend and nvidia_preset into the OFXR layer configuration; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.scale', html`
+      <app-select .value=${ofxr.scale} ?disabled=${!ofxr.enabled || ofxr.mode === 'fidelityfx'} .options=${[
+        { value: 100, label: t('100% (full resolution)') },
+        { value: 75, label: t('75%') },
+        { value: 50, label: t('50% (recommended)') }
+      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ scale: e.detail }); }}></app-select>
+            `, {
+  tip: t("Resolution the NVIDIA optical-flow engine runs at. Lower costs less GPU time; 50% is the recommended default, 100% is usually too expensive for little extra gain.\n\nValue: ofxr.scale (gui-settings.json). Companion side — writes nvidia_input_scale; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.bidirectional', html`
+      <app-switch .checked=${ofxr.bidirectional} ?disabled=${!ofxr.enabled || ofxr.mode === 'fidelityfx'} @change=${(e: CustomEvent) => { void this.updateOfxr({ bidirectional: e.detail }); }}></app-switch>
+            `, {
+  tip: t("Compute optical flow in both directions and reject inconsistent vectors. Better quality around occlusions for slightly more GPU cost.\n\nValue: ofxr.bidirectional (gui-settings.json). Companion side — writes nvidia_bidirectional; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.logging', html`
+      <app-switch .checked=${ofxr.logging} ?disabled=${!ofxr.enabled} @change=${(e: CustomEvent) => { void this.updateOfxr({ logging: e.detail }); }}></app-switch>
+            `, {
+  tip: t("Write the OFXR diagnostic flight log for problem reports. Turn it off when not diagnosing.\n\nValue: ofxr.logging (gui-settings.json). Companion side — writes logging_enabled; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.maxLogMb', html`
+      <app-number .value=${ofxr.maxLogMb} step="1" min="1" max="512" ?disabled=${!ofxr.enabled || !ofxr.logging} @change=${(e: CustomEvent) => { if (e.detail !== undefined) void this.updateOfxr({ maxLogMb: e.detail }); }}></app-number>
+            `, {
+  tip: t("Maximum size of the flight log before it rolls over.\n\nValue: ofxr.maxLogMb (gui-settings.json). Companion side — writes max_file_mb.")
+            }));
+        parts.push(settingFieldRow('ofxr.flushEachEvent', html`
+      <app-switch .checked=${ofxr.flushEachEvent} ?disabled=${!ofxr.enabled || !ofxr.logging} @change=${(e: CustomEvent) => { void this.updateOfxr({ flushEachEvent: e.detail }); }}></app-switch>
+            `, {
+  tip: t("Write each flight-log event to disk immediately. Safer for crash reports, slower.\n\nValue: ofxr.flushEachEvent (gui-settings.json). Companion side — writes flush_each_event.")
+            }));
+        parts.push(fieldRow(t('OFXR Bridge version'), html`
+      <app-select .value=${ofxr.version} .options=${[
+        { value: '', label: t('Automatic (newest installed)') },
+        ...((ofxrStatus?.versions ?? []).map(entry => ({
+          value: entry.version,
+          label: `${entry.source === 'external' ? t('External') : entry.source === 'downloaded' ? t('Downloaded') : t('Bundled')} v${entry.version}`
+        })))
+      ]} @change=${(e: CustomEvent) => { void this.selectOfxrVersion(e.detail); }}></app-select>
+            `, {
+  tip: t("Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Downloaded was imported by you; External belongs to OFXR's own tray and is never modified by the Companion. Switching versions disarms first because the layer's arm event belongs to the payload path.\n\nValue: ofxr.version (gui-settings.json).")
+            }));
+        parts.push(fieldRow(t('Manage OFXR Bridge'), html`
+      <fluent-button ?disabled=${!ofxrStatus || ofxrStatus.state === 'unavailable'} @click=${() => { void this.reinstallOfxr(); }}>${t('Reinstall')}</fluent-button>
+      <fluent-button appearance="primary" class="danger" @click=${() => { void this.removeOfxr(); }}>${t('Uninstall Optical Flow')}</fluent-button>
+            `, {
+  tip: t("Reinstall deletes the Companion-owned runtime directory for the selected version and stages the bundled payload again, verifying its files. Uninstall disarms the layer, removes the Companion registration and deletes every payload directory the Companion created; OFXR tray installs are left untouched. The driver uninstall performs the same cleanup.")
+            }));
+        parts.push(settingFieldRow('ofxr.overlay', html`
+      <app-select .value=${ofxr.overlay} ?disabled=${!ofxr.enabled} .options=${[
+        { value: 'off', label: t('Off') },
+        { value: 'upper-left', label: t('Upper left') },
+        { value: 'upper-right', label: t('Upper right') },
+        { value: 'lower-left', label: t('Lower left') },
+        { value: 'lower-right', label: t('Lower right') }
+      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ overlay: e.detail }); }}></app-select>
+            `, {
+  tip: t("Show the OFXR frame counter in the headset at the chosen corner; Off hides it.\n\nValue: ofxr.overlay (gui-settings.json). Companion side — writes the overlay position.")
+            }));
+}
+
         parts.push(sectionHeading(t('Encoder Advanced'), 0, 'encoder'));
 if (settings.nvencTap) {
   const codecDef = codecEncoderDefaults[settings.nvencCodec ?? 0] ?? codecEncoderDefaults[0];
@@ -1267,83 +1345,7 @@ if (vendor) {
 }
 }
 }
-if (vendor && settings) {
-        const ofxr = this.ofxrPreferences();
-        const ofxrStatus = this.ofxrStatus;
-        parts.push(sectionHeading(t('Optical Flow'), 0, 'optical-flow'));
-        parts.push(settingFieldRow('ofxr.enabled', html`
-      <app-switch .checked=${ofxr.enabled} ?disabled=${!ofxr.enabled && !ofxrCanArm(ofxrStatus)} title=${this.ofxrError ?? t(ofxrDisabledReason(ofxrStatus) ?? '')} @change=${(e: CustomEvent) => { void this.setOfxrEnabled(e.detail); }}></app-switch>
-            `, {
-  tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, closing the Companion disarms it. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
-            }));
-        parts.push(settingFieldRow('ofxr.mode', html`
-      <app-select .value=${ofxr.mode} ?disabled=${!ofxr.enabled} .options=${[
-        { value: 'fidelityfx', label: t('FidelityFX (any card)') },
-        { value: 'nvidia-fast', label: t('NVIDIA Fast (test)') },
-        { value: 'nvidia-medium', label: t('NVIDIA Medium (recommended)') },
-        { value: 'nvidia-slow', label: t('NVIDIA Slow (best quality)') }
-      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ mode: e.detail }); }}></app-select>
-            `, {
-  tip: t("Choose who computes the optical flow. FidelityFX runs on any graphics card. The NVIDIA options use the GPU's hardware Optical Flow engine and require an NVIDIA Turing generation or newer card with Optical Flow support (TU117-based GTX 1650 class cards are not supported). NVIDIA Medium with 50% resolution is the recommended starting point; the GPU cost and quality trade off against each other.\n\nValue: ofxr.mode (gui-settings.json). Companion side — writes backend and nvidia_preset into the OFXR layer configuration; applies at the next game start.")
-            }));
-        parts.push(settingFieldRow('ofxr.scale', html`
-      <app-select .value=${ofxr.scale} ?disabled=${!ofxr.enabled || ofxr.mode === 'fidelityfx'} .options=${[
-        { value: 100, label: t('100% (full resolution)') },
-        { value: 75, label: t('75%') },
-        { value: 50, label: t('50% (recommended)') }
-      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ scale: e.detail }); }}></app-select>
-            `, {
-  tip: t("Resolution the NVIDIA optical-flow engine runs at. Lower costs less GPU time; 50% is the recommended default, 100% is usually too expensive for little extra gain.\n\nValue: ofxr.scale (gui-settings.json). Companion side — writes nvidia_input_scale; applies at the next game start.")
-            }));
-        parts.push(settingFieldRow('ofxr.bidirectional', html`
-      <app-switch .checked=${ofxr.bidirectional} ?disabled=${!ofxr.enabled || ofxr.mode === 'fidelityfx'} @change=${(e: CustomEvent) => { void this.updateOfxr({ bidirectional: e.detail }); }}></app-switch>
-            `, {
-  tip: t("Compute optical flow in both directions and reject inconsistent vectors. Better quality around occlusions for slightly more GPU cost.\n\nValue: ofxr.bidirectional (gui-settings.json). Companion side — writes nvidia_bidirectional; applies at the next game start.")
-            }));
-        parts.push(settingFieldRow('ofxr.logging', html`
-      <app-switch .checked=${ofxr.logging} ?disabled=${!ofxr.enabled} @change=${(e: CustomEvent) => { void this.updateOfxr({ logging: e.detail }); }}></app-switch>
-            `, {
-  tip: t("Write the OFXR diagnostic flight log for problem reports. Turn it off when not diagnosing.\n\nValue: ofxr.logging (gui-settings.json). Companion side — writes logging_enabled; applies at the next game start.")
-            }));
-        parts.push(settingFieldRow('ofxr.maxLogMb', html`
-      <app-number .value=${ofxr.maxLogMb} step="1" min="1" max="512" ?disabled=${!ofxr.enabled || !ofxr.logging} @change=${(e: CustomEvent) => { if (e.detail !== undefined) void this.updateOfxr({ maxLogMb: e.detail }); }}></app-number>
-            `, {
-  tip: t("Maximum size of the flight log before it rolls over.\n\nValue: ofxr.maxLogMb (gui-settings.json). Companion side — writes max_file_mb.")
-            }));
-        parts.push(settingFieldRow('ofxr.flushEachEvent', html`
-      <app-switch .checked=${ofxr.flushEachEvent} ?disabled=${!ofxr.enabled || !ofxr.logging} @change=${(e: CustomEvent) => { void this.updateOfxr({ flushEachEvent: e.detail }); }}></app-switch>
-            `, {
-  tip: t("Write each flight-log event to disk immediately. Safer for crash reports, slower.\n\nValue: ofxr.flushEachEvent (gui-settings.json). Companion side — writes flush_each_event.")
-            }));
-        parts.push(fieldRow(t('OFXR Bridge version'), html`
-      <app-select .value=${ofxr.version} .options=${[
-        { value: '', label: t('Automatic (newest installed)') },
-        ...((ofxrStatus?.versions ?? []).map(entry => ({
-          value: entry.version,
-          label: `${entry.source === 'external' ? t('External') : entry.source === 'downloaded' ? t('Downloaded') : t('Bundled')} v${entry.version}`
-        })))
-      ]} @change=${(e: CustomEvent) => { void this.selectOfxrVersion(e.detail); }}></app-select>
-            `, {
-  tip: t("Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Downloaded was imported by you; External belongs to OFXR's own tray and is never modified by the Companion. Switching versions disarms first because the layer's arm event belongs to the payload path.\n\nValue: ofxr.version (gui-settings.json).")
-            }));
-        parts.push(fieldRow(t('Manage OFXR Bridge'), html`
-      <fluent-button ?disabled=${!ofxrStatus || ofxrStatus.state === 'unavailable'} @click=${() => { void this.reinstallOfxr(); }}>${t('Reinstall')}</fluent-button>
-      <fluent-button appearance="primary" class="danger" @click=${() => { void this.removeOfxr(); }}>${t('Uninstall Optical Flow')}</fluent-button>
-            `, {
-  tip: t("Reinstall deletes the Companion-owned runtime directory for the selected version and stages the bundled payload again, verifying its files. Uninstall disarms the layer, removes the Companion registration and deletes every payload directory the Companion created; OFXR tray installs are left untouched. The driver uninstall performs the same cleanup.")
-            }));
-        parts.push(settingFieldRow('ofxr.overlay', html`
-      <app-select .value=${ofxr.overlay} ?disabled=${!ofxr.enabled} .options=${[
-        { value: 'off', label: t('Off') },
-        { value: 'upper-left', label: t('Upper left') },
-        { value: 'upper-right', label: t('Upper right') },
-        { value: 'lower-left', label: t('Lower left') },
-        { value: 'lower-right', label: t('Lower right') }
-      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ overlay: e.detail }); }}></app-select>
-            `, {
-  tip: t("Show the OFXR frame counter in the headset at the chosen corner; Off hides it.\n\nValue: ofxr.overlay (gui-settings.json). Companion side — writes the overlay position.")
-            }));
-}
+
 
     return html`<app-system-ready .ctx=${this.ctx}>${this.sectionCardsFor(parts)}</app-system-ready>`;
   }
