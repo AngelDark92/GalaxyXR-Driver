@@ -81,6 +81,11 @@ pub fn curve_preview_state() -> Result<CurvePreviewState, String> {
 }
 
 #[tauri::command]
+pub fn is_curve_preview_window(window: tauri::WebviewWindow) -> bool {
+    window.label() == PREVIEW_LABEL
+}
+
+#[tauri::command]
 pub fn open_curve_preview(app: AppHandle, locale: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(PREVIEW_LABEL) {
         return window.set_focus().map_err(|error| error.to_string());
@@ -97,17 +102,17 @@ pub fn open_curve_preview(app: AppHandle, locale: String) -> Result<(), String> 
     WebviewWindowBuilder::new(
         &app,
         PREVIEW_LABEL,
-        // A fragment survives App-URL resolution in both dev and release; the
-        // view reads it (or ?view=curve) before mounting anything.
-        WebviewUrl::App(format!("{locale}/index.html#view=curve").into()),
+        // Same URL shape as the main window: a query or fragment here is
+        // treated as part of the asset path and the page never loads. The
+        // window label, checked by the page, is what selects the preview view.
+        WebviewUrl::App(format!("{locale}/index.html").into()),
     )
     .title("Bitrate Curve")
     .inner_size(760.0, 520.0)
     .min_inner_size(480.0, 320.0)
     .resizable(true)
-    // Belt and braces: even if the fragment is stripped from the App URL, the
-    // page knows it is the preview and never boots the shell.
-    .initialization_script("document.documentElement.dataset.view='curve';")
+    .closable(true)
+    .initialization_script("window.__GXR_CURVE_PREVIEW__ = true;")
     .build()
     .map(|_| ())
     .map_err(|error| error.to_string())

@@ -154,3 +154,7 @@ export async function curve_preview_state(): Promise<CurvePreviewState> {
 export async function close_curve_preview(): Promise<void> {
     return invoke('close_curve_preview');
 }
+/** True only inside the preview window: the window label is authoritative. */
+export async function is_curve_preview_window(): Promise<boolean> {
+    return invoke('is_curve_preview_window');
+}

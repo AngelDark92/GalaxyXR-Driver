@@ -48,6 +48,7 @@ pub fn run() {
             curve_preview::open_curve_preview,
             curve_preview::curve_preview_state,
             curve_preview::close_curve_preview,
+            curve_preview::is_curve_preview_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

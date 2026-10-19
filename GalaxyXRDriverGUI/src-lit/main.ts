@@ -18,6 +18,7 @@ import { applyUiScale } from './ui/ui-scale';
 // 2026-10-19: side-effect import so the preview element is actually defined.
 // A type-only import is erased by the bundler, which left the window blank.
 import './features/curve-preview-window';
+import { is_curve_preview_window } from './platform/tauri';
 
 function localeFromPath(): string {
   const segments = window.location.pathname.split('/').filter(Boolean);
@@ -53,7 +54,13 @@ async function boot(): Promise<void> {
   // directory creation and no migrations. Locale and theme are all it needs.
   const view = window.location.hash.replace(/^#/, '') || new URLSearchParams(window.location.search).get('view')
     || document.documentElement.dataset.view;
-  if (view === 'curve') {
+  // 2026-10-19: the window label is authoritative. Query/fragment markers in a
+  // Tauri App URL are treated as part of the asset path, so the page never
+  // loaded and the window stayed white.
+  const previewWindow = view === 'curve'
+    || (window as unknown as { __GXR_CURVE_PREVIEW__?: boolean }).__GXR_CURVE_PREVIEW__ === true
+    || await is_curve_preview_window().catch(() => false);
+  if (previewWindow) {
     applyTheme('system');
     document.title = 'Bitrate Curve';
     if (!customElements.get('app-curve-preview')) {
