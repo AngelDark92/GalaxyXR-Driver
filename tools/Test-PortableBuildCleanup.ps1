@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/portable-build-cleanup.ps1')
 $repo = Split-Path $PSScriptRoot -Parent
 $fixture = Join-Path $repo ('../builds/GalaxyXR-Driver/build/cleanup-test-' + [guid]::NewGuid().ToString('N') + '/repo')
-$name = 'portable-work-20260926-120000-' + [guid]::NewGuid().ToString('N')
+$name = 'pw-' + (Get-Date -Format 'HHmmss') + [guid]::NewGuid().ToString('N').Substring(0, 6)
 $work = Join-Path $fixture "../builds/GalaxyXR-Driver/build/$name"
 New-Item -ItemType Directory -Path "$work/native", "$fixture/../builds/GalaxyXR-Driver/build/toolchains", "$fixture/../builds/GalaxyXR-Driver/output", "$fixture/outside" -Force | Out-Null
 Set-Content -LiteralPath "$work/native/test.obj" -Value 'generated'
@@ -39,6 +39,13 @@ Remove-PortableBuildWork -Repository $fixture -WorkDirectory $work
 New-Item -ItemType Junction -Path $work -Target "$fixture/outside" | Out-Null
 Assert-Rejected { Remove-PortableBuildWork -Repository $fixture -WorkDirectory $work }
 [IO.Directory]::Delete($work)
+# The pre-2026-10-17 timestamp+guid form must stay cleanable.
+$legacy = Join-Path $fixture ('../builds/GalaxyXR-Driver/build/portable-work-20260926-120000-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $legacy -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $legacy 'native.obj') -Value 'generated'
+Remove-PortableBuildWork -Repository $fixture -WorkDirectory $legacy
+if (Test-Path -LiteralPath $legacy) { throw 'Legacy work directory survived cleanup.' }
+$checks++
 foreach ($file in @('build/toolchains/keep.txt','output/keep.txt','../../repo/outside/keep.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $fixture ('../builds/GalaxyXR-Driver/' + $file)))) { throw "Protected file removed: $file" }
     $checks++

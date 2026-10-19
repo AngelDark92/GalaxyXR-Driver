@@ -123,9 +123,12 @@ It does not treat Git's ignore rules as permission to delete arbitrary files.
 Custom-named outputs, release staging folders and ZIPs require individual review.
 
 The normal portable builder already removes its own
-`build/portable-work-<timestamp>-<guid>/` after successful staging and restores the
-caller's `CARGO_TARGET_DIR`. Logs remain in `build/portable-logs-*`; failed builds
-retain their work for diagnosis. `-KeepBuildArtifacts` is a debugging opt-out.
+`build/pw-<HHmmss><6 hex>/` work directory after successful staging and restores
+the caller's `CARGO_TARGET_DIR`. The short id keeps Cargo and link paths under
+MAX_PATH 260 on long checkouts; the older `portable-work-<timestamp>-<guid>` name
+is still accepted so pre-2026-10-17 trees remain cleanable. Logs remain in
+`build/plog-*`; failed builds retain their work for diagnosis.
+`-KeepBuildArtifacts` is a debugging opt-out.
 Partial builds clean their own scratch but must not evict the last full package.
 The standalone cleanup command is run by the agent at task end; it is not a
 background job or a new GitHub workflow hook. CI must keep artifacts until its
