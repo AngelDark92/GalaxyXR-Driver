@@ -949,6 +949,12 @@
       <trans-unit id="fluent-fix-db71f02ee461e9e9" datatype="html">
         <source>Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Selecting H.264 turns the SDR 10-bit baseline off (its toggle on Driver Settings shows Off and is disabled until another codec is selected). Requires a SteamVR restart and reconnect.</source>
       </trans-unit>
+      <trans-unit id="stream-frame-codec-steamvr-gate-20261019" datatype="html">
+        <source>Codec switching is disabled while SteamVR is running. Close SteamVR completely, then choose the codec. The saved choice applies at the next SteamVR session.</source>
+      </trans-unit>
+      <trans-unit id="stream-frame-codec-steamvr-unconfirmed-20261019" datatype="html">
+        <source>The SteamVR runtime check has not confirmed a stopped runtime, so codec switching stays disabled. It unlocks after a successful check; open Setup if this persists.</source>
+      </trans-unit>
       <trans-unit id="fluent-fix-6b73191a0a4b6742" datatype="html">
         <source>Color</source>
       </trans-unit>

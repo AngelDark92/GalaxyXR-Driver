@@ -11,6 +11,7 @@ import { t } from '../locale/i18n';
 import { pageIntro, statusMessage } from '../ui/presentation';
 import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
 import { spacewarpStatus } from '../domain/spacewarp-status';
+import { codecSwitchState } from '../domain/codec-selection';
 import { normalizeOfxrPreferences, ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
 import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_status } from '../platform/tauri';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
@@ -233,6 +234,24 @@ export class StreamFramePage extends BasePage {
     if (galaxy.settings) { galaxy.settings.spacewarpEnable = enabled; galaxy.save(); }
     this.requestUpdate();
   }
+  // 2026-10-19 (owner directive): a codec switch is live-session-sensitive, so
+  // the runtime is re-checked when the user commits it. A refused switch puts
+  // the control back on the saved codec; the setting never changes silently.
+  private async selectCodec(select: EventTarget | null, codec: number): Promise<void> {
+    await this.ctx.startup.refresh();
+    const galaxy = this.ctx.galaxy;
+    if (!galaxy.settings) return;
+    if (codecSwitchState(this.ctx.startup.status()) !== 'allowed') {
+      const control = select as unknown as { value?: string } | null;
+      if (control) control.value = String(galaxy.settings.nvencCodec);
+      this.requestUpdate();
+      return;
+    }
+    if (codec === galaxy.settings.nvencCodec) return;
+    galaxy.settings.nvencCodec = codec;
+    galaxy.applyCodecEncoderDefaults(codec);
+    this.requestUpdate();
+  }
   static styles = [fieldStyles, css`
     :host { display: block; padding: 0 1rem 2rem 1rem; }
     .rgb-control { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
@@ -381,13 +400,22 @@ if (vendor) {
               : spacewarpState === 'waiting' ? 'The saved value is not confirmed by the running stream yet. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.'
               : 'The stream is left unchanged; no frames are synthesized.')));
         }
+        // 2026-10-19 (owner directive): a codec switch made while SteamVR is
+        // running would land in settings.json under a live session instead of
+        // waiting for the next start, so the selector stays disabled until the
+        // runtime is fresh and confirmed stopped.
+        const codecState = codecSwitchState(this.ctx.startup.status());
         parts.push(settingFieldRow('streamFrame.nvencCodec', html`
-      <app-select ?disabled=${!settings.nvencTap} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1' }]} @change=${(e: CustomEvent) => { const codec = e.detail; if (codec !== settings.nvencCodec) { settings.nvencCodec = codec; galaxy.applyCodecEncoderDefaults(codec); } this.requestUpdate(); }}></app-select>
+      <app-select ?disabled=${!settings.nvencTap || codecState !== 'allowed'} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1' }]} @change=${(e: CustomEvent) => { void this.selectCodec(e.currentTarget, e.detail); }}></app-select>
             `, {
   tip: t("Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Selecting H.264 turns the SDR 10-bit baseline off (its toggle on Driver Settings shows Off and is disabled until another codec is selected). Requires a SteamVR restart and reconnect.\n\nValue: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.")
             }));
         if (!settings.nvencTap) {
           parts.push(noteRow(html`Requires the NVENC Tap — enable it above to choose a codec. With the tap off the codec choice is saved but not applied.`));
+        } else if (codecState === 'running') {
+          parts.push(noteRow(html`${t('Codec switching is disabled while SteamVR is running. Close SteamVR completely, then choose the codec. The saved choice applies at the next SteamVR session.')}`));
+        } else if (codecState === 'unconfirmed') {
+          parts.push(noteRow(html`${t('The SteamVR runtime check has not confirmed a stopped runtime, so codec switching stays disabled. It unlocks after a successful check; open Setup if this persists.')}`));
         }
         parts.push(fieldRow(t('Restore Steam Link encoder behaviour'), html`
           <fluent-button appearance="outline" ?disabled=${this.ctx.sds.installingDriver() || this.ctx.startup.status()?.steamvrRunning !== false}
