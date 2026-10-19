@@ -177,6 +177,7 @@ export interface PresentationContext {
 }
 export interface PresentedSettingCheck {
   id: string;
+  source: BooleanSettingCheck['source'];
   location: string[];
   state: 'On' | 'Off' | 'Unknown' | 'Post-pack' | 'Pre-encode';
   origin: 'stored' | 'default' | 'mixed' | 'unknown';
@@ -225,7 +226,7 @@ export function presentSettings(checks: readonly BooleanSettingCheck[], context:
     if (root && setting.id === 'image-enhancements') state = imageEnhancementsEnabled(context.settings) ? 'On' : 'Off';
     if (root && setting.id === 'cas-sharpening') state = values[1] === true && values[2] === true ? 'Post-pack' : values[0] === true ? 'Pre-encode' : 'Off';
     const origins = new Set(setting.keys.map(key => checks.find(check => check.source === setting.source && check.key === key)?.origin ?? 'default'));
-    return { id: setting.id, location: [ROUTE_LABELS[setting.route], ...setting.containers, setting.label], state,
+    return { id: setting.id, source: setting.source, location: [ROUTE_LABELS[setting.route], ...setting.containers, setting.label], state,
       origin: !root ? 'unknown' : origins.size > 1 ? 'mixed' : [...origins][0],
       href: settingHref(setting.route, setting.id), unavailableReason: settingUnavailable(setting, context), advanced: setting.advanced };
   });
