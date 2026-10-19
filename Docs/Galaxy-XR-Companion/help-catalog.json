@@ -1058,13 +1058,7 @@
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 713,
-    "summary": "Plot the saved combination against the streamer standard. Read-only, drawn from the same arithmetic the driver uses.",
-    "details": "Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn.\n\nValue: none (preview only). Client side — no driver call."
-  },
-  {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 719,
-    "summary": "Applied encoder target in Mbit/s for each streamer request, at the ceiling and clamp currently saved.",
-    "details": "The graph reads the saved bandwidth, override and clamp values, so editing those updates it. It does not measure the stream; delivered rate stays content- and transport-bound."
+    "summary": "Open the curve graph in its own resizable window. It follows the saved curve and percentage while you edit them. Read-only, drawn from the same arithmetic the driver uses.",
+    "details": "Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Closing the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call."
   }
 ]

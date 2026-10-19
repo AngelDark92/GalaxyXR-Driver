@@ -127,3 +127,19 @@ export function ofxr_reinstall(prefs: OfxrPreferences): Promise<OfxrStatus> {
 export function ofxr_remove(): Promise<OfxrStatus> {
     return invoke('ofxr_remove');
 }
+
+// 2026-10-19 bitrate curve preview window (src-tauri/src/curve_preview.rs).
+// The window is read-only: it resolves the values the driver would use and the
+// page never writes through it.
+export interface CurvePreviewState {
+    curve: number;
+    constancyPct: number;
+    ceilingMbit: number;
+    clampMbit: number;
+}
+export async function open_curve_preview(locale: string): Promise<void> {
+    return invoke('open_curve_preview', { locale });
+}
+export async function curve_preview_state(): Promise<CurvePreviewState> {
+    return invoke('curve_preview_state');
+}

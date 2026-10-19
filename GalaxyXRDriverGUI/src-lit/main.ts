@@ -14,6 +14,7 @@ import { PathsService } from './services/paths';
 import { setLocale } from './locale/i18n';
 import { appCustomElements } from './register';
 import { applyTheme } from './ui/theme';
+import { CurvePreviewWindow } from './features/curve-preview-window';
 
 function localeFromPath(): string {
   const segments = window.location.pathname.split('/').filter(Boolean);
@@ -43,6 +44,19 @@ async function boot(): Promise<void> {
   // the registry here also guarantees its defining modules are retained in the
   // production bundle.
   void appCustomElements;
+
+  // 2026-10-19: the bitrate curve graph runs in its own window (#view=curve).
+  // It must not build the service composition root: no settings writer, no
+  // directory creation and no migrations. Locale and theme are all it needs.
+  const view = window.location.hash.replace(/^#/, '') || new URLSearchParams(window.location.search).get('view');
+  if (view === 'curve') {
+    applyTheme('system');
+    await loadLocale();
+    document.title = 'Bitrate Curve';
+    const preview = document.createElement('app-curve-preview') as CurvePreviewWindow;
+    document.body.appendChild(preview);
+    return;
+  }
 
   // 2026-09-26: opening Companion must not recreate data removed by Uninstall.
   // Installation and deliberate preference saves create directories on demand.
