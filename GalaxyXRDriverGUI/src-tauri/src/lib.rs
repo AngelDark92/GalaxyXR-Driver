@@ -24,6 +24,10 @@ pub fn run() {
                 i18n::load_i18n_page(app);
             }
 
+            // Built here, not from a command: creating a webview window inside
+            // an IPC handler deadlocks on Windows (wry#583).
+            curve_preview::install(app.handle());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
