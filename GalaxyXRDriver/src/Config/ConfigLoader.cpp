@@ -273,7 +273,7 @@ void ConfigLoader::ParseConfig(){
 				DriverLog("Config: %s", newConfig.streamFrame.nvencValidationError.c_str());
 			}
 		};
-		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencVrlinkClampMbit", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
+		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencBitrateCurve", "nvencBitrateConstancyPct", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencVrlinkClampMbit", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
 		for(const char* key : {"customStreamFormatWidth", "customBandwidthMbit", "customEncodeWidth", "customStreamFormatWidthOverride"}){ validateInteger("galaxyXr", key); }
 		if(data["debugMode"].is_boolean()){
 			newConfig.debugMode = data["debugMode"].get<bool>();
@@ -947,8 +947,22 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["nvencForceFps"].is_number()){
 				newConfig.streamFrame.nvencForceFps = streamFrameData["nvencForceFps"].get<int>();
 			}
-			if(streamFrameData["nvencBitrateScale"].is_boolean()){
-				newConfig.streamFrame.nvencBitrateScale = streamFrameData["nvencBitrateScale"].get<bool>();
+			if(streamFrameData["nvencBitrateCurve"].is_number()){
+				newConfig.streamFrame.nvencBitrateCurve = streamFrameData["nvencBitrateCurve"].get<int>();
+			}
+			if(streamFrameData["nvencBitrateConstancyPct"].is_number()){
+				newConfig.streamFrame.nvencBitrateConstancyPct = streamFrameData["nvencBitrateConstancyPct"].get<int>();
+			}
+			// 2026-10-19 schema migration: the retired nvencBitrateScale bool
+			// becomes the constancy percentage. Only an absent new key is
+			// translated; an explicit curve/pct choice always wins. Runs on
+			// every load (no marker gate) so already-migrated installs that
+			// still carry the fossil are handled too.
+			if(streamFrameData["nvencBitrateScale"].is_boolean() && !streamFrameData["nvencBitrateConstancyPct"].is_number()){
+				const bool scale = streamFrameData["nvencBitrateScale"].get<bool>();
+				newConfig.streamFrame.nvencBitrateConstancyPct = scale ? 0 : 100;
+				DriverLog("Config: streamFrame.nvencBitrateScale %s -> nvencBitrateConstancyPct %d (retired key)",
+					scale ? "true" : "false", newConfig.streamFrame.nvencBitrateConstancyPct);
 			}
 			if(streamFrameData["nvencVrlinkClampMbit"].is_number()){
 				newConfig.streamFrame.nvencVrlinkClampMbit = streamFrameData["nvencVrlinkClampMbit"].get<int>();
@@ -1604,7 +1618,7 @@ void ConfigLoader::ParseConfig(){
 					jsf["nvencTap"] = sf.nvencTap; jsf["nvencFixLevel"] = sf.nvencFixLevel; jsf["nvencForceCbr"] = sf.nvencForceCbr;
 					jsf["nvencVbvFrames"] = sf.nvencVbvFrames; jsf["nvencLowDelayKfScale"] = sf.nvencLowDelayKfScale;
 					jsf["nvencMaxBitrateHeadroomPct"] = sf.nvencMaxBitrateHeadroomPct; jsf["nvencForceFps"] = sf.nvencForceFps;
-					jsf["nvencBitrateScale"] = sf.nvencBitrateScale; jsf["nvencPresetMerge"] = sf.nvencPresetMerge;
+					jsf["nvencBitrateCurve"] = sf.nvencBitrateCurve; jsf["nvencBitrateConstancyPct"] = sf.nvencBitrateConstancyPct; jsf["nvencPresetMerge"] = sf.nvencPresetMerge;
 					jsf["nvencSplitMode"] = sf.nvencSplitMode; jsf["nvencPreset"] = sf.nvencPreset;
 					// 2026-09-26: v3 -> v4 also enters this writeback. Literal
 					// defaults here erased valid tuning on the following reload.
@@ -1999,7 +2013,8 @@ void ConfigLoader::WriteInfo(){
 				{"nvencMaxBitrateHeadroomPct", defaultSettings.streamFrame.nvencMaxBitrateHeadroomPct},
 				{"nvencVbvFrames", defaultSettings.streamFrame.nvencVbvFrames},
 				{"nvencForceFps", defaultSettings.streamFrame.nvencForceFps},
-				{"nvencBitrateScale", defaultSettings.streamFrame.nvencBitrateScale},
+				{"nvencBitrateCurve", defaultSettings.streamFrame.nvencBitrateCurve},
+				{"nvencBitrateConstancyPct", defaultSettings.streamFrame.nvencBitrateConstancyPct},
 				{"nvencVrlinkClampMbit", defaultSettings.streamFrame.nvencVrlinkClampMbit},
 				{"nvencH264GopFrames", defaultSettings.streamFrame.nvencH264GopFrames},
 				{"nvencH264IdrFrames", defaultSettings.streamFrame.nvencH264IdrFrames},

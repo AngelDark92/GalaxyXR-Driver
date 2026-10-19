@@ -851,10 +851,13 @@ struct StreamFrameConfig{
 	// feedback loop. 0 = leave. else force N/1 on init + every reconfigure.
 	// 90 is the correct value for this HMD.
 	int nvencForceFps = 90;
-	// scale vrlink's bitrate request by bitrate/350 instead of replacing
-	// it, so its own congestion backoff (30 Mbit during throttle events)
-	// survives the override. off = replace outright (pre-09-03 behaviour).
-	bool nvencBitrateScale = true;
+	// 2026-10-19 bitrate curve (owner request): how vrlink's request maps onto
+	// the configured bandwidth. 0 = linear (the pre-curve mapping), 1 = power
+	// knee, 2 = soft knee (CurveMath.h). Constancy 0..100 lifts the selected
+	// curve toward the ceiling: 0 = the curve itself, 100 = constant ceiling
+	// (the retired nvencBitrateScale=false). Migrated from that bool on load.
+	int nvencBitrateCurve = 0;
+	int nvencBitrateConstancyPct = 0;
 	// vrlink's own encoder ceiling (reference for the scaling), settings.json only
 	int nvencVrlinkClampMbit = 350;
 	std::string nvencValidationError; // Transient parse error, never persisted as a setting.

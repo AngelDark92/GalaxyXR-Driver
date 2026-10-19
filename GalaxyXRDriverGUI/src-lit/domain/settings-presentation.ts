@@ -91,6 +91,8 @@ ofxr('ofxr.overlay', 'FPS overlay position', { source: 'gui-settings.json', kind
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencCodec', 'Video Codec');
 const encoder = group('stream-frame', ['Encoder Advanced'], ['heading:encoder'], true, 'encoder', true);
 encoder('streamFrame.nvencForceCbr', 'Force Constant Bitrate');
+encoder('streamFrame.nvencBitrateCurve', 'Bitrate Curve', { kind: 'value' });
+encoder('streamFrame.nvencBitrateConstancyPct', 'Bitrate Constancy (%)', { kind: 'value' });
 encoder('streamFrame.nvencH264GopFrames', 'H.264 GOP Frames', { gate: 'h264' });
 encoder('streamFrame.nvencH264IdrFrames', 'H.264 IDR Frames', { gate: 'h264' });
 encoder('streamFrame.nvencH264RefFrames', 'H.264 Reference Frames', { gate: 'h264' });
@@ -122,7 +124,6 @@ retired('streamFrame.kalmanAdaptiveR', 'Adaptive Measurement Trust - EXPERIMENT 
 retired('streamFrame.kalmanGripEnable', 'Grip-Point Velocity Compensator');
 retired('streamFrame.blackFloor.shadowLift', 'Black Floor: Shadow Lift (floor / knee, sRGB codes)');
 retired('streamFrame.zeroCopyV3', 'Zero-Copy v3 (experimental)');
-retired('streamFrame.nvencBitrateScale', 'NVENC (retired): Bitrate Follows Streamer Backoff');
 retired('streamFrame.nvencPresetMerge', 'NVENC (retired): True Preset Merge');
 retired('streamFrame.deriveSmoothAngSeparate', 'Angular Smoothing: Separate (tau slow/fast ms, speed low/high rad/s)');
 retired('streamFrame.deriveSplitDirLinear', 'Derive Split Direction: Linear');

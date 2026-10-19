@@ -500,7 +500,7 @@ function fixture() {
     await setup.locator('fluent-button.danger:not([disabled])').click();
     const dialog = page.locator('fluent-dialog');
     await dialog.locator('fluent-dialog-body').waitFor();
-    assert.match(await dialog.innerText(), /Saved profiles|saved profiles/);
+    assert.match(await dialog.innerText(), /saved profiles and recovery backups/i);
     assert.equal(await page.evaluate(() => {
       let active = document.activeElement;
       while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;

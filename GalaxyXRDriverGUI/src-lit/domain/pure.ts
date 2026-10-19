@@ -102,6 +102,74 @@ export const deepCopy = <T>(obj: T, excludeObj: Partial<T> = {}): T => {
 
   return copy;
 };
+
+/**
+ * Deep-copies a settings snapshot and removes default-valued leaves that the
+ * stored document never contained. A save must not silently turn a value that
+ * only came from load-time defaults into an explicit user setting; conversely,
+ * once a key is present in stored (for example after materializing defaults on
+ * reinstall), a later save keeps it even when it still equals its default.
+ *
+ * Arrays are leaves and compare by content. Objects are recursed into. Keys are
+ * only ever removed, never added, and parents of removed leaves stay as empty
+ * objects so the surrounding shape is preserved.
+ *
+ * @param snapshot - The effective settings to serialize.
+ * @param defaults - The effective defaults, matched against snapshot leaves.
+ * @param stored - The raw parsed settings document last read from disk.
+ * @returns A deep copy of snapshot with unstored default leaves pruned.
+ */
+export function pruneUnstoredDefaults<T>(snapshot: T, defaults: Partial<T> | undefined, stored: unknown): T {
+  if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) return snapshot;
+  const copy = structuredClone(snapshot);
+  const isPlainContainer = (value: unknown): boolean =>
+    !!value && typeof value === 'object' && !Array.isArray(value);
+  const hasKey = (value: unknown, key: string): boolean =>
+    isPlainContainer(value) && Object.prototype.hasOwnProperty.call(value, key);
+  const prune = (target: Record<string, any>, defaultValues: unknown, storedValues: unknown) => {
+    for (const key of Object.keys(target)) {
+      const value = target[key];
+      const defaultKnown = hasKey(defaultValues, key);
+      const defaultValue = defaultKnown ? (defaultValues as Record<string, any>)[key] : undefined;
+      const storedKnown = hasKey(storedValues, key);
+      if (isPlainContainer(value)) {
+        const nestedDefault = isPlainContainer(defaultValue) ? defaultValue : undefined;
+        const nestedStored = storedKnown && isPlainContainer((storedValues as Record<string, any>)[key])
+          ? (storedValues as Record<string, any>)[key]
+          : undefined;
+        prune(value as Record<string, any>, nestedDefault, nestedStored);
+      } else if (!storedKnown && defaultKnown && areValuesEqual(value, defaultValue)) {
+        delete target[key];
+      }
+    }
+  };
+  prune(copy as Record<string, any>, defaults, stored);
+  return copy;
+}
+
+/**
+ * Deep-copies a stored settings document and fills only the keys it does not
+ * contain with their defaults. Unlike a general merge, arrays and scalars from
+ * the stored document win outright; existing values are never replaced.
+ */
+export function fillMissingDefaults<T>(stored: T, defaults: Partial<T> | undefined): T {
+  const isPlainContainer = (value: unknown): value is Record<string, any> =>
+    !!value && typeof value === 'object' && !Array.isArray(value);
+  const copy = structuredClone(stored);
+  if (!isPlainContainer(copy) || !isPlainContainer(defaults)) return copy;
+  const fill = (target: Record<string, any>, source: Record<string, any>) => {
+    for (const key of Object.keys(source)) {
+      if (!Object.prototype.hasOwnProperty.call(target, key)) {
+        target[key] = structuredClone(source[key]);
+      } else if (isPlainContainer(target[key]) && isPlainContainer(source[key])) {
+        fill(target[key], source[key]);
+      }
+    }
+  };
+  fill(copy, defaults);
+  return copy;
+}
+
 /**
  * @description Defines an interface to check if an item is an object.
  */

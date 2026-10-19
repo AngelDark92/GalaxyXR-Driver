@@ -1064,6 +1064,81 @@ fn remove_companion_manifests() -> Result<(), String> {
     Ok(())
 }
 
+/// Retires the Companion's bridge INI from every versioned runtime directory
+/// (and, for older layouts, the install root). The layer DLL and its
+/// RuntimeLayer directory are kept: the OFXR install itself is not ours to
+/// delete.
+#[cfg(windows)]
+fn remove_companion_ini_files() -> Result<(), String> {
+    let local_directory = platform::local_directory()?;
+    let root = local_directory.join(RUNTIME_ROOT_NAME);
+    let mut errors: Vec<String> = Vec::new();
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => Some(entries),
+        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("Reading {} failed: {error}", root.display())),
+    };
+    for entry in entries.into_iter().flatten().flatten() {
+        let path = entry.path();
+        if !is_real_directory(&path) {
+            continue;
+        }
+        remove_companion_ini(&path.join(INI_NAME), &mut errors);
+    }
+    // Older layouts keep the INI at the install root even without RuntimeLayer.
+    remove_companion_ini(&local_directory.join(INI_NAME), &mut errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
+}
+
+#[cfg(windows)]
+fn remove_companion_ini(path: &Path, errors: &mut Vec<String>) {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => errors.push(format!("Removing {} failed: {error}", path.display())),
+    }
+}
+
+/// Uninstall cleanup: release this process's held arm event, then retire every
+/// Companion-owned registration, manifest and bridge INI. The versioned
+/// RuntimeLayer install is kept so an OFXR tray-managed install or a later
+/// Companion reinstall still works.
+#[cfg(windows)]
+pub fn cleanup_companion_state() -> Result<(), String> {
+    let _command = command_guard();
+    let mut errors: Vec<String> = Vec::new();
+    if let Some(handle) = take_held_event() {
+        if let Err(reason) = platform::release_handle(handle, true) {
+            errors.push(reason);
+        }
+    }
+    if let Err(reason) = remove_companion_registrations() {
+        errors.push(reason);
+    }
+    if let Err(reason) = remove_companion_manifests() {
+        errors.push(reason);
+    }
+    if let Err(reason) = remove_companion_ini_files() {
+        errors.push(reason);
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
+}
+
+/// OFXR component management is Windows-only; there is no Companion state to
+/// release on other platforms.
+#[cfg(not(windows))]
+pub fn cleanup_companion_state() -> Result<(), String> {
+    Ok(())
+}
+
 /// Called from the Tauri RunEvent::Exit handler: signal the layer stop event
 /// (running sessions end cleanly) and retire this Companion's registration and
 /// manifests, matching the documented "closing the Companion disarms it".

@@ -16,6 +16,7 @@ import { normalizeOfxrPreferences, ofxrCanArm, ofxrDisabledReason } from '../dom
 import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_status } from '../platform/tauri';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 import { codecEncoderDefaults, streamFrameIntegerError } from '../state/galaxy-settings';
+import { BITRATE_CURVE_FAMILIES } from '../domain/bitrate-curve';
 import '../ui/controls';
 import './driver-banner';
 import './system-ready';
@@ -46,6 +47,8 @@ export class StreamFramePage extends BasePage {
   // rejected invoke degrades to 'unavailable' so the page keeps rendering.
   private ofxrStatus?: OfxrStatus;
   private ofxrStatusRequested = false;
+  // 2026-10-19: the curve preview is page-local UI state; it changes nothing.
+  private curvePreview = false;
   private readonly streamNumberErrors = new Map<string, string>();
   // 2026-10-16: inline per-key validation for app-number rows (the driver
   // contract in streamFrameIntegerError). The entered value is kept and
@@ -680,6 +683,44 @@ if (settings.nvencTap) {
   tip: t("Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."),
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
+                {
+                  // 2026-10-19 owner request: curve family + constancy, both
+                  // locked while SteamVR runs, plus an on-request graph that
+                  // mirrors CurveMath.h. The gate is the codec selector's
+                  // freshness-checked predicate, not a raw steamvrRunning read:
+                  // a stale stopped report is never proof SteamVR is closed.
+                  const curveLocked = codecSwitchState(this.ctx.startup.status()) !== 'allowed';
+                  const curveCeiling = settings.nvencBitrateMbit > 0 ? settings.nvencBitrateMbit
+                    : (settings.nvencBandwidthOverrideMbit > 0 ? settings.nvencBandwidthOverrideMbit : galaxy.streamQualityValues.bandwidth);
+                  const curveClamp = settings.nvencVrlinkClampMbit > 0 ? settings.nvencVrlinkClampMbit : 350;
+                  parts.push(settingFieldRow('streamFrame.nvencBitrateCurve', html`
+      <app-select ?disabled=${curveLocked} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { settings.nvencBitrateCurve = Number(e.detail); save(); }}></app-select>
+      ${curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``}
+                  `, {
+  tip: t("Choose how the streamer's per-frame request becomes the encoder target. Changing this needs SteamVR closed; the saved value applies to the next session.\n\nLinear maps the request straight onto the ceiling, so a 350 Mbit/s request means your bandwidth. The knees hold more of your ceiling until the request falls further: power knee raises the middle of the range and keeps a proportional tail below 60% of the clamp, while soft knee holds the ceiling until 60%. A constancy of 100% overrides the family and always sends the ceiling, which is the retired bitrate-follows-backoff switch turned off.\n\nValue: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the NVENC average bitrate target."),
+  reset: { can: (settings.nvencBitrateCurve ?? 0) !== defaults.nvencBitrateCurve, on: () => galaxy.reset('nvencBitrateCurve') }
+                  }));
+                  parts.push(settingFieldRow('streamFrame.nvencBitrateConstancyPct', html`
+      <app-number ?disabled=${curveLocked} .value=${settings.nvencBitrateConstancyPct ?? 0} step="5" min="0" max="100" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBitrateConstancyPct = e.detail; } this.noteNumberError('streamFrame.nvencBitrateConstancyPct', e.detail); save(); }}></app-number>
+      ${curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``}
+                  `, {
+  tip: t("Lift the selected curve toward your ceiling. 0 leaves the curve as selected; 100 sends the ceiling whatever the streamer asks. Changing this needs SteamVR closed.\n\nAt a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the power knee at 0%, 402 with Linear at 50%, 414 with the power knee at 50% and 450 at 100%. High constancy overrides the streamer's congestion response; the measured cost is stream resets and stalled pacing, so raise it deliberately.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve."),
+  reset: { can: (settings.nvencBitrateConstancyPct ?? 0) !== defaults.nvencBitrateConstancyPct, on: () => galaxy.reset('nvencBitrateConstancyPct') }
+                  }));
+                  parts.push(this.numberErrorRow('streamFrame.nvencBitrateConstancyPct'));
+                  parts.push(fieldRow(t('Bitrate Curve Preview'), html`
+      <fluent-button appearance="outline" @click=${() => { this.curvePreview = !this.curvePreview; this.requestUpdate(); }}>${this.curvePreview ? t('Hide graph') : t('Show graph')}</fluent-button>
+                  `, {
+  tip: t("Plot the saved combination against the streamer standard. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn.\n\nValue: none (preview only). Client side — no driver call.")
+                  }));
+                  if (this.curvePreview) {
+                    parts.push(fieldRow(t('Applied bitrate curve'), html`
+      <app-bitrate-curve .curve=${settings.nvencBitrateCurve ?? 0} .pct=${settings.nvencBitrateConstancyPct ?? 0} .ceiling=${curveCeiling} .clamp=${curveClamp}></app-bitrate-curve>
+                    `, {
+  tip: t("Applied encoder target in Mbit/s for each streamer request, at the ceiling and clamp currently saved.\n\nThe graph reads the saved bandwidth, override and clamp values, so editing those updates it. It does not measure the stream; delivered rate stays content- and transport-bound.")
+                    }));
+                  }
+                }
                 parts.push(settingFieldRow('streamFrame.nvencMultiPass', html`
                   <app-select .value=${settings.nvencMultiPass ?? -1} .options=${[
                     { value: -1, label: t('Automatic (codec / preset)') }, { value: 0, label: t('Single pass') },
@@ -1004,12 +1045,6 @@ if (vendor) {
             }));
             parts.push(this.numberErrorRow('streamFrame.nvencMinQp'));
             parts.push(this.numberErrorRow('streamFrame.nvencMinQpIntra'));
-            parts.push(settingFieldRow('streamFrame.nvencBitrateScale', html`
-      <app-switch .checked=${!!settings.nvencBitrateScale} @change=${(e: CustomEvent) => { settings.nvencBitrateScale = e.detail; save(); }}></app-switch>
-            `, {
-  tip: "Preserve the streamer's rate-control configuration. This compatibility behavior stays enabled; it is not a separate quality improvement to tune.\n\nAlways on. The streamer's per-frame request is its real rate control; replacing it outright (off) starves the pacer (R3).",
-  reset: { can: settings.nvencBitrateScale != defaults.nvencBitrateScale, on: () => { galaxy.reset('nvencBitrateScale'); } }
-            }));
             parts.push(settingFieldRow('streamFrame.nvencPresetMerge', html`
       <app-switch .checked=${!!settings.nvencPresetMerge} @change=${(e: CustomEvent) => { settings.nvencPresetMerge = e.detail; save(); }}></app-switch>
             `, {

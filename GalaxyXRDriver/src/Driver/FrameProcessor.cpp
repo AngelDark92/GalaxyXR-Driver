@@ -1732,7 +1732,8 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	tc.maxBitrateHeadroomPct = settings.config.nvencMaxBitrateHeadroomPct;
 	tc.vbvFrames = settings.config.nvencVbvFrames;
 	tc.forceFps = settings.config.nvencForceFps;
-	tc.bitrateScale = settings.config.nvencBitrateScale;
+	tc.bitrateCurve = settings.config.nvencBitrateCurve;
+	tc.bitrateConstancyPct = settings.config.nvencBitrateConstancyPct;
 	tc.vrlinkClampMbit = settings.config.nvencVrlinkClampMbit;
 	tc.requestError = settings.config.nvencValidationError;
 	if(tc.bitrateMbit <= 0){ tc.requestError = "Requested streaming bandwidth must be a positive integer."; }

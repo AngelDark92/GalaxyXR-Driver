@@ -458,7 +458,7 @@ void CheckExplicitSettings(){
 	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == beforeParse
 		&& NvencTap::Get().GetRuntimeState().error.find(parseFailure.requestError) == 0,
 		"parser rejection: runtime surfaces original error without default substitution");
-	NvencTapConfig highRate; highRate.enabled = true; highRate.bitrateMbit = 2500; highRate.bitrateScale = false;
+	NvencTapConfig highRate; highRate.enabled = true; highRate.bitrateMbit = 2500; highRate.bitrateConstancyPct = 100;
 	NvencTap::Get().SetConfig(highRate);
 	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS && seenBitrate == 2500000000u,
 		"requested bitrate above old 2000Mbps cap: exact representable value reaches NVENC");
@@ -507,7 +507,7 @@ void CheckExplicitSettings(){
 	}
 	origGetPresetConfigEx = RejectCanonicalPreset;
 	cfg.forceCbr = true; cfg.lowDelayKfScale = 3; cfg.vbvFrames = 2;
-	cfg.bitrateMbit = 180; cfg.bitrateScale = false; cfg.presetMerge = true; cfg.preset = 6;
+	cfg.bitrateMbit = 180; cfg.bitrateConstancyPct = 100; cfg.presetMerge = true; cfg.preset = 6;
 	NvencTap::Get().SetConfig(cfg);
 	const int rejectedPresetsBefore = rejectedPresetCalls;
 	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS,

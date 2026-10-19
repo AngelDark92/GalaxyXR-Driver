@@ -2072,10 +2072,10 @@ Continue only if you accept this image-quality tradeoff. Turn enhancements off t
         <source>Reinstall driver</source>
       </trans-unit>
       <trans-unit id="companion-20260926-98025cb4ac4fee30" datatype="html">
-        <source>Remove the driver and active settings. Keep saved profiles and backups for later use.</source>
+        <source>Remove the driver, active settings, saved profiles and recovery backups.</source>
       </trans-unit>
       <trans-unit id="companion-20260926-a37773b2ac5d752e" datatype="html">
-        <source>Remove the driver and all active driver and app settings? Recorded SteamVR changes will be restored and verified historical leftovers removed. Saved profiles, recovery backups and other drivers are kept. Original values that were never recorded cannot be recovered. Close SteamVR first.</source>
+        <source>Remove the driver and all driver and app settings, including saved profiles and recovery backups? Recorded SteamVR changes will be restored and verified historical leftovers removed. Other drivers are kept. Original values that were never recorded cannot be recovered. Close SteamVR first.</source>
       </trans-unit>
       <trans-unit id="companion-20260926-756a327c5dd2965b" datatype="html">
         <source>Report issues to this fork and attach the SteamVR server log.</source>
@@ -2173,7 +2173,7 @@ Restarting the compositor can fix some issues and allows changing various settin
         <source>Some checks need attention</source>
       </trans-unit>
       <trans-unit id="companion-20260926-8891566f257a954a" datatype="html">
-        <source>Some items could not be removed. Recovery information was kept. Review Details, resolve the problem, and retry uninstall.</source>
+        <source>Some items could not be removed. Driver and settings were removed; retry uninstall to finish the remaining cleanup.</source>
       </trans-unit>
       <trans-unit id="companion-20260926-abcf55a86ea8f6e8" datatype="html">
         <source>Start SteamVR</source>
@@ -2232,7 +2232,7 @@ Use the calibration grid to inspect alignment, then turn calibration off before 
         <source>The controls have been restored to the last verified values.</source>
       </trans-unit>
       <trans-unit id="companion-20260926-84d3fc53ddb094b7" datatype="html">
-        <source>The driver and active settings were removed. Saved profiles and backups were kept. Your next installation will start with defaults.</source>
+        <source>The driver, active settings, saved profiles and recovery backups were removed. Your next installation will start with defaults.</source>
       </trans-unit>
       <trans-unit id="companion-20260926-935a55c90e697c73" datatype="html">
         <source>The driver folder was not found next to the app. Extract the complete portable package and try again, or choose the driver folder containing driver.vrdrivermanifest (GalaxyXRNative for the Galaxy XR package).</source>
@@ -3660,6 +3660,68 @@ Value: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset mer
       </trans-unit>
       <trans-unit id="3177210294" datatype="html">
         <source>Show the Debug tab and allow its selected diagnostic overlays and logging. Turning this off stops diagnostic effects while keeping their saved selections. Black-point correction and encoder compatibility/rate tuning remain active. Requires a SteamVR restart and reconnect for the Steam Link debug overlay.</source>
+      </trans-unit>
+      <trans-unit id="4238407554" datatype="html">
+        <source>Close SteamVR to change</source>
+      </trans-unit>
+      <trans-unit id="95190493" datatype="html">
+        <source>Linear (streamer standard)</source>
+      </trans-unit>
+      <trans-unit id="2856862803" datatype="html">
+        <source>Power knee</source>
+      </trans-unit>
+      <trans-unit id="2520079899" datatype="html">
+        <source>Soft knee</source>
+      </trans-unit>
+      <trans-unit id="2099994001" datatype="html">
+        <source>Bitrate Curve Preview</source>
+      </trans-unit>
+      <trans-unit id="3686998569" datatype="html">
+        <source>Hide graph</source>
+      </trans-unit>
+      <trans-unit id="3202211268" datatype="html">
+        <source>Show graph</source>
+      </trans-unit>
+      <trans-unit id="2044989601" datatype="html">
+        <source>Applied bitrate curve</source>
+      </trans-unit>
+      <trans-unit id="1835418662" datatype="html">
+        <source>streamer request (Mbit/s)</source>
+      </trans-unit>
+      <trans-unit id="2194687293" datatype="html">
+        <source>applied (Mbit/s)</source>
+      </trans-unit>
+      <trans-unit id="3333270645" datatype="html">
+        <source>Streamer standard (linear)</source>
+      </trans-unit>
+      <trans-unit id="3027307407" datatype="html">
+        <source>Steady-state map. Except for Linear at 0%, the driver median-filters the streamer request over five frames; that filter is not shown.</source>
+      </trans-unit>
+      <trans-unit id="469935408" datatype="html">
+        <source>Choose how the streamer's per-frame request becomes the encoder target. Changing this needs SteamVR closed; the saved value applies to the next session.
+
+Linear maps the request straight onto the ceiling, so a 350 Mbit/s request means your bandwidth. The knees hold more of your ceiling until the request falls further: power knee raises the middle of the range and keeps a proportional tail below 60% of the clamp, while soft knee holds the ceiling until 60%. A constancy of 100% overrides the family and always sends the ceiling, which is the retired bitrate-follows-backoff switch turned off.
+
+Value: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the NVENC average bitrate target.</source>
+      </trans-unit>
+      <trans-unit id="1939510974" datatype="html">
+        <source>Lift the selected curve toward your ceiling. 0 leaves the curve as selected; 100 sends the ceiling whatever the streamer asks. Changing this needs SteamVR closed.
+
+At a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the power knee at 0%, 402 with Linear at 50%, 414 with the power knee at 50% and 450 at 100%. High constancy overrides the streamer's congestion response; the measured cost is stream resets and stalled pacing, so raise it deliberately.
+
+Value: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve.</source>
+      </trans-unit>
+      <trans-unit id="628060530" datatype="html">
+        <source>Plot the saved combination against the streamer standard. Read-only, drawn from the same arithmetic the driver uses.
+
+Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn.
+
+Value: none (preview only). Client side — no driver call.</source>
+      </trans-unit>
+      <trans-unit id="1058167583" datatype="html">
+        <source>Applied encoder target in Mbit/s for each streamer request, at the ceiling and clamp currently saved.
+
+The graph reads the saved bandwidth, override and clamp values, so editing those updates it. It does not measure the stream; delivered rate stays content- and transport-bound.</source>
       </trans-unit>
     </body>
   </file>

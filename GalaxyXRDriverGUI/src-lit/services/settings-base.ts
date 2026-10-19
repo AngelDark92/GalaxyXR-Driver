@@ -40,7 +40,7 @@ export abstract class JsonSettingServiceBase<T> {
   protected _initTask: Promise<void>;
   public get initTask(): Promise<void> { return this._initTask; }
   protected defaults?: T;
-  private verified?: T;
+  protected verified?: T;
   private saveSequence = 0;
   private pendingSaves = 0;
   private stopWatching?: () => void;
@@ -226,6 +226,14 @@ export abstract class JsonSettingServiceBase<T> {
     this._readFileError.set(this.defaultsWhenMissing ? undefined : { reason: FileReadErrorReason.NotExists });
   }
 
+  /**
+   * Serializes the snapshot that save() writes. The default keeps only values
+   * that differ from the effective defaults; subclasses may change the policy.
+   */
+  protected serializeForSave(snapshot: T): string {
+    return JSON.stringify(deepCopy(snapshot, this.defaults ?? {}), undefined, 4);
+  }
+
   async save(values: T): Promise<boolean> {
     if (this.inspecting || this.disposed) return false;
     const snapshot = structuredClone(values);
@@ -236,7 +244,7 @@ export abstract class JsonSettingServiceBase<T> {
       if (this.inspecting || this.disposed || sequence !== this.saveSequence) return false;
       this._values.set(snapshot);
       try {
-        await this.debouncedFileWriter.save(JSON.stringify(deepCopy(snapshot, this.defaults ?? {}), undefined, 4));
+        await this.debouncedFileWriter.save(this.serializeForSave(snapshot));
         this.verified = structuredClone(snapshot);
         this._writeFileError.set(undefined);
         return true;

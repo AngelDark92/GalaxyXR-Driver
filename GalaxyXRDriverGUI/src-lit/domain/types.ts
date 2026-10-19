@@ -235,7 +235,8 @@ export type StreamFrameConfig = {
   nvencMaxBitrateHeadroomPct: number;
   nvencVbvFrames: number;
   nvencForceFps: number;
-  nvencBitrateScale: boolean;
+  nvencBitrateCurve: number;
+  nvencBitrateConstancyPct: number;
   nvencVrlinkClampMbit: number;
   // Optional for settings written before the editable H.264 recipe (2026-10-16).
   // GOP/IDR: 0 follows the encoder FPS; -1 preserves upstream parameters.

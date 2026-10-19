@@ -17,7 +17,7 @@ $exe = Join-Path $build 'ToggleMigrationTest.exe'
 if ($LASTEXITCODE -ne 0) { throw 'Toggle migration test compilation failed.' }
 # Unique test-owned fixtures make the persisted migration marker repeatable.
 $fixtures = Join-Path $build ([Guid]::NewGuid().ToString('N'))
-foreach ($scenario in 0..26) {
+foreach ($scenario in 0..27) {
     & $exe (Join-Path $fixtures $scenario) $scenario
     if ($LASTEXITCODE -ne 0) { throw "Toggle migration scenario $scenario failed." }
 }

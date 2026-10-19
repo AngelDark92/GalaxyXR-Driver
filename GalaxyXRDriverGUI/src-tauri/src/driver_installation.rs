@@ -878,17 +878,22 @@ pub fn uninstall_galaxyxr_driver(steamvr_path: Option<String>) -> Result<Uninsta
     uninstall_driver(&ctx,&std::env::current_exe().map_err(|e|e.to_string())?,|path,add|run_registration(&ctx,path,add))
 }
 
+/// Paths a settings-only reset leaves alone. Uninstall removes the whole
+/// driver data tree, so it reports only source bundles and foreign
+/// registrations as preserved.
 fn preserved_data_paths(data: &Path) -> Vec<String> {
     [Some(data.join("Distortion")), data.parent().map(|p|p.join("Backups"))].into_iter().flatten()
         .filter(|p|p.exists()).map(|p|p.to_string_lossy().into_owned()).collect()
 }
 
+/// Deletes every entry under the driver data root, including named distortion
+/// profiles and the Distortion directory itself, so an uninstall leaves no
+/// `CustomHeadset` tree behind. The root goes too once it is empty.
 fn remove_driver_data(data: &Path, removed: &mut Vec<String>) -> Result<()> {
     if !data.exists() { return Ok(()); }
     safe_tree(data)?;
     for entry in fs::read_dir(data).map_err(|e|error(data,e))? {
         let entry = entry.map_err(|e|error(data,e))?;
-        if entry.file_name().eq_ignore_ascii_case("Distortion") { continue; }
         let path = entry.path();
         let result = if entry.file_type().map_err(|e|error(&path,e))?.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
         result.map_err(|e|error(&path,e))?;
@@ -901,15 +906,134 @@ fn remove_driver_data(data: &Path, removed: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
+/// `gxr_au_dump.bin` locations written by the driver's AU diagnostic path
+/// (NvencTap.cpp:1802-1808): `%TEMP%`, or `%USERPROFILE%\AppData\Local\Temp`
+/// when TEMP is missing.
+fn uninstall_dump_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let temp = std::env::var_os("TEMP").filter(|temp| !temp.is_empty()).map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    push_path(&mut paths, temp.join("gxr_au_dump.bin"));
+    if let Some(profile) = std::env::var_os("USERPROFILE") {
+        push_path(&mut paths, PathBuf::from(profile).join("AppData/Local/Temp/gxr_au_dump.bin"));
+    }
+    paths
+}
+
+/// Removes `steamvr.vrsettings.galaxyxr-identity-backup-*.json` files written
+/// beside SteamVR settings by identity cleanup. Other files are untouched.
+fn remove_identity_backups(parent: &Path, removed: &mut Vec<String>) -> Result<()> {
+    const PREFIX: &str = "steamvr.vrsettings.galaxyxr-identity-backup-";
+    let entries = match fs::read_dir(parent) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(error(parent, e)),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|e| error(parent, e))?;
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if !name.starts_with(PREFIX) || !name.ends_with(".json") { continue; }
+        let path = entry.path();
+        if !entry.file_type().map_err(|e| error(&path, e))?.is_file() { continue; }
+        safe_chain(&path)?;
+        fs::remove_file(&path).map_err(|e| error(&path, e))?;
+        removed.push(path.to_string_lossy().into_owned());
+    }
+    Ok(())
+}
+
+/// Removes a directory only when it is already empty; a non-empty directory is
+/// left for the user (or another manager) and is not an error.
+fn remove_empty_directory(path: Option<&Path>, removed: &mut Vec<String>) -> Result<()> {
+    let Some(path) = path.filter(|p| !p.as_os_str().is_empty()) else { return Ok(()) };
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => (),
+        Ok(_) => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(error(path, e)),
+    }
+    safe_chain(path)?;
+    if fs::read_dir(path).map_err(|e| error(path, e))?.next().is_some() { return Ok(()); }
+    fs::remove_dir(path).map_err(|e| error(path, e))?;
+    removed.push(path.to_string_lossy().into_owned());
+    Ok(())
+}
+
+/// Post-commit uninstall cleanup for state this app owns outside the driver
+/// data tree: the profile backup tree, AU dumps, identity backups beside
+/// SteamVR settings and the Companion's OFXR registration/INI state. Any error
+/// makes the caller report an incomplete uninstall so the user can retry.
+fn cleanup_uninstall_residue_at(data: &Path, managed: &Path, settings: Option<&Path>, dumps: &[PathBuf], ofxr_cleanup: &mut dyn FnMut() -> Result<()>) -> Result<Vec<String>> {
+    let mut removed = Vec::new();
+    if let Some(backups) = data.parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.join("Backups")) {
+        match fs::symlink_metadata(&backups) {
+            Ok(meta) if meta.is_dir() => {
+                safe_tree(&backups)?;
+                fs::remove_dir_all(&backups).map_err(|e| error(&backups, e))?;
+                removed.push(backups.to_string_lossy().into_owned());
+            }
+            Ok(_) => return Err(error(&backups, "Backups path is not a directory")),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+            Err(e) => return Err(error(&backups, e)),
+        }
+    }
+    for dump in dumps {
+        safe_chain(dump)?;
+        match fs::remove_file(dump) {
+            Ok(()) => removed.push(dump.to_string_lossy().into_owned()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+            Err(e) => return Err(error(dump, e)),
+        }
+    }
+    if let Some(parent) = settings.and_then(Path::parent) {
+        remove_identity_backups(parent, &mut removed)?;
+    }
+    ofxr_cleanup()?;
+    remove_empty_directory(data.parent(), &mut removed)?;
+    remove_empty_directory(managed.parent(), &mut removed)?;
+    Ok(removed)
+}
+
+// Unit tests never touch live per-user state: no %TEMP% dump or OpenXR
+// registry/INI is removed by a fixture uninstall. Tests that exercise residue
+// pass explicit paths and a recording closure to cleanup_uninstall_residue_at.
+#[cfg(test)]
+fn uninstall_residue_dumps() -> Vec<PathBuf> { Vec::new() }
+#[cfg(not(test))]
+fn uninstall_residue_dumps() -> Vec<PathBuf> { uninstall_dump_paths() }
+
+#[cfg(test)]
+fn ofxr_cleanup_for_uninstall() -> Result<()> { Ok(()) }
+#[cfg(not(test))]
+fn ofxr_cleanup_for_uninstall() -> Result<()> {
+    crate::ofxr::cleanup_companion_state().map_err(|e| format!("OFXR companion state: {e}"))
+}
+
+fn cleanup_uninstall_residue(ctx: &Context) -> Result<Vec<String>> {
+    cleanup_uninstall_residue_at(&ctx.data, &ctx.managed, Some(&ctx.settings), &uninstall_residue_dumps(), &mut || ofxr_cleanup_for_uninstall())
+}
+
+fn steamvr_settings_from_paths() -> Option<PathBuf> {
+    let paths_file = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("openvr/openvrpaths.vrpath");
+    let paths = read_json(&paths_file).ok()?;
+    let config = paths["config"].as_array()?.first()?.as_str()?;
+    Some(PathBuf::from(config).join("steamvr.vrsettings"))
+}
+
 fn uninstall_local_settings(data: &Path, managed: &Path) -> Result<UninstallReport> {
     safe_chain(data)?; safe_chain(managed)?;
     if data.join("steamvr-changes.json").exists() || data.join("installation.json").exists()
         || data.join("info.json").exists() || (managed.exists() && fs::read_dir(managed).map_err(|e|error(managed,e))?.next().is_some()) {
         return Err("SteamVR cannot be located, but installation or recovery records remain. Locate SteamVR and retry; recovery records and settings were preserved.".into());
     }
-    let preserved_paths = preserved_data_paths(data);
+    // SteamVR is missing, so no source bundle or registration is preserved;
+    // the local driver data, backups and residue are all owned by uninstall.
+    let preserved_paths = vec![];
     let mut removed_paths = vec![];
-    let result = remove_driver_data(data, &mut removed_paths);
+    let settings = steamvr_settings_from_paths();
+    let result = remove_driver_data(data, &mut removed_paths)
+        .and_then(|()| cleanup_uninstall_residue_at(data, managed, settings.as_deref(), &uninstall_residue_dumps(), &mut || ofxr_cleanup_for_uninstall()))
+        .map(|mut residue| removed_paths.append(&mut residue));
     let mut unresolved_items = vec!["SteamVR could not be located. Driver registration and historical SteamVR changes could not be verified.".into()];
     if let Err(error) = &result { unresolved_items.push(format!("Local settings removal is incomplete: {error}. Retry Uninstall.")); }
     Ok(UninstallReport { outcome:if result.is_ok() { "attention-required" } else { "incomplete" }, preserved_paths, warnings:unresolved_items.clone(), unresolved_items,
@@ -1005,14 +1129,14 @@ fn uninstall_driver(ctx:&Context,exe:&Path,mut register:impl FnMut(&Path,bool)->
     }
     // Commit: deletion errors are surfaced, with settings restored and receipt
     // retained. Never report success after a partial filesystem cleanup.
-    let mut report = UninstallReport { outcome: "complete", preserved_paths: preserved_data_paths(&ctx.data),
+    let mut report = UninstallReport { outcome: "complete", preserved_paths: vec![],
         unresolved_items: vec![], removed_paths: vec![], restored_settings: restored, legacy_reset: legacy || historical_removed > 0, warnings };
     for source in sources.iter().filter(|p|p.exists()) { report.preserved_paths.push(source.to_string_lossy().into_owned()); }
     for path in preserved_neutral {
         report.preserved_paths.push(path.to_string_lossy().into_owned());
         report.warnings.push(format!("Preserved neutral driver {}: no installation ownership record.", path.display()));
     }
-    let cleanup = (|| {
+    let cleanup: Result<()> = (|| {
         for (original, tombstone) in &staged {
             fs::remove_dir_all(tombstone).map_err(|e|error(tombstone,e))?;
             report.removed_paths.push(original.to_string_lossy().into_owned());
@@ -1026,16 +1150,23 @@ fn uninstall_driver(ctx:&Context,exe:&Path,mut register:impl FnMut(&Path,bool)->
             safe_chain(&ctx.managed)?;
             fs::remove_dir(&ctx.managed).map_err(|e|error(&ctx.managed,e))?;
         }
-        remove_driver_data(&ctx.data, &mut report.removed_paths)
+        remove_driver_data(&ctx.data, &mut report.removed_paths)?;
+        report.removed_paths.extend(cleanup_uninstall_residue(&ctx)?);
+        Ok(())
     })();
     if let Err(e) = cleanup {
         // Registration/settings have committed. Keep recovery evidence and
         // report partial removal so the GUI never resumes stale settings writes.
         report.outcome = "incomplete";
         report.unresolved_items.push(format!("Removal is incomplete: {e}. Retry Uninstall to finish."));
-        if let Err(e)=atomic_json(&ctx.journal(),&journal) { report.unresolved_items.push(format!("Recovery journal save failed: {e}")); }
-        if let Err(e)=atomic_json(&ctx.receipt(),&recovery_receipt) { report.unresolved_items.push(format!("Recovery receipt save failed: {e}")); }
-        report.preserved_paths.push(ctx.data.to_string_lossy().into_owned());
+        // Recovery records only make sense while the data tree still exists.
+        // Recreating them after a complete data removal would leave a journal
+        // without its SteamVR settings file and block the retry.
+        if ctx.data.exists() {
+            if let Err(e)=atomic_json(&ctx.journal(),&journal) { report.unresolved_items.push(format!("Recovery journal save failed: {e}")); }
+            if let Err(e)=atomic_json(&ctx.receipt(),&recovery_receipt) { report.unresolved_items.push(format!("Recovery receipt save failed: {e}")); }
+            report.preserved_paths.push(ctx.data.to_string_lossy().into_owned());
+        }
     } else if !report.warnings.is_empty() { report.outcome = "attention-required"; }
     report.unresolved_items.extend(report.warnings.iter().cloned());
     Ok(report)
@@ -1684,7 +1815,7 @@ mod tests {
     }
 
     #[test]
-    fn uninstall_keeps_profiles_backups_and_same_version_reinstall_uses_defaults() {
+    fn uninstall_removes_profiles_backups_and_same_version_reinstall_uses_defaults() {
         let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("bundle/gui.exe");
         let profile=f.ctx.data.join("Distortion/custom.json");let backup=f.ctx.data.parent().unwrap().join("Backups/old/settings.before");
         atomic_bytes(&profile,b"saved profile bytes").unwrap();atomic_bytes(&backup,b"saved backup bytes").unwrap();
@@ -1692,12 +1823,17 @@ mod tests {
         let installed=install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         let report=uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         assert_ne!(report.outcome,"incomplete");assert!(!Path::new(&installed.registered_path).exists());
-        assert_eq!(fs::read(&profile).unwrap(),b"saved profile bytes");assert_eq!(fs::read(&backup).unwrap(),b"saved backup bytes");
-        assert!(report.preserved_paths.contains(&profile.parent().unwrap().to_string_lossy().into_owned()));
+        // Uninstall owns the whole data tree: named profiles and backups go,
+        // and only source bundles remain preserved.
+        assert!(!profile.exists());assert!(!f.ctx.data.join("Distortion").exists());
+        assert!(!backup.exists());assert!(!f.ctx.data.parent().unwrap().join("Backups").exists());
+        assert!(!f.ctx.data.exists());assert!(!f.ctx.data.parent().unwrap().exists());
+        assert!(report.preserved_paths.iter().any(|p|same_path(Path::new(p),&source)));
+        assert!(!report.preserved_paths.iter().any(|p|p.contains("Distortion")||p.contains("Backups")));
         assert!(!f.ctx.data.join("settings.json").exists());assert!(!f.ctx.journal().exists());assert!(!f.ctx.receipt().exists());
         install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         assert_eq!(read_json(&f.ctx.data.join("settings.json")).unwrap(),json!({"galaxyXr":{"nativeIdentity":true}}));
-        assert_eq!(fs::read(&profile).unwrap(),b"saved profile bytes");
+        assert!(!profile.exists());
     }
 
     #[test]
@@ -1748,7 +1884,60 @@ mod tests {
         atomic_json(&f.ctx.receipt(),&json!({"unreadable":"receipt"})).unwrap();
         assert!(uninstall_local_settings(&f.ctx.data,&f.ctx.managed).is_err());assert!(f.ctx.data.join("settings.json").exists());
         fs::remove_file(f.ctx.receipt()).unwrap();let report=uninstall_local_settings(&f.ctx.data,&f.ctx.managed).unwrap();
-        assert_eq!(report.outcome,"attention-required");assert!(!f.ctx.data.join("settings.json").exists());assert!(f.ctx.data.join("Distortion/profile.json").exists());
+        assert_eq!(report.outcome,"attention-required");assert!(report.preserved_paths.is_empty());
+        assert!(!f.ctx.data.join("settings.json").exists());
+        // The local uninstall removes named profiles with the rest of the tree.
+        assert!(!f.ctx.data.join("Distortion/profile.json").exists());assert!(!f.ctx.data.exists());
+        assert!(!f.ctx.data.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn uninstall_removes_backups_identity_backups_and_keeps_settings_siblings() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("bundle/gui.exe");
+        let backups=f.ctx.data.parent().unwrap().join("Backups/old/settings.before");
+        atomic_bytes(&backups,b"backup").unwrap();
+        let settings_dir=f.ctx.settings.parent().unwrap();
+        let identity=settings_dir.join("steamvr.vrsettings.galaxyxr-identity-backup-4242-7.json");
+        let unrelated=settings_dir.join("steamvr.vrsettings.manual.json");
+        atomic_bytes(&identity,b"identity").unwrap();atomic_bytes(&unrelated,b"manual").unwrap();
+        let installed=install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let report=uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert_eq!(report.outcome,"complete");assert!(!Path::new(&installed.registered_path).exists());
+        assert!(!backups.exists());assert!(!f.ctx.data.parent().unwrap().join("Backups").exists());
+        assert!(!identity.exists());assert!(unrelated.exists());
+        assert!(!f.ctx.data.parent().unwrap().exists());
+        assert!(report.removed_paths.iter().any(|p|p.ends_with("Backups")));
+        assert!(report.removed_paths.iter().any(|p|p.ends_with("galaxyxr-identity-backup-4242-7.json")));
+        assert!(report.preserved_paths.iter().any(|p|same_path(Path::new(p),&source)));
+        assert!(!report.preserved_paths.iter().any(|p|p.contains("Distortion")||p.contains("Backups")));
+    }
+
+    #[test]
+    fn uninstall_residue_removes_au_dumps_from_temp_and_user_profile() {
+        let f=Fixture::new();
+        let dumps=uninstall_dump_paths();
+        let temp=std::env::var_os("TEMP").filter(|temp|!temp.is_empty()).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        assert!(dumps.contains(&temp.join("gxr_au_dump.bin")));
+        if let Some(profile)=std::env::var_os("USERPROFILE") {
+            assert!(dumps.contains(&PathBuf::from(profile).join("AppData/Local/Temp/gxr_au_dump.bin")));
+        }
+        let temp_dump=f.root.join("temp/gxr_au_dump.bin");let profile_dump=f.root.join("profile/gxr_au_dump.bin");
+        atomic_bytes(&temp_dump,b"dump").unwrap();atomic_bytes(&profile_dump,b"dump").unwrap();
+        let removed=cleanup_uninstall_residue_at(&f.ctx.data,&f.ctx.managed,None,&[temp_dump.clone(),profile_dump.clone()],&mut || Ok(())).unwrap();
+        assert!(!temp_dump.exists());assert!(!profile_dump.exists());
+        assert_eq!(removed.iter().filter(|p|p.ends_with("gxr_au_dump.bin")).count(),2);
+    }
+
+    #[test]
+    fn uninstall_residue_invokes_ofxr_cleanup_and_propagates_its_error() {
+        let f=Fixture::new();
+        let mut calls=0;
+        cleanup_uninstall_residue_at(&f.ctx.data,&f.ctx.managed,None,&[],&mut || {calls+=1;Ok(())}).unwrap();
+        assert_eq!(calls,1);
+        let mut calls=0;
+        let result=cleanup_uninstall_residue_at(&f.ctx.data,&f.ctx.managed,None,&[],&mut || {calls+=1;Err("OpenXR key busy".into())});
+        assert_eq!(calls,1);
+        assert!(result.unwrap_err().contains("OpenXR key busy"));
     }
 
     #[test]
@@ -1773,19 +1962,19 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn locked_app_preferences_report_incomplete_then_retry_preserves_profiles() {
+    fn locked_app_preferences_report_incomplete_then_retry_removes_profiles() {
         use std::os::windows::fs::OpenOptionsExt;
         let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("bundle/gui.exe");
         install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         let preferences=f.ctx.data.join("gui-settings.json");atomic_json(&preferences,&json!({"advanceMode":true})).unwrap();
-        atomic_bytes(&f.ctx.data.join("Distortion/profile.json"),b"profile").unwrap();
+        let profile=f.ctx.data.join("Distortion/profile.json");atomic_bytes(&profile,b"profile").unwrap();
         let locked=fs::OpenOptions::new().read(true).share_mode(1).open(&preferences).unwrap();
         let report=uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         assert_eq!(report.outcome,"incomplete");assert!(!report.unresolved_items.is_empty());assert!(f.ctx.receipt().exists());assert!(f.ctx.journal().exists());
         drop(locked);
         let report=uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         assert_ne!(report.outcome,"incomplete");assert!(!preferences.exists());assert!(!f.ctx.receipt().exists());assert!(!f.ctx.journal().exists());
-        assert_eq!(fs::read(f.ctx.data.join("Distortion/profile.json")).unwrap(),b"profile");
+        assert!(!profile.exists());assert!(!f.ctx.data.join("Distortion").exists());assert!(!f.ctx.data.exists());
     }
 
     #[test]

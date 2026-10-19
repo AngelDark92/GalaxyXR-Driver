@@ -44,11 +44,11 @@ describe('stream-frame integer validation', () => {
       'streamFrame.nvencH264VbvInitialDelay', 'streamFrame.nvencMultiPass', 'streamFrame.nvencPreset',
       'streamFrame.nvencSplitMode', 'streamFrame.nvencAqStrength', 'streamFrame.nvencLowDelayKfScale',
       'streamFrame.nvencMaxQp', 'streamFrame.nvencMinQp', 'streamFrame.nvencMinQpIntra',
-      'streamFrame.nvencBitrateMbit', 'streamFrame.nvencMaxBitrateHeadroomPct', 'streamFrame.nvencForceFps',
+      'streamFrame.nvencBitrateMbit', 'streamFrame.nvencBitrateConstancyPct', 'streamFrame.nvencMaxBitrateHeadroomPct', 'streamFrame.nvencForceFps',
       'streamFrame.nvencVbvFrames', 'streamFrame.nvencQpFovea', 'streamFrame.nvencQpPeriphery']) {
       expect(contractKeys).toContain(key);
     }
-    expect(contractKeys).toHaveLength(28);
+    expect(contractKeys).toHaveLength(29);
   });
 
   it.each([
@@ -332,10 +332,26 @@ describe('schema migrations', () => {
     expect(reopened.gs.settings).toMatchObject(chosen);
   });
 
+  it('migrates the retired bitrate bool to constancy from the stored object', async () => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4 },
+    };
+    const rawStored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencBitrateScale: false },
+    };
+    const { gs, flush } = buildHarness(stored, undefined, rawStored);
+    await flush();
+    // false (replace outright) becomes 100% constancy, not the default 0.
+    expect(gs.settings?.nvencBitrateConstancyPct).toBe(100);
+    expect((gs.rootSetting as any).streamFrame.nvencBitrateScale).toBeUndefined();
+  });
+
   it('preserves explicit pre-v3 encoder and headset-profile Off choices', async () => {
     const off = {
       nvencTap: false, nvencFixLevel: false, nvencForceCbr: false,
-      nvencBitrateScale: false, nvencPresetMerge: false,
+      nvencBitrateConstancyPct: 100, nvencPresetMerge: false,
     };
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, vrlinkHeadsetProfile: false },
@@ -375,7 +391,7 @@ describe('schema migrations', () => {
     };
     const { gs, flush } = buildHarness(stored);
     await flush();
-    for (const key of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencBitrateScale', 'nvencPresetMerge'] as const) {
+    for (const key of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencBitrateConstancyPct', 'nvencPresetMerge'] as const) {
       expect(stored.streamFrame[key], key).toBe(driverDefaults.streamFrame![key]);
     }
     expect(gs.galaxyXr.vrlinkHeadsetProfile).toBe(driverDefaults.galaxyXr!.vrlinkHeadsetProfile);

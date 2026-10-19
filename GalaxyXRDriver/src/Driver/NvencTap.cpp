@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "NvencTap.h"
 #include "NvencPostPack.h"
+#include "CurveMath.h"
 #include "DriverLog.h"
 #include "../../../ThirdParty/minhook/include/MinHook.h"
 #include "../../../ThirdParty/nvenc/nvEncodeAPI.h"
@@ -241,6 +242,9 @@ int submitHead = 0;
 
 std::mutex statsLock;
 NvencTapStats stats;
+// 2026-10-19: defined beside RecordRequest (which fills the window); declared
+// here because ApplyOverrides reads it earlier in the file.
+double RequestMedian();
 std::mutex runtimeLock;
 NvencTapRuntimeState runtime;
 void* runtimeEncoder = nullptr;
@@ -262,7 +266,7 @@ std::string RequestDescription(const NvencTapConfig& c){
 	std::ostringstream out;
 	out << "codec=" << c.codec << " preset=" << c.preset << '/' << c.presetAuto << '/' << c.presetMerge
 		<< " split=" << c.splitMode << " multipass=" << c.multiPass << " fps=" << c.forceFps
-		<< " bitrate=" << c.bitrateMbit << '/' << c.bitrateScale << '/' << c.vrlinkClampMbit << '/' << c.maxBitrateHeadroomPct
+		<< " bitrate=" << c.bitrateMbit << '/' << c.bitrateCurve << '/' << c.bitrateConstancyPct << '/' << c.vrlinkClampMbit << '/' << c.maxBitrateHeadroomPct
 		<< " cbr=" << c.forceCbr << " vbv=" << c.vbvFrames << " kf=" << c.lowDelayKfScale
 		<< " qp=" << c.minQp << '/' << c.minQpIntra << '/' << c.maxQp << " aq=" << c.aqStrength
 		<< " qpMap=" << c.qpFovea << '/' << c.qpPeriphery << '/' << c.qpEdgeFalloff << '/' << c.qpFoveaTop << " fixLevel=" << c.fixLevel
@@ -1197,10 +1201,23 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	if(cfg.bitrateMbit > 0){
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
 		int64_t target = cfg.bitrateMbit * 1000000ll;
-		if(cfg.bitrateScale && cfg.vrlinkClampMbit > 0 && rc.averageBitRate > 0){
-			// scale vrlink's request: its clamp maps to our target, a
-			// backoff below the clamp stays a proportional backoff
-			target = (int64_t)((double)rc.averageBitRate * (double)cfg.bitrateMbit / (double)cfg.vrlinkClampMbit);
+		if(cfg.vrlinkClampMbit > 0 && rc.averageBitRate > 0){
+			if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0){
+				// 2026-10-19 default curve: byte-identical to the pre-curve
+				// integer formula. pow() is not bit-exact, so the untouched
+				// configuration never enters the curve header.
+				target = (int64_t)((double)rc.averageBitRate * (double)cfg.bitrateMbit / (double)cfg.vrlinkClampMbit);
+			} else {
+				// 2026-10-19: the curve reads the median of the last five
+				// requests so one deep one-frame dip cannot drag the target;
+				// the current call is already in the window (RecordRequest
+				// runs before ApplyOverrides).
+				double reqMbit = RequestMedian();
+				if(reqMbit <= 0.0){ reqMbit = rc.averageBitRate / 1e6; }
+				double x = reqMbit / (double)cfg.vrlinkClampMbit;
+				if(x < 0.0){ x = 0.0; } else if(x > 1.0){ x = 1.0; }
+				target = (int64_t)((double)cfg.bitrateMbit * 1e6 * GxrCurveTarget(x, cfg.bitrateCurve, cfg.bitrateConstancyPct));
+			}
 			target = (std::min<int64_t>)(target, cfg.bitrateMbit * 1000000ll);
 		}
 		uint32_t avg = (uint32_t)target;
@@ -1294,6 +1311,23 @@ void RecordRequest(const NV_ENC_INITIALIZE_PARAMS* p){
 	stats.ivReqCount++; stats.ivReqSumMbit += m;
 	if(m < stats.ivReqMinMbit){ stats.ivReqMinMbit = m; }
 	if(m > stats.ivReqMaxMbit){ stats.ivReqMaxMbit = m; }
+	// 2026-10-19: the bitrate curve's window. newest sample replaces the
+	// oldest once the five slots are full.
+	stats.reqHist[stats.reqHistPos] = m;
+	stats.reqHistPos = (stats.reqHistPos + 1u) % 5u;
+	if(stats.reqHistCount < 5u){ stats.reqHistCount++; }
+}
+
+// median of the last five requests in Mbit/s (0 = no history yet). takes
+// statsLock: callers must not already hold it.
+double RequestMedian(){
+	std::lock_guard<std::mutex> g(statsLock);
+	const uint32_t n = stats.reqHistCount;
+	if(!n){ return 0.0; }
+	double v[5];
+	for(uint32_t i = 0; i < n; ++i){ v[i] = stats.reqHist[i]; }
+	std::sort(v, v + n);
+	return (n & 1u) ? v[n / 2u] : 0.5 * (v[n / 2u - 1u] + v[n / 2u]);
 }
 
 void RecordLast(const NV_ENC_INITIALIZE_PARAMS* p){
@@ -1363,7 +1397,9 @@ std::string ValidateRequest(const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_P
 	if(cfg.splitMode > 0 && cfg.codec != 1 && !IsH264(p->encodeGUID) && (ApiMajor(p->version) < 12 || StructVer(p->version) < 6)){ return "streamFrame.nvencSplitMode requires NVENC API 12.1 initialization parameters."; }
 	if(cfg.preset < 0 || cfg.preset > 7 || cfg.multiPass < -1 || cfg.multiPass > 2){ return "streamFrame.nvencPreset must be 0..7 and streamFrame.nvencMultiPass must be -1..2."; }
 	if(cfg.forceFps < 0 || cfg.bitrateMbit < 0 || cfg.vbvFrames < 0 || cfg.maxBitrateHeadroomPct < 0){ return "streamFrame.nvencForceFps, streamFrame.nvencBitrateMbit, streamFrame.nvencVbvFrames and streamFrame.nvencMaxBitrateHeadroomPct cannot be negative."; }
-	if(cfg.bitrateScale && cfg.bitrateMbit > 0 && cfg.vrlinkClampMbit <= 0){ return "Bitrate scaling (streamFrame.nvencBitrateScale) requires a positive streamFrame.nvencVrlinkClampMbit."; }
+	if(cfg.bitrateCurve < 0 || cfg.bitrateCurve > 2){ return "streamFrame.nvencBitrateCurve must be 0 (linear), 1 (power knee) or 2 (soft knee)."; }
+	if(cfg.bitrateConstancyPct < 0 || cfg.bitrateConstancyPct > 100){ return "streamFrame.nvencBitrateConstancyPct must be 0..100."; }
+	if(cfg.bitrateMbit > 0 && cfg.vrlinkClampMbit <= 0 && cfg.bitrateConstancyPct < 100){ return "Bitrate scaling requires a positive streamFrame.nvencVrlinkClampMbit unless constancy is 100."; }
 	const double maxValue = (double)(std::numeric_limits<uint32_t>::max)();
 	const double bitrate = cfg.bitrateMbit > 0 ? cfg.bitrateMbit * 1000000.0 : p->encodeConfig->rcParams.averageBitRate;
 	if(bitrate * (1.0 + cfg.maxBitrateHeadroomPct / 100.0) > maxValue){ return "streamFrame.nvencBitrateMbit with streamFrame.nvencMaxBitrateHeadroomPct exceeds the NVENC uint32 bit-rate field."; }
@@ -1392,7 +1428,17 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		uint32_t* outerVersion = nullptr, bool initializing = false){
 	(void)failedThenOk; (void)outerVersion;
 	const NvencTapConfig cfg = NvencTap::Get().GetConfig();
-	{ std::lock_guard<std::mutex> guard(statsLock); calls++; }
+	{
+		std::lock_guard<std::mutex> guard(statsLock);
+		calls++;
+		// 2026-10-19: the request window belongs to one session and one tap
+		// state; a fresh init or an enable transition starts a new one.
+		if(initializing || stats.reqHistEnabled != cfg.enabled){
+			stats.reqHistCount = 0; stats.reqHistPos = 0;
+			for(double &v : stats.reqHist){ v = 0.0; }
+			stats.reqHistEnabled = cfg.enabled;
+		}
+	}
 	RecordRequest(p);
 	// colour-depth fix A (2026-10-17): record the caller's raw input surface
 	// class at every guarded init/reconfigure. No override writes bufferFormat

@@ -37,13 +37,13 @@ function dirtySettings(h) {
     galaxyXr:{nativeIdentity:false,nativeResolution:false,streamQuality:'custom',customBandwidthMbit:425,
       renderModelScale:1.3,vrlinkExtraKeys:{targetBandwidth:{i:425}},sdr10SettingsVersion:2},
     streamFrame:{streamFrameSchema:4,nvencSettingsVersion:4,enable:true,saturation:73,gamma:2.4,
-      nvencTap:false,nvencBitrateScale:false,nvencForceCbr:false,nvencPreset:7,nvencForceFps:72,
+      nvencTap:false,nvencBitrateConstancyPct:100,nvencForceCbr:false,nvencPreset:7,nvencForceFps:72,
       nvencVbvFrames:5,postPack:{enable:false,casEnable:false},alignment:{leftH:0.2}},
     controllers:{rotationOffsetDeg:{x:7,y:8,z:9}},customShader:{enable:true,contrast:63},
   });
   h.fixture.put(h.fixture.data+'/info.json',{driverVersion:'old-package',defaultSettings:{
     galaxyXr:{nativeIdentity:false,nativeResolution:false,renderModelScale:2},
-    streamFrame:{saturation:13,gamma:3,nvencTap:false,nvencBitrateScale:false,nvencPreset:6,
+    streamFrame:{saturation:13,gamma:3,nvencTap:false,nvencBitrateConstancyPct:0,nvencPreset:6,
       nvencForceCbr:false,nvencVbvFrames:8,postPack:{enable:false,casEnable:false}},
     controllers:{rotationOffsetDeg:{x:11,y:12,z:13}},customShader:{contrast:17},
   }});
@@ -100,11 +100,11 @@ function cleanMock(h, next) {
     cleanMock(h);const r=await c.sds.cleanSettings(c.appSetting);assert.ok(r);assert.equal(c.dss.values().galaxyXr.nativeIdentity,true);
     assert.equal(c.appSetting.values().advanceMode,false);assert.equal(c.appSetting.values().colorScheme,'dark');assert.equal(c.appSetting.values().updateMode,'rewrite');assert.equal(c.appSetting.values().driverVerified,false);assert.equal(c.dis.values(),undefined);assert.equal(c.sds.driverInstalled(),'1.2.3');assert.equal(c.dss.inspecting,false);assert.equal(c.appSetting.inspecting,false);
     await tick();const expected=h.source('domain/driver-defaults').driverDefaults.streamFrame;
-    for(const key of ['nvencTap','nvencFixLevel','nvencForceCbr','nvencBitrateScale','nvencPresetMerge','nvencVbvFrames','nvencLowDelayKfScale','nvencForceFps','nvencSplitMode']){
+    for(const key of ['nvencTap','nvencFixLevel','nvencForceCbr','nvencBitrateConstancyPct','nvencPresetMerge','nvencVbvFrames','nvencLowDelayKfScale','nvencForceFps','nvencSplitMode']){
       assert.equal(c.dss.values().streamFrame[key],expected[key],key);
       assert.equal(c.galaxy.rootSetting.streamFrame[key],expected[key],key+' switch');
     }
-    assert.equal(c.galaxy.rootSetting.streamFrame.nvencTap,true);assert.equal(c.galaxy.rootSetting.streamFrame.nvencBitrateScale,true);
+    assert.equal(c.galaxy.rootSetting.streamFrame.nvencTap,true);assert.equal(c.galaxy.rootSetting.streamFrame.nvencBitrateConstancyPct,0);
     assert.deepEqual(withoutSchemaStamps(c.galaxy.rootSetting.streamFrame.postPack),withoutSchemaStamps(expected.postPack));
     await h.source('platform/writer').flushFileWrites();assert.deepEqual(JSON.parse(h.fixture.files.get(h.fixture.data+'/settings.json')),freshDriverConfig);
   }));

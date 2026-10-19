@@ -260,8 +260,8 @@ export class SetupPage extends BasePage {
       const incomplete = report?.outcome === 'incomplete';
       await this.ctx.dialog.message(incomplete ? t('Uninstall needs another step')
         : report?.outcome === 'attention-required' ? t('Driver removed with notices') : t('Uninstall complete'),
-        incomplete ? t('Some items could not be removed. Recovery information was kept. Review Details, resolve the problem, and retry uninstall.')
-          : t('The driver and active settings were removed. Saved profiles and backups were kept. Your next installation will start with defaults.'),
+        incomplete ? t('Some items could not be removed. Driver and settings were removed; retry uninstall to finish the remaining cleanup.')
+          : t('The driver, active settings, saved profiles and recovery backups were removed. Your next installation will start with defaults.'),
         report ? [t('Locations removed') + ': ' + report.removedPaths.length,
           t('SteamVR settings restored') + ': ' + report.restoredSettings,
           ...((report.preservedPaths ?? []).length ? [t('Kept locations') + ':', ...report.preservedPaths] : []),
@@ -294,7 +294,7 @@ export class SetupPage extends BasePage {
           </article>
           <article class="action-card danger-zone">
             <h3>${statusIcon('warning')}${t('Uninstall driver')}</h3>
-            <p>${t('Remove the driver and active settings. Keep saved profiles and backups for later use.')}</p>
+            <p>${t('Remove the driver, active settings, saved profiles and recovery backups.')}</p>
             <fluent-button appearance="primary" class="danger" ?disabled=${cleanupBlocked}
               @click=${() => this.uninstallDriver()}>${t('Uninstall driver')}</fluent-button>
           </article>

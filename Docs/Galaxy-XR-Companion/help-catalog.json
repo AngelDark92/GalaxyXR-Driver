@@ -859,12 +859,6 @@
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 655,
-    "summary": "Preserve the streamer's rate-control configuration. This compatibility behavior stays enabled; it is not a separate quality improvement to tune.",
-    "details": "Always on. The streamer's per-frame request is its real rate control; replacing it outright (off) starves the pacer (R3)."
-  },
-  {
-    "source": "features/stream-frame-page.ts",
     "originalLine": 730,
     "summary": "Preset merge adopts canonical preset settings. Explicit multipass and H.264 controls below remain authoritative. Automatic multipass uses the tested H.264 single-pass default or the HEVC/AV1 preset recommendation.",
     "details": "Value: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset merge adoption on encoder session setup; the H.264 multipass adoption stays 0."
@@ -1048,5 +1042,29 @@
     "originalLine": 612,
     "summary": "Show the OFXR frame counter in the headset at the chosen corner; Off hides it.",
     "details": "Value: ofxr.overlay (gui-settings.json). Companion side — writes the overlay position."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 699,
+    "summary": "Choose how the streamer's per-frame request becomes the encoder target. Changing this needs SteamVR closed; the saved value applies to the next session.",
+    "details": "Linear maps the request straight onto the ceiling, so a 350 Mbit/s request means your bandwidth. The knees hold more of your ceiling until the request falls further: power knee raises the middle of the range and keeps a proportional tail below 60% of the clamp, while soft knee holds the ceiling until 60%. A constancy of 100% overrides the family and always sends the ceiling, which is the retired bitrate-follows-backoff switch turned off.\n\nValue: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the NVENC average bitrate target."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 706,
+    "summary": "Lift the selected curve toward your ceiling. 0 leaves the curve as selected; 100 sends the ceiling whatever the streamer asks. Changing this needs SteamVR closed.",
+    "details": "At a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the power knee at 0%, 402 with Linear at 50%, 414 with the power knee at 50% and 450 at 100%. High constancy overrides the streamer's congestion response; the measured cost is stream resets and stalled pacing, so raise it deliberately.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 713,
+    "summary": "Plot the saved combination against the streamer standard. Read-only, drawn from the same arithmetic the driver uses.",
+    "details": "Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn.\n\nValue: none (preview only). Client side — no driver call."
+  },
+  {
+    "source": "features/stream-frame-page.ts",
+    "originalLine": 719,
+    "summary": "Applied encoder target in Mbit/s for each streamer request, at the ceiling and clamp currently saved.",
+    "details": "The graph reads the saved bandwidth, override and clamp values, so editing those updates it. It does not measure the stream; delivered rate stays content- and transport-bound."
   }
 ]
