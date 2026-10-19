@@ -3,6 +3,7 @@ mod js_api;
 mod driver_installation;
 mod ofxr;
 mod webview_zoom;
+mod curve_preview;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -44,12 +45,20 @@ pub fn run() {
             ofxr::ofxr_disarm,
             ofxr::ofxr_apply,
             webview_zoom::set_webview_zoom,
+            curve_preview::open_curve_preview,
+            curve_preview::curve_preview_state,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, event| {
-            if let tauri::RunEvent::Exit = event {
-                ofxr::shutdown_on_exit();
-            }
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => ofxr::shutdown_on_exit(),
+            // Closing the Companion takes the preview with it; a lone preview
+            // window must never keep the process alive.
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } if label == "main" => app.exit(0),
+            _ => {}
         });
 }

@@ -13,7 +13,7 @@ import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../do
 import { spacewarpStatus } from '../domain/spacewarp-status';
 import { codecSwitchState } from '../domain/codec-selection';
 import { normalizeOfxrPreferences, ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
-import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_remove, ofxr_reinstall, ofxr_status } from '../platform/tauri';
+import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_remove, ofxr_reinstall, ofxr_status, open_curve_preview } from '../platform/tauri';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 import { codecEncoderDefaults, streamFrameIntegerError } from '../state/galaxy-settings';
 import { BITRATE_CURVE_FAMILIES } from '../domain/bitrate-curve';
@@ -47,8 +47,21 @@ export class StreamFramePage extends BasePage {
   // rejected invoke degrades to 'unavailable' so the page keeps rendering.
   private ofxrStatus?: OfxrStatus;
   private ofxrStatusRequested = false;
-  // 2026-10-19: the curve preview is page-local UI state; it changes nothing.
-  private curvePreview = false;
+  // 2026-10-19: the graph opens in its own window; this only reports a failure
+  // to open it.
+  private curveWindowError?: string;
+  private async openCurveWindow(): Promise<void> {
+    // Same locale segment boot() resolves from the page path.
+    const locale = window.location.pathname.split('/').filter(Boolean)[0] ?? 'en-US';
+    try {
+      await open_curve_preview(locale);
+      this.curveWindowError = undefined;
+    } catch (error) {
+      this.curveWindowError = String(error);
+      console.error('Curve preview window failed to open', error);
+    }
+    this.requestUpdate();
+  }
   private readonly streamNumberErrors = new Map<string, string>();
   // 2026-10-16: inline per-key validation for app-number rows (the driver
   // contract in streamFrameIntegerError). The entered value is kept and
@@ -815,9 +828,6 @@ if (settings.nvencTap) {
                   // freshness-checked predicate, not a raw steamvrRunning read:
                   // a stale stopped report is never proof SteamVR is closed.
                   const curveLocked = codecSwitchState(this.ctx.startup.status()) !== 'allowed';
-                  const curveCeiling = settings.nvencBitrateMbit > 0 ? settings.nvencBitrateMbit
-                    : (settings.nvencBandwidthOverrideMbit > 0 ? settings.nvencBandwidthOverrideMbit : galaxy.streamQualityValues.bandwidth);
-                  const curveClamp = settings.nvencVrlinkClampMbit > 0 ? settings.nvencVrlinkClampMbit : 350;
                   parts.push(settingFieldRow('streamFrame.nvencBitrateCurve', html`
       <app-select ?disabled=${curveLocked} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { settings.nvencBitrateCurve = Number(e.detail); save(); }}></app-select>
       ${curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``}
@@ -833,17 +843,13 @@ if (settings.nvencTap) {
   reset: { can: (settings.nvencBitrateConstancyPct ?? 0) !== defaults.nvencBitrateConstancyPct, on: () => galaxy.reset('nvencBitrateConstancyPct') }
                   }));
                   parts.push(this.numberErrorRow('streamFrame.nvencBitrateConstancyPct'));
-                  parts.push(fieldRow(t('Bitrate Curve Preview'), html`
-      <fluent-button appearance="outline" @click=${() => { this.curvePreview = !this.curvePreview; this.requestUpdate(); }}>${this.curvePreview ? t('Hide graph') : t('Show graph')}</fluent-button>
+                  parts.push(fieldRow(t('Bitrate Curve Graph'), html`
+      <fluent-button appearance="outline" @click=${() => { void this.openCurveWindow(); }}>${t('Open graph window')}</fluent-button>
                   `, {
-  tip: t("Plot the saved combination against the streamer standard. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn.\n\nValue: none (preview only). Client side — no driver call.")
+  tip: t("Open the curve graph in its own resizable window. It follows the saved curve and percentage while you edit them. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Closing the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call.")
                   }));
-                  if (this.curvePreview) {
-                    parts.push(fieldRow(t('Applied bitrate curve'), html`
-      <app-bitrate-curve .curve=${settings.nvencBitrateCurve ?? 0} .pct=${settings.nvencBitrateConstancyPct ?? 0} .ceiling=${curveCeiling} .clamp=${curveClamp}></app-bitrate-curve>
-                    `, {
-  tip: t("Applied encoder target in Mbit/s for each streamer request, at the ceiling and clamp currently saved.\n\nThe graph reads the saved bandwidth, override and clamp values, so editing those updates it. It does not measure the stream; delivered rate stays content- and transport-bound.")
-                    }));
+                  if (this.curveWindowError) {
+                    parts.push(noteRow(html`${t('The graph window could not be opened: {reason}', { reason: this.curveWindowError })}`));
                   }
                 }
                 parts.push(settingFieldRow('streamFrame.nvencMultiPass', html`

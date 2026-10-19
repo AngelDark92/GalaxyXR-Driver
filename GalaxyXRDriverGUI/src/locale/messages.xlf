@@ -3673,18 +3673,6 @@ Value: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset mer
       <trans-unit id="2520079899" datatype="html">
         <source>Soft knee</source>
       </trans-unit>
-      <trans-unit id="2099994001" datatype="html">
-        <source>Bitrate Curve Preview</source>
-      </trans-unit>
-      <trans-unit id="3686998569" datatype="html">
-        <source>Hide graph</source>
-      </trans-unit>
-      <trans-unit id="3202211268" datatype="html">
-        <source>Show graph</source>
-      </trans-unit>
-      <trans-unit id="2044989601" datatype="html">
-        <source>Applied bitrate curve</source>
-      </trans-unit>
       <trans-unit id="1835418662" datatype="html">
         <source>streamer request (Mbit/s)</source>
       </trans-unit>
@@ -3712,9 +3700,9 @@ At a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the pow
 Value: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve.</source>
       </trans-unit>
       <trans-unit id="628060530" datatype="html">
-        <source>Plot the saved combination against the streamer standard. Read-only, drawn from the same arithmetic the driver uses.
+        <source>Open the curve graph in its own resizable window. It follows the saved curve and percentage while you edit them. Read-only, drawn from the same arithmetic the driver uses.
 
-Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn.
+Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Closing the Companion closes the graph window too.
 
 Value: none (preview only). Client side — no driver call.</source>
       </trans-unit>
@@ -3752,6 +3740,7 @@ Value: ofxr.version (gui-settings.json).</source>
       <trans-unit id="ofxr-20261019-9" datatype="html">
         <source>Reinstall deletes the Companion-owned runtime directory for the selected version and stages the bundled payload again, verifying its files. Uninstall disarms the layer, removes the Companion registration and deletes every payload directory the Companion created; OFXR tray installs are left untouched. The driver uninstall performs the same cleanup.</source>
       </trans-unit>
+
       <trans-unit id="uiscale-20261019-1" datatype="html">
         <source>Interface Scale</source>
       </trans-unit>
@@ -3762,6 +3751,26 @@ Value: uiScale (gui-settings.json). GUI-only presentation preference.</source>
       </trans-unit>
       <trans-unit id="uiscale-20261019-3" datatype="html">
         <source>Interface scale could not be applied</source>
+      </trans-unit>
+
+      <trans-unit id="2345231850" datatype="html">
+        <source>Bitrate Curve Graph</source>
+      </trans-unit>
+      <trans-unit id="3394987635" datatype="html">
+        <source>Open graph window</source>
+      </trans-unit>
+      <trans-unit id="1438794259" datatype="html">
+        <source>The graph window could not be opened: {reason}</source>
+      </trans-unit>
+      <trans-unit id="4152526460" datatype="html">
+        <source>Bitrate curve</source>
+      </trans-unit>
+      <trans-unit id="4131997893" datatype="html">
+        <source>Ceiling {ceiling} Mbit/s, clamp {clamp} Mbit/s</source>
+      </trans-unit>
+      <trans-unit id="2851497539" datatype="html">
+        <source>Could not read settings.json: {reason}</source>
+
       </trans-unit>
     </body>
   </file>
