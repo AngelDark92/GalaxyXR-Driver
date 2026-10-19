@@ -1,12 +1,9 @@
 //! 2026-10-19 bitrate curve preview window.
 //!
 //! The graph lives in its own resizable window so it can be watched while the
-//! Stream Frame page is edited. The window is built hidden during startup
-//! (`install`) and only shown or hidden afterwards: building a webview inside an
-//! IPC handler deadlocks on Windows (wry#583), so nothing here creates windows
-//! from a command except as a last-resort async fallback.
-//!
-//! `curve_preview_state` resolves the same values the driver would use:
+//! Stream Frame page is edited. The window is created from Rust (no JS window
+//! permission) and keeps itself current by polling `curve_preview_state`, which
+//! resolves the same values the driver would use:
 //!   ceiling = nvencBitrateMbit, else nvencBandwidthOverrideMbit, else
 //!             galaxyXr.customBandwidthMbit, else 350
 //!   clamp   = nvencVrlinkClampMbit, else 350
@@ -88,58 +85,12 @@ pub fn is_curve_preview_window(window: tauri::WebviewWindow) -> bool {
     window.label() == PREVIEW_LABEL
 }
 
-/// Creates the graph window once, hidden, while the app is starting.
-///
-/// Windows deadlocks if a webview window is built from a synchronous command
-/// (wry#583: `create_controller`'s completion never runs on the IPC thread), so
-/// the window is built here — the same place Tauri builds the main window —
-/// and later only shown or hidden. Closing it hides it; the app exits when the
-/// main window closes.
-pub fn install(app: &AppHandle) {
-    if app.get_webview_window(PREVIEW_LABEL).is_some() {
-        return;
-    }
-    // Reuse the URL shape the main window already loaded: <locale>/index.html.
-    let Some(main) = app.get_webview_window("main") else {
-        return;
-    };
-    let Ok(url) = main.url() else { return };
-    let path = url.path().trim_start_matches('/').to_string();
-    let path = if path.is_empty() || !path.ends_with("index.html") {
-        "en-US/index.html".to_string()
-    } else {
-        path
-    };
-    let built = WebviewWindowBuilder::new(app, PREVIEW_LABEL, WebviewUrl::App(path.into()))
-        .title("Bitrate Curve")
-        .inner_size(760.0, 520.0)
-        .min_inner_size(480.0, 320.0)
-        .resizable(true)
-        .closable(true)
-        .visible(false)
-        .initialization_script("window.__GXR_CURVE_PREVIEW__ = true;")
-        .build();
-    if let Ok(window) = built {
-        let target = window.clone();
-        window.on_window_event(move |event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Hiding keeps the loaded page; recreating a webview at runtime
-                // is the path that deadlocks on Windows.
-                api.prevent_close();
-                let _ = target.hide();
-            }
-        });
-    }
-}
-
 #[tauri::command]
-pub async fn open_curve_preview(app: AppHandle, locale: String) -> Result<(), String> {
+pub fn open_curve_preview(app: AppHandle, locale: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(PREVIEW_LABEL) {
-        window.show().map_err(|error| error.to_string())?;
         return window.set_focus().map_err(|error| error.to_string());
     }
-    // Only reachable if install() could not create the window. Building here is
-    // the documented async path, never a synchronous command.
+    // The page is served per locale; only a plain locale segment is accepted.
     let locale = if !locale.is_empty()
         && locale.len() <= 16
         && locale.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
@@ -151,6 +102,9 @@ pub async fn open_curve_preview(app: AppHandle, locale: String) -> Result<(), St
     WebviewWindowBuilder::new(
         &app,
         PREVIEW_LABEL,
+        // Same URL shape as the main window: a query or fragment here is
+        // treated as part of the asset path and the page never loads. The
+        // window label, checked by the page, is what selects the preview view.
         WebviewUrl::App(format!("{locale}/index.html").into()),
     )
     .title("Bitrate Curve")
@@ -167,7 +121,7 @@ pub async fn open_curve_preview(app: AppHandle, locale: String) -> Result<(), St
 #[tauri::command]
 pub fn close_curve_preview(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(PREVIEW_LABEL) {
-        return window.hide().map_err(|error| error.to_string());
+        return window.close().map_err(|error| error.to_string());
     }
     Ok(())
 }

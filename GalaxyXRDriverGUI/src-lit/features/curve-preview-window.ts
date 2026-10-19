@@ -1,12 +1,11 @@
 // 2026-10-19 standalone bitrate curve window.
 //
-// Created hidden at startup by curve_preview::install and shown by the Rust
-// `open_curve_preview` command; the page is the same /<locale>/index.html the
-// main window loads, and main.ts mounts this element instead of the shell by
-// reading the window label. The window is read-only: it polls
-// `curve_preview_state` (which resolves the saved values exactly as the driver
-// does) so the graph follows the dropdown and percentage while they are edited
-// in the Companion.
+// Opened by the Companion through the Rust `open_curve_preview` command at
+// /<locale>/index.html?view=curve. main.ts mounts this element instead of the
+// shell, so no settings writer, watcher or migration runs here. The window is
+// read-only: it polls `curve_preview_state` (which resolves the saved values
+// exactly as the driver does) so the graph follows the dropdown and percentage
+// while they are edited in the Companion.
 import { LitElement, html, css } from 'lit';
 import { customElement } from 'lit/decorators.js';
 import { close_curve_preview, curve_preview_state, type CurvePreviewState } from '../platform/tauri';
@@ -35,22 +34,14 @@ export class CurvePreviewWindow extends LitElement {
     void this.refresh();
     this.timer = window.setInterval(() => { void this.refresh(); }, POLL_MS);
     window.addEventListener('keydown', this.onKeyDown);
-    document.addEventListener('visibilitychange', this.onVisibility);
   }
 
   disconnectedCallback() {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;
     window.removeEventListener('keydown', this.onKeyDown);
-    document.removeEventListener('visibilitychange', this.onVisibility);
     super.disconnectedCallback();
   }
-
-  // The window is created hidden at startup and hidden again on close, so the
-  // page lives for the whole session: skip the settings poll while hidden.
-  private readonly onVisibility = () => {
-    if (document.visibilityState === 'visible') void this.refresh();
-  };
 
   // Escape always closes the window, even if the title bar misbehaves.
   private readonly onKeyDown = (event: KeyboardEvent) => {
