@@ -14,6 +14,7 @@ import { PathsService } from './services/paths';
 import { setLocale } from './locale/i18n';
 import { appCustomElements } from './register';
 import { applyTheme } from './ui/theme';
+import { applyUiScale } from './ui/ui-scale';
 
 function localeFromPath(): string {
   const segments = window.location.pathname.split('/').filter(Boolean);
@@ -52,6 +53,9 @@ async function boot(): Promise<void> {
   // Read preferences before mounting; avoid a flash of the wrong theme.
   await ctx.appSetting.initTask;
   applyTheme(ctx.appSetting.values().colorScheme);
+  // The saved window scale must be in effect for the first paint too.
+  const scaleError = await applyUiScale(ctx.appSetting.values().uiScale);
+  if (scaleError) console.warn('Could not apply the saved interface scale', scaleError);
   await loadLocale();
 
   const host = document.createElement('app-shell');

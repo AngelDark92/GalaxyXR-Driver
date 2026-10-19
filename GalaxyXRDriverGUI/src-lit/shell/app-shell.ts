@@ -4,6 +4,7 @@ import { effect } from '../reactive';
 import { t, subscribeLocale } from '../locale/i18n';
 import type { AppContext } from '../app-context';
 import { applyTheme } from '../ui/theme';
+import { applyUiScale } from '../ui/ui-scale';
 import { interactiveStyles } from '../ui/shared-styles';
 import { driverAvailable, parseRoute, parseSettingTarget, permittedRoute, visibleRoutes, settingHref, ROUTE_LABELS, type Route } from '../domain/navigation';
 import { settingPresentation } from '../domain/settings-presentation';
@@ -31,6 +32,7 @@ export class AppShell extends LitElement {
   `];
 
   private themeDispose?: () => void;
+  private scaleDispose?: () => void;
   private unsubs: Array<() => void> = [];
   private readonly systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
   private readonly onSystemTheme = () => applyTheme(this.ctx.appSetting.values().colorScheme);
@@ -66,6 +68,9 @@ export class AppShell extends LitElement {
       subscribeLocale(notify),
     );
     this.themeDispose = effect(() => applyTheme(this.ctx.appSetting.values().colorScheme));
+    // 2026-10-19: also covers a gui-settings.json edit picked up by the file
+    // watcher, so the window scale always matches the saved value.
+    this.scaleDispose = effect(() => { void applyUiScale(this.ctx.appSetting.values().uiScale); });
   }
 
   disconnectedCallback(): void {
@@ -75,6 +80,7 @@ export class AppShell extends LitElement {
     for (const unsubscribe of this.unsubs) unsubscribe();
     this.unsubs = [];
     this.themeDispose?.();
+    this.scaleDispose?.();
     super.disconnectedCallback();
   }
 

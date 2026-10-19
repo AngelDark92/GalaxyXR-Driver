@@ -2,6 +2,7 @@ mod i18n;
 mod js_api;
 mod driver_installation;
 mod ofxr;
+mod webview_zoom;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -42,6 +43,7 @@ pub fn run() {
             ofxr::ofxr_arm,
             ofxr::ofxr_disarm,
             ofxr::ofxr_apply,
+            webview_zoom::set_webview_zoom,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

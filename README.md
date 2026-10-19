@@ -69,7 +69,7 @@ Open an issue [here](https://github.com/AngelDark92/GalaxyXR-Driver/issues) and 
 
 ## Manual configuration
 
-Settings live in `%APPDATA%\GalaxyXR\CustomHeadset\settings.json` and are hot-reloaded by the driver. Distortion profiles go in a `Distortion` subfolder and are referenced by name.
+Settings live in `%APPDATA%\GalaxyXR\CustomHeadset\settings.json` and are hot-reloaded by the driver. Distortion profiles go in a `Distortion` subfolder and are referenced by name. The Companion's own preferences, including the window's `uiScale` (30-150 percent, default 100), live beside them in `gui-settings.json`.
 
 ## Tools
 

@@ -8,13 +8,28 @@ import { t } from '../locale/i18n';
 import type { AppSetting } from '../domain/types';
 import { driverAvailable } from '../domain/navigation';
 import { pageIntro, statusMessage } from '../ui/presentation';
+import { applyUiScale, normalizeUiScale, UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP } from '../ui/ui-scale';
 import '../ui/controls';
 
 @customElement('app-app-settings-page')
 export class AppSettingsPage extends BasePage {
   static styles = [fieldStyles, css`
     :host { display: block; padding: 0 1rem 2rem 1rem; }
+    .scale-value { min-width: 3.5ch; font-variant-numeric: tabular-nums; color: var(--colorNeutralForeground2); }
   `];
+
+  private uiScaleError = '';
+
+  // 2026-10-19: applying and saving are separate steps. A drag emits one
+  // change per step, so the window previews live while the debounced writer
+  // keeps a single saved value; a platform refusal stays visible here.
+  private async setUiScale(value: number): Promise<void> {
+    const scale = normalizeUiScale(value);
+    const error = await applyUiScale(scale, true);
+    this.uiScaleError = error ?? '';
+    void this.ctx.appSetting.save({ ...this.ctx.appSetting.values(), uiScale: scale });
+    this.requestUpdate();
+  }
 
   private async setImageEnhancements(enabled: boolean, control: HTMLElement & { checked: boolean }): Promise<void> {
     const galaxy = this.ctx.galaxy;
@@ -40,12 +55,20 @@ export class AppSettingsPage extends BasePage {
       sectionHeading(t('Application preferences'), 0, 'app-preferences'),
       ...(appSetting.readFileError() ? [statusMessage('error', t('App preferences could not be read'), t('Check file permissions, then use Check Settings on Setup.'))] : []),
       ...(galaxy.imageModeError() ? [statusMessage('error', t('Image mode could not be changed'), galaxy.imageModeError()!)] : []),
+      ...(this.uiScaleError ? [statusMessage('error', t('Interface scale could not be applied'), this.uiScaleError)] : []),
       fieldRow(t('Theme'), html`
         <app-select .value=${appSetting.values().colorScheme} .options=${[
           { value: 'system', label: t('System') }, { value: 'dark', label: t('Dark') }, { value: 'light', label: t('Light') },
         ]} @change=${(e: CustomEvent) => save({ colorScheme: e.detail as AppSetting['colorScheme'] })}></app-select>
       `, {
         tip: t("Light, dark, or follow your Windows theme.\n\nValue: colorScheme (gui-settings.json). GUI-only presentation preference.") }),
+      fieldRow(t('Interface Scale'), html`
+        <app-slider .value=${normalizeUiScale(appSetting.values().uiScale)}
+          .min=${UI_SCALE_MIN} .max=${UI_SCALE_MAX} .step=${UI_SCALE_STEP}
+          @change=${(e: CustomEvent) => { void this.setUiScale(e.detail); }}></app-slider>
+        <span class="scale-value" aria-hidden="true">${normalizeUiScale(appSetting.values().uiScale)}%</span>
+      `, {
+        tip: t("Scales the whole Companion window: text, controls, dialogs and popups. Drag to preview; the value saves as it changes.\n\nValue: uiScale (gui-settings.json). GUI-only presentation preference.") }),
       settingFieldRow('image-enhancements', html`
         <app-switch .known=${known} .checked=${galaxy.imageEnhancementsEnabled}
           .disabled=${!installed || !known || galaxy.imageModeChanging() || busy}

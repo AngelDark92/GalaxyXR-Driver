@@ -7,6 +7,9 @@ import { JsonSettingServiceBase } from './settings-base';
 
 const appDefaults: AppSetting = {
   colorScheme: 'dark',
+  // Interface scale (2026-10-19): native webview zoom, integer percent.
+  // JsonSettingServiceBase deep-merges this default over older files.
+  uiScale: 100,
   updateMode: 'rewrite',
   advanceMode: false,
   // 2026-10-13: the dev (pre-release) update channel is opt-in; the stable

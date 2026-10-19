@@ -127,3 +127,11 @@ export function ofxr_reinstall(prefs: OfxrPreferences): Promise<OfxrStatus> {
 export function ofxr_remove(): Promise<OfxrStatus> {
     return invoke('ofxr_remove');
 }
+
+// Interface scale (2026-10-19): the Companion window uses the native webview
+// zoom factor, not CSS zoom. CSS zoom separates getBoundingClientRect() from
+// style pixels and misplaces Fluent's fixed-position dropdowns and tooltips;
+// the platform zoom factor keeps one coordinate space for layout and popups.
+export function set_webview_zoom(scale: number): Promise<void> {
+    return invoke('set_webview_zoom', { scale });
+}

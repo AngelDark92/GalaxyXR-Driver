@@ -473,6 +473,10 @@ export type AppSetting = {
   colorScheme: 'system' | 'dark' | 'light';
   updateMode: 'replace' | 'rewrite';
   advanceMode: boolean;
+  // Interface scale (2026-10-19): WebView2 page zoom for the whole Companion
+  // window, stored as integer percent so the slider, the readout and the
+  // applied zoom factor never disagree. GUI-only, 100 by default.
+  uiScale: number;
   // OFXR Bridge settings block (2026-10-17). Nested defaults are deep-merged
   // over older gui-settings.json files, so an upgrade never hides the block.
   ofxr: OfxrPreferences;
