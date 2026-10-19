@@ -307,19 +307,48 @@ void PublishFailure(void* encoder, const NvencTapConfig& cfg, NVENCSTATUS status
 	// ACKs). The owner-verified healthy flow is: init unsplit, split engages
 	// seconds later through reconfigure; the tap reproduces that automatically
 	// and never rewrites the saved setting. Internal knob, not a user setting.
-	double splitHandshakeGraceSeconds = 5.0;
-	std::atomic<long long> splitArmSteadyMs{0}; // armed at the first successful init (NowSecondsNv * 1000)
+	// 2026-10-19 reconnect deferral (owner directive): the window is armed by
+	// ANY stream boundary, not only by init. A quick client reconnect (inside
+	// vrlink's ~30 s quit window, SteamVR still running) leaves the encode
+	// session alive: no init follows, the init-scoped window already read
+	// cleared, and the first reconfigure of the resumed connection would carry
+	// split into the client's fresh decoder. Arming on the resume keeps AV1
+	// split off the reconnect exactly like the fresh-connect shape.
+	// AV1-only (owner directive): HEVC applies split immediately at init and
+	// reconfigure, H.264 never applies it (see the split block in
+	// ApplyOverrides). Internal knobs, not user settings.
+	enum SplitArmSource { SplitArmInit = 0, SplitArmOpen = 1, SplitArmResume = 2 };
+	double splitHandshakeGraceSeconds = 5.0;     // window length after any stream boundary
+	// 2.0 s, not 1.0: ordinary hitches are sub-second and must not count as a
+	// boundary. A long non-reconnect pause (level load, headset idle) still
+	// re-arms — accepted cost: one reconfigure without split bits plus up to
+	// splitHandshakeGraceSeconds of single-engine encoding before it re-engages.
+	double splitReconnectIdleSeconds = 2.0;       // encode gap that marks a resumed connection
+	std::atomic<long long> splitArmSteadyMs{0};   // window start (NowSecondsNv * 1000)
+	std::atomic<long long> lastEncodeSteadyMs{0}; // last nvEncEncodePicture (NowSecondsNv * 1000)
+	std::atomic<void*> lastEncodeEncoder{nullptr};
 	bool SplitHandshakeCleared(){
 		const long long arm = splitArmSteadyMs.load(std::memory_order_relaxed);
 		if(arm <= 0){ return false; }
 		return NowSecondsNv() * 1000.0 - (double)arm >= splitHandshakeGraceSeconds * 1000.0;
 	}
+	void ArmSplitHandshakeWindow(SplitArmSource source, double idleSeconds, bool announce){
+		splitArmSteadyMs.store((long long)(NowSecondsNv() * 1000.0), std::memory_order_relaxed);
+		if(!announce){ return; }
+		if(source == SplitArmResume){
+			DriverLog("NvencTap: split-frame: handshake window armed (stream resume after %.2f s idle; reconnect) — AV1 split held off %.0f s from here; saved streamFrame.nvencSplitMode is unchanged", idleSeconds, splitHandshakeGraceSeconds);
+		}else if(source == SplitArmOpen){
+			DriverLog("NvencTap: split-frame: handshake window armed (encode session open) — AV1 split held off %.0f s from here; saved streamFrame.nvencSplitMode is unchanged", splitHandshakeGraceSeconds);
+		}else{
+			DriverLog("NvencTap: split-frame: handshake window armed (encoder init) — AV1 split held off %.0f s from here; saved streamFrame.nvencSplitMode is unchanged", splitHandshakeGraceSeconds);
+		}
+	}
 	void PublishSuccess(void* encoder, const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_PARAMS* p, bool initializing = false){
 	std::lock_guard<std::mutex> guard(runtimeLock);
 	if(initializing){
-		// arm the split handshake grace clock at each fresh connection's
-		// first successful init (see the grace note above)
-		splitArmSteadyMs.store((long long)(NowSecondsNv() * 1000.0), std::memory_order_relaxed);
+		// arm the split handshake window at each fresh connection's first
+		// successful init (see the grace note above); only AV1 deferral uses it
+		ArmSplitHandshakeWindow(SplitArmInit, 0.0, cfg.enabled && cfg.codec == 2 && cfg.splitMode > 0);
 		firstInitFailures.erase(encoder);
 		// A successful replacement session also retires an archived failure
 		// whose encoder was destroyed. An unrelated live encoder's failure
@@ -1107,8 +1136,16 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	// (ms later) applies them, effectiveSplit mirrors the written request in
 	// info.json (NVENC may ignore AUTO_FORCED on 1-engine GPUs), and the saved
 	// nvencSplitMode is untouched throughout.
+	// 2026-10-19 (owner directive): the deferral below is AV1-ONLY. AV1 is the
+	// codec whose Steam Link decoder wedges on a split first frame; HEVC
+	// applies split immediately at init and reconfigure (its pre-2026-10-18
+	// behaviour) and H.264 never applies it at all. The window is armed at
+	// init, at session open and again on a resumed stream
+	// (ReconfigureEncoder), so a reconnect that reuses the live session —
+	// vrlink keeps it for ~30 s after the client drops — is covered too.
 	if(cfg.splitMode > 0 && !IsH264(p->encodeGUID)){
 		uint32_t mode = (uint32_t)cfg.splitMode;
+		const bool deferralCodec = CodecOfGuid(p->encodeGUID) == 2 || cfg.codec == 2;
 		if(ApiMajor(p->version) == 11){
 			// not upgraded: the session was opened before the tap hooked
 			// it, or the 12.1 open was rejected. U0 proved in-place struct
@@ -1116,20 +1153,20 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			if(sessionNoteLogged.fetch_add(1) < 1){
 				DriverLog("NvencTap: split-frame: session is 11.1 (not upgraded) — splitEncodeMode unavailable on this encoder");
 			}
-		}else if(initializing || !SplitHandshakeCleared()){
-			// 2026-10-18 deferral, two layers: the bits never ride
-			// nvEncInitializeEncoder (fresh-connect zero-ACK death), and —
-			// because vrlink's FIRST reconfigure lands ~100 ms after init,
-			// still ahead of the first keyframe — they also stay off every
-			// reconfigure until the handshake grace (armed at the first
-			// successful init; see the grace note above) clears. After that
-			// split engages at the next reconfigure exactly like the
-			// owner-verified mid-stream mode change. Once the client's
-			// decoder wedges on a split first frame, switching the value
-			// does not recover the session; a reconnect does.
+		}else if(deferralCodec && (initializing || !SplitHandshakeCleared())){
+			// AV1 deferral, three layers: the bits never ride
+			// nvEncInitializeEncoder (fresh-connect zero-ACK death), they
+			// also stay off every reconfigure until the handshake window
+			// clears, and the window re-arms on a resumed stream so a
+			// reconnect that reuses the live session defers as well (see the
+			// reconnect arm in ReconfigureEncoder). After the window split
+			// engages at the next reconfigure exactly like the owner-verified
+			// mid-stream mode change. Once the client's decoder wedges on a
+			// split first frame, switching the value does not recover the
+			// session; a reconnect does.
 			w += snprintf(w, WhatRem(w, what, whatLen), "split deferred; ");
 			if(splitInitDeferLogged.fetch_add(1) < 1){
-				DriverLog("NvencTap: split-frame: deferring splitEncodeMode — the client ACKs zero frames when the first decoded frame is split (and never recovers mid-session), so the bits wait for the handshake grace (armed at first init, +%.0f s) and engage at the next reconfigure. Saved streamFrame.nvencSplitMode is unchanged.", splitHandshakeGraceSeconds);
+				DriverLog("NvencTap: split-frame: deferring AV1 splitEncodeMode — the client ACKs zero frames when the first decoded frame is split (and never recovers mid-session), so the bits wait for the handshake window (init, open or resumed stream, +%.0f s) and engage at the next reconfigure. Saved streamFrame.nvencSplitMode is unchanged.", splitHandshakeGraceSeconds);
 			}
 		}else if(ApiMajor(p->version) >= 12 && StructVer(p->version) >= 6 && p->splitEncodeMode != mode){
 			// native field (a future vrlink built against 12.1+)
@@ -1550,6 +1587,27 @@ NVENCSTATUS NVENCAPI NvencTapShims::InitializeEncoder(void* encoder, NV_ENC_INIT
 NVENCSTATUS NVENCAPI NvencTapShims::ReconfigureEncoder(void* encoder, NV_ENC_RECONFIGURE_PARAMS* params){
 	if(!params){ return origReconfigureEncoder(encoder, params); }
 	NvencTapConfig cfg = NvencTap::Get().GetConfig();
+	// 2026-10-19 reconnect deferral (AV1): vrlink stops encoding when the
+	// client drops and reconfigures before the first frame of the resumed
+	// connection, so a reconfigure after an encode idle gap marks that
+	// boundary. Re-arm the handshake window here — otherwise a reconnect that
+	// reuses the live session inherits the previous connection's cleared
+	// window and split rides its first frames. A window that is still open is
+	// left alone, so the burst of reconfigures that follows arms once.
+	if(cfg.enabled && cfg.splitMode > 0
+		&& (CodecOfGuid(params->reInitEncodeParams.encodeGUID) == 2 || cfg.codec == 2)){
+		const long long last = lastEncodeSteadyMs.load(std::memory_order_relaxed);
+		if(last > 0 && lastEncodeEncoder.load(std::memory_order_relaxed) == encoder){
+			const double now = NowSecondsNv();
+			const double idleSeconds = now - (double)last / 1000.0;
+			const long long arm = splitArmSteadyMs.load(std::memory_order_relaxed);
+			const double armSeconds = arm > 0 ? now - (double)arm / 1000.0 : -1.0;
+			if(idleSeconds >= splitReconnectIdleSeconds
+				&& (armSeconds < 0.0 || armSeconds >= splitHandshakeGraceSeconds)){
+				ArmSplitHandshakeWindow(SplitArmResume, idleSeconds, true);
+			}
+		}
+	}
 	Retag rt; if(Upgraded(encoder)){ rt.add(&params->version, 1, true); RetagInitParams(rt, &params->reInitEncodeParams); }
 	if(!cfg.enabled){
 		const NVENCSTATUS status = origReconfigureEncoder(encoder, params);
@@ -1627,6 +1685,11 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 		return NV_ENC_ERR_INVALID_PARAM;
 	}
 	{ std::lock_guard<std::mutex> g(statsLock); stats.encodeCalls++; }
+	// connection-boundary probe (2026-10-19): a reconfigure that arrives when
+	// this timestamp is older than splitReconnectIdleSeconds is the resumed
+	// connection's first NVENC call (see the reconnect arm in ReconfigureEncoder)
+	lastEncodeSteadyMs.store((long long)(NowSecondsNv() * 1000.0), std::memory_order_relaxed);
+	lastEncodeEncoder.store(encoder, std::memory_order_relaxed);
 	if(params && params->outputBitstream){
 		std::lock_guard<std::mutex> g(submitLock);
 		submits[submitHead] = { params->outputBitstream, NowSecondsNv() };
@@ -1864,6 +1927,9 @@ NVENCSTATUS NVENCAPI NvencTapShims::OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSI
 	if(st == NV_ENC_SUCCESS){
 		{ std::lock_guard<std::mutex> g(upgradedLock); upgradedSessions.insert(*encoder); }
 		{ std::lock_guard<std::mutex> g(statsLock); stats.sessionUpgrade = 1; }
+		// earliest observable boundary of a new encode session: arm the split
+		// handshake window here too (silent; the init that follows announces)
+		ArmSplitHandshakeWindow(SplitArmOpen, 0.0, false);
 		DriverLog("NvencTap: SESSION UPGRADE: nvEncOpenEncodeSessionEx accepted apiVersion 12.1 (encoder %p) — vrlink's 11.1 structs will be re-tagged as 12.1 on every call; splitEncodeMode is now reachable", *encoder);
 		return st;
 	}
@@ -1879,6 +1945,13 @@ NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
 	const NVENCSTATUS status = origDestroyEncoder(encoder);
 	if(status != NV_ENC_SUCCESS){ return status; }
 	{ std::lock_guard<std::mutex> guard(upgradedLock); upgradedSessions.erase(encoder); sessionCodecs.erase(encoder); }
+	// a destroyed handle must not leave a stale encode stamp behind: a later
+	// session at a recycled handle would read the dead session's gap and arm a
+	// phantom reconnect
+	if(lastEncodeEncoder.load(std::memory_order_relaxed) == encoder){
+		lastEncodeSteadyMs.store(0, std::memory_order_relaxed);
+		lastEncodeEncoder.store(nullptr, std::memory_order_relaxed);
+	}
 	{
 		std::lock_guard<std::mutex> guard(runtimeLock);
 		firstInitFailures.erase(encoder);

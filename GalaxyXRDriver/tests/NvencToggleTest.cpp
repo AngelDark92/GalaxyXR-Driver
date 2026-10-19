@@ -316,8 +316,8 @@ void CheckCodecOverride(void* encoder){
 	strictCapabilities = false;
 
 	// hevc+split regression: codec 0 keeps split via reconfigure — the skip
-	// must only drop it for H.264, and the 2026-10-18 deferral keeps the bits
-	// off the first init.
+	// must only drop it for H.264, and the deferral is AV1-only (2026-10-19),
+	// so HEVC applies the bits at init immediately (its pre-2026-10-18 shape).
 	driverConfig.streamFrame.nvencTap = true;
 	driverConfig.streamFrame.nvencCodec = 0;
 	driverConfig.streamFrame.nvencSplitMode = 1;
@@ -325,7 +325,7 @@ void CheckCodecOverride(void* encoder){
 	NvencTap::Get().SetConfig(hevcCfg);
 	void* hevcEnc = OpenSession();
 	Check(NvencTapShims::InitializeEncoder(hevcEnc, &sinit) == NV_ENC_SUCCESS, "hevc+split: init delegated");
-	Check(((seenInitFlags >> 5) & 0xFu) == 0u, "hevc+split: forced split bits deferred at init for HEVC");
+	Check(((seenInitFlags >> 5) & 0xFu) == 1u, "hevc+split: forced split bits applied at init for HEVC (no AV1-only deferral)");
 	Check(*((uint32_t*)&sinit.enablePTD + 1) == 0, "hevc+split: caller flags word restored");
 	NV_ENC_RECONFIGURE_PARAMS hreconf = {}; hreconf.version = Tag111(1, true);
 	hreconf.reInitEncodeParams = sinit;
@@ -335,6 +335,64 @@ void CheckCodecOverride(void* encoder){
 	reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
 	Check(((seenInitFlags >> 5) & 0xFu) == 1, "hevc+split: forced split bits applied at reconfigure for HEVC");
 	Check(memcmp(&hreconf, &savedHreconf, sizeof(hreconf)) == 0, "hevc+split: reconfigure caller bytes restored");
+
+	// reconnect+split (2026-10-19, AV1-only): a quick client reconnect that
+	// reuses the live encode session produces no init, so a reconfigure that
+	// arrives after an encode idle gap must re-arm the handshake window and
+	// keep split off the resumed connection's first frames; once the window
+	// clears the same session applies split at the next reconfigure.
+	{
+		NvencTapConfig av1Resume; av1Resume.enabled = true; av1Resume.codec = 2; av1Resume.splitMode = 1;
+		NvencTap::Get().SetConfig(av1Resume);
+		const auto savedScfg = scfg;
+		const long long nowMs = (long long)(NowSecondsNv() * 1000.0);
+		splitHandshakeGraceSeconds = 5.0;
+		splitReconnectIdleSeconds = 0.5;
+		splitArmSteadyMs.store((long long)((NowSecondsNv() - 60.0) * 1000.0));
+		lastEncodeSteadyMs.store((long long)((NowSecondsNv() - 5.0) * 1000.0));
+		lastEncodeEncoder.store(upgraded2);
+		NV_ENC_RECONFIGURE_PARAMS rreconf = {}; rreconf.version = Tag111(1, true);
+		rreconf.reInitEncodeParams = sinit;
+		const auto savedRreconf = rreconf;
+		reconfigureDriverStatus = NV_ENC_SUCCESS;
+		Check(NvencTapShims::ReconfigureEncoder(upgraded2, &rreconf) == NV_ENC_SUCCESS, "reconnect: reconfigure delegated");
+		reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+		Check(((seenInitFlags >> 5) & 0xFu) == 0u, "reconnect: AV1 split re-deferred after the resumed-stream arm");
+		Check(memcmp(&rreconf, &savedRreconf, sizeof(rreconf)) == 0, "reconnect: caller bytes restored");
+		Check(memcmp(&scfg, &savedScfg, sizeof(scfg)) == 0, "reconnect: codec config bytes restored");
+		Check(splitArmSteadyMs.load() > nowMs - 1000, "reconnect: resumed-stream arm refreshed the window");
+		// no reconnect: a recent encode leaves the cleared window alone and split applies
+		splitArmSteadyMs.store(nowMs - 60000);
+		lastEncodeSteadyMs.store(nowMs);
+		NV_ENC_RECONFIGURE_PARAMS nreconf = {}; nreconf.version = Tag111(1, true);
+		nreconf.reInitEncodeParams = sinit;
+		reconfigureDriverStatus = NV_ENC_SUCCESS;
+		Check(NvencTapShims::ReconfigureEncoder(upgraded2, &nreconf) == NV_ENC_SUCCESS, "reconnect: no-gap reconfigure delegated");
+		reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+		Check(((seenInitFlags >> 5) & 0xFu) == 1u, "reconnect: recent encoding does not re-arm; split stays on");
+		Check(splitArmSteadyMs.load() == nowMs - 60000, "reconnect: no-gap reconfigure left the window untouched");
+		// window still open: a gap does not re-arm (no per-reconfigure loop)
+		splitArmSteadyMs.store(nowMs);
+		lastEncodeSteadyMs.store(nowMs - 5000);
+		NV_ENC_RECONFIGURE_PARAMS oreconf = {}; oreconf.version = Tag111(1, true);
+		oreconf.reInitEncodeParams = sinit;
+		reconfigureDriverStatus = NV_ENC_SUCCESS;
+		Check(NvencTapShims::ReconfigureEncoder(upgraded2, &oreconf) == NV_ENC_SUCCESS, "reconnect: open-window reconfigure delegated");
+		reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+		Check(((seenInitFlags >> 5) & 0xFu) == 0u, "reconnect: open window still defers split");
+		Check(splitArmSteadyMs.load() == nowMs, "reconnect: open window was not re-armed");
+		splitArmSteadyMs.store((long long)((NowSecondsNv() - 60.0) * 1000.0));
+		lastEncodeSteadyMs.store(0);
+		NV_ENC_RECONFIGURE_PARAMS areconf = {}; areconf.version = Tag111(1, true);
+		areconf.reInitEncodeParams = sinit;
+		reconfigureDriverStatus = NV_ENC_SUCCESS;
+		Check(NvencTapShims::ReconfigureEncoder(upgraded2, &areconf) == NV_ENC_SUCCESS, "reconnect: post-window reconfigure delegated");
+		reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
+		Check(((seenInitFlags >> 5) & 0xFu) == 1u, "reconnect: AV1 split applies at the first reconfigure after the window");
+		lastEncodeSteadyMs.store(0); lastEncodeEncoder.store(nullptr);
+		splitReconnectIdleSeconds = 2.0;
+		splitHandshakeGraceSeconds = 0.0;
+	}
 
 	// The same reservation rule must also work for a direct H.264 caller.
 	driverConfig.streamFrame.nvencTap = true;
@@ -1132,7 +1190,7 @@ void CheckSplitGateAndRefusalKeys(){
 	hinit.frameRateNum = 90; hinit.frameRateDen = 1;
 	const auto savedInit = hinit; const auto savedCfg = hcfg;
 	Check(NvencTapShims::InitializeEncoder(upgradedEnc, &hinit) == NV_ENC_SUCCESS, "split gate: upgraded session passes the split request");
-	Check(((seenInitFlags >> 5) & 0xFu) == 0u, "split gate: forced split bits deferred at init on the upgraded session");
+	Check(((seenInitFlags >> 5) & 0xFu) == 1u, "split gate: forced split bits applied at init on HEVC (deferral is AV1-only)");
 	Check(memcmp(&hinit, &savedInit, sizeof(hinit)) == 0 && memcmp(&hcfg, &savedCfg, sizeof(savedCfg)) == 0, "split gate: caller bytes restored");
 	NV_ENC_RECONFIGURE_PARAMS greconf = {}; greconf.version = Tag111(1, true);
 	greconf.reInitEncodeParams = hinit;
