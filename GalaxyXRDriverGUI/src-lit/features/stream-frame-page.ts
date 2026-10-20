@@ -13,7 +13,7 @@ import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../do
 import { spacewarpStatus } from '../domain/spacewarp-status';
 import { codecSwitchState } from '../domain/codec-selection';
 import { normalizeOfxrPreferences, ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
-import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_remove, ofxr_reinstall, ofxr_status, open_curve_preview } from '../platform/tauri';
+import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_remove, ofxr_reinstall, ofxr_status } from '../platform/tauri';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 import { codecEncoderDefaults, streamFrameIntegerError } from '../state/galaxy-settings';
 import { BITRATE_CURVE_FAMILIES } from '../domain/bitrate-curve';
@@ -54,7 +54,7 @@ export class StreamFramePage extends BasePage {
     // Same locale segment boot() resolves from the page path.
     const locale = window.location.pathname.split('/').filter(Boolean)[0] ?? 'en-US';
     try {
-      await open_curve_preview(locale);
+      await this.ctx.curvePreview.open(locale);
       this.curveWindowError = undefined;
     } catch (error) {
       this.curveWindowError = String(error);
@@ -844,7 +844,7 @@ if (settings.nvencTap) {
                   parts.push(fieldRow(t('Bitrate Curve Graph'), html`
       <fluent-button appearance="outline" @click=${() => { void this.openCurveWindow(); }}>${t('Open graph window')}</fluent-button>
                   `, {
-  tip: t("Open the curve graph in its own resizable window. It follows the saved curve and percentage while you edit them. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Closing the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call.")
+  tip: t("Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Closing the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call.")
                   }));
                   if (this.curveWindowError) {
                     parts.push(noteRow(html`${t('The graph window could not be opened: {reason}', { reason: this.curveWindowError })}`));

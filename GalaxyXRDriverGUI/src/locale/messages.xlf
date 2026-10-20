@@ -3700,7 +3700,7 @@ At a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the pow
 Value: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve.</source>
       </trans-unit>
       <trans-unit id="628060530" datatype="html">
-        <source>Open the curve graph in its own resizable window. It follows the saved curve and percentage while you edit them. Read-only, drawn from the same arithmetic the driver uses.
+        <source>Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.
 
 Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Closing the Companion closes the graph window too.
 
@@ -3774,6 +3774,9 @@ Value: uiScale (gui-settings.json). GUI-only presentation preference.</source>
       </trans-unit>
       <trans-unit id="3535843008" datatype="html">
         <source>Close</source>
+      </trans-unit>
+      <trans-unit id="curve-preview-invalid-values" datatype="html">
+        <source>Cannot plot these curve values. Check the curve family, constancy, ceiling and clamp in the Companion.</source>
       </trans-unit>
     </body>
   </file>

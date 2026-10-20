@@ -73,6 +73,12 @@ disabled. Live assertions require fresh PID/module evidence.
 `src-lit/main.ts` and `register.ts` register the Lit app. Reactive primitives:
 `src-lit/reactive.ts`. Pages are thin views:
 
+The read-only bitrate graph uses a separate `curve.html` / `src-lit/curve-main.ts`
+entry. `src-lit/services/curve-preview.ts` owns the Companion subscription while
+`src-tauri/src/curve_preview.rs` creates the native window on demand. Keep both
+HTML entries in Vite and the per-locale asset verifier. See
+`Docs/CompanionGraphWindow.md` for async WebView2 creation, lifecycle and QA.
+
 - `features/driver-settings-page.ts`: headset/device and legacy controls.
 - `features/stream-frame-page.ts`: stream/image processing controls.
 - `features/distortion-profile-page.ts`, `curve-editor.ts`: distortion/tuner UI.
@@ -160,6 +166,16 @@ external binary tree under `GalaxyXRDriver/bin/linux64/`.
   and affected `tools/tests/*.test.cjs`. `Test-CompanionBrowser.cjs` uses mocked
   Tauri IPC against a built frontend and needs Playwright; it does not prove
   native installation or live driver behavior.
+- Graph packaging: `tools/Test-CurvePreviewBrowser.cjs` exercises the production
+  graph entries for all locales, live events, resizing and failed-module close
+  controls. `build-tools.yml` builds the frontend and runs this plus
+  `Test-CompanionBrowser.cjs` with external `build/browser-qa-tools/` dependencies.
+  Explicit local `Test-CurvePreviewPackaged.cjs <exe>` exercises real OS windows
+  with an existing installation and verifies settings stayed byte-identical;
+  see `Docs/CompanionGraphWindow.md` for prerequisites and evidence limits.
+- Bot PR approval: PR creation and release/backmerge pushes share optional
+  `PR_AUTOMATION_TOKEN`. Without it GitHub requires approval for GITHUB_TOKEN
+  PR events before jobs can start; push skip conditions cannot fix that gate.
 - Source/input checks: `node tools/verify-build-sources.cjs`; CI adds
   `--require-tracked`. Verify fresh-checkout inputs rather than assuming ignored
   captures/caches exist.

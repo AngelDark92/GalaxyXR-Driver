@@ -137,24 +137,22 @@ export function set_webview_zoom(scale: number): Promise<void> {
 }
 
 // 2026-10-19 bitrate curve preview window (src-tauri/src/curve_preview.rs).
-// The window is read-only: it resolves the values the driver would use and the
-// page never writes through it.
+// The window receives a read-only snapshot of the Companion's current values.
 export interface CurvePreviewState {
     curve: number;
     constancyPct: number;
     ceilingMbit: number;
     clampMbit: number;
 }
-export async function open_curve_preview(locale: string): Promise<void> {
-    return invoke('open_curve_preview', { locale });
+export async function open_curve_preview(locale: string, snapshot: CurvePreviewState): Promise<void> {
+    return invoke('open_curve_preview', { locale, snapshot });
+}
+export async function publish_curve_preview(snapshot: CurvePreviewState): Promise<void> {
+    return invoke('publish_curve_preview', { snapshot });
 }
 export async function curve_preview_state(): Promise<CurvePreviewState> {
     return invoke('curve_preview_state');
 }
 export async function close_curve_preview(): Promise<void> {
     return invoke('close_curve_preview');
-}
-/** True only inside the preview window: the window label is authoritative. */
-export async function is_curve_preview_window(): Promise<boolean> {
-    return invoke('is_curve_preview_window');
 }

@@ -127,6 +127,7 @@ Commands below run from the checkout root unless stated otherwise:
 | --- | --- |
 | GUI unit tests | From `GalaxyXRDriverGUI/`: `npm test`; select relevant Vitest files when scope is narrow |
 | Frontend-only compilation | From `GalaxyXRDriverGUI/`: `npm run build:ui`; proves frontend compilation, not a complete package |
+| Graph window | `node tools/Test-CurvePreviewBrowser.cjs` after frontend compilation (Playwright via `NODE_PATH`); explicit native packaged QA and CI token setup: `Docs/CompanionGraphWindow.md` |
 | Service/UI regression checks | Relevant `node tools/Test-*.cjs`, for example `Test-GuiReadiness.cjs`, `Test-CompanionModes.cjs`, `Test-SteamVRSettingsDiff.cjs` |
 | Native logic tests | Relevant `powershell -NoProfile -ExecutionPolicy Bypass -File tools/Test-*.ps1`; standalone C++17 tests are in `GalaxyXRDriver/tests/`. The NVENC, Game Link layout, controller-pose and other compile runners that release CI no longer runs are covered here |
 | Rust library tests | From `GalaxyXRDriverGUI/src-tauri`: `cargo test --locked --lib`; installation, cleanup and runtime-confirmation logic. No longer part of release CI, so run it for any change reaching that crate |

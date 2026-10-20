@@ -7,6 +7,7 @@ mod curve_preview;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(curve_preview::Preview::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -48,7 +49,7 @@ pub fn run() {
             curve_preview::open_curve_preview,
             curve_preview::curve_preview_state,
             curve_preview::close_curve_preview,
-            curve_preview::is_curve_preview_window,
+            curve_preview::publish_curve_preview,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -61,6 +62,11 @@ pub fn run() {
                 event: tauri::WindowEvent::Destroyed,
                 ..
             } if label == "main" => app.exit(0),
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } if label == curve_preview::PREVIEW_LABEL => curve_preview::destroyed(app),
             _ => {}
         });
 }

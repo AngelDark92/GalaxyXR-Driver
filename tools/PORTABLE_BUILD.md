@@ -130,6 +130,11 @@ This local helper produces a portable folder; it does not deploy, register, laun
 
 ## Sources and implementation references
 
+The separate Bitrate Curve page is included in every locale's frontend bundle
+and in the native Companion executable. See [graph window maintenance](../Docs/CompanionGraphWindow.md)
+for production-asset checks, explicit native packaged QA and GitHub bot-PR
+approval configuration. A frontend-only check is not a full driver build.
+
 - Microsoft command-line C++ build tools: https://learn.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-170
 - Microsoft administrative MSI images: https://learn.microsoft.com/en-us/windows/win32/msi/administrative-installation
 - Microsoft release channel used for publisher URLs and SHA-256 values: https://aka.ms/vs/17/release/channel

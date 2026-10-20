@@ -115,3 +115,18 @@ test('local build retains preparation and has no CI-only testing prerequisite', 
   assert.doesNotMatch(portable, /node --test|REQUIRE_\w*POWERSHELL_TESTS/);
   assert.match(read('build.js'), /prepareNativeDependencies\(__dirname\)/);
 });
+
+test('graph CI builds real assets and tests them, while release stays build-only', () => {
+  assert.match(developer, /name: Build production frontend entries/);
+  assert.match(developer, /run: npm run build:ui/);
+  assert.match(developer, /builds\/GalaxyXR-Driver\/build\/browser-qa-tools/);
+  assert.match(developer, /Test-CurvePreviewBrowser\.cjs/);
+  assert.match(developer, /Test-CompanionBrowser\.cjs/);
+  assert.doesNotMatch(release, /Test-CurvePreviewBrowser|Test-CompanionBrowser/);
+});
+
+test('PR creation and release sync can use the same automation identity without claiming skip bypasses approval', () => {
+  assert.match(read('.github/workflows/open_pull_request.yml'), /GH_TOKEN: \$\{\{ secrets.PR_AUTOMATION_TOKEN \|\| github.token \}\}/);
+  assert.match(release, /token: \$\{\{ secrets.PR_AUTOMATION_TOKEN \|\| github.token \}\}/);
+  assert.match(read('.github/workflows/open_pull_request.yml'), /GitHub requires a maintainer to approve/);
+});

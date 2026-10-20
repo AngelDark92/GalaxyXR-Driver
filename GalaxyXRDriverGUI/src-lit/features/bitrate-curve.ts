@@ -11,7 +11,7 @@ export class BitrateCurvePanel extends LitElement {
   static styles = css`
     :host { display: block; padding: 0.25rem 0 0.5rem; }
     .wrap { display: flex; flex-direction: column; gap: 0.35rem; }
-    canvas { max-width: 100%; height: auto; }
+    canvas { width: 100%; max-width: 100%; height: auto; aspect-ratio: 7 / 3; }
     .legend { display: flex; gap: 1rem; align-items: center; font-size: 0.85rem; opacity: 0.9; flex-wrap: wrap; }
     .legend span.item { display: inline-flex; gap: 0.35rem; align-items: center; }
     .swatch { width: 18px; height: 0; border-top-width: 2px; border-top-style: solid; }
@@ -24,22 +24,44 @@ export class BitrateCurvePanel extends LitElement {
   @property({ type: Number }) pct = 0;
   @property({ type: Number }) ceiling = 450;
   @property({ type: Number }) clamp = 350;
+  private resizeObserver?: ResizeObserver;
 
   protected updated() {
+    this.resizeObserver ??= new ResizeObserver(() => this.draw());
+    this.resizeObserver.disconnect();
+    const canvas = this.renderRoot.querySelector('canvas');
+    if (canvas) this.resizeObserver.observe(canvas);
     this.draw();
   }
 
+  disconnectedCallback() {
+    this.resizeObserver?.disconnect();
+    super.disconnectedCallback();
+  }
+
+  private valid(): boolean {
+    return BITRATE_CURVE_FAMILIES.some(entry => entry.value === this.curve)
+      && Number.isFinite(this.pct) && this.pct >= 0 && this.pct <= 100
+      && Number.isFinite(this.ceiling) && this.ceiling > 0
+      && Number.isFinite(this.clamp) && this.clamp > 0;
+  }
+
   private draw() {
+    if (!this.valid()) return;
     const canvas = this.renderRoot.querySelector('canvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const W = canvas.width;
-    const H = canvas.height;
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    if (!W || !H) return;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(W * ratio);
+    canvas.height = Math.round(H * ratio);
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     const padL = 56, padR = 16, padT = 16, padB = 34;
-    const ceiling = this.ceiling > 0 ? this.ceiling : 350;
-    const clamp = this.clamp > 0 ? this.clamp : 350;
+    const ceiling = this.ceiling;
+    const clamp = this.clamp;
     const xAt = (mbit: number) => padL + (W - padL - padR) * Math.max(0, Math.min(1, mbit / clamp));
     const yAt = (mbit: number) => H - padB - (H - padT - padB) * Math.max(0, Math.min(1, mbit / ceiling));
 
@@ -99,6 +121,7 @@ export class BitrateCurvePanel extends LitElement {
   }
 
   render() {
+    if (!this.valid()) return html`<p role="alert">${t('Cannot plot these curve values. Check the curve family, constancy, ceiling and clamp in the Companion.')}</p>`;
     const family = BITRATE_CURVE_FAMILIES.find(entry => entry.value === this.curve) ?? BITRATE_CURVE_FAMILIES[0];
     return html`
       <div class="wrap">

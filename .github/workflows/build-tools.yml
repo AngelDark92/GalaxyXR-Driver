@@ -18,6 +18,9 @@ concurrency:
 jobs:
   build-tools:
     name: Windows build tool tests (PowerShell 5.1 and 7)
+    # An automation-token push of an already built release version needs no
+    # second build. This condition cannot bypass GitHub's PR approval gate.
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release):')
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -80,3 +83,21 @@ jobs:
             if ($LASTEXITCODE -ne 0) { $failed += $test }
           }
           if ($failed.Count) { throw "Failed suites: $($failed -join ', ')" }
+
+      - name: Build production frontend entries
+        if: ${{ !cancelled() }}
+        working-directory: GalaxyXRDriverGUI
+        run: npm run build:ui
+
+      - name: Check packaged graph in WebView browser engine
+        if: ${{ !cancelled() }}
+        run: |
+          # Keep QA dependencies outside source, like all other build tools.
+          $browserTools = [IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE '../builds/GalaxyXR-Driver/build/browser-qa-tools'))
+          npm install --prefix $browserTools --no-save --package-lock=false playwright@1.62.1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:NODE_PATH = Join-Path $browserTools 'node_modules'
+          node .\tools\Test-CurvePreviewBrowser.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .\tools\Test-CompanionBrowser.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

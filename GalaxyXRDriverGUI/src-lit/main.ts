@@ -15,11 +15,6 @@ import { setLocale } from './locale/i18n';
 import { appCustomElements } from './register';
 import { applyTheme } from './ui/theme';
 import { applyUiScale } from './ui/ui-scale';
-// 2026-10-19: side-effect import so the preview element is actually defined.
-// A type-only import is erased by the bundler, which left the window blank.
-import './features/curve-preview-window';
-import { is_curve_preview_window } from './platform/tauri';
-
 function localeFromPath(): string {
   const segments = window.location.pathname.split('/').filter(Boolean);
   // /<locale>/index.html -> the segment before the last is the locale.
@@ -48,36 +43,6 @@ async function boot(): Promise<void> {
   // the registry here also guarantees its defining modules are retained in the
   // production bundle.
   void appCustomElements;
-
-  // 2026-10-19: the bitrate curve graph runs in its own window (#view=curve).
-  // It must not build the service composition root: no settings writer, no
-  // directory creation and no migrations. Locale and theme are all it needs.
-  const view = window.location.hash.replace(/^#/, '') || new URLSearchParams(window.location.search).get('view')
-    || document.documentElement.dataset.view;
-  // 2026-10-19: the window label is authoritative. Query/fragment markers in a
-  // Tauri App URL are treated as part of the asset path, so the page never
-  // loaded and the window stayed white.
-  const previewWindow = view === 'curve'
-    || (window as unknown as { __GXR_CURVE_PREVIEW__?: boolean }).__GXR_CURVE_PREVIEW__ === true
-    || await is_curve_preview_window().catch(() => false);
-  if (previewWindow) {
-    applyTheme('system');
-    document.title = 'Bitrate Curve';
-    if (!customElements.get('app-curve-preview')) {
-      // Never leave a silent white window: say what failed.
-      const message = document.createElement('p');
-      message.style.cssText = 'font: 14px system-ui; padding: 1rem; margin: 0;';
-      message.textContent = 'The bitrate curve preview failed to load.';
-      document.body.appendChild(message);
-      return;
-    }
-    const preview = document.createElement('app-curve-preview');
-    document.body.appendChild(preview);
-    // Mount first, then localize: a stalled locale fetch must not leave the
-    // window empty.
-    void loadLocale().then(() => (preview as unknown as { requestUpdate?: () => void }).requestUpdate?.());
-    return;
-  }
 
   // 2026-09-26: opening Companion must not recreate data removed by Uninstall.
   // Installation and deliberate preference saves create directories on demand.
