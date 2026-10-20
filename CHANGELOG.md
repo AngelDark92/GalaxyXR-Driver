@@ -6,6 +6,17 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.13.0-dev.18] - 2026-10-20
+
+### Fixes
+
+- spacewarp: publish the synthesis mode and harden the host tap (`44c7e6e`)
+- companion: allow only one running instance (`0342fed`)
+
+### Other changes
+
+- test(companion): cover the live Optical Flow read in the ASW exclusivity check (`079dd1b`)
+
 ## [1.13.0-dev.17] - 2026-10-20
 
 ### Features
