@@ -127,10 +127,21 @@ describe('confirmed synthesis mode switching', () => {
   });
   it('refuses ASW when another manager remains armed after Companion disarm', async () => {
     const { service, galaxy } = fixture(false);
+    // 2026-10-20: the exclusion reads the LIVE registry, so the mocked read (not
+    // a cached status) is what reports the external manager here.
+    bridge.status.mockResolvedValue(status('armed_external'));
     service.status.set(status('armed_external'));
     bridge.disarm.mockImplementationOnce(async () => { bridge.status.mockResolvedValue(status('armed_external')); return status('armed_external'); });
     await service.setSpacewarp(true);
     expect(galaxy.save).not.toHaveBeenCalled(); expect(service.error()).toContain('current manager');
+  });
+  it('does not let a stale armed cache block ASW after the external manager is gone', async () => {
+    const { service, galaxy } = fixture(false);
+    service.status.set(status('armed_external'));  // stale observation
+    bridge.status.mockResolvedValue(status('ready'));  // live registry: nothing armed
+    await service.setSpacewarp(true);
+    expect(galaxy.save).toHaveBeenCalledOnce();
+    expect((galaxy.settings as { spacewarpEnable?: boolean }).spacewarpEnable).toBe(true);
   });
   it('only applies confirmed saved backend preferences', async () => {
     const { service, app } = fixture(true); app.save.mockResolvedValueOnce(false);
