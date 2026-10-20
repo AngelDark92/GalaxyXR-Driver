@@ -235,8 +235,11 @@ export type StreamFrameConfig = {
   nvencMaxBitrateHeadroomPct: number;
   nvencVbvFrames: number;
   nvencForceFps: number;
-  nvencBitrateScale: boolean;
+  nvencBitrateCurve: number;
+  nvencBitrateConstancyPct: number;
   nvencVrlinkClampMbit: number;
+  /** 0 = VRLink stock, 1 = no fallback (VrlinkFallbackTap in-memory edit). */
+  nvencVrlinkFallbackMode: number;
   // Optional for settings written before the editable H.264 recipe (2026-10-16).
   // GOP/IDR: 0 follows the encoder FPS; -1 preserves upstream parameters.
   nvencH264GopFrames?: number;
@@ -260,6 +263,10 @@ export type StreamFrameConfig = {
   // Async Spacewarp toggle (2026-10-17): never-set key keeps its native
   // default (false) — no migration, and nothing silently rewrites it.
   spacewarpEnable: boolean;
+  // Async Spacewarp mode (2026-10-20): 0 = late frames only, 1 = half rate.
+  // Dormant while the toggle is off; the saved value is user-owned and is
+  // never rewritten by a codec switch or a reset of the other row.
+  spacewarpMode: number;
   nvencLowDelayKfScale: number;
   nvencVuiMatrix: number;
   nvencVuiPrimaries: number;
@@ -436,10 +443,54 @@ export type GeneralHeadsetConfig = {
   useViveBluetooth: boolean;
 }
 
+// OFXR Bridge managed component (2026-10-17): every user-facing OFXR setting.
+// gui-settings.json owns the block; the Companion writes it into the OFXR
+// layer configuration through the Rust commands pinned in brief W4A.
+export type OfxrPreferences = {
+  enabled: boolean;
+  // Selected runtime version (numeric, e.g. '116'); '' = newest installed or
+  // the bundled seed. The dropdown lists versions reported by ofxr_status.
+  version: string;
+  mode: 'fidelityfx' | 'nvidia-fast' | 'nvidia-medium' | 'nvidia-slow';
+  scale: 50 | 75 | 100;
+  bidirectional: boolean;
+  logging: boolean;
+  maxLogMb: number;
+  flushEachEvent: boolean;
+  overlay: 'off' | 'upper-left' | 'upper-right' | 'lower-left' | 'lower-right';
+};
+
+// Pinned IPC result (brief W4A): the Rust side reports the managed layer's
+// registration state, never a synthesized value.
+export type OfxrVersion = {
+  version: string;
+  source: 'bundled' | 'downloaded' | 'external' | string;
+};
+
+export type OfxrStatus = {
+  state: 'not_installed' | 'unavailable' | 'ready' | 'armed' | 'armed_external';
+  version: string | null;
+  runtimeDir: string | null;
+  reason: string | null;
+  versions: OfxrVersion[];
+};
+
 export type AppSetting = {
+  minimizeToTray: boolean;
   colorScheme: 'system' | 'dark' | 'light';
   updateMode: 'replace' | 'rewrite';
   advanceMode: boolean;
+  // Interface scale (2026-10-19): WebView2 page zoom for the whole Companion
+  // window, stored as integer percent so the slider, the readout and the
+  // applied zoom factor never disagree. GUI-only, 100 by default.
+  uiScale: number;
+  // Close button (2026-10-20): what the window's X does. 'ask' prompts in the
+  // Companion with Close as the default, 'close' exits at once, 'minimise'
+  // hides to the tray. GUI-only; the title-bar Minimize button is unaffected.
+  closeButtonAction: 'ask' | 'close' | 'minimise';
+  // OFXR Bridge settings block (2026-10-17). Nested defaults are deep-merged
+  // over older gui-settings.json files, so an upgrade never hides the block.
+  ofxr: OfxrPreferences;
   // Dev Updates channel (2026-10-13): check the releases list so dev
   // (pre-release) builds are offered too. GUI-only, off by default.
   devUpdates: boolean;

@@ -27,14 +27,19 @@ for (const loc of LOCALES) {
   console.log(`\n${loc}:`);
   if (!fs.existsSync(dir)) { fail('directory missing'); continue; }
 
-  const indexHtml = path.join(dir, 'index.html');
-  if (!fs.existsSync(indexHtml)) {
-    fail('index.html missing');
-  } else {
-    ok('index.html present');
-    const html = fs.readFileSync(indexHtml, 'utf8');
-    if (/127\.0\.0\.1:5173/.test(html)) fail('index.html references the dev server');
-    if (/["'](\/src-lit|\/assets)/.test(html)) fail('index.html has an absolute (root-relative) asset URL');
+  for (const page of ['index.html', 'curve.html']) {
+    const indexHtml = path.join(dir, page);
+    if (!fs.existsSync(indexHtml)) {
+      fail(`${page} missing`);
+    } else {
+      ok(`${page} present`);
+      const html = fs.readFileSync(indexHtml, 'utf8');
+      if (/127\.0\.0\.1:5173/.test(html)) fail(`${page} references the dev server`);
+      if (/["'](\/src-lit|\/assets)/.test(html)) fail(`${page} has an absolute (root-relative) asset URL`);
+      for (const match of html.matchAll(/(?:src|href)="(\.\/[^"]+)"/g)) {
+        if (!fs.existsSync(path.join(dir, match[1]))) fail(`${page} references missing asset ${match[1]}`);
+      }
+    }
   }
 
   const localeJson = path.join(dir, 'locale.json');

@@ -46,7 +46,7 @@ describe('createAppContext (startup regression)', () => {
     expect(ctx.galaxy.dis).toBe(ctx.dis);
 
     // app-setting values fall back to defaults before settings.json loads
-    expect(ctx.appSetting.values()).toEqual({ colorScheme: 'dark', updateMode: 'rewrite', advanceMode: false, devUpdates: false, driverVerified: false });
+    expect(ctx.appSetting.values()).toEqual({ colorScheme: 'dark', minimizeToTray: true, uiScale: 100, closeButtonAction: 'ask', updateMode: 'rewrite', advanceMode: false, devUpdates: false, driverVerified: false, ofxr: { enabled: false, version: '', mode: 'fidelityfx', scale: 50, bidirectional: false, logging: false, maxLogMb: 32, flushEachEvent: false, overlay: 'off' } });
     expect(ctx.galaxy.advancedMode).toBe(false);
 
     // the exact reads AppShell.connectedCallback/render performs;

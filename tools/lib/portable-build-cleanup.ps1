@@ -8,8 +8,11 @@ function Remove-PortableBuildWork {
     $root = [IO.Path]::GetFullPath($Repository).TrimEnd('\', '/')
     $build = [IO.Path]::GetFullPath((Join-Path $root '../builds/GalaxyXR-Driver/build'))
     $target = [IO.Path]::GetFullPath($WorkDirectory).TrimEnd('\', '/')
+    # Short run ids (2026-10-17) keep cargo/link paths under MAX_PATH 260 on long
+    # checkouts; the legacy timestamp+guid form stays accepted so trees created
+    # before that change can still be cleaned.
     if (-not [string]::Equals((Split-Path $target -Parent), $build, [StringComparison]::OrdinalIgnoreCase) -or
-        (Split-Path $target -Leaf) -notmatch '^portable-work-\d{8}-\d{6}-[0-9a-f]{32}$') {
+        (Split-Path $target -Leaf) -notmatch '^(pw-\d{6}[0-9a-f]{6}|portable-work-\d{8}-\d{6}-[0-9a-f]{32})$') {
         throw "Refusing cleanup outside a portable build work directory: $target"
     }
 

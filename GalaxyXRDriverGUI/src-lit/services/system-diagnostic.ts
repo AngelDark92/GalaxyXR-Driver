@@ -342,6 +342,9 @@ export class SystemDiagnosticService {
         if (vendor === 'galaxyxr') {
           // Upgrades retain the original settings journal and all owned package
           // paths. Uninstalling first would erase recovery data and the source.
+          // 2026-10-19: upgrades must materialize defaults added by the new
+          // package; a fresh install keeps its settings file sparse.
+          const settingsExisted = await exists(this.dss.filePath);
           await suspendFileWrites();
           await register_galaxyxr_driver(steamVrPath, driverDir);
           nativeCompleted = true;
@@ -350,6 +353,15 @@ export class SystemDiagnosticService {
           await this.paths.ensureAllDirCreated();
           resumeFileWrites();
           await this.dss.ensureEditableSettings();
+          if (settingsExisted) {
+            try {
+              if (!await this.dss.materializeDefaults()) {
+                console.warn('Driver installed, but newly added defaults could not be materialized');
+              }
+            } catch (error) {
+              console.warn('Driver installed, but newly added defaults could not be materialized', error);
+            }
+          }
           await this.dis.refreshWatch();
           await this.dis.loadSetting();
           if (!await this.checkDriverInstalled(true)) throw new Error('Driver registration could not be verified');
@@ -548,7 +560,7 @@ export class SystemDiagnosticService {
     let suspended = false;
     let nativeCompleted = false;
     try {
-      if (!await this.dialog.confirm(t('Uninstall driver and clear settings?'), t('Remove the driver and all active driver and app settings? Recorded SteamVR changes will be restored and verified historical leftovers removed. Saved profiles, recovery backups and other drivers are kept. Original values that were never recorded cannot be recovered. Close SteamVR first.'), t('Uninstall and clear settings'), 'danger')) return false;
+      if (!await this.dialog.confirm(t('Uninstall driver and clear settings?'), t('Remove the driver and all driver and app settings, including saved profiles and recovery backups? Recorded SteamVR changes will be restored and verified historical leftovers removed. Other drivers are kept. Original values that were never recorded cannot be recovered. Close SteamVR first.'), t('Uninstall and clear settings'), 'danger')) return false;
       this._installingDriver.set(true);
       await this.drainDriverChecks();
       this.lastUninstallReport = undefined;

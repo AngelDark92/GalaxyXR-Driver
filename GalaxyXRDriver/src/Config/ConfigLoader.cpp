@@ -16,6 +16,7 @@
 #include "Windows.h"
 #include "../Driver/NvencTap.h"
 #include "../Driver/VrlinkTap.h"
+#include "../Driver/VrlinkFallbackTap.h"
 #else
 #include <unistd.h>
 #endif
@@ -273,7 +274,7 @@ void ConfigLoader::ParseConfig(){
 				DriverLog("Config: %s", newConfig.streamFrame.nvencValidationError.c_str());
 			}
 		};
-		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencVrlinkClampMbit", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
+		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencBitrateCurve", "nvencBitrateConstancyPct", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencVrlinkClampMbit", "nvencVrlinkFallbackMode", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
 		for(const char* key : {"customStreamFormatWidth", "customBandwidthMbit", "customEncodeWidth", "customStreamFormatWidthOverride"}){ validateInteger("galaxyXr", key); }
 		if(data["debugMode"].is_boolean()){
 			newConfig.debugMode = data["debugMode"].get<bool>();
@@ -947,11 +948,30 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["nvencForceFps"].is_number()){
 				newConfig.streamFrame.nvencForceFps = streamFrameData["nvencForceFps"].get<int>();
 			}
-			if(streamFrameData["nvencBitrateScale"].is_boolean()){
-				newConfig.streamFrame.nvencBitrateScale = streamFrameData["nvencBitrateScale"].get<bool>();
+			if(streamFrameData["nvencBitrateCurve"].is_number()){
+				newConfig.streamFrame.nvencBitrateCurve = streamFrameData["nvencBitrateCurve"].get<int>();
+			}
+			if(streamFrameData["nvencBitrateConstancyPct"].is_number()){
+				newConfig.streamFrame.nvencBitrateConstancyPct = streamFrameData["nvencBitrateConstancyPct"].get<int>();
+			}
+			// 2026-10-19 schema migration: the retired nvencBitrateScale bool
+			// becomes the constancy percentage. Only an absent new key is
+			// translated; an explicit curve/pct choice always wins. Runs on
+			// every load (no marker gate) so already-migrated installs that
+			// still carry the fossil are handled too.
+			if(streamFrameData["nvencBitrateScale"].is_boolean() && !streamFrameData["nvencBitrateConstancyPct"].is_number()){
+				const bool scale = streamFrameData["nvencBitrateScale"].get<bool>();
+				newConfig.streamFrame.nvencBitrateConstancyPct = scale ? 0 : 100;
+				DriverLog("Config: streamFrame.nvencBitrateScale %s -> nvencBitrateConstancyPct %d (retired key)",
+					scale ? "true" : "false", newConfig.streamFrame.nvencBitrateConstancyPct);
 			}
 			if(streamFrameData["nvencVrlinkClampMbit"].is_number()){
 				newConfig.streamFrame.nvencVrlinkClampMbit = streamFrameData["nvencVrlinkClampMbit"].get<int>();
+			}
+			// 2026-10-20: 0 = VRLink stock, 1 = no fallback (see VrlinkFallbackTap.h).
+			// Never coerced: any other value is rejected by validateInteger above.
+			if(streamFrameData["nvencVrlinkFallbackMode"].is_number()){
+				newConfig.streamFrame.nvencVrlinkFallbackMode = streamFrameData["nvencVrlinkFallbackMode"].get<int>();
 			}
 			if(streamFrameData["nvencH264GopFrames"].is_number_integer()){
 				newConfig.streamFrame.nvencH264GopFrames = streamFrameData["nvencH264GopFrames"].get<int>();
@@ -1009,6 +1029,9 @@ void ConfigLoader::ParseConfig(){
 			}
 			if(streamFrameData["spacewarpEnable"].is_boolean()){
 				newConfig.streamFrame.spacewarpEnable = streamFrameData["spacewarpEnable"].get<bool>();
+			}
+			if(streamFrameData["spacewarpMode"].is_number()){
+				newConfig.streamFrame.spacewarpMode = streamFrameData["spacewarpMode"].get<int>();
 			}
 			if(streamFrameData["nvencLowDelayKfScale"].is_number()){
 				newConfig.streamFrame.nvencLowDelayKfScale = streamFrameData["nvencLowDelayKfScale"].get<int>();
@@ -1604,7 +1627,7 @@ void ConfigLoader::ParseConfig(){
 					jsf["nvencTap"] = sf.nvencTap; jsf["nvencFixLevel"] = sf.nvencFixLevel; jsf["nvencForceCbr"] = sf.nvencForceCbr;
 					jsf["nvencVbvFrames"] = sf.nvencVbvFrames; jsf["nvencLowDelayKfScale"] = sf.nvencLowDelayKfScale;
 					jsf["nvencMaxBitrateHeadroomPct"] = sf.nvencMaxBitrateHeadroomPct; jsf["nvencForceFps"] = sf.nvencForceFps;
-					jsf["nvencBitrateScale"] = sf.nvencBitrateScale; jsf["nvencPresetMerge"] = sf.nvencPresetMerge;
+					jsf["nvencBitrateCurve"] = sf.nvencBitrateCurve; jsf["nvencBitrateConstancyPct"] = sf.nvencBitrateConstancyPct; jsf["nvencVrlinkFallbackMode"] = sf.nvencVrlinkFallbackMode; jsf["nvencPresetMerge"] = sf.nvencPresetMerge;
 					jsf["nvencSplitMode"] = sf.nvencSplitMode; jsf["nvencPreset"] = sf.nvencPreset;
 					// 2026-09-26: v3 -> v4 also enters this writeback. Literal
 					// defaults here erased valid tuning on the following reload.
@@ -1999,8 +2022,10 @@ void ConfigLoader::WriteInfo(){
 				{"nvencMaxBitrateHeadroomPct", defaultSettings.streamFrame.nvencMaxBitrateHeadroomPct},
 				{"nvencVbvFrames", defaultSettings.streamFrame.nvencVbvFrames},
 				{"nvencForceFps", defaultSettings.streamFrame.nvencForceFps},
-				{"nvencBitrateScale", defaultSettings.streamFrame.nvencBitrateScale},
+				{"nvencBitrateCurve", defaultSettings.streamFrame.nvencBitrateCurve},
+				{"nvencBitrateConstancyPct", defaultSettings.streamFrame.nvencBitrateConstancyPct},
 				{"nvencVrlinkClampMbit", defaultSettings.streamFrame.nvencVrlinkClampMbit},
+				{"nvencVrlinkFallbackMode", defaultSettings.streamFrame.nvencVrlinkFallbackMode},
 				{"nvencH264GopFrames", defaultSettings.streamFrame.nvencH264GopFrames},
 				{"nvencH264IdrFrames", defaultSettings.streamFrame.nvencH264IdrFrames},
 				{"nvencH264RefFrames", defaultSettings.streamFrame.nvencH264RefFrames},
@@ -2020,6 +2045,7 @@ void ConfigLoader::WriteInfo(){
 				{"nvencMinQpIntra", defaultSettings.streamFrame.nvencMinQpIntra},
 				{"nvencForceCbr", defaultSettings.streamFrame.nvencForceCbr},
 				{"spacewarpEnable", defaultSettings.streamFrame.spacewarpEnable},
+				{"spacewarpMode", defaultSettings.streamFrame.spacewarpMode},
 				{"nvencLowDelayKfScale", defaultSettings.streamFrame.nvencLowDelayKfScale},
 				{"nvencVuiMatrix", defaultSettings.streamFrame.nvencVuiMatrix},
 				{"nvencVuiPrimaries", defaultSettings.streamFrame.nvencVuiPrimaries},
@@ -2172,7 +2198,14 @@ void ConfigLoader::WriteInfo(){
 	const auto spacewarpTap = VrlinkTap::Get().GetRuntimeState();
 	data["spacewarp"] = {
 		{"enabled", spacewarpTap.enabled}, {"hookInstalled", spacewarpTap.hookInstalled},
-		{"published", spacewarpTap.published}, {"status", spacewarpTap.status}};
+		{"published", spacewarpTap.published}, {"publishedValue", spacewarpTap.publishedValue},
+		{"status", spacewarpTap.status}};
+	// 2026-10-20: same seam for the VRLink fallback tap. status is exactly
+	// "off" / "on" / "waiting"; reason explains a fail-closed state.
+	const auto fallbackTap = VrlinkFallbackTap::Get().GetRuntimeState();
+	data["vrlinkFallback"] = {
+		{"enabled", fallbackTap.enabled}, {"applied", fallbackTap.applied},
+		{"status", fallbackTap.status}, {"reason", fallbackTap.reason ? fallbackTap.reason : ""}};
 #endif
 	ordered_json& distortionProfilesJson = data["builtInDistortionProfiles"];
 	for(auto profilePair : builtInDistortionProfiles){

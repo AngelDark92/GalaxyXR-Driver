@@ -13,6 +13,9 @@ import { DialogService } from './services/dialog';
 import { DriverStartupService } from './services/driver-startup';
 import { SettingsCheckService } from './services/settings-check';
 import { GalaxySettingsBase } from './state/galaxy-settings';
+import { CurvePreviewPublisher, previewState } from './services/curve-preview';
+import { CompanionLifecycleService } from './services/companion-lifecycle';
+import { OfxrSessionService } from './services/ofxr-session';
 
 export interface AppContext {
   paths: PathsService;
@@ -25,6 +28,9 @@ export interface AppContext {
   galaxy: GalaxySettingsBase;
   checks: SettingsCheckService;
   startup: DriverStartupService;
+  curvePreview: CurvePreviewPublisher;
+  lifecycle: CompanionLifecycleService;
+  ofxr: OfxrSessionService;
   dispose(): void;
 }
 
@@ -40,6 +46,12 @@ export function createAppContext(paths: PathsService): AppContext {
   const sds = new SystemDiagnosticService(dss, dis, dialog, paths, appSetting);
   const aus = new AppUpdateService(sds, appSettingGetter);
   const galaxy = new GalaxySettingsBase(appSetting, dss, dis);
+  const ofxr = new OfxrSessionService(appSetting, dss, galaxy);
+  const lifecycle = new CompanionLifecycleService(appSetting, dialog, () => ofxr.idle());
+  const curvePreview = new CurvePreviewPublisher(() => previewState(galaxy.rootSetting, galaxy.streamQualityValues.bandwidth), update => {
+    const stopEdit = galaxy.revision.subscribe(update), stopLoad = dss.values.subscribe(update);
+    return () => { stopEdit(); stopLoad(); };
+  });
   const checks = new SettingsCheckService(appSetting, dss, dis, sds);
   const startup = new DriverStartupService(sds);
   const stopInstallation = sds.driverInstalled.subscribe(() => startup.invalidate());
@@ -61,7 +73,13 @@ export function createAppContext(paths: PathsService): AppContext {
     galaxy,
     checks,
     startup,
+    curvePreview,
+    lifecycle,
+    ofxr,
     dispose() {
+      lifecycle.dispose();
+      ofxr.dispose();
+      curvePreview.dispose();
       stopInstallation(); stopMaintenance(); startup.invalidate();
       sds.dispose();
       appSetting.dispose(); dss.dispose(); dis.dispose();

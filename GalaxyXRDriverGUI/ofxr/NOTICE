@@ -1,0 +1,14 @@
+OFXR Bridge payload (LGPL-3.0-or-later)
+
+Upstream: https://github.com/tig3rmast3r/OFXR-Bridge
+Source tag: v0.2.1  commit: dad56ac
+Built from that tag with MSVC 14.44 + CMake (Ninja), FidelityFX SDK v1.1.4
+(pinned commit c6efa6bf7f2027b3ec94f28578bb5965eabb9e55).
+
+The DLL is shipped unmodified and loaded dynamically as an OpenXR implicit
+layer. Written offer: the corresponding source is the upstream repository at
+the commit above; it is not modified by this package.
+
+This payload is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See LICENSE.

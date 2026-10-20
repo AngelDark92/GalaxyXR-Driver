@@ -108,4 +108,11 @@ export class DialogService {
   async message(title: string, message: string, details?: string): Promise<void> {
     await this.openDialog(title, message, [{ label: t('Ok'), value: undefined, primary: true }], details);
   }
+
+  /** Prompt whose first action is the default one: Fluent autofocuses it, so
+   * Enter accepts it. Resolves with the chosen action's value, or undefined
+   * when the dialog is dismissed. */
+  async choose<T>(title: string, message: string, actions: Array<{ label: string; value: T; primary?: boolean }>): Promise<T | undefined> {
+    return (await this.openDialog(title, message, actions)) as T | undefined;
+  }
 }

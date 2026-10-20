@@ -11,7 +11,11 @@ import { t } from '../locale/i18n';
 import { pageIntro, statusMessage } from '../ui/presentation';
 import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
 import { spacewarpStatus } from '../domain/spacewarp-status';
+import { codecSwitchState } from '../domain/codec-selection';
+import { ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
+import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 import { codecEncoderDefaults, streamFrameIntegerError } from '../state/galaxy-settings';
+import { BITRATE_CURVE_FAMILIES } from '../domain/bitrate-curve';
 import '../ui/controls';
 import './driver-banner';
 import './system-ready';
@@ -23,16 +27,38 @@ export class StreamFramePage extends BasePage {
   private evidenceExpiryTimer?: ReturnType<typeof setTimeout>;
   private runtimeUnsub?: () => void;
   private evidenceUnsub?: () => void;
+  private ofxrUnsubs: Array<() => void> = [];
   // 2026-10-18: extended for the hidden-window guard in updateRuntimeEvidence.
   // Becoming visible again re-runs updateRuntimeEvidence once (re-render plus
   // expiry timer re-arm); hiding keeps the direct requestUpdate from before.
   // The listener stays registered exactly once (connectedCallback add,
   // disconnectedCallback remove).
   private readonly onVisibilityChange = () => {
-    if (document.visibilityState !== 'hidden') this.updateRuntimeEvidence();
-    else this.requestUpdate();
+    if (document.visibilityState !== 'hidden') {
+      // A transient status failure latches 'unavailable'; regaining visibility
+      // is the bounded retry point (one status call per switch back).
+      void this.ctx.ofxr.refresh();
+      this.updateRuntimeEvidence();
+    } else this.requestUpdate();
   };
   private pollGeneration = 0;
+  private get ofxrStatus(): OfxrStatus | undefined { return this.ctx.ofxr.status(); }
+  private get ofxrError(): string | undefined { return this.ctx.ofxr.error(); }
+  // 2026-10-19: the graph opens in its own window; this only reports a failure
+  // to open it.
+  private curveWindowError?: string;
+  private async openCurveWindow(): Promise<void> {
+    // Same locale segment boot() resolves from the page path.
+    const locale = window.location.pathname.split('/').filter(Boolean)[0] ?? 'en-US';
+    try {
+      await this.ctx.curvePreview.open(locale);
+      this.curveWindowError = undefined;
+    } catch (error) {
+      this.curveWindowError = String(error);
+      console.error('Curve preview window failed to open', error);
+    }
+    this.requestUpdate();
+  }
   private readonly streamNumberErrors = new Map<string, string>();
   // 2026-10-16: inline per-key validation for app-number rows (the driver
   // contract in streamFrameIntegerError). The entered value is kept and
@@ -84,6 +110,9 @@ export class StreamFramePage extends BasePage {
     super.connectedCallback();
     this.runtimeUnsub = this.ctx.startup.status.subscribe(() => this.updateRuntimeEvidence());
     this.evidenceUnsub = this.ctx.dis.values.subscribe(() => this.updateRuntimeEvidence());
+    this.ofxrUnsubs = [this.ctx.ofxr.status, this.ctx.ofxr.error, this.ctx.ofxr.changing]
+      .map(value => value.subscribe(() => this.requestUpdate()));
+    void this.ctx.ofxr.refresh();
     this.updateRuntimeEvidence();
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     void this.pollRuntime(++this.pollGeneration);
@@ -96,6 +125,7 @@ export class StreamFramePage extends BasePage {
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.runtimeUnsub?.();
     this.evidenceUnsub?.();
+    for (const stop of this.ofxrUnsubs.splice(0)) stop();
     super.disconnectedCallback();
   }
   private async restoreEncoder(): Promise<void> {
@@ -111,9 +141,36 @@ export class StreamFramePage extends BasePage {
     await this.ctx.startup.refresh();
     this.requestUpdate();
   }
+  // The application-owned service also restores the saved session at startup.
+  private ofxrPreferences(): OfxrPreferences { return this.ctx.ofxr.preferences(); }
+  private setOfxrEnabled(enabled: boolean): Promise<void> { return this.ctx.ofxr.setEnabled(enabled); }
+  private selectOfxrVersion(version: string): Promise<void> { return this.ctx.ofxr.selectVersion(version); }
+  private reinstallOfxr(): Promise<void> { return this.ctx.ofxr.reinstall(); }
+  private removeOfxr(): Promise<void> { return this.ctx.ofxr.remove(); }
+  private updateOfxr(patch: Partial<OfxrPreferences>): Promise<void> { return this.ctx.ofxr.update(patch); }
+  private setSpacewarp(enabled: boolean): Promise<void> { return this.ctx.ofxr.setSpacewarp(enabled); }
+  // 2026-10-19 (owner directive): a codec switch is live-session-sensitive, so
+  // the runtime is re-checked when the user commits it. A refused switch puts
+  // the control back on the saved codec; the setting never changes silently.
+  private async selectCodec(select: EventTarget | null, codec: number): Promise<void> {
+    await this.ctx.startup.refresh();
+    const galaxy = this.ctx.galaxy;
+    if (!galaxy.settings) return;
+    if (codecSwitchState(this.ctx.startup.status()) !== 'allowed') {
+      const control = select as unknown as { value?: string } | null;
+      if (control) control.value = String(galaxy.settings.nvencCodec);
+      this.requestUpdate();
+      return;
+    }
+    if (codec === galaxy.settings.nvencCodec) return;
+    galaxy.settings.nvencCodec = codec;
+    galaxy.applyCodecEncoderDefaults(codec);
+    this.requestUpdate();
+  }
   static styles = [fieldStyles, css`
     :host { display: block; padding: 0 1rem 2rem 1rem; }
     .rgb-control { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+    .spacewarp-controls { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .rgb-control span { opacity: 0.75; font-size: 90%; }
     .matrix-control { flex-direction: column; align-items: flex-start; gap: 0.3rem; }
     .note-inline { opacity: 0.75; font-size: 0.9rem; }
@@ -200,6 +257,16 @@ if (vendor) {
   reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
           }));
           parts.push(this.numberErrorRow('galaxyXr.customBandwidthMbit'));
+          // 2026-10-20: one plain-language select beside the bitrate it governs.
+          // Stock is the default, so an upgrade changes nothing until it is flipped.
+          const fallbackLocked = this.ctx.startup.status()?.steamvrRunning === true;
+          parts.push(settingFieldRow('streamFrame.nvencVrlinkFallbackMode', html`
+      <app-select ?disabled=${fallbackLocked} .value=${settings.nvencVrlinkFallbackMode ?? 0} .options=${[{ value: 0, label: t('VRLink stock') }, { value: 1, label: t('No fallback') }]} @change=${(e: CustomEvent) => { settings.nvencVrlinkFallbackMode = Number(e.detail); save(); }}></app-select>
+      ${fallbackLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``}
+          `, {
+  tip: t("Choose whether VRLink may lower its own bitrate request when it thinks the link is weak. Changing this needs SteamVR closed; the saved value applies to the next session.\n\nVRLink stock keeps Valve's behaviour: the request follows a health score built from measured ping against one to four frames of tolerance, can collapse toward 5 % on a bad sample, and halves when the frame pipeline runs four deep. No fallback removes both the health score and the pipeline throttle, so the request stays at your Bitrate value and the encoder target stops moving under a steady picture. Use it when the stream keeps stepping between bitrate levels; the trade is that a genuinely weak link then shows as latency instead of a lower bitrate.\n\nValue: streamFrame.nvencVrlinkFallbackMode (settings.json). Host side — edits the two instructions in the loaded driver_vrlink.dll in memory, nothing on disk."),
+  reset: { can: (settings.nvencVrlinkFallbackMode ?? 0) !== defaults.nvencVrlinkFallbackMode, on: () => galaxy.reset('nvencVrlinkFallbackMode') }
+          }));
         if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
             || !Number.isInteger(galaxy.streamQualityValues.bandwidth) || galaxy.streamQualityValues.bandwidth <= 0) {
           parts.push(statusMessage('error', t('Invalid stream setting'), t('Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.')));
@@ -240,26 +307,35 @@ if (vendor) {
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
         parts.push(settingFieldRow('streamFrame.spacewarpEnable', html`
-      <app-switch .checked=${!!settings.spacewarpEnable} @change=${(e: CustomEvent) => { settings.spacewarpEnable = e.detail; save(); }}></app-switch>
+      <span class="spacewarp-controls"><app-switch .checked=${!!settings.spacewarpEnable} ?disabled=${this.ctx.ofxr.changing()} @change=${(e: CustomEvent) => { void this.setSpacewarp(e.detail); }}></app-switch><app-select ?disabled=${!settings.spacewarpEnable || this.ctx.ofxr.changing()} .value=${settings.spacewarpMode ?? 0} .options=${[{ value: 0, label: t('Late frames only') }, { value: 1, label: t('Half rate') }]} @change=${(e: CustomEvent) => { settings.spacewarpMode = Number(e.detail); save(); }}></app-select></span>
             `, {
-  tip: t("Applies live to the running stream. Async Spacewarp synthesizes extra intermediate frames, smoothing motion between streamed frames. The synthesis runs on the headset client and needs the GXR spacewarp client patch (experimental) installed there; without it the stream shows extra held frames instead of synthesized frames. Off preserves the upstream frames; the switch stays honest via the status row.\n\nValue: streamFrame.spacewarpEnable (settings.json). Stream side — publishes the toggle live to the running vrlink stream; the headset synthesizes the frames."),
-  reset: { can: settings.spacewarpEnable != defaults.spacewarpEnable, on: () => { galaxy.reset('spacewarpEnable'); } }
+  tip: t("Applies live to the running stream. Async Spacewarp synthesizes frames on the headset client when the stream misses a display tick. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.\n\nMode: Late frames only synthesizes only when a display tick has no new decoded frame. Half rate presents a synthesized frame on every second display tick, so real frames update at half the display rate; the client still decodes every frame in both modes. Mode changes are saved immediately and apply live.\n\nValue: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json). Stream side — publishes the toggle and mode live to the running vrlink stream; the headset client synthesizes the frames."),
+  reset: { can: settings.spacewarpEnable != defaults.spacewarpEnable || settings.spacewarpMode != defaults.spacewarpMode, on: () => { galaxy.reset('spacewarpEnable'); galaxy.reset('spacewarpMode'); } }
             }));
         {
           const spacewarpState = spacewarpStatus(!!settings.spacewarpEnable, this.ctx.dis.values(), this.ctx.startup.status());
           parts.push(statusMessage(spacewarpState === 'on' ? 'success' : spacewarpState === 'waiting' ? 'warning' : 'info',
             t(spacewarpState === 'on' ? 'Async Spacewarp: Active' : spacewarpState === 'waiting' ? 'Async Spacewarp: Waiting for stream' : 'Async Spacewarp: Off'),
-            t(spacewarpState === 'on' ? 'The running stream carries the request; the headset synthesizes the intermediate frames.'
+            t(spacewarpState === 'on' ? 'The running stream carries the request. Frames are synthesized only while the headset client patch is active.'
               : spacewarpState === 'waiting' ? 'The saved value is not confirmed by the running stream yet. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.'
               : 'The stream is left unchanged; no frames are synthesized.')));
         }
+        // 2026-10-19 (owner directive): a codec switch made while SteamVR is
+        // running would land in settings.json under a live session instead of
+        // waiting for the next start, so the selector stays disabled until the
+        // runtime is fresh and confirmed stopped.
+        const codecState = codecSwitchState(this.ctx.startup.status());
         parts.push(settingFieldRow('streamFrame.nvencCodec', html`
-      <app-select ?disabled=${!settings.nvencTap} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1' }]} @change=${(e: CustomEvent) => { const codec = e.detail; if (codec !== settings.nvencCodec) { settings.nvencCodec = codec; galaxy.applyCodecEncoderDefaults(codec); } this.requestUpdate(); }}></app-select>
+      <app-select ?disabled=${!settings.nvencTap || codecState !== 'allowed'} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1' }]} @change=${(e: CustomEvent) => { void this.selectCodec(e.currentTarget, e.detail); }}></app-select>
             `, {
   tip: t("Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Selecting H.264 turns the SDR 10-bit baseline off (its toggle on Driver Settings shows Off and is disabled until another codec is selected). Requires a SteamVR restart and reconnect.\n\nValue: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.")
             }));
         if (!settings.nvencTap) {
           parts.push(noteRow(html`Requires the NVENC Tap — enable it above to choose a codec. With the tap off the codec choice is saved but not applied.`));
+        } else if (codecState === 'running') {
+          parts.push(noteRow(html`${t('Codec switching is disabled while SteamVR is running. Close SteamVR completely, then choose the codec. The saved choice applies at the next SteamVR session.')}`));
+        } else if (codecState === 'unconfirmed') {
+          parts.push(noteRow(html`${t('The SteamVR runtime check has not confirmed a stopped runtime, so codec switching stays disabled. It unlocks after a successful check; open Setup if this persists.')}`));
         }
         parts.push(fieldRow(t('Restore Steam Link encoder behaviour'), html`
           <fluent-button appearance="outline" ?disabled=${this.ctx.sds.installingDriver() || this.ctx.startup.status()?.steamvrRunning !== false}
@@ -452,6 +528,87 @@ if (settings.stationaryDimming.enable) {
           t('Enable it in App Settings to adjust color and sharpening.'),
           html`<a href="#/app-settings">${t('Open App Settings')}</a>`));
 }
+if (vendor && settings) {
+        const ofxr = this.ofxrPreferences();
+        const ofxrStatus = this.ofxrStatus;
+        parts.push(sectionHeading(t('Optical Flow'), 0, 'optical-flow'));
+        parts.push(statusMessage('info', t('Optical Flow requires the Companion to stay running'),
+          t('Keep the Companion open, minimized, or running in the system tray while playing. Quitting the Companion stops Optical Flow.'),
+          html`<a href="#/app-settings">${t('Open App Settings')}</a>`));
+        parts.push(settingFieldRow('ofxr.enabled', html`
+      <app-switch .checked=${this.ctx.ofxr.isArmed()} ?disabled=${this.ctx.ofxr.changing() || (!this.ctx.ofxr.isArmed() && !ofxrCanArm(ofxrStatus))} title=${this.ofxrError ?? t(ofxrDisabledReason(ofxrStatus) ?? '')} @change=${(e: CustomEvent) => { void this.setOfxrEnabled(e.detail); }}></app-switch>
+      ${this.ofxrError ? html`<span class="mode-error" role="alert">${this.ofxrError}</span>` : ''}
+            `, {
+  tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, quitting the Companion disarms it; minimizing or closing to the tray keeps it running. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
+            }));
+        parts.push(settingFieldRow('ofxr.mode', html`
+      <app-select .value=${ofxr.mode} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed()} .options=${[
+        { value: 'fidelityfx', label: t('FidelityFX (any card)') },
+        { value: 'nvidia-fast', label: t('NVIDIA Fast (test)') },
+        { value: 'nvidia-medium', label: t('NVIDIA Medium (recommended)') },
+        { value: 'nvidia-slow', label: t('NVIDIA Slow (best quality)') }
+      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ mode: e.detail }); }}></app-select>
+            `, {
+  tip: t("Choose who computes the optical flow. FidelityFX runs on any graphics card. The NVIDIA options use the GPU's hardware Optical Flow engine and require an NVIDIA Turing generation or newer card with Optical Flow support (TU117-based GTX 1650 class cards are not supported). NVIDIA Medium with 50% resolution is the recommended starting point; the GPU cost and quality trade off against each other.\n\nValue: ofxr.mode (gui-settings.json). Companion side — writes backend and nvidia_preset into the OFXR layer configuration; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.scale', html`
+      <app-select .value=${ofxr.scale} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed() || ofxr.mode === 'fidelityfx'} .options=${[
+        { value: 100, label: t('100% (full resolution)') },
+        { value: 75, label: t('75%') },
+        { value: 50, label: t('50% (recommended)') }
+      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ scale: e.detail }); }}></app-select>
+            `, {
+  tip: t("Resolution the NVIDIA optical-flow engine runs at. Lower costs less GPU time; 50% is the recommended default, 100% is usually too expensive for little extra gain.\n\nValue: ofxr.scale (gui-settings.json). Companion side — writes nvidia_input_scale; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.bidirectional', html`
+      <app-switch .checked=${ofxr.bidirectional} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed() || ofxr.mode === 'fidelityfx'} @change=${(e: CustomEvent) => { void this.updateOfxr({ bidirectional: e.detail }); }}></app-switch>
+            `, {
+  tip: t("Compute optical flow in both directions and reject inconsistent vectors. Better quality around occlusions for slightly more GPU cost.\n\nValue: ofxr.bidirectional (gui-settings.json). Companion side — writes nvidia_bidirectional; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.logging', html`
+      <app-switch .checked=${ofxr.logging} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed()} @change=${(e: CustomEvent) => { void this.updateOfxr({ logging: e.detail }); }}></app-switch>
+            `, {
+  tip: t("Write the OFXR diagnostic flight log for problem reports. Turn it off when not diagnosing.\n\nValue: ofxr.logging (gui-settings.json). Companion side — writes logging_enabled; applies at the next game start.")
+            }));
+        parts.push(settingFieldRow('ofxr.maxLogMb', html`
+      <app-number .value=${ofxr.maxLogMb} step="1" min="1" max="512" ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed() || !ofxr.logging} @change=${(e: CustomEvent) => { if (e.detail !== undefined) void this.updateOfxr({ maxLogMb: e.detail }); }}></app-number>
+            `, {
+  tip: t("Maximum size of the flight log before it rolls over.\n\nValue: ofxr.maxLogMb (gui-settings.json). Companion side — writes max_file_mb.")
+            }));
+        parts.push(settingFieldRow('ofxr.flushEachEvent', html`
+      <app-switch .checked=${ofxr.flushEachEvent} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed() || !ofxr.logging} @change=${(e: CustomEvent) => { void this.updateOfxr({ flushEachEvent: e.detail }); }}></app-switch>
+            `, {
+  tip: t("Write each flight-log event to disk immediately. Safer for crash reports, slower.\n\nValue: ofxr.flushEachEvent (gui-settings.json). Companion side — writes flush_each_event.")
+            }));
+        parts.push(fieldRow(t('OFXR Bridge version'), html`
+      <app-select .value=${ofxr.version} ?disabled=${this.ctx.ofxr.changing()} .options=${[
+        { value: '', label: t('Automatic (newest installed)') },
+        ...((ofxrStatus?.versions ?? []).map(entry => ({
+          value: entry.version,
+          label: `${entry.source === 'external' ? t('External') : entry.source === 'downloaded' ? t('Downloaded') : t('Bundled')} v${entry.version}`
+        })))
+      ]} @change=${(e: CustomEvent) => { void this.selectOfxrVersion(e.detail); }}></app-select>
+            `, {
+  tip: t("Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Downloaded was imported by you; External belongs to OFXR's own tray and is never modified by the Companion. Switching versions disarms first because the layer's arm event belongs to the payload path.\n\nValue: ofxr.version (gui-settings.json).")
+            }));
+        parts.push(fieldRow(t('Manage OFXR Bridge'), html`
+      <fluent-button ?disabled=${this.ctx.ofxr.changing() || !ofxrStatus || ofxrStatus.state === 'unavailable'} @click=${() => { void this.reinstallOfxr(); }}>${t('Reinstall')}</fluent-button>
+      <fluent-button appearance="primary" class="danger" ?disabled=${this.ctx.ofxr.changing()} @click=${() => { void this.removeOfxr(); }}>${t('Uninstall Optical Flow')}</fluent-button>
+            `, {
+  tip: t("Reinstall deletes the Companion-owned runtime directory for the selected version and stages the bundled payload again, verifying its files. Uninstall disarms the layer, removes the Companion registration and deletes every payload directory the Companion created; OFXR tray installs are left untouched. The driver uninstall performs the same cleanup.")
+            }));
+        parts.push(settingFieldRow('ofxr.overlay', html`
+      <app-select .value=${ofxr.overlay} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed()} .options=${[
+        { value: 'off', label: t('Off') },
+        { value: 'upper-left', label: t('Upper left') },
+        { value: 'upper-right', label: t('Upper right') },
+        { value: 'lower-left', label: t('Lower left') },
+        { value: 'lower-right', label: t('Lower right') }
+      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ overlay: e.detail }); }}></app-select>
+            `, {
+  tip: t("Show the OFXR frame counter in the headset at the chosen corner; Off hides it.\n\nValue: ofxr.overlay (gui-settings.json). Companion side — writes the overlay position.")
+            }));
+}
 if (advancedMode) {
         parts.push(sectionGroup(t('Advanced'), 1));
           parts.push(fieldRow(t('Frame Sync Timeout (ms)'), html`
@@ -524,6 +681,45 @@ if (settings.nvencTap) {
   tip: t("Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."),
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
+                {
+                  // 2026-10-19: lock only on an observed running session. The
+                  // freshness-checked predicate treated a missing or stale
+                  // report as "running", which locked these rows permanently
+                  // when SteamVR was closed; the page already polls every 2 s.
+                  const curveLocked = this.ctx.startup.status()?.steamvrRunning === true;
+                  // 2026-10-20: with 'No fallback' the streamer request is a
+                  // constant at the clamp, so both curve rows have no effect.
+                  // They stay editable values (never coerced) but are disabled
+                  // and say why, instead of looking active while inert.
+                  const fallbackFixed = (settings.nvencVrlinkFallbackMode ?? 0) === 1;
+                  const curveDisabled = curveLocked || fallbackFixed;
+                  const curveNote = fallbackFixed
+                    ? html`<span class="note-inline">${t('Inactive: Bitrate Fallback is No fallback')}</span>`
+                    : curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``;
+                  parts.push(settingFieldRow('streamFrame.nvencBitrateCurve', html`
+      <app-select ?disabled=${curveDisabled} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { settings.nvencBitrateCurve = Number(e.detail); save(); }}></app-select>
+      ${curveNote}
+                  `, {
+  tip: t("Choose how the streamer's per-frame request becomes the encoder target. Changing this needs SteamVR closed; the saved value applies to the next session.\n\nLinear maps the request straight onto the ceiling, so a 350 Mbit/s request means your bandwidth. The knees hold more of your ceiling until the request falls further: power knee raises the middle of the range and keeps a proportional tail below 60% of the clamp, while soft knee holds the ceiling until 60%. A constancy of 100% overrides the family and always sends the ceiling, which is the retired bitrate-follows-backoff switch turned off.\n\nValue: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the NVENC average bitrate target."),
+  reset: { can: (settings.nvencBitrateCurve ?? 0) !== defaults.nvencBitrateCurve, on: () => galaxy.reset('nvencBitrateCurve') }
+                  }));
+                  parts.push(settingFieldRow('streamFrame.nvencBitrateConstancyPct', html`
+      <app-number ?disabled=${curveDisabled} .value=${settings.nvencBitrateConstancyPct ?? 0} step="5" min="0" max="100" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBitrateConstancyPct = e.detail; } this.noteNumberError('streamFrame.nvencBitrateConstancyPct', e.detail); save(); }}></app-number>
+      ${curveNote}
+                  `, {
+  tip: t("Lift the selected curve toward your ceiling. 0 leaves the curve as selected; 100 sends the ceiling whatever the streamer asks. Changing this needs SteamVR closed.\n\nAt a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the power knee at 0%, 402 with Linear at 50%, 414 with the power knee at 50% and 450 at 100%. High constancy overrides the streamer's congestion response; the measured cost is stream resets and stalled pacing, so raise it deliberately.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve."),
+  reset: { can: (settings.nvencBitrateConstancyPct ?? 0) !== defaults.nvencBitrateConstancyPct, on: () => galaxy.reset('nvencBitrateConstancyPct') }
+                  }));
+                  parts.push(this.numberErrorRow('streamFrame.nvencBitrateConstancyPct'));
+                  parts.push(fieldRow(t('Bitrate Curve Graph'), html`
+      <fluent-button appearance="outline" @click=${() => { void this.openCurveWindow(); }}>${t('Open graph window')}</fluent-button>
+                  `, {
+  tip: t("Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call.")
+                  }));
+                  if (this.curveWindowError) {
+                    parts.push(noteRow(html`${t('The graph window could not be opened: {reason}', { reason: this.curveWindowError })}`));
+                  }
+                }
                 parts.push(settingFieldRow('streamFrame.nvencMultiPass', html`
                   <app-select .value=${settings.nvencMultiPass ?? -1} .options=${[
                     { value: -1, label: t('Automatic (codec / preset)') }, { value: 0, label: t('Single pass') },
@@ -848,12 +1044,6 @@ if (vendor) {
             }));
             parts.push(this.numberErrorRow('streamFrame.nvencMinQp'));
             parts.push(this.numberErrorRow('streamFrame.nvencMinQpIntra'));
-            parts.push(settingFieldRow('streamFrame.nvencBitrateScale', html`
-      <app-switch .checked=${!!settings.nvencBitrateScale} @change=${(e: CustomEvent) => { settings.nvencBitrateScale = e.detail; save(); }}></app-switch>
-            `, {
-  tip: "Preserve the streamer's rate-control configuration. This compatibility behavior stays enabled; it is not a separate quality improvement to tune.\n\nAlways on. The streamer's per-frame request is its real rate control; replacing it outright (off) starves the pacer (R3).",
-  reset: { can: settings.nvencBitrateScale != defaults.nvencBitrateScale, on: () => { galaxy.reset('nvencBitrateScale'); } }
-            }));
             parts.push(settingFieldRow('streamFrame.nvencPresetMerge', html`
       <app-switch .checked=${!!settings.nvencPresetMerge} @change=${(e: CustomEvent) => { settings.nvencPresetMerge = e.detail; save(); }}></app-switch>
             `, {
@@ -1029,6 +1219,8 @@ if (vendor) {
 }
 }
 }
+
+
     return html`<app-system-ready .ctx=${this.ctx}>${this.sectionCardsFor(parts)}</app-system-ready>`;
   }
 }

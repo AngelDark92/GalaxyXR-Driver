@@ -66,7 +66,8 @@ describe('first-load settings application', () => {
     expect(await save).toBe(true);
     const saved = JSON.parse(disk.content);
     expect(saved.debugMode ?? false).toBe(!debugMode);
-    expect(Object.hasOwn(saved, 'debugMode')).toBe(!debugMode);
+    // 2026-10-19: stored keys stay explicit even when reset to their default.
+    expect(Object.hasOwn(saved, 'debugMode')).toBe(true);
     expect(saved.streamFrame).toMatchObject(sparseDiagnostics);
     expect(saved.streamFrame.poseLogging ?? driverDefaults.streamFrame!.poseLogging).toBe(defaultPoseLogging);
     expect(saved.galaxyXr.vrlinkDebugOverlay).toBe(true);
@@ -159,7 +160,7 @@ describe('first-load settings application', () => {
   it('persists every explicit pre-v3 encoder Off choice and reopens with current stamps', async () => {
     const off = {
       nvencTap: false, nvencFixLevel: false, nvencForceCbr: false,
-      nvencBitrateScale: false, nvencPresetMerge: false,
+      nvencBitrateConstancyPct: 100, nvencPresetMerge: false,
     };
     let state = await load({
       streamFrameSchema: 5, nvencSettingsVersion: 2, ...off,
@@ -187,7 +188,7 @@ describe('first-load settings application', () => {
   it('keeps defaults for missing pre-v3 switches instead of treating filled values as explicit', async () => {
     const state = await load({ streamFrameSchema: 5, nvencSettingsVersion: 2 });
     await vi.advanceTimersByTimeAsync(1000);
-    for (const key of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencBitrateScale', 'nvencPresetMerge'] as const) {
+    for (const key of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencBitrateConstancyPct', 'nvencPresetMerge'] as const) {
       expect(state.settings?.[key], key).toBe(driverDefaults.streamFrame![key]);
     }
     expect(service.values()?.galaxyXr?.vrlinkHeadsetProfile).toBe(true);

@@ -793,6 +793,13 @@ struct StreamFrameConfig{
 	// which publishes the boolean to the client over the pinned vrlink
 	// value-transport impl — see VrlinkTap.h for the pinned gate contract.
 	bool spacewarpEnable = false;
+	// 2026-10-20 (owner directive): which synthesis mode the client runs while
+	// the toggle is on, carried on the same value-transport id (4-byte value:
+	// 0 = off, 1 = late frames only, 2 = half rate). Only 0 and 1 are defined
+	// here; any other stored value publishes as late-frames-only and the saved
+	// value itself is never rewritten. UI: the select beside the Stream Frame
+	// toggle (streamFrame.spacewarpMode in settings.json).
+	int spacewarpMode = 0;
 	// NVENC tap (ACTIVE since 2026-08-27, see NvencTap.h). hooks vrlink's
 	// encoder init/reconfigure. every override is retried with vrlink's
 	// own params on failure, so worst case is stock behaviour + a log line.
@@ -851,12 +858,23 @@ struct StreamFrameConfig{
 	// feedback loop. 0 = leave. else force N/1 on init + every reconfigure.
 	// 90 is the correct value for this HMD.
 	int nvencForceFps = 90;
-	// scale vrlink's bitrate request by bitrate/350 instead of replacing
-	// it, so its own congestion backoff (30 Mbit during throttle events)
-	// survives the override. off = replace outright (pre-09-03 behaviour).
-	bool nvencBitrateScale = true;
+	// 2026-10-19 bitrate curve (owner request): how vrlink's request maps onto
+	// the configured bandwidth. 0 = linear (the pre-curve mapping), 1 = power
+	// knee, 2 = soft knee (CurveMath.h). Constancy 0..100 lifts the selected
+	// curve toward the ceiling: 0 = the curve itself, 100 = constant ceiling
+	// (the retired nvencBitrateScale=false). Migrated from that bool on load.
+	int nvencBitrateCurve = 0;
+	int nvencBitrateConstancyPct = 0;
 	// vrlink's own encoder ceiling (reference for the scaling), settings.json only
 	int nvencVrlinkClampMbit = 350;
+	// 2026-10-20 (owner request): remove VRLink's own bitrate fallback and its
+	// pipeline throttle instead of reshaping their result. 0 = VRLink stock
+	// (byte-identical behaviour, the default), 1 = no fallback: the controller's
+	// health ratio is forced healthy and the QThrottle multiply is removed, so
+	// the encoder request is min(targetBandwidth, 350) at any ping and phase.
+	// Applied in memory to the loaded driver_vrlink.dll by VrlinkFallbackTap;
+	// nothing is written on disk. See VrlinkFallbackTap.h for the pinned sites.
+	int nvencVrlinkFallbackMode = 0;
 	std::string nvencValidationError; // Transient parse error, never persisted as a setting.
 	// 2026-10-16: explicit H.264 compatibility controls. Defaults retain the
 	// tested recipe; entered values are never replaced with that recipe.

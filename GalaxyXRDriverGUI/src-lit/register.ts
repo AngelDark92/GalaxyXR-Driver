@@ -29,6 +29,7 @@ import {
 import { DriverEnableBanner } from './features/driver-banner';
 import { DriverTroubleshooter, SystemReady } from './features/system-ready';
 import { StreamFrameCurve } from './features/curve-editor';
+import { BitrateCurvePanel } from './features/bitrate-curve';
 import { AppShell } from './shell/app-shell';
 import { DriverSettingsPage } from './features/driver-settings-page';
 import { DistortionProfilePage } from './features/distortion-profile-page';
@@ -100,7 +101,7 @@ export const appCustomElements = {
   SetupPage,
   AboutPage,
   // Nested helpers are used only by tag name in templates.
-  DriverEnableBanner, DriverTroubleshooter, SystemReady, StreamFrameCurve,
+  DriverEnableBanner, DriverTroubleshooter, SystemReady, StreamFrameCurve, BitrateCurvePanel,
   // Controls
   AppSwitch,
   AppSelect,

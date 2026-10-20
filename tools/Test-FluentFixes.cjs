@@ -165,7 +165,7 @@ if (require.main === module) {
   });
   await test('Unreadable and malformed settings never overwrite the backing file',async()=>{
     const h=harness(),c=await h.app();h.fixture.put(h.fixture.data+'/settings.json','{"streamFrame":{"enable":"false"}}');const before=h.fixture.calls.length;let r=await c.checks.refresh();assert.ok(r.errors.some(x=>x.includes('JSON boolean')));assert.equal(c.dss.values(),undefined);
-    assert.ok(r.settings.filter(x=>x.id!=='advanceMode'&&x.id!=='devUpdates').every(x=>x.state==='Unknown'&&x.origin==='unknown'));
+    assert.ok(r.settings.filter(x=>x.source!=='gui-settings.json').every(x=>x.state==='Unknown'&&x.origin==='unknown'));
     h.fixture.denied.add(h.fixture.data+'/settings.json');r=await c.checks.refresh();assert.ok(r.errors.some(x=>x.includes('Permission denied')));assert.equal(c.dss.values(),undefined);assert.equal(h.fixture.calls.length,before);c.dispose();
   });
   await test('Failed write rolls back a setting and exposes an actionable error',async()=>{

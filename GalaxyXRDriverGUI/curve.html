@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bitrate Curve</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: light dark; font: 14px system-ui, sans-serif; }
+    body { margin: 0; padding: 16px 20px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    h1 { font-size: 16px; margin: 0; } button { font: inherit; padding: 4px 14px; cursor: pointer; }
+    #error { color: light-dark(#a4262c, #ff9a9f); white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <header><h1 id="title">Bitrate curve</h1><button id="close" type="button">Close</button></header>
+  <p id="loading" role="status">Loading…</p>
+  <p id="error" role="alert" hidden></p>
+  <script>
+    // Keep Close and Escape available even if the graph module fails to load.
+    function closeGraph() {
+      window.__TAURI_INTERNALS__.invoke('close_curve_preview').catch(function (error) {
+        const message = document.getElementById('error');
+        message.hidden = false; message.textContent = String(error);
+      });
+    }
+    document.getElementById('close').addEventListener('click', closeGraph);
+    window.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeGraph(); });
+  </script>
+  <script type="module" src="/src-lit/curve-main.ts"></script>
+</body>
+</html>

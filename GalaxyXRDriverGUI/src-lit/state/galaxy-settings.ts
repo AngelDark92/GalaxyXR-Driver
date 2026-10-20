@@ -105,6 +105,8 @@ export const streamFrameNumberContracts: Record<string, StreamFrameNumberContrac
     check: value => value >= 1 && value * 4 <= nvencUint32Max,
   },
   'streamFrame.nvencBitrateMbit': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencBitrateConstancyPct': { range: '0 to 100', check: value => value >= 0 && value <= 100 },
+  'streamFrame.nvencVrlinkFallbackMode': { range: '0 or 1', check: value => value === 0 || value === 1 },
   'streamFrame.nvencMaxBitrateHeadroomPct': { range: 'nonnegative', check: value => value >= 0 },
   'streamFrame.nvencForceFps': { range: 'nonnegative', check: value => value >= 0 },
   'streamFrame.nvencVbvFrames': { range: 'nonnegative', check: value => value >= 0 },
@@ -348,6 +350,23 @@ export class GalaxySettingsBase {
         if (rawSf && canMigrate && (rawSf.streamFrameSchema ?? 1) < 5) {
           rawSf.streamFrameSchema = 5;
           queueMicrotask(() => this.save());
+        }
+        // 2026-10-19 migration: the retired streamFrame.nvencBitrateScale bool
+        // becomes nvencBitrateConstancyPct (true -> 0, false -> 100).
+        // Presence-based and idempotent: the fossil is removed, so it runs at
+        // most once per file and never forces a save of its own. The service
+        // merges defaults into rootSetting, so presence is read from the stored
+        // object (same trap the sdr10 block below documents). The driver
+        // translates the same key in memory for files the GUI has not rewritten.
+        if (rawSf && canMigrate) {
+          const storedSf: any = (this.dss.storedValues?.() as any)?.streamFrame ?? rawSf;
+          const legacyToggle = storedSf?.nvencBitrateScale;
+          if (legacyToggle !== undefined) {
+            if (storedSf.nvencBitrateConstancyPct === undefined) {
+              (rawSf as any).nvencBitrateConstancyPct = legacyToggle ? 0 : 100;
+            }
+            delete (rawSf as any).nvencBitrateScale;
+          }
         }
         // NVENC settings v3 (2026-09-05), preservation fix (2026-09-26):
         // absent keys receive defaults through normal loading/fillDefaults.
@@ -724,12 +743,13 @@ export class GalaxySettingsBase {
     return !!this.rootSetting?.galaxyXr?.sdr10Baseline && !this.sdr10BaselineConflict();
   }
 
-  save() {
-    if (this.dss.inspecting) return;
-    if (this.rootSetting) {
-      this.dss.save(this.rootSetting);
-    }
+  async save(): Promise<boolean> {
+    if (this.dss.inspecting) return false;
+    // Callers that depend on a persisted setting (such as OFXR exclusivity)
+    // must receive the writer's confirmation, including rejected saves.
+    const saved = this.rootSetting ? this.dss.save(this.rootSetting) : Promise.resolve(false);
     this.revision.update(x => x + 1);
+    return saved;
   }
 
   alignmentDirty(): boolean {

@@ -48,13 +48,14 @@ int main(int argc, char** argv) {
         {"nvencH264VbvInitialDelay",12345},{"nvencMultiPass",2},
     };
     const bool customUpgrade = scenario == 0 || scenario == 7 || scenario == 8 || scenario == 14;
-    const char* toggles[] = {"nvencTap", "nvencFixLevel", "nvencForceCbr", "nvencBitrateScale", "nvencPresetMerge"};
+    const char* toggles[] = {"nvencTap", "nvencFixLevel", "nvencForceCbr", "nvencPresetMerge"};
     if (customUpgrade) {
         sf["nvencSettingsVersion"] = scenario == 14 ? 3 : scenario == 7 ? 4 : 0;
         for (auto key : toggles) sf[key] = false;
         input["galaxyXr"]["vrlinkHeadsetProfile"] = false;
         input["galaxyXr"]["customStreamFormatWidth"] = 1856;
         sf.update(customTuning);
+        sf["nvencBitrateScale"] = false; // retired bool: must migrate to constancy 100
         sf["postPack"] = {{"enable",false},{"casEnable",false}};
         if (scenario == 8) std::ofstream(testFolder + "nvenc-settings-v4.migrated") << "4";
     } else if (scenario == 1) {
@@ -77,6 +78,7 @@ int main(int argc, char** argv) {
         sf["nvencSettingsVersion"] = 4;
         for (auto key : toggles) sf[key] = false;
         for (auto key : {"nvencVbvFrames", "nvencLowDelayKfScale", "nvencForceFps", "nvencSplitMode"}) sf[key] = 0;
+        sf["nvencBitrateScale"] = false; // retired bool: must migrate to constancy 100
         sf["postPack"] = {{"enable",false},{"casEnable",false}};
     } else if (scenario == 13) {
         input = json::object(); // Fresh installation before any GUI/runtime save.
@@ -92,7 +94,7 @@ int main(int argc, char** argv) {
         driverConfig.streamFrame.nvencTap = false;
         driverConfig.streamFrame.nvencFixLevel = false;
         driverConfig.streamFrame.nvencForceCbr = false;
-        driverConfig.streamFrame.nvencBitrateScale = false;
+        driverConfig.streamFrame.nvencBitrateConstancyPct = 100;
         driverConfig.streamFrame.nvencPresetMerge = false;
         driverConfig.streamFrame.nvencVbvFrames = 5;
         driverConfig.streamFrame.nvencPreset = 7;
@@ -143,6 +145,14 @@ int main(int argc, char** argv) {
         if (scenario == 24) sf["nvencMultiPass"] = 1.5;
         if (scenario == 25) sf["nvencH264GopFrames"] = std::numeric_limits<int64_t>::max();
         if (scenario == 26) input["galaxyXr"]["customStreamFormatWidth"] = std::numeric_limits<uint64_t>::max();
+    } else if (scenario == 27) {
+        // 2026-10-19: an existing install's explicit curve/constancy must
+        // survive a reinstall/upgrade untouched, and an explicit new key
+        // outranks the retired bool when a file carries both.
+        sf["nvencSettingsVersion"] = 4;
+        sf["nvencBitrateCurve"] = 2;
+        sf["nvencBitrateConstancyPct"] = 35;
+        sf["nvencBitrateScale"] = false;
     } else return 2;
     const auto path = testFolder + "settings.json";
     { std::ofstream out(path); out << input.dump(); }
@@ -166,7 +176,7 @@ int main(int argc, char** argv) {
         }
         if (customUpgrade) {
             Check(!s.nvencTap && !s.nvencFixLevel && !s.nvencForceCbr
-                && !s.nvencBitrateScale && !s.nvencPresetMerge, "all explicit encoder OFF choices preserved");
+                && s.nvencBitrateConstancyPct == 100 && !s.nvencPresetMerge, "all explicit encoder OFF choices preserved (retired bitrate bool migrates to constant)");
             Check(!driverConfig.galaxyXr.vrlinkHeadsetProfile, "profile OFF preserved");
             Check(!s.postPack.enable && !s.postPack.casEnable, "post-pack OFF preserved");
             Check(s.nvencVbvFrames == 5, "VBV tuning preserved");
@@ -183,7 +193,7 @@ int main(int argc, char** argv) {
         } else if (scenario == 1) {
             const StreamFrameConfig defaults;
             Check(s.nvencTap == defaults.nvencTap && s.nvencFixLevel == defaults.nvencFixLevel
-                && s.nvencForceCbr == defaults.nvencForceCbr && s.nvencBitrateScale == defaults.nvencBitrateScale
+                && s.nvencForceCbr == defaults.nvencForceCbr && s.nvencBitrateConstancyPct == defaults.nvencBitrateConstancyPct
                 && s.nvencPresetMerge == defaults.nvencPresetMerge, "missing switches use defaults");
             Check(s.postPack.enable && s.postPack.casEnable, "unspecified CAS retains default upgrade");
         } else if (scenario == 2 || scenario == 3) {
@@ -198,13 +208,13 @@ int main(int argc, char** argv) {
             Check(!s.postPack.casEnable && s.postPack.limitedRange, "explicit post-pack sharpening OFF retained");
         } else if (scenario == 12) {
             Check(!s.nvencTap && !s.nvencFixLevel && !s.nvencForceCbr
-                && !s.nvencBitrateScale && !s.nvencPresetMerge, "saved legacy encoder switches remain OFF");
+                && s.nvencBitrateConstancyPct == 100 && !s.nvencPresetMerge, "saved legacy encoder switches remain OFF (retired bitrate bool migrates to constant)");
             Check(!s.postPack.enable && !s.postPack.casEnable, "upgrade preserves legacy post-pack OFF");
             Check(s.nvencVbvFrames == 0 && s.nvencLowDelayKfScale == 0
                 && s.nvencForceFps == 0 && s.nvencSplitMode == 0, "upgrade preserves disabled encoder budgeting overrides");
         } else if (scenario == 13 || scenario == 15) {
             Check(s.nvencTap && s.nvencFixLevel && s.nvencForceCbr
-                && s.nvencBitrateScale && s.nvencPresetMerge, "fresh/reset config enables reference encoder switches");
+                && s.nvencBitrateConstancyPct == 0 && s.nvencPresetMerge, "fresh/reset config enables reference encoder switches");
             Check(s.nvencPreset == 0 && s.nvencVbvFrames == 2 && s.nvencLowDelayKfScale == 2
                 && s.nvencForceFps == 90 && s.nvencSplitMode == 1, "fresh/reset config uses reference encoder tuning");
             Check(s.nvencAqStrength == 0 && s.nvencMinQp == 0 && s.nvencMinQpIntra == 0 && s.nvencMaxQp == 0
@@ -245,6 +255,11 @@ int main(int argc, char** argv) {
             Check(s.nvencH264VbvInitialDelay == 12345 && s.nvencMultiPass == 2,
                 "explicit VBV delay and multipass reach runtime config");
             Check(s.nvencValidationError.empty(), "valid explicit recipe has no parse error");
+        } else if (scenario == 27) {
+            Check(s.nvencBitrateCurve == 2 && s.nvencBitrateConstancyPct == 35,
+                "explicit curve and constancy survive an existing-install load (explicit wins over the retired bool)");
+            json stored; { std::ifstream in(path); in >> stored; }
+            Check(stored == input, "existing settings file is not rewritten on load");
         } else if (scenario >= 23 && scenario <= 26) {
             const std::string field = scenario == 24 ? "streamFrame.nvencMultiPass"
                 : scenario == 26 ? "galaxyXr.customStreamFormatWidth" : "streamFrame.nvencH264GopFrames";

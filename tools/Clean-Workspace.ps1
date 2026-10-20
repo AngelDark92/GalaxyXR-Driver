@@ -72,6 +72,12 @@ function Get-PackageFiles([string]$Path, [switch]$ForDeletion) {
     foreach ($resource in $script:driverResources) { [void]$allowed.Add("$driver/$resource") }
     [void]$allowed.Add("$driver/bin/win64/driver_$driver.dll")
     [void]$allowed.Add('GalaxyXRDriverGUI/Galaxy XR Companion.exe')
+    # payload files shipped beside the Companion (W5a)
+    [void]$allowed.Add('GalaxyXRDriverGUI/ofxr/XR_APILAYER_XRFrameBridge_diagnostic.dll')
+    [void]$allowed.Add('GalaxyXRDriverGUI/ofxr/ofxr_bridge.ini')
+    [void]$allowed.Add('GalaxyXRDriverGUI/ofxr/payload.json')
+    [void]$allowed.Add('GalaxyXRDriverGUI/ofxr/LICENSE')
+    [void]$allowed.Add('GalaxyXRDriverGUI/ofxr/NOTICE')
     foreach ($relative in $allowed) {
         $file = Join-Path $Path $relative
         if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Incomplete package, missing $relative" }

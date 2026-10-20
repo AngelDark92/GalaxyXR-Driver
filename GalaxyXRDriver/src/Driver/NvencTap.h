@@ -117,15 +117,15 @@ struct NvencTapConfig {
 	// the per-frame budget is constant. an HMD stream has one nominal
 	// rate; frames that are not sent simply cost nothing.
 	int forceFps = 0;
-	// 2026-09-03: replacing vrlink's averageBitRate outright also defeated
-	// its congestion response (runs 1/2: it asked for 30 Mbit during
-	// throttle events and we forced 350/450 back). with this on, the
-	// override SCALES vrlink's request by bitrateMbit / vrlinkClampMbit:
-	// at its 350 clamp we lift it to bitrateMbit; below the clamp its
-	// backoff is preserved proportionally. off = replace (old behaviour).
-	bool bitrateScale = true;
+	// 2026-10-19 bitrate curve: how vrlink's request maps onto bitrateMbit.
+	// 0 = linear (the pre-curve mapping: target = B * request / clamp),
+	// 1 = power knee, 2 = soft knee (see CurveMath.h). constancy 0..100
+	// lifts the selected curve toward the ceiling: 0 = the curve itself,
+	// 100 = constant ceiling (the retired nvencBitrateScale=false).
+	int bitrateCurve = 0;
+	int bitrateConstancyPct = 0;
 	// the encoder ceiling vrlink applies to its own request (run 3: 600
-	// asked, 350 sent). the reference point for bitrateScale.
+	// asked, 350 sent). the reference point for every curve.
 	int vrlinkClampMbit = 350;
 	// 2026-10-16: explicit H.264 tuning; zero GOP/IDR derives rational fps,
 	// -1 preserves the caller. Other fields use their documented NVENC values.
@@ -261,6 +261,12 @@ struct NvencTapStats {
 	// per-frame request is its real rate control (1..350 Mbit swinging
 	// every reconfigure), so the cumulative numbers hid the trend.
 	uint32_t ivReqCount = 0; double ivReqSumMbit = 0, ivReqMinMbit = 1e9, ivReqMaxMbit = 0;
+	// 2026-10-19: the last five pre-override requests (Mbit), median-filtered
+	// by the bitrate curve so one deep one-frame dip cannot drag the target.
+	// guarded by statsLock; reset on a fresh init and on an enable transition.
+	double reqHist[5] = {0,0,0,0,0};
+	uint32_t reqHistCount = 0, reqHistPos = 0;
+	bool reqHistEnabled = false;
 	uint32_t ivLatSamples = 0, ivLatOver11 = 0; double ivLatSumMs = 0, ivLatMaxMs = 0;
 	// how long nvEncEncodePicture itself BLOCKED (submit duration). async
 	// encode should return in well under 1 ms; a blocking submit means the

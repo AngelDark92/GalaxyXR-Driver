@@ -13,6 +13,8 @@ permissions:
 jobs:
   pull-request:
     name: Open pull request
+    # release-policy commits carry no source changes; skip their bot push.
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release):')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -20,10 +22,16 @@ jobs:
 
       - name: Open pull request
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A repository-scoped PAT (or App installation token) avoids the
+          # mandatory approval state for PR events created with GITHUB_TOKEN.
+          GH_TOKEN: ${{ secrets.PR_AUTOMATION_TOKEN || github.token }}
+          HAS_AUTOMATION_TOKEN: ${{ secrets.PR_AUTOMATION_TOKEN != '' }}
           SOURCE_BRANCH: ${{ github.ref_name }}
           TARGET_BRANCH: main
         run: |
+          if [ "$HAS_AUTOMATION_TOKEN" != 'true' ]; then
+            echo '::warning::PR_AUTOMATION_TOKEN is not configured. GitHub requires a maintainer to approve workflow runs created by GITHUB_TOKEN PR events; push-skip conditions cannot remove this gate.'
+          fi
           # Check if PR already exists (base=main, head=dev)
           if gh pr list --base "$TARGET_BRANCH" --head "$SOURCE_BRANCH" --json number | jq -e '. | length > 0' >/dev/null; then
             echo "Pull request already exists."

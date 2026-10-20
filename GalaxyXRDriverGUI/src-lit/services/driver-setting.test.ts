@@ -35,7 +35,7 @@ const referenceEncoderDefaults = {
   nvencSettingsVersion: 0, nvencMaxQp: 0, nvencAqStrength: 0, nvencMinQp: 0,
   nvencMinQpIntra: 0, nvencForceCbr: true, nvencLowDelayKfScale: 2,
   nvencMaxBitrateHeadroomPct: 0, nvencVbvFrames: 2, nvencForceFps: 90,
-  nvencBitrateScale: true, nvencVrlinkClampMbit: 350, nvencPreset: 0,
+  nvencBitrateCurve: 0, nvencBitrateConstancyPct: 0, nvencVrlinkClampMbit: 350, nvencPreset: 0,
   nvencPresetMerge: true, nvencVuiFullRange: -1, nvencVuiMatrix: -1,
   nvencVuiPrimaries: -1, nvencVuiTransfer: -1, nvencSplitMode: 1,
   nvencQpFovea: 0, nvencQpPeriphery: 0, nvencVerbose: false,
@@ -86,19 +86,17 @@ describe('vendor defaults before info.json exists', () => {
   it('retains explicit encoder and post-pack Off choices against stale Off telemetry', async () => {
     const stock = {
       nvencSettingsVersion: 4, nvencTap: false, nvencFixLevel: false,
-      nvencForceCbr: false, nvencBitrateScale: false, nvencPresetMerge: false,
+      nvencForceCbr: false, nvencBitrateConstancyPct: 100, nvencPresetMerge: false,
       postPack: { enable: false, casEnable: false, limitedRange: false },
     };
     const service = await load('galaxyxr', { streamFrame: stock }, { streamFrame: stock });
     expect(service.values()?.streamFrame).toMatchObject(stock);
     expect(await service.save(service.values()!)).toBe(true);
-    // 2026-10-17 (owner directive): Off equals the native limited-range default,
-    // so a sparse save omits the key while the choice still reads back Off.
+    // 2026-10-19: a stored key stays explicit even at its default, so the
+    // user's Off choice remains in settings.json and reads back Off.
     const savedStock = JSON.parse(storage.files.get(filePath)!).streamFrame;
-    const stockPersisted: Record<string, unknown> = { ...stock, postPack: { ...stock.postPack } };
-    delete (stockPersisted.postPack as any).limitedRange;
-    expect(savedStock).toMatchObject(stockPersisted);
-    expect(savedStock.postPack.limitedRange).toBeUndefined();
+    expect(savedStock).toMatchObject(stock);
+    expect(savedStock.postPack.limitedRange).toBe(false);
     expect(await service.loadSetting()).toBe(true);
     expect(service.values()?.streamFrame).toMatchObject(stock);
   });
@@ -169,8 +167,8 @@ describe('vendor defaults before info.json exists', () => {
     await new Promise<void>(resolve => setTimeout(resolve, 0));
     await service.flush();
     const persisted = JSON.parse(storage.files.get(filePath)!);
-    // sparse save: a key restored to its default is omitted from settings.json
-    expect(persisted.streamFrame.spacewarpEnable).toBeUndefined();
+    // 2026-10-19: a stored key restored to its default stays explicit.
+    expect(persisted.streamFrame.spacewarpEnable).toBe(false);
     const reopened = await load('galaxyxr', persisted);
     expect(reopened.values()?.streamFrame?.spacewarpEnable).toBe(false);
   });
@@ -178,7 +176,7 @@ describe('vendor defaults before info.json exists', () => {
   it('preserves a saved legacy encoder-off profile through migrations, sparse saves and reloads', async () => {
     const stock = {
       nvencSettingsVersion: 4, nvencTap: false, nvencFixLevel: false,
-      nvencForceCbr: false, nvencBitrateScale: false, nvencPresetMerge: false,
+      nvencForceCbr: false, nvencBitrateConstancyPct: 100, nvencPresetMerge: false,
       nvencVbvFrames: 0, nvencLowDelayKfScale: 0, nvencForceFps: 0, nvencSplitMode: 0,
       postPack: { enable: false, casEnable: false },
     };
@@ -354,5 +352,43 @@ describe('retired HAL timestamp compensation', () => {
     expect(saved.streamFrame.saturation).toBe(1.23);
     expect(await service.loadSetting()).toBe(true);
     for (const key of Object.keys(retired)) expect(service.values()?.streamFrame).not.toHaveProperty(key);
+  });
+});
+
+describe('reinstall default materialization', () => {
+  it('writes current defaults for absent settings without overwriting saved values', async () => {
+    const service = await load('galaxyxr', { streamFrame: { saturation: 1.25 } });
+    expect(await service.materializeDefaults()).toBe(true);
+    const saved = JSON.parse(storage.files.get(filePath)!);
+    expect(saved.streamFrame.saturation).toBe(1.25);
+    expect(saved.streamFrame.gamma).toBe(driverDefaults.streamFrame!.gamma);
+    expect(saved.galaxyXr.nativeIdentity).toBe(true);
+  });
+
+  it('keeps materialized defaults through a later save of another setting', async () => {
+    const service = await load('galaxyxr', { streamFrame: { saturation: 1.25 } });
+    expect(await service.materializeDefaults()).toBe(true);
+    const values = service.values()!;
+    expect(await service.save({ ...values, streamFrame: { ...values.streamFrame!, saturation: 1.3 } })).toBe(true);
+    const saved = JSON.parse(storage.files.get(filePath)!);
+    expect(saved.streamFrame.saturation).toBe(1.3);
+    expect(saved.streamFrame).toHaveProperty('gamma');
+    expect(saved.streamFrame.gamma).toBe(driverDefaults.streamFrame!.gamma);
+  });
+
+  it('materializes the bundled default instead of a stale telemetry default', async () => {
+    const service = await load('galaxyxr', { streamFrame: { saturation: 1.25 } }, { streamFrame: { gamma: 1.1 } });
+    expect(service.values()?.streamFrame?.gamma).toBe(1.1);
+    expect(await service.materializeDefaults()).toBe(true);
+    const saved = JSON.parse(storage.files.get(filePath)!);
+    expect(saved.streamFrame.gamma).toBe(driverDefaults.streamFrame!.gamma);
+    expect(saved.streamFrame.gamma).not.toBe(1.1);
+  });
+
+  it('does not resurrect retired keys when materializing', async () => {
+    const service = await load('galaxyxr', { streamFrame: { saturation: 1.25, poseTimeOffsetBiasMs: 30 } });
+    expect(await service.materializeDefaults()).toBe(true);
+    const saved = JSON.parse(storage.files.get(filePath)!);
+    expect(saved.streamFrame).not.toHaveProperty('poseTimeOffsetBiasMs');
   });
 });

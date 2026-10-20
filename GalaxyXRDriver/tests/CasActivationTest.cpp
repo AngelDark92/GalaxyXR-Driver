@@ -128,7 +128,7 @@ void NvencPostPack::SetConfig(const NvencPostPackConfig& value) { lastPostPack =
 // 2026-10-17: the ASW publisher joined UpdateEncoderSettings (1488b1e); the
 // real VrlinkTap install/publish path never runs in this harness.
 VrlinkTap& VrlinkTap::Get() { static VrlinkTap tap; return tap; }
-void VrlinkTap::SetConfig(bool) { ++vrlinkTapUpdates; }
+void VrlinkTap::SetConfig(bool, int) { ++vrlinkTapUpdates; }
 int GalaxyXR_EffectiveBandwidthMbit() { ++bandwidthCalls; return 432; }
 int GalaxyXR_EffectiveTileWidth() { ++tileCalls; return 1536; }
 

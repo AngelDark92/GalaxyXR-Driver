@@ -2,6 +2,26 @@
 // Command names, argument keys and result meanings are the IPC contract with
 // src-tauri/src/js_api.rs + driver_installation.rs; keep them in lockstep.
 import { invoke } from '@tauri-apps/api/core';
+import type { OfxrPreferences, OfxrStatus } from '../domain/types';
+export type { OfxrPreferences, OfxrStatus };
+
+/** Title-bar Close (X) behavior; the Minimize button is independent. */
+export type CompanionCloseAction = 'ask' | 'close' | 'minimise';
+export interface CompanionTrayLabels { open: string; quit: string; tooltip: string; }
+export function sync_companion_lifecycle(closeAction: CompanionCloseAction, minimizeToTray: boolean, labels: CompanionTrayLabels): Promise<void> {
+    return invoke('sync_companion_lifecycle', { closeAction, minimizeToTray, labels });
+}
+/** Answers a companion-close-requested prompt; the token is the prompt's own. */
+export function request_companion_quit(token: number): Promise<void> {
+    return invoke('request_companion_quit', { token });
+}
+/** Cancelling the prompt retires its token so the native timeout cannot quit later. */
+export function dismiss_companion_close(token: number): Promise<void> {
+    return invoke('dismiss_companion_close', { token });
+}
+export function complete_companion_quit(token: number, error: string | null): Promise<void> {
+    return invoke('complete_companion_quit', { token, error });
+}
 // SteamVR settings diff is pure logic in the domain layer (unit-tested by
 // tools/Test-SteamVRSettingsDiff.cjs); re-exported here so the platform
 // module keeps its public API.
@@ -99,4 +119,60 @@ export function clean_galaxyxr_settings(steamvrPath?: string): Promise<CleanSett
 }
 export function get_galaxyxr_runtime_status(steamvrPath: string | undefined, expectedVersion: string): Promise<DriverRuntimeStatus> {
     return invoke('get_galaxyxr_runtime_status', { steamvrPath: steamvrPath ?? null, expectedVersion });
+}
+
+// OFXR Bridge managed component (2026-10-17). Pinned IPC contract (brief W4A):
+// ofxr_status() -> OfxrStatus, ofxr_arm(prefs) -> OfxrStatus,
+// ofxr_disarm() -> OfxrStatus, ofxr_apply(prefs) -> void. The Rust side owns
+// the layer registration, the version gate and the INI write-through.
+export function ofxr_status(selected: string): Promise<OfxrStatus> {
+    return invoke('ofxr_status', { selected: selected || null });
+}
+export function ofxr_arm(prefs: OfxrPreferences): Promise<OfxrStatus> {
+    return invoke('ofxr_arm', { prefs });
+}
+export function ofxr_disarm(): Promise<OfxrStatus> {
+    return invoke('ofxr_disarm');
+}
+export function ofxr_apply(prefs: OfxrPreferences): Promise<void> {
+    return invoke('ofxr_apply', { prefs });
+}
+
+export function ofxr_reinstall(prefs: OfxrPreferences): Promise<OfxrStatus> {
+    return invoke('ofxr_reinstall', { prefs });
+}
+
+export function ofxr_remove(): Promise<OfxrStatus> {
+    return invoke('ofxr_remove');
+}
+
+// Interface scale (2026-10-19): the Companion window uses the native webview
+// zoom factor, not CSS zoom. CSS zoom separates getBoundingClientRect() from
+// style pixels and misplaces Fluent's fixed-position dropdowns and tooltips;
+// the platform zoom factor keeps one coordinate space for layout and popups.
+export function set_webview_zoom(scale: number): Promise<void> {
+    return invoke('set_webview_zoom', { scale });
+}
+
+// 2026-10-19 bitrate curve preview window (src-tauri/src/curve_preview.rs).
+// The window receives a read-only snapshot of the Companion's current values.
+export interface CurvePreviewState {
+    curve: number;
+    constancyPct: number;
+    ceilingMbit: number;
+    clampMbit: number;
+    /** 'No fallback' on: the streamer request is fixed at the clamp. */
+    fallbackDisabled: boolean;
+}
+export async function open_curve_preview(locale: string, snapshot: CurvePreviewState): Promise<void> {
+    return invoke('open_curve_preview', { locale, snapshot });
+}
+export async function publish_curve_preview(snapshot: CurvePreviewState): Promise<void> {
+    return invoke('publish_curve_preview', { snapshot });
+}
+export async function curve_preview_state(): Promise<CurvePreviewState> {
+    return invoke('curve_preview_state');
+}
+export async function close_curve_preview(): Promise<void> {
+    return invoke('close_curve_preview');
 }

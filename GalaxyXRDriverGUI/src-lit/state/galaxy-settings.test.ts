@@ -22,15 +22,50 @@ function buildHarness(stored: Record<string, unknown> | undefined = {}, disValue
   const dss = {
     values: () => stored,
     readFileError: () => readError,
-    save: (v: unknown) => { saved.push(v); },
+    inspecting: false,
+    save: (v: unknown): Promise<boolean> => { saved.push(v); return Promise.resolve(true); },
     ...(rawStored === undefined ? {} : { storedValues: () => rawStored }),
   };
   const dis = { values: () => disValues };
   const appSettings = { values: () => ({ advanceMode: false }) };
   const gs = new GalaxySettingsBase(appSettings as any, dss as any, dis as any);
   const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
-  return { gs, saved, flush };
+  return { gs, dss, saved, flush };
 }
+
+describe('confirmed settings saves', () => {
+  it('notifies views immediately but waits for persistence before confirming success', async () => {
+    const { gs, dss, flush } = buildHarness(structuredClone(driverDefaults));
+    await flush();
+    let confirm!: (saved: boolean) => void;
+    dss.save = () => new Promise<boolean>(resolve => { confirm = resolve; });
+    const revision = gs.revision();
+    let settled = false;
+    const saving = gs.save().then(saved => { settled = true; return saved; });
+    expect(gs.revision()).toBe(revision + 1);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    confirm(true);
+    await expect(saving).resolves.toBe(true);
+  });
+
+  it.each(['failed', 'superseded'])('does not confirm a %s save', async () => {
+    const { gs, dss, flush } = buildHarness(structuredClone(driverDefaults));
+    await flush();
+    dss.save = async () => false;
+    await expect(gs.save()).resolves.toBe(false);
+  });
+
+  it.each(['inspecting', 'missing settings'])('refuses to save while %s', async reason => {
+    const { gs, dss, saved, flush } = buildHarness(structuredClone(driverDefaults));
+    await flush();
+    saved.length = 0;
+    if (reason === 'inspecting') dss.inspecting = true;
+    else gs.rootSetting = undefined;
+    await expect(gs.save()).resolves.toBe(false);
+    expect(saved).toHaveLength(0);
+  });
+});
 
 describe('stream-frame integer validation', () => {
   // The contracts must mirror the committed NvencTap.cpp ValidateRequest
@@ -44,11 +79,12 @@ describe('stream-frame integer validation', () => {
       'streamFrame.nvencH264VbvInitialDelay', 'streamFrame.nvencMultiPass', 'streamFrame.nvencPreset',
       'streamFrame.nvencSplitMode', 'streamFrame.nvencAqStrength', 'streamFrame.nvencLowDelayKfScale',
       'streamFrame.nvencMaxQp', 'streamFrame.nvencMinQp', 'streamFrame.nvencMinQpIntra',
-      'streamFrame.nvencBitrateMbit', 'streamFrame.nvencMaxBitrateHeadroomPct', 'streamFrame.nvencForceFps',
+      'streamFrame.nvencBitrateMbit', 'streamFrame.nvencBitrateConstancyPct', 'streamFrame.nvencVrlinkFallbackMode', 'streamFrame.nvencMaxBitrateHeadroomPct', 'streamFrame.nvencForceFps',
       'streamFrame.nvencVbvFrames', 'streamFrame.nvencQpFovea', 'streamFrame.nvencQpPeriphery']) {
       expect(contractKeys).toContain(key);
     }
-    expect(contractKeys).toHaveLength(28);
+    // 2026-10-20: +1 for streamFrame.nvencVrlinkFallbackMode (0 or 1).
+    expect(contractKeys).toHaveLength(30);
   });
 
   it.each([
@@ -332,10 +368,26 @@ describe('schema migrations', () => {
     expect(reopened.gs.settings).toMatchObject(chosen);
   });
 
+  it('migrates the retired bitrate bool to constancy from the stored object', async () => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4 },
+    };
+    const rawStored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencBitrateScale: false },
+    };
+    const { gs, flush } = buildHarness(stored, undefined, rawStored);
+    await flush();
+    // false (replace outright) becomes 100% constancy, not the default 0.
+    expect(gs.settings?.nvencBitrateConstancyPct).toBe(100);
+    expect((gs.rootSetting as any).streamFrame.nvencBitrateScale).toBeUndefined();
+  });
+
   it('preserves explicit pre-v3 encoder and headset-profile Off choices', async () => {
     const off = {
       nvencTap: false, nvencFixLevel: false, nvencForceCbr: false,
-      nvencBitrateScale: false, nvencPresetMerge: false,
+      nvencBitrateConstancyPct: 100, nvencPresetMerge: false,
     };
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, vrlinkHeadsetProfile: false },
@@ -375,7 +427,7 @@ describe('schema migrations', () => {
     };
     const { gs, flush } = buildHarness(stored);
     await flush();
-    for (const key of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencBitrateScale', 'nvencPresetMerge'] as const) {
+    for (const key of ['nvencTap', 'nvencFixLevel', 'nvencForceCbr', 'nvencBitrateConstancyPct', 'nvencPresetMerge'] as const) {
       expect(stored.streamFrame[key], key).toBe(driverDefaults.streamFrame![key]);
     }
     expect(gs.galaxyXr.vrlinkHeadsetProfile).toBe(driverDefaults.galaxyXr!.vrlinkHeadsetProfile);

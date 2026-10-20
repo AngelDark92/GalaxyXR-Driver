@@ -4,6 +4,7 @@
 #include "ZeroCopy.h"
 #include "NvencTap.h"
 #include "VrlinkTap.h"
+#include "VrlinkFallbackTap.h"
 #include "NvencPostPack.h"
 #include "../Config/StreamTiers.h"
 #include "../Headsets/GalaxyXR.h"
@@ -1732,7 +1733,8 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	tc.maxBitrateHeadroomPct = settings.config.nvencMaxBitrateHeadroomPct;
 	tc.vbvFrames = settings.config.nvencVbvFrames;
 	tc.forceFps = settings.config.nvencForceFps;
-	tc.bitrateScale = settings.config.nvencBitrateScale;
+	tc.bitrateCurve = settings.config.nvencBitrateCurve;
+	tc.bitrateConstancyPct = settings.config.nvencBitrateConstancyPct;
 	tc.vrlinkClampMbit = settings.config.nvencVrlinkClampMbit;
 	tc.requestError = settings.config.nvencValidationError;
 	if(tc.bitrateMbit <= 0){ tc.requestError = "Requested streaming bandwidth must be a positive integer."; }
@@ -1794,7 +1796,12 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	// 2026-10-17 add-feature (brief 11-W2B): the async spacewarp boolean rides
 	// the same hot-reload publish (single control path: settings.json ->
 	// SetConfig); its install/publish/retract logic lives inside VrlinkTap.
-	VrlinkTap::Get().SetConfig(settings.config.spacewarpEnable);
+	VrlinkTap::Get().SetConfig(settings.config.spacewarpEnable, settings.config.spacewarpMode);
+	// 2026-10-20 (owner request): 'No fallback' removes VRLink's own ratio
+	// fallback and QThrottle multiply in the loaded driver_vrlink.dll image.
+	// Same single control path (settings.json -> SetConfig); the tap restores
+	// the stock bytes on OFF and fails closed on any other host build.
+	VrlinkFallbackTap::Get().SetConfig(settings.config.nvencVrlinkFallbackMode == 1);
 }
 
 bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::SharedTextureHandle_t rightEye,

@@ -320,7 +320,7 @@ function buildGuiTask() {
 
 			let tauriBundleDir = path.join(__dirname, "../builds/GalaxyXR-Driver/output", "GalaxyXRDriverGUI", "release")
             try {
-                console.log(`Staged ${stageCompanion(tauriBundleDir, guiOutput)}`)
+                console.log(`Staged ${stageCompanion(tauriBundleDir, guiOutput, path.join(__dirname, "GalaxyXRDriverGUI", "ofxr"))}`)
             } catch (error) {
                 reject(error)
                 return

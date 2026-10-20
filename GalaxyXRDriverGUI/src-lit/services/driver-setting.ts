@@ -3,7 +3,7 @@ import { exists, writeTextFile } from '@tauri-apps/plugin-fs';
 import type { AppSetting, Settings } from '../domain/types';
 import { PathsService } from './paths';
 import { JsonSettingServiceBase } from './settings-base';
-import { deepMerge } from '../domain/pure';
+import { deepMerge, fillMissingDefaults, pruneUnstoredDefaults } from '../domain/pure';
 import type { DriverInfoService } from './driver-info';
 import { getDriverDefaultsForVendor } from '../domain/vendor-driver-defaults';
 import { vendor } from '../environment';
@@ -43,6 +43,34 @@ export class DriverSettingService extends JsonSettingServiceBase<Settings> {
     await this.refreshWatch();
     return this.loadSetting();
   }
+  protected override serializeForSave(snapshot: Settings): string {
+    // 2026-10-19: only leaves absent from the stored document are pruned.
+    // A reinstall materializes defaults into settings.json, so later saves keep
+    // them instead of silently reverting a new default to "not stored".
+    return JSON.stringify(
+      pruneUnstoredDefaults(snapshot, this.defaults ?? {}, this.storedValues() ?? {}), undefined, 4);
+  }
+
+  /**
+   * Writes every effective value, including defaults inherited at load time, so
+   * the stored document owns them and prune-on-save keeps them afterwards.
+   * Returns false when no settings are loaded (nothing to materialize).
+   */
+  public async materializeDefaults(): Promise<boolean> {
+    const stored = this.storedValues();
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return false;
+    // 2026-10-19: use this build's bundled defaults, not the previous
+    // installation's info.json telemetry, so a default that changed in the new
+    // package is the value written. Existing stored values always win.
+    const defaults = structuredClone(getDriverDefaultsForVendor(vendor));
+    if (vendor === 'galaxyxr' && defaults.galaxyXr) defaults.galaxyXr.nativeIdentity = true;
+    const snapshot = this.migrateLoadedValues(
+      fillMissingDefaults(structuredClone(stored as Settings), defaults));
+    await this.debouncedFileWriter.save(JSON.stringify(snapshot, undefined, 4));
+    this.verified = structuredClone(snapshot);
+    return this.loadSetting();
+  }
+
   // migration: keys the driver has retired are deleted on load so the
   // next natural save writes a clean settings.json. Prune-on-save
   // incident 2026-08-11: the round-trip writer preserved a legacy

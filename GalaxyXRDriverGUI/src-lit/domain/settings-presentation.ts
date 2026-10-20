@@ -16,6 +16,8 @@ export interface SettingPresentation {
   advanced: boolean;
   gate?: 'vendor' | 'enhancements' | 'postpack' | 'preencode' | 'encoder' | 'h264' | 'kalman' | 'kalman-ca' | 'graveyard' | 'grid' | 'camera-grid' | 'tuner' | 'native-input-profile' | 'controllers';
   vendorOnly?: boolean;
+  /** Non-boolean rows never appear in the boolean check report. */
+  kind?: 'boolean' | 'value';
 }
 
 const catalog: SettingPresentation[] = [];
@@ -44,12 +46,13 @@ kalman('streamFrame.kalmanPosFreeze3dof', 'Freeze Protection');
 group('driver-settings', ['Controllers', 'Controllers Advanced'], ['controllers'], true, 'vendor')('galaxyXr.controllerBypass', 'Controller Bypass');
 group('driver-settings', ['Controllers', 'Controllers Advanced', 'Controller Offsets'], ['controllers', 'ctrlOffsets'], true, 'controllers')('controllers.mirrorOffsetsForRightHand', 'Same Alignment Both Hands');
 
-group('app-settings', ['Application preferences'], ['heading:app-preferences'])('image-enhancements', 'Image Enhancements', {
+group('app-settings', ['Picture'], ['heading:app-picture'])('image-enhancements', 'Image Enhancements', {
   keys: ['streamFrame.enable', 'galaxyXr.sdr10Baseline'],
 });
-group('app-settings', ['Application preferences'], ['heading:app-preferences'])('advanceMode', 'Advanced Mode', { source: 'gui-settings.json' });
-group('app-settings', ['Application preferences'], ['heading:app-preferences'])('devUpdates', 'Developer Builds', { source: 'gui-settings.json' });
-group('app-settings', ['Application preferences'], ['heading:app-preferences'])('debugMode', 'Debug Mode');
+group('app-settings', ['Window'], ['heading:app-window'])('minimizeToTray', 'Minimize to tray', { source: 'gui-settings.json' });
+group('app-settings', ['Advanced'], ['heading:app-advanced'])('advanceMode', 'Advanced Mode', { source: 'gui-settings.json' });
+group('app-settings', ['Updates'], ['heading:app-updates'])('devUpdates', 'Developer Builds', { source: 'gui-settings.json' });
+group('app-settings', ['Advanced'], ['heading:app-advanced'])('debugMode', 'Debug Mode');
 
 group('stream-frame', ['Image Processing', 'Color'], ['heading:image-processing', 'color'], false, 'enhancements')('streamFrame.contrastLinear', 'Linear Contrast');
 const enhance = group('stream-frame', ['Image Processing', 'Image Enhancements'], ['heading:image-processing', 'enhance'], false, 'enhancements');
@@ -74,9 +77,26 @@ group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 've
 // Async Spacewarp (2026-10-17): stream synthesis toggle; its page row lives in
 // the vendor build's Stream Quality branch, so it mirrors nvencTap's gate.
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpEnable', 'Async Spacewarp');
+// Optical Flow (2026-10-17): the managed OFXR Bridge card. All eight rows are
+// gui-settings.json values owned by the Companion; the page's Enable switch is
+// additionally gated by the native ofxr_status() state.
+const ofxr = group('stream-frame', ['Optical Flow'], ['heading:optical-flow'], false, 'vendor');
+ofxr('ofxr.enabled', 'Enable Optical Flow', { source: 'gui-settings.json' });
+ofxr('ofxr.mode', 'Backend', { source: 'gui-settings.json', kind: 'value' });
+ofxr('ofxr.scale', 'NVIDIA OFA resolution', { source: 'gui-settings.json', kind: 'value' });
+ofxr('ofxr.bidirectional', 'NVIDIA bidirectional consistency', { source: 'gui-settings.json' });
+ofxr('ofxr.logging', 'Bridge flight recorder', { source: 'gui-settings.json' });
+ofxr('ofxr.maxLogMb', 'Flight log size limit (MB)', { source: 'gui-settings.json', kind: 'value' });
+ofxr('ofxr.flushEachEvent', 'Flush every event', { source: 'gui-settings.json' });
+ofxr('ofxr.overlay', 'FPS overlay position', { source: 'gui-settings.json', kind: 'value' });
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencCodec', 'Video Codec');
+// 2026-10-20: sits with the bitrate controls it governs (Stream Quality, not
+// the advanced card) — one plain-language select, stock by default.
+group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencVrlinkFallbackMode', 'Bitrate Fallback', { kind: 'value' });
 const encoder = group('stream-frame', ['Encoder Advanced'], ['heading:encoder'], true, 'encoder', true);
 encoder('streamFrame.nvencForceCbr', 'Force Constant Bitrate');
+encoder('streamFrame.nvencBitrateCurve', 'Bitrate Curve', { kind: 'value' });
+encoder('streamFrame.nvencBitrateConstancyPct', 'Bitrate Constancy (%)', { kind: 'value' });
 encoder('streamFrame.nvencH264GopFrames', 'H.264 GOP Frames', { gate: 'h264' });
 encoder('streamFrame.nvencH264IdrFrames', 'H.264 IDR Frames', { gate: 'h264' });
 encoder('streamFrame.nvencH264RefFrames', 'H.264 Reference Frames', { gate: 'h264' });
@@ -108,7 +128,6 @@ retired('streamFrame.kalmanAdaptiveR', 'Adaptive Measurement Trust - EXPERIMENT 
 retired('streamFrame.kalmanGripEnable', 'Grip-Point Velocity Compensator');
 retired('streamFrame.blackFloor.shadowLift', 'Black Floor: Shadow Lift (floor / knee, sRGB codes)');
 retired('streamFrame.zeroCopyV3', 'Zero-Copy v3 (experimental)');
-retired('streamFrame.nvencBitrateScale', 'NVENC (retired): Bitrate Follows Streamer Backoff');
 retired('streamFrame.nvencPresetMerge', 'NVENC (retired): True Preset Merge');
 retired('streamFrame.deriveSmoothAngSeparate', 'Angular Smoothing: Separate (tau slow/fast ms, speed low/high rad/s)');
 retired('streamFrame.deriveSplitDirLinear', 'Derive Split Direction: Linear');
@@ -163,6 +182,7 @@ export interface PresentationContext {
 }
 export interface PresentedSettingCheck {
   id: string;
+  source: BooleanSettingCheck['source'];
   location: string[];
   state: 'On' | 'Off' | 'Unknown' | 'Post-pack' | 'Pre-encode';
   origin: 'stored' | 'default' | 'mixed' | 'unknown';
@@ -202,7 +222,7 @@ export function settingUnavailable(setting: SettingPresentation, context: Presen
 }
 
 export function presentSettings(checks: readonly BooleanSettingCheck[], context: PresentationContext): PresentedSettingCheck[] {
-  return SETTINGS_PRESENTATION.map(setting => {
+  return SETTINGS_PRESENTATION.filter(setting => setting.kind !== 'value').map(setting => {
     const root = setting.source === 'gui-settings.json' ? context.app : context.settings;
     const values = setting.keys.map(key => valueAt(root, key));
     // Optional legacy controls have false as their UI default, but an unreadable
@@ -211,7 +231,7 @@ export function presentSettings(checks: readonly BooleanSettingCheck[], context:
     if (root && setting.id === 'image-enhancements') state = imageEnhancementsEnabled(context.settings) ? 'On' : 'Off';
     if (root && setting.id === 'cas-sharpening') state = values[1] === true && values[2] === true ? 'Post-pack' : values[0] === true ? 'Pre-encode' : 'Off';
     const origins = new Set(setting.keys.map(key => checks.find(check => check.source === setting.source && check.key === key)?.origin ?? 'default'));
-    return { id: setting.id, location: [ROUTE_LABELS[setting.route], ...setting.containers, setting.label], state,
+    return { id: setting.id, source: setting.source, location: [ROUTE_LABELS[setting.route], ...setting.containers, setting.label], state,
       origin: !root ? 'unknown' : origins.size > 1 ? 'mixed' : [...origins][0],
       href: settingHref(setting.route, setting.id), unavailableReason: settingUnavailable(setting, context), advanced: setting.advanced };
   });

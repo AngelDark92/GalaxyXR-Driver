@@ -6,6 +6,128 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.13.0-dev.18] - 2026-10-20
+
+### Fixes
+
+- spacewarp: publish the synthesis mode and harden the host tap (`44c7e6e`)
+- companion: allow only one running instance (`0342fed`)
+
+### Other changes
+
+- test(companion): cover the live Optical Flow read in the ASW exclusivity check (`079dd1b`)
+
+## [1.13.0-dev.17] - 2026-10-20
+
+### Features
+
+- Enhance curve preview and UI interactions (`824abf7`)
+
+## [1.13.0-dev.16] - 2026-10-20
+
+### Features
+
+- Implement VrlinkFallbackTap to manage VRLink bitrate fallback behavior (`dfb1068`)
+
+## [1.13.0-dev.15] - 2026-10-20
+
+### Fixes
+
+- OFXR session management and settings persistence (`4de371e`)
+
+## [1.13.0-dev.14] - 2026-10-20
+
+### Features
+
+- Implement Companion Lifecycle Management and Tray Functionality (`fea04dd`)
+
+## [1.13.0-dev.13] - 2026-10-20
+
+### Fixes
+
+- fixed Bitrate Curve window and related functionality, bump taury wry builds (`f740aaa`)
+
+## [1.13.0-dev.12] - 2026-10-19
+
+### Fixes
+
+- gui: create the curve window at startup, not from the command (`e03451b`)
+
+### Other changes
+
+- Revert "fix(gui): create the curve window at startup, not from the command" (`4a22781`)
+
+## [1.13.0-dev.11] - 2026-10-19
+
+### Fixes
+
+- gui: open the curve preview from the window label, not a URL marker (`490ed4e`)
+
+## [1.13.0-dev.10] - 2026-10-19
+
+### Fixes
+
+- curve-preview: implement close functionality for bitrate curve window (`8ab201d`)
+
+## [1.13.0-dev.9] - 2026-10-19
+
+### Features
+
+- gui: open the bitrate curve graph in its own resizable window (`ee77ba7`)
+
+## [1.13.0-dev.8] - 2026-10-19
+
+### Features
+
+- implement interface scale feature with adjustable zoom for the Companion window (`9029f09`)
+
+## [1.13.0-dev.7] - 2026-10-19
+
+### Features
+
+- gui: bundle and version-manage the OFXR optical-flow payload (`e7897d1`)
+
+### Fixes
+
+- gui: place the Optical Flow card above Encoder Advanced (`4dbea08`)
+- tools: recognize the OFXR payload in package cleanup (`acb35b8`)
+
+## [1.13.0-dev.6] - 2026-10-19
+
+### Features
+
+- Implement AV1 split encoding deferral and handshake management for reconnect scenarios (`0561df1`)
+
+## [1.13.0-dev.5] - 2026-10-19
+
+### Features
+
+- Implement bitrate curve families and related functionality (`50351eb`)
+
+## [1.13.0-dev.4] - 2026-10-19
+
+### Features
+
+- implement disabled codec switch state management and UI integration while steamvr is running (`65335ae`)
+
+## [1.13.0-dev.3] - 2026-10-19
+
+### Fixes
+
+- update portable build directory naming and cleanup logic (`4cd363e`)
+
+## [1.13.0-dev.2] - 2026-10-19
+
+### Fixes
+
+- gui: expose setting source in the check report (`645a19c`)
+
+## [1.13.0-dev.1] - 2026-10-19
+
+### Features
+
+- experimental optical flow (ofxr) support (`652f48a`)
+
 ## [1.12.2] - 2026-10-18
 
 ### Fixes

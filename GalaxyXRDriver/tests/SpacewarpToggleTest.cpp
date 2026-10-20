@@ -58,6 +58,10 @@ void DriverLog(const char* format, ...){
 // the real NvencTap.cpp is NOT compiled here — only the WriteInfo call surface.
 NvencTap& NvencTap::Get(){ static NvencTap stub; return stub; }
 NvencTapRuntimeState NvencTap::GetRuntimeState(){ return {}; }
+// 2026-10-20: ConfigLoader::WriteInfo also emits the VRLink fallback block; the
+// real tap is a separate failure domain and is not compiled into this harness.
+VrlinkFallbackTap& VrlinkFallbackTap::Get(){ static VrlinkFallbackTap stub; return stub; }
+VrlinkFallbackRuntimeState VrlinkFallbackTap::GetRuntimeState(){ return {}; }
 // Distortion globals are only read by WriteInfo's profile listing (empty here).
 std::unordered_map<std::string, DistortionProfileConfig> builtInDistortionProfiles;
 
@@ -68,7 +72,19 @@ std::vector<uint8_t> gPinBroken;     // one byte differs at the impl pin
 uint8_t* gServedModule = nullptr; // what GetModuleHandleA returns
 
 void BuildFakeModules(){
-	gValidModule.assign(VrlinkTapPin::kImplRva + sizeof(VrlinkTapPin::kImplPin) + 16, 0);
+	const size_t moduleSize = VrlinkTapPin::kImplRva + sizeof(VrlinkTapPin::kImplPin) + 16;
+	gValidModule.assign(moduleSize, 0);
+	// 2026-10-20: the tap's fail-closed gate parses the module's PE headers and
+	// bounds-checks both pinned RVAs against SizeOfImage BEFORE any memcmp. The
+	// fake image must therefore carry a readable DOS + NT header, not just the
+	// two pinned windows (a zero-filled buffer would fail the gate and the
+	// scenarios below would stop exercising the hook).
+	auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(static_cast<void*>(gValidModule.data()));
+	dos->e_magic = IMAGE_DOS_SIGNATURE;
+	dos->e_lfanew = 0x80;
+	auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(static_cast<void*>(gValidModule.data() + dos->e_lfanew));
+	nt->Signature = IMAGE_NT_SIGNATURE;
+	nt->OptionalHeader.SizeOfImage = static_cast<DWORD>(moduleSize);
 	memcpy(gValidModule.data() + VrlinkTapPin::kImplRva, VrlinkTapPin::kImplPin, sizeof(VrlinkTapPin::kImplPin));
 	memcpy(gValidModule.data() + VrlinkTapPin::kWorkerRva, VrlinkTapPin::kWorkerPin, sizeof(VrlinkTapPin::kWorkerPin));
 	gPinBroken = gValidModule;

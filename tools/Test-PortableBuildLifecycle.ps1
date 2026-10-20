@@ -32,7 +32,7 @@ function dumpbin.exe {
 }
 function Invoke-FixtureNpm {
     if ($env:VENDOR -ne 'galaxyxr') { throw 'GUI build did not select Galaxy XR vendor.' }
-    if ($env:CARGO_TARGET_DIR -notmatch 'portable-work-\d{8}-\d{6}-[0-9a-f]{32}[\\/]gui-target$') {
+    if ($env:CARGO_TARGET_DIR -notmatch '(pw-\d{6}[0-9a-f]{6}|portable-work-\d{8}-\d{6}-[0-9a-f]{32})[\\/]gui-target$') {
         throw "GUI compilation escaped the owned target: $env:CARGO_TARGET_DIR"
     }
     $release = Join-Path $env:CARGO_TARGET_DIR 'release'
@@ -87,8 +87,8 @@ $env:CARGO_TARGET_DIR = 'setup-target-must-be-overridden'
         Assert-Condition ($env:VENDOR -eq 'neutral') "$case failed to restore vendor."
         $expectedFailure = $case.EndsWith('-failure')
         Assert-Condition (($null -ne $failure) -eq $expectedFailure) "$case unexpected outcome: $failure"
-        $work = @(Get-ChildItem -Path "$caseRoot/../builds/GalaxyXR-Driver/build/portable-work-*" -Directory -ErrorAction SilentlyContinue)
-        $logs = @(Get-ChildItem -Path "$caseRoot/../builds/GalaxyXR-Driver/build/portable-logs-*" -Directory -ErrorAction SilentlyContinue)
+        $work = @(Get-ChildItem -Path "$caseRoot/../builds/GalaxyXR-Driver/build/pw-*" -Directory -ErrorAction SilentlyContinue)
+        $logs = @(Get-ChildItem -Path "$caseRoot/../builds/GalaxyXR-Driver/build/plog-*" -Directory -ErrorAction SilentlyContinue)
         if ($case -eq 'setup') {
             Assert-Condition ($work.Count -eq 0 -and $logs.Count -eq 0) 'Setup-only created run folders.'
             Assert-Condition (-not (Test-Path "$caseRoot/../builds/GalaxyXR-Driver/output/package")) 'Setup-only staged a package.'

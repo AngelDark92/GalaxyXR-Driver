@@ -1,14 +1,14 @@
 # Companion maintenance and presentation — 2026-09-26
 
-Companion separates restoring defaults from removing an installation. Saved distortion profiles and recovery backups are user data and remain available after either action.
+Companion separates restoring defaults from removing an installation. Restore defaults keeps saved distortion profiles and recovery backups; uninstall removes them with the driver data.
 
 ## Maintenance behavior
 
 | Action | Result | Preserved |
 | --- | --- | --- |
 | Restore defaults | Reset driver tuning and all app preferences; clear runtime/diagnostic data, migration state, and prior verification; restore recorded SteamVR tuning when still owned. | Installed driver, registration and lifecycle journal entries, named profiles, backups, unrelated or externally edited settings. |
-| Uninstall driver | Unregister and remove owned installed packages; clear active app/driver data; restore recorded SteamVR originals or original key absence; remove only verified historical identity leftovers. | Named profiles, backups, downloaded source packages, unrelated drivers, external settings edits. |
-| Install after completed uninstall | Create current package defaults, including on a same-version reinstall. Retained profiles are not selected automatically. | Saved profile files remain available for an explicit import. |
+| Uninstall driver | Unregister and remove owned installed packages; clear active app/driver data and saved profiles; remove recovery backups, identity backups and Companion OpenXR state; restore recorded SteamVR originals or original key absence; remove only verified historical identity leftovers. | Downloaded source packages, unrelated drivers, external settings edits. |
+| Install after completed uninstall | Create current package defaults. A reinstall over an existing settings.json fills only settings absent from that file from the bundled defaults. | Existing saved values; downloaded source package. |
 | Direct upgrade | Update the driver while retaining explicit saved tuning. | User-selected driver and app settings. |
 
 Both destructive operations require a fresh stopped-process check in the UI and a native lock/process check. Cancel or Escape leaves persisted settings unchanged. The warning explains the scope before confirmation. Uninstall remains available for residual cleanup even when installation detection no longer finds a driver.
@@ -17,7 +17,7 @@ Reset backs up original bytes before changing files, compares each snapshot befo
 
 Every uninstall checks for verified, untracked Galaxy XR identity residue after restoring recorded settings, including installations whose journal is marked modern. Recorded originals and original empty sections remain protected. A receipt-owned package with an intact, matching manifest can be removed even if its DLL is missing.
 
-Maintenance results distinguish `complete`, `attention-required`, and `incomplete`, and include preserved locations and unresolved items. Partial deletion retains recovery records for retry. Missing SteamVR with remaining recovery records blocks changes; local-only cleanup without such records reports the verification limit. Reopening Companion after uninstall uses app defaults in memory without recreating active configuration. Pending GUI writes and stale reads cannot restore removed data.
+Maintenance results distinguish `complete`, `attention-required`, and `incomplete`, and include preserved locations and unresolved items. A failed removal never reports success; recovery records are retained while the driver data tree still exists, and retry finishes the remaining cleanup. Missing SteamVR with remaining recovery records blocks changes; local-only cleanup without such records reports the verification limit. Reopening Companion after uninstall uses app defaults in memory without recreating active configuration. Pending GUI writes and stale reads cannot restore removed data.
 
 After completed removal, an explicit app-preference edit may save new preferences; driver writes remain blocked until installation or an explicit reset. Failed maintenance retries preserve this distinction. Incomplete removal keeps both writers blocked, and rejected edits roll back visibly.
 
@@ -38,7 +38,7 @@ an opener failure presents a dialog with the address available to copy.
 | Scenario | Required result | Verification |
 | --- | --- | --- |
 | Restore modified driver/app settings | Package defaults reload; installation and named profiles survive; backup exists. | Native reset fixtures; GUI service/lifecycle tests; browser confirmation flow. |
-| Uninstall, reopen, reinstall same version | Active settings stay absent on reopen; next install starts at defaults; profile survives. | Native install/uninstall round trip; browser with in-memory IPC. |
+| Uninstall, reopen, reinstall same version | Active settings stay absent on reopen; next install starts at defaults; profiles and backups are removed. | Native install/uninstall round trip; browser with in-memory IPC. |
 | External SteamVR edits and unrelated drivers | Preserve later edits and independently owned registrations/settings. | Native journal and ownership fixtures. |
 | Corrupt recovery data, missing SteamVR, locked files, concurrent edits | Block unsafe changes or report incomplete work; retain retry evidence; never claim complete removal. | Native failure/rollback fixtures and Setup result tests. |
 | Cancel/Escape, running or unknown SteamVR, busy operation | No maintenance mutation; clear disabled state; confirmation focus and cancellation remain usable. | Setup action tests and browser dialog checks. |

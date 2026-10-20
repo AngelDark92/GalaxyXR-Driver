@@ -1,6 +1,6 @@
 [package]
 name = "galaxyxrdriver-gui"
-version = "1.12.2"
+version = "1.13.0-dev.18"
 description = "Galaxy XR Companion"
 authors = ["hsin-yu chen"]
 license = ""
@@ -15,18 +15,25 @@ name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.2.0", features = [] }
+tauri-build = { version = "2", features = [] }
 serde_json = "1.0"
 
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.5.0", features = ["devtools"] }
-tauri-plugin-log = "2.0.0-rc"
+tauri = { version = "2.12", features = ["devtools", "tray-icon"] }
+tauri-plugin-log = "2"
+# Single instance (2026-10-20): a second launch signals the running Companion
+# (including one minimised to the tray) and exits instead of opening a copy.
+tauri-plugin-single-instance = "2"
 tauri-plugin-fs = { version = "2.0.0", features = ["watch"] }
 locale_config = "0.3"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-opener = "2"
 sysinfo = "0.35.1"
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39.1"
+windows-core = "0.62.2"

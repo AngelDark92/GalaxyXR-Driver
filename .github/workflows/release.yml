@@ -28,6 +28,9 @@ concurrency:
 jobs:
   build-windows-release:
     name: Windows x64 portable release
+    # An automation-token push of an already built release version needs no
+    # second build. This condition cannot bypass GitHub's PR approval gate.
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release):')
     runs-on: windows-latest
     timeout-minutes: 60
 
@@ -37,6 +40,9 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+          # Release-version pushes also synchronize the open PR. Use the same
+          # automation identity as PR creation to avoid approval-gated runs.
+          token: ${{ secrets.PR_AUTOMATION_TOKEN || github.token }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v7

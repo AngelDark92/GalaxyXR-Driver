@@ -1,9 +1,29 @@
 mod i18n;
 mod js_api;
 mod driver_installation;
+mod ofxr;
+mod webview_zoom;
+mod curve_preview;
+mod tray;
+mod webview_resources;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Registered FIRST on purpose: this plugin must observe the launch
+        // before any other plugin initialises. The callback runs in the
+        // ALREADY-RUNNING instance (with the second launch's argv), so it
+        // restores that window from the tray and the new process exits.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
+        .manage(curve_preview::Preview::default())
+        .manage(tray::Lifecycle::default())
+        .manage(webview_resources::Resources::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -37,7 +57,42 @@ pub fn run() {
             driver_installation::settings_cleanup::clean_galaxyxr_settings,
             driver_installation::settings_cleanup::restore_steamlink_encoder_behaviour,
             driver_installation::runtime_status::get_galaxyxr_runtime_status,
+            ofxr::ofxr_status,
+            ofxr::ofxr_arm,
+            ofxr::ofxr_disarm,
+            ofxr::ofxr_apply,
+            ofxr::ofxr_reinstall,
+            ofxr::ofxr_remove,
+            webview_zoom::set_webview_zoom,
+            curve_preview::open_curve_preview,
+            curve_preview::curve_preview_state,
+            curve_preview::close_curve_preview,
+            curve_preview::publish_curve_preview,
+            tray::sync_companion_lifecycle,
+            tray::complete_companion_quit,
+            tray::request_companion_quit,
+            tray::dismiss_companion_close,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => ofxr::shutdown_on_exit(),
+            // A genuine main-window destruction is still an exit fallback;
+            // CloseRequested is routed through tray/settings-flush policy below.
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } if label == "main" => app.exit(0),
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } if label == curve_preview::PREVIEW_LABEL => {
+                tray::window_event(app, &label, &tauri::WindowEvent::Destroyed);
+                curve_preview::destroyed(app);
+            }
+            tauri::RunEvent::WindowEvent { label, event, .. } => tray::window_event(app, &label, &event),
+            _ => {}
+        });
 }
