@@ -20,6 +20,12 @@ For the new mode/navigation regression suite, run `node ../tools/Test-CompanionM
 
 Optical Flow needs the Companion to remain running while you play. Its card displays this requirement even with Advanced Mode off. Enable it before launching or restarting the game.
 
+On reopening the Companion, a saved enabled selection is armed again after both settings files load successfully. The Enable switch reflects the Companion's current armed state; a failed restore appears beside that switch and can be retried by enabling it again. If Async Spacewarp is also saved On, startup leaves it untouched and asks you to enable Optical Flow again to switch modes. An explicit mode switch waits for the Async Spacewarp Off write to succeed before arming OFXR.
+
+An explicitly selected OFXR version must be available exactly: the Companion reports a missing version instead of loading another one. Reinstall uses the matching bundled payload and preserves external OFXR installations; Automatic reinstalls the bundled seed. An enabled selection is rearmed after reinstall. Uninstall Optical Flow removes Companion-owned registration and runtime directories.
+
+OFXR is an OpenXR layer, so ordinary OpenVR games do not automatically use it. It needs a compatible graphics API and GPU, an installed NVIDIA driver providing Optical Flow for the NVIDIA backends, and the x64 Microsoft Visual C++ Redistributable. Armed confirms layer registration, not successful NVIDIA initialization or displayed generated frames.
+
 **Minimize to tray** is On by default under **App Settings → Application preferences**. Minimize and the window's Close button hide the Companion and its visible graph preview to the system tray without stopping Optical Flow. Click the tray icon or choose **Open Companion** to restore it. Choose **Quit** to save pending edits, exit, and disarm Optical Flow.
 
 Turn the preference Off for normal taskbar minimization and Close-to-exit behavior. The choice applies immediately and is preserved across launches. An older preferences file without the key receives the On default. Tray failures stay visible and keep the window accessible. ASW runs in the driver and patched headset client and does not require the Companion window to remain open.

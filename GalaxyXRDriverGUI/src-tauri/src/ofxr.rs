@@ -4,9 +4,9 @@
 //! `%LOCALAPPDATA%\OFXR Bridge`, merge-writes the user-facing settings into
 //! that runtime directory's `ofxr_bridge.ini`, creates the per-arm stop event
 //! the layer watches, and registers the absolute-path implicit-layer manifest
-//! for the current user. Nothing is installed and no OFXR code is copied or
-//! linked; the layout, manifest shape, INI keys, registry location and event
-//! naming are reimplemented from OFXR-Bridge's observed source behaviour.
+//! for the current user. The bundled payload is staged when needed; an
+//! existing runtime may also be selected. The layout, manifest shape, INI
+//! keys, registry location and event naming mirror OFXR-Bridge's source.
 //!
 //! Verified against OFXR-Bridge (read-only reference):
 //!   src/tray/standalone_launcher.cpp:190-235  manifest shape + `vNNN` naming
@@ -262,6 +262,9 @@ fn render_ini(
         ("overlay", "position", values.overlay.to_string()),
     ];
     if let Some(name) = control_event {
+        // Explicit arming owns the synthesis switch as well as registration.
+        // A reused runtime may have been disabled from OFXR's own controls.
+        wanted.push(("ofxr", "enabled", "1".to_string()));
         wanted.push(("ofxr", "control_event", name.to_string()));
     }
     let mut written = vec![false; wanted.len()];
@@ -822,6 +825,27 @@ fn discover_runtime(
     bundled_directory: Option<&Path>,
     selected: Option<&str>,
 ) -> Result<Discovery, String> {
+    // 2026-10-20: an explicit selection is an exact request, never a hint.
+    if let Some(selected) = selected {
+        runtime_version_directory(local_directory, selected)?;
+        let normalized = selected.trim_start_matches('0');
+        let version = if normalized.is_empty() { "0" } else { normalized };
+        let directory = runtime_version_directory(local_directory, version)?;
+        if is_real_directory(&directory) && directory.join(LAYER_DLL_NAME).is_file() {
+            return Ok(Discovery::Installed(RuntimeComponent {
+                runtime_dir: directory,
+                version: version.to_string(),
+            }));
+        }
+        if let Some(component) = discover_bundled(bundled_directory)? {
+            if component.version == version {
+                return Ok(Discovery::Bundled(component));
+            }
+        }
+        return Err(format!(
+            "OFXR Bridge v{selected} is not installed and no bundled payload provides it. Select an available version."
+        ));
+    }
     let root = local_directory.join(RUNTIME_ROOT_NAME);
     let mut best: Option<(u64, String, PathBuf)> = None;
     match fs::read_dir(&root) {
@@ -859,18 +883,6 @@ fn discover_runtime(
         Err(error) => return Err(format!("Reading {} failed: {error}", root.display())),
     }
 
-    // An explicitly selected version wins over the newest one.
-    if let Some(selected) = selected {
-        if let Ok(directory) = runtime_version_directory(local_directory, selected) {
-            if is_real_directory(&directory) && directory.join(LAYER_DLL_NAME).is_file() {
-                return Ok(Discovery::Installed(RuntimeComponent {
-                    runtime_dir: directory,
-                    version: selected.to_string(),
-                }));
-            }
-        }
-    }
-
     if let Some((_, version, runtime_dir)) = best {
         return Ok(Discovery::Installed(RuntimeComponent {
             runtime_dir,
@@ -878,6 +890,13 @@ fn discover_runtime(
         }));
     }
 
+    Ok(match discover_bundled(bundled_directory)? {
+        Some(component) => Discovery::Bundled(component),
+        None => Discovery::Missing,
+    })
+}
+
+fn discover_bundled(bundled_directory: Option<&Path>) -> Result<Option<BundledComponent>, String> {
     if let Some(bundled) = bundled_directory {
         if is_real_directory(bundled) && bundled.join(LAYER_DLL_NAME).is_file() {
             let version = match read_payload_version(bundled) {
@@ -887,19 +906,15 @@ fn discover_runtime(
                     .transpose()?,
             };
             if let Some(version) = version {
-                // A specifically selected version is only satisfiable by that
-                // payload; never stage a different bundled build.
-                if selected.is_none_or(|wanted| wanted == version) {
-                    return Ok(Discovery::Bundled(BundledComponent {
-                        directory: bundled.to_path_buf(),
-                        version,
-                    }));
-                }
+                return Ok(Some(BundledComponent {
+                    directory: bundled.to_path_buf(),
+                    version,
+                }));
             }
         }
     }
 
-    Ok(Discovery::Missing)
+    Ok(None)
 }
 
 fn stage_bundled(
@@ -1227,43 +1242,69 @@ fn disarm_impl() -> Result<OfxrStatus, String> {
     }
 }
 
-/// Reinstalls the selected (or newest bundled) version: disarm, drop the
-/// receipt-owned directory, re-stage the bundled payload, keep the selection.
+/// Validate the replacement before any destructive operation. Reinstall can
+/// replace only a receipt-owned directory, never an external OFXR tray install.
+fn reinstall_payload(
+    local_directory: &Path,
+    bundled_directory: Option<&Path>,
+    selected: Option<&str>,
+) -> Result<BundledComponent, String> {
+    let bundled = discover_bundled(bundled_directory)?.ok_or_else(|| {
+        "OFXR Bridge cannot be reinstalled: the bundled payload is missing.".to_string()
+    })?;
+    if let Some(selected) = selected {
+        runtime_version_directory(local_directory, selected)?;
+        let normalized = selected.trim_start_matches('0');
+        let version = if normalized.is_empty() { "0" } else { normalized };
+        if version != bundled.version {
+            return Err(format!(
+                "OFXR Bridge v{selected} cannot be reinstalled: the bundled payload provides v{}. No installed files were removed.",
+                bundled.version
+            ));
+        }
+    }
+    let directory = runtime_version_directory(local_directory, &bundled.version)?;
+    if directory.exists()
+        && (!is_real_directory(&directory)
+            || !read_receipt(local_directory)
+                .iter()
+                .any(|entry| entry.version == bundled.version))
+    {
+        return Err(format!(
+            "OFXR Bridge v{} is not owned by the Companion and cannot be reinstalled here. Its files were preserved.",
+            bundled.version
+        ));
+    }
+    Ok(bundled)
+}
+
+fn replace_bundled(
+    local_directory: &Path,
+    bundled: &BundledComponent,
+) -> Result<RuntimeComponent, String> {
+    let directory = runtime_version_directory(local_directory, &bundled.version)?;
+    if is_real_directory(&directory) {
+        fs::remove_dir_all(&directory)
+            .map_err(|error| format!("Removing {} failed: {error}", directory.display()))?;
+        receipt_remove(local_directory, &bundled.version)?;
+    }
+    stage_bundled(local_directory, bundled)
+}
+
+/// Reinstalls the selected (or bundled, for Automatic) version: disarm, drop
+/// only its receipt-owned directory, then re-stage the exact bundled payload.
 fn reinstall_impl(prefs: OfxrPreferences) -> Result<OfxrStatus, String> {
     let _command = command_guard();
     let local_directory = platform::local_directory()?;
     let selected = prefs.version.as_deref().filter(|version| !version.is_empty());
+    let bundled_directory = platform::bundled_directory();
+    let bundled = reinstall_payload(&local_directory, bundled_directory.as_deref(), selected)?;
     if let Some(handle) = take_held_event() {
         platform::release_handle(handle, true)?;
     }
     remove_companion_registrations()?;
     remove_companion_manifests()?;
-    if let Some(version) = selected {
-        if read_receipt(&local_directory)
-            .iter()
-            .any(|entry| entry.version == version)
-        {
-            let directory = runtime_version_directory(&local_directory, version)?;
-            if is_real_directory(&directory) {
-                fs::remove_dir_all(&directory).map_err(|error| {
-                    format!("Removing {} failed: {error}", directory.display())
-                })?;
-            }
-            receipt_remove(&local_directory, version)?;
-        }
-        let bundled = platform::bundled_directory();
-        match discover_runtime(&local_directory, bundled.as_deref(), Some(version))? {
-            Discovery::Bundled(bundled) => {
-                stage_bundled(&local_directory, &bundled)?;
-            }
-            Discovery::Installed(_) => {}
-            Discovery::Missing => {
-                return Err(format!(
-                    "OFXR Bridge v{version} is not available to reinstall: no owned runtime directory and no bundled payload for that version."
-                ))
-            }
-        }
-    }
+    replace_bundled(&local_directory, &bundled)?;
     Ok(status_impl(selected))
 }
 
@@ -1937,7 +1978,12 @@ mod tests {
         fn new(tag: &str) -> Self {
             static COUNTER: AtomicU64 = AtomicU64::new(0);
             let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
+            let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent().expect("GUI directory")
+                .parent().expect("repository directory")
+                .parent().expect("workspace directory")
+                .join("builds/GalaxyXR-Driver/build/test-fixtures");
+            let path = fixtures.join(format!(
                 "galaxyxr-ofxr-{tag}-{}-{sequence}",
                 std::process::id()
             ));
@@ -2039,10 +2085,22 @@ mod tests {
 
     #[test]
     fn ini_apply_preserves_an_existing_control_event() {
-        let existing = "[ofxr]\ncontrol_event=Local\\OFXRBridgeArmStop-9\n";
+        let existing = "[ofxr]\nenabled=0\ncontrol_event=Local\\OFXRBridgeArmStop-9\n";
         let values = map_preferences(&sample_prefs()).expect("map prefs");
         let rendered = render_ini(Some(existing), &values, None);
         assert!(rendered.contains("control_event=Local\\OFXRBridgeArmStop-9"));
+        assert!(rendered.contains("enabled=0"), "applying preferences is not arming");
+    }
+
+    #[test]
+    fn arming_reenables_synthesis_in_a_reused_disabled_ini() {
+        let existing = "[ofxr]\nenabled=0\nbackend=fidelityfx\nforeign=keep\n";
+        let values = map_preferences(&sample_prefs()).expect("map prefs");
+        let rendered = render_ini(Some(existing), &values, Some("Local\\OFXRBridgeArmStop-9"));
+        assert!(rendered.contains("enabled=1\r\n"));
+        assert!(!rendered.lines().any(|line| line == "enabled=0"));
+        assert!(rendered.contains("foreign=keep"));
+        assert_eq!(rendered.matches("enabled=").count(), 2, "synthesis and logging switches");
     }
 
     #[test]
@@ -2272,6 +2330,74 @@ mod tests {
             }
             other => panic!("unexpected discovery: {other:?}"),
         }
+    }
+
+    #[test]
+    fn explicit_bundled_version_wins_over_a_different_installed_version() {
+        let root = TempRoot::new("selected-bundled");
+        let local = root.0.join("OFXR Bridge");
+        write_layer_files(&local.join("RuntimeLayer/v115"), Some("115"));
+        let bundled = root.0.join("ofxr");
+        write_layer_files(&bundled, Some("116"));
+        match discover_runtime(&local, Some(&bundled), Some("116")).expect("selected bundle") {
+            Discovery::Bundled(component) => assert_eq!(component.version, "116"),
+            other => panic!("selected V116 must not load installed V115: {other:?}"),
+        }
+        match discover_runtime(&local, Some(&bundled), Some("115")).expect("selected installed") {
+            Discovery::Installed(component) => assert_eq!(component.version, "115"),
+            other => panic!("selected V115 must stay selected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unavailable_or_invalid_explicit_versions_fail_without_substitution() {
+        let root = TempRoot::new("selected-missing");
+        let local = root.0.join("OFXR Bridge");
+        write_layer_files(&local.join("RuntimeLayer/v115"), Some("115"));
+        let bundled = root.0.join("ofxr");
+        write_layer_files(&bundled, Some("116"));
+        let error = discover_runtime(&local, Some(&bundled), Some("117")).expect_err("unavailable version");
+        assert!(error.contains("v117"));
+        assert!(discover_runtime(&local, Some(&bundled), Some("../115")).is_err());
+    }
+
+    #[test]
+    fn automatic_reinstall_restages_the_bundle_and_preserves_other_versions() {
+        let root = TempRoot::new("reinstall-automatic");
+        let local = root.0.join("OFXR Bridge");
+        let owned = local.join("RuntimeLayer/v116");
+        write_layer_files(&owned, Some("116"));
+        fs::write(owned.join("obsolete.file"), "old").expect("owned stale file");
+        receipt_record(&local, "116", "bundled").expect("receipt");
+        let external = local.join("RuntimeLayer/v117");
+        write_layer_files(&external, Some("117"));
+        let bundled = root.0.join("ofxr");
+        write_layer_files(&bundled, Some("116"));
+        fs::write(bundled.join(LAYER_DLL_NAME), "replacement").expect("replacement DLL");
+        let payload = reinstall_payload(&local, Some(&bundled), None).expect("automatic payload");
+        let installed = replace_bundled(&local, &payload).expect("reinstall");
+        assert_eq!(installed.version, "116");
+        assert_eq!(fs::read(owned.join(LAYER_DLL_NAME)).expect("replaced DLL"), b"replacement");
+        assert!(!owned.join("obsolete.file").exists());
+        assert_eq!(fs::read(external.join(LAYER_DLL_NAME)).expect("external DLL"), b"layer");
+    }
+
+    #[test]
+    fn reinstall_refuses_external_targets_and_unavailable_payloads_before_deletion() {
+        let root = TempRoot::new("reinstall-preserve");
+        let local = root.0.join("OFXR Bridge");
+        let external = local.join("RuntimeLayer/v116");
+        write_layer_files(&external, Some("116"));
+        let bundled = root.0.join("ofxr");
+        write_layer_files(&bundled, Some("116"));
+        assert!(reinstall_payload(&local, Some(&bundled), Some("116"))
+            .expect_err("external target").contains("not owned"));
+        receipt_record(&local, "116", "bundled").expect("receipt");
+        assert!(reinstall_payload(&local, Some(&bundled), Some("115"))
+            .expect_err("unavailable selected bundle").contains("v115"));
+        assert!(reinstall_payload(&local, None, Some("116")).is_err());
+        assert_eq!(fs::read(external.join(LAYER_DLL_NAME)).expect("preserved DLL"), b"layer");
+        assert_eq!(read_receipt(&local).len(), 1, "failed reinstall preserves ownership");
     }
 
     #[test]

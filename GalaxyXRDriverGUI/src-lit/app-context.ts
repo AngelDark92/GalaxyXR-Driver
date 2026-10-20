@@ -15,6 +15,7 @@ import { SettingsCheckService } from './services/settings-check';
 import { GalaxySettingsBase } from './state/galaxy-settings';
 import { CurvePreviewPublisher, previewState } from './services/curve-preview';
 import { CompanionLifecycleService } from './services/companion-lifecycle';
+import { OfxrSessionService } from './services/ofxr-session';
 
 export interface AppContext {
   paths: PathsService;
@@ -29,6 +30,7 @@ export interface AppContext {
   startup: DriverStartupService;
   curvePreview: CurvePreviewPublisher;
   lifecycle: CompanionLifecycleService;
+  ofxr: OfxrSessionService;
   dispose(): void;
 }
 
@@ -38,13 +40,14 @@ export function createAppContext(paths: PathsService): AppContext {
   }
   const dialog = new DialogService();
   const appSetting = new AppSettingService(paths);
-  const lifecycle = new CompanionLifecycleService(appSetting);
   const appSettingGetter = () => appSetting.values();
   const dis = new DriverInfoService(paths, appSettingGetter);
   const dss = new DriverSettingService(paths, dis, appSettingGetter);
   const sds = new SystemDiagnosticService(dss, dis, dialog, paths, appSetting);
   const aus = new AppUpdateService(sds, appSettingGetter);
   const galaxy = new GalaxySettingsBase(appSetting, dss, dis);
+  const ofxr = new OfxrSessionService(appSetting, dss, galaxy);
+  const lifecycle = new CompanionLifecycleService(appSetting, () => ofxr.idle());
   const curvePreview = new CurvePreviewPublisher(() => previewState(galaxy.rootSetting, galaxy.streamQualityValues.bandwidth), update => {
     const stopEdit = galaxy.revision.subscribe(update), stopLoad = dss.values.subscribe(update);
     return () => { stopEdit(); stopLoad(); };
@@ -72,8 +75,10 @@ export function createAppContext(paths: PathsService): AppContext {
     startup,
     curvePreview,
     lifecycle,
+    ofxr,
     dispose() {
       lifecycle.dispose();
+      ofxr.dispose();
       curvePreview.dispose();
       stopInstallation(); stopMaintenance(); startup.invalidate();
       sds.dispose();

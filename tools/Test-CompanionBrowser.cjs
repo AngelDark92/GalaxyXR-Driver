@@ -49,6 +49,11 @@ function fixture() {
     github.hold = false;
     for (const release of github.pending.splice(0)) release();
   } };
+  // Native registrations belong to the process: a reload starts disarmed,
+  // while gui-settings.json remains in the fixture filesystem.
+  let ofxrState = 'ready';
+  const ofxrStatus = () => ({ state: ofxrState, version: '116', runtimeDir: '/ofxr/v116', reason: null,
+    versions: [{ version: '116', source: 'bundled' }] });
   const oldFetch = window.fetch;
   window.fetch = (url, ...args) => {
     if (!String(url).includes('api.github.com')) return oldFetch(url, ...args);
@@ -74,6 +79,10 @@ function fixture() {
       if (command === 'plugin:event|listen') { events.set(args.event, args.handler); return ++callback; }
       if (command === 'complete_companion_quit') return window.__qa.holdQuitAck ? new Promise(resolve => { window.__qa.releaseQuitAck = resolve; }) : undefined;
       if (command === 'plugin:event|unlisten' || command === 'sync_companion_lifecycle' || command === 'set_webview_zoom') return;
+      if (command === 'ofxr_status') return ofxrStatus();
+      if (command === 'ofxr_arm') { ofxrState = 'armed'; return ofxrStatus(); }
+      if (command === 'ofxr_disarm' || command === 'ofxr_reinstall' || command === 'ofxr_remove') { ofxrState = 'ready'; return ofxrStatus(); }
+      if (command === 'ofxr_apply') return;
       if (command === 'plugin:app|version') return '1.2.13';
       if (command === 'plugin:opener|open_url') {
         if (window.__qa.openerError) throw Error(window.__qa.openerError);
@@ -247,6 +256,27 @@ function fixture() {
     await page.locator('app-stream-frame-page').getByRole('heading', { name: 'Optical Flow', exact: true }).waitFor();
     await page.locator('app-stream-frame-page').getByText('Optical Flow requires the Companion to stay running', { exact: true }).waitFor();
     await page.locator('app-stream-frame-page .section-card').filter({ has: page.getByRole('heading', { name: 'Optical Flow', exact: true }) }).screenshot({ path: path.join(out, 'optical-flow-requirement.png') });
+    const opticalSwitch = page.locator('app-stream-frame-page [data-setting-id="ofxr.enabled"] app-switch');
+    await opticalSwitch.click();
+    await page.waitForFunction(() => appContext.ofxr.isArmed());
+    assert.equal(await opticalSwitch.evaluate(el => el.checked), true);
+    // Keep the real service/page binding in this regression, with native IPC
+    // mocked: reload must rearm independently of which page opens first.
+    await page.evaluate(async () => { await appContext.ofxr.update({ mode: 'nvidia-medium', scale: 50 }); });
+    await openRoute('app-settings');
+    await page.reload();
+    await page.waitForFunction(() => window.appContext?.ofxr.isArmed());
+    assert.ok(await page.evaluate(() => __qa.calls.some(call => call.command === 'ofxr_arm' && call.args.prefs.mode === 'nvidia-medium')));
+    await openRoute('stream-frame');
+    assert.equal(await opticalSwitch.evaluate(el => el.checked), true);
+    await page.locator('app-stream-frame-page fluent-button').filter({ hasText: 'Reinstall' }).click();
+    await page.waitForFunction(() => !appContext.ofxr.changing() && appContext.ofxr.isArmed());
+    assert.ok(await page.evaluate(() => __qa.calls.some(call => call.command === 'ofxr_reinstall')));
+    await page.locator('app-stream-frame-page fluent-button').filter({ hasText: 'Uninstall Optical Flow' }).click();
+    await page.waitForFunction(() => !appContext.ofxr.changing() && !appContext.ofxr.isArmed());
+    assert.equal(await opticalSwitch.evaluate(el => el.checked), false);
+    assert.equal(await page.evaluate(() => appContext.appSetting.confirmedValues().ofxr.enabled), false);
+    results.push('Optical Flow arms from its page, restores saved NVIDIA selection on app reopen, rearms after Reinstall, and disables after Uninstall (mocked native IPC)');
     await openRoute('app-settings');
     const trayRow = page.locator('app-app-settings-page [data-setting-id="minimizeToTray"]');
     assert.equal(await trayRow.locator('app-switch').evaluate(el => el.checked), true);

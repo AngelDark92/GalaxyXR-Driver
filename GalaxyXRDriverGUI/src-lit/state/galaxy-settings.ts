@@ -742,12 +742,13 @@ export class GalaxySettingsBase {
     return !!this.rootSetting?.galaxyXr?.sdr10Baseline && !this.sdr10BaselineConflict();
   }
 
-  save() {
-    if (this.dss.inspecting) return;
-    if (this.rootSetting) {
-      this.dss.save(this.rootSetting);
-    }
+  async save(): Promise<boolean> {
+    if (this.dss.inspecting) return false;
+    // Callers that depend on a persisted setting (such as OFXR exclusivity)
+    // must receive the writer's confirmation, including rejected saves.
+    const saved = this.rootSetting ? this.dss.save(this.rootSetting) : Promise.resolve(false);
     this.revision.update(x => x + 1);
+    return saved;
   }
 
   alignmentDirty(): boolean {

@@ -18,7 +18,7 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-function fixture(enabled = true, valid = true) {
+function fixture(enabled = true, valid = true, beforeQuit?: () => Promise<void>) {
   const initial = { minimizeToTray: enabled } as AppSetting;
   const confirmedValues = signal<AppSetting | undefined>(valid ? initial : undefined);
   const values = signal(initial);
@@ -26,7 +26,7 @@ function fixture(enabled = true, valid = true) {
   const writeFileError = signal<string | undefined>(undefined);
   const save = vi.fn(async (next: AppSetting) => { values.set(next); confirmedValues.set(next); return true; });
   const settings = { confirmedValues, values, readFileError, writeFileError, save };
-  const service = new CompanionLifecycleService(settings as unknown as AppSettingService);
+  const service = new CompanionLifecycleService(settings as unknown as AppSettingService, beforeQuit);
   services.push(service);
   return { service, settings };
 }
@@ -39,6 +39,15 @@ beforeEach(() => {
   });
 });
 afterEach(() => { for (const service of services.splice(0)) service.dispose(); });
+
+it('waits for pending OFXR commands before flushing settings and acknowledging Quit', async () => {
+  const pending = deferred<void>(); const beforeQuit = vi.fn(() => pending.promise);
+  const { service } = fixture(true, true, beforeQuit); await service.start();
+  handlers.get('companion-quit-requested')!({ payload: 29 }); await tick();
+  expect(beforeQuit).toHaveBeenCalledOnce(); expect(bridge.flush).not.toHaveBeenCalled(); expect(bridge.complete).not.toHaveBeenCalled();
+  pending.resolve(); await tick();
+  expect(bridge.flush).toHaveBeenCalledOnce(); expect(bridge.complete).toHaveBeenCalledWith(29, null);
+});
 
 it.each([true, false])('registers native events before applying confirmed tray preference %s', async enabled => {
   const { service } = fixture(enabled);

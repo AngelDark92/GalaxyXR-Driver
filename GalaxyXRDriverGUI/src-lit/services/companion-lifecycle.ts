@@ -27,7 +27,7 @@ export class CompanionLifecycleService {
   private lastRequested = '';
   private quitTokens = new Set<number>();
 
-  constructor(private readonly appSetting: AppSettingService) {}
+  constructor(private readonly appSetting: AppSettingService, private readonly beforeQuit: () => Promise<void> = () => Promise.resolve()) {}
 
   public start(): Promise<void> {
     if (this.disposed) return Promise.resolve();
@@ -125,6 +125,10 @@ export class CompanionLifecycleService {
       let error: string | null = null;
       try {
         await this.activeChange;
+        if (!this.quitTokens.has(token)) return;
+        // Finish any OFXR arm/configuration transaction before native exit
+        // signals its event and retires the registration.
+        await this.beforeQuit();
         if (!this.quitTokens.has(token)) return;
         // save() first awaits initialized services. Let already-requested saves
         // schedule their writer before taking the global flush snapshot.

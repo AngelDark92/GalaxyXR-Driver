@@ -49,6 +49,8 @@ pub fn run() {
             ofxr::ofxr_arm,
             ofxr::ofxr_disarm,
             ofxr::ofxr_apply,
+            ofxr::ofxr_reinstall,
+            ofxr::ofxr_remove,
             webview_zoom::set_webview_zoom,
             curve_preview::open_curve_preview,
             curve_preview::curve_preview_state,

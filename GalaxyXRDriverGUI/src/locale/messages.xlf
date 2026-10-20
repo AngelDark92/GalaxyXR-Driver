@@ -3813,6 +3813,27 @@ Value: minimizeToTray (gui-settings.json). Companion-only window preference; On 
       <trans-unit id="companion-tray-saving-20261020" datatype="html">
         <source>Saving settings before quitting…</source>
       </trans-unit>
+      <trans-unit id="ofxr-session-20261020-1" datatype="html">
+        <source>Optical Flow preferences could not be saved.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-session-20261020-2" datatype="html">
+        <source>Read the saved driver and Companion settings successfully before enabling Optical Flow.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-session-20261020-3" datatype="html">
+        <source>Optical Flow was not restored because Async Spacewarp is enabled. Enable Optical Flow again to switch modes.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-session-20261020-4" datatype="html">
+        <source>Async Spacewarp could not be saved Off. Optical Flow was not armed.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-session-20261020-5" datatype="html">
+        <source>The previous Async Spacewarp setting could not be restored.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-session-20261020-6" datatype="html">
+        <source>The Async Spacewarp setting could not be saved.</source>
+      </trans-unit>
+      <trans-unit id="ofxr-session-20261020-7" datatype="html">
+        <source>Disarm Optical Flow from its current manager before enabling Async Spacewarp.</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>

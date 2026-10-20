@@ -51,6 +51,14 @@ describe('OFRX preferences', () => {
 });
 
 describe('OFRX status gate', () => {
+  it('registers every native OFXR command exposed by the frontend IPC contract', () => {
+    const frontend = readFileSync(new URL('../platform/tauri.ts', import.meta.url), 'utf8');
+    const native = readFileSync(new URL('../../src-tauri/src/lib.rs', import.meta.url), 'utf8');
+    const handlers = native.match(/generate_handler!\[([\s\S]*?)\]/)?.[1] ?? '';
+    const commands = [...frontend.matchAll(/invoke\('(ofxr_\w+)'/g)].map(match => match[1]);
+    expect(commands.length).toBeGreaterThan(0);
+    for (const command of commands) expect(handlers).toMatch(new RegExp(`\\bofxr::${command}\\b`));
+  });
   it('permits arming only in the ready and armed states', () => {
     for (const state of ['ready', 'armed', 'armed_external'] as const) expect(ofxrCanArm(status(state))).toBe(true);
     for (const state of ['not_installed', 'unavailable'] as const) expect(ofxrCanArm(status(state))).toBe(false);

@@ -22,15 +22,50 @@ function buildHarness(stored: Record<string, unknown> | undefined = {}, disValue
   const dss = {
     values: () => stored,
     readFileError: () => readError,
-    save: (v: unknown) => { saved.push(v); },
+    inspecting: false,
+    save: (v: unknown): Promise<boolean> => { saved.push(v); return Promise.resolve(true); },
     ...(rawStored === undefined ? {} : { storedValues: () => rawStored }),
   };
   const dis = { values: () => disValues };
   const appSettings = { values: () => ({ advanceMode: false }) };
   const gs = new GalaxySettingsBase(appSettings as any, dss as any, dis as any);
   const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
-  return { gs, saved, flush };
+  return { gs, dss, saved, flush };
 }
+
+describe('confirmed settings saves', () => {
+  it('notifies views immediately but waits for persistence before confirming success', async () => {
+    const { gs, dss, flush } = buildHarness(structuredClone(driverDefaults));
+    await flush();
+    let confirm!: (saved: boolean) => void;
+    dss.save = () => new Promise<boolean>(resolve => { confirm = resolve; });
+    const revision = gs.revision();
+    let settled = false;
+    const saving = gs.save().then(saved => { settled = true; return saved; });
+    expect(gs.revision()).toBe(revision + 1);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    confirm(true);
+    await expect(saving).resolves.toBe(true);
+  });
+
+  it.each(['failed', 'superseded'])('does not confirm a %s save', async () => {
+    const { gs, dss, flush } = buildHarness(structuredClone(driverDefaults));
+    await flush();
+    dss.save = async () => false;
+    await expect(gs.save()).resolves.toBe(false);
+  });
+
+  it.each(['inspecting', 'missing settings'])('refuses to save while %s', async reason => {
+    const { gs, dss, saved, flush } = buildHarness(structuredClone(driverDefaults));
+    await flush();
+    saved.length = 0;
+    if (reason === 'inspecting') dss.inspecting = true;
+    else gs.rootSetting = undefined;
+    await expect(gs.save()).resolves.toBe(false);
+    expect(saved).toHaveLength(0);
+  });
+});
 
 describe('stream-frame integer validation', () => {
   // The contracts must mirror the committed NvencTap.cpp ValidateRequest
