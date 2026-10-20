@@ -240,9 +240,17 @@ export class AppNumber extends LitElement {
   }
 }
 
+// Keys Fluent's slider uses to move the value; their keyup ends a keyboard step.
+const SLIDER_VALUE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
+
 /**
  * app-slider — forwards Fluent's interaction changes without treating display
  * synchronization or normalization as edits to the stored setting.
+ *
+ * `change` fires once per step, so a live-preview consumer keeps reacting while
+ * the thumb moves. `commit` fires once when the interaction ends (pointer
+ * release, pointer cancel, or the keyup that ends a keyboard step) for
+ * consumers that must not act on every step, such as the window zoom.
  */
 @customElement('app-slider')
 export class AppSlider extends LitElement {
@@ -266,6 +274,60 @@ export class AppSlider extends LitElement {
 
   private synchronizing = false;
   private initialized = false;
+  private interacting = false;
+
+  // 2026-10-20: Fluent publishes one change per pointer move and keeps its own
+  // release handler inside its shadow root, so the end of the gesture is
+  // tracked here: the window pointerup that finishes a drag, or the keyup that
+  // finishes a keyboard step. Fluent also ends a drag on document mouseleave
+  // (its pointer moves stop once the cursor leaves the window), so that path
+  // commits instead of leaving a stale interaction armed.
+  private readonly endInteraction = (): void => {
+    this.stopInteraction();
+    if (this.disabled) return;
+    this.dispatchEvent(new CustomEvent('commit', { detail: this.value, bubbles: true, composed: true }));
+  };
+
+  private readonly startInteraction = (): void => {
+    if (this.disabled || this.interacting) return;
+    this.interacting = true;
+    window.addEventListener('pointerup', this.endInteraction);
+    window.addEventListener('pointercancel', this.endInteraction);
+    // A window that loses focus mid-drag still commits what the thumb shows.
+    window.addEventListener('blur', this.endInteraction);
+    document.addEventListener('mouseleave', this.endInteraction);
+  };
+
+  private stopInteraction(): void {
+    if (!this.interacting) return;
+    this.interacting = false;
+    window.removeEventListener('pointerup', this.endInteraction);
+    window.removeEventListener('pointercancel', this.endInteraction);
+    window.removeEventListener('blur', this.endInteraction);
+    document.removeEventListener('mouseleave', this.endInteraction);
+  }
+
+  // Keyboard steps end on keyup. The value at the first keydown of a held key
+  // tells a real step from a key Fluent ignored (Shift+Arrow) or clamped at a
+  // bound, so an unchanged press never re-applies the zoom or rewrites the
+  // settings file.
+  private keyStart: number | undefined;
+
+  private readonly onValueKeyDown = (event: KeyboardEvent): void => {
+    if (this.disabled || this.keyStart !== undefined || !SLIDER_VALUE_KEYS.has(event.key)) return;
+    this.keyStart = this.value;
+  };
+
+  private readonly onReleaseKey = (event: KeyboardEvent): void => {
+    if (!SLIDER_VALUE_KEYS.has(event.key)) return;
+    const start = this.keyStart;
+    this.keyStart = undefined;
+    if (start === undefined || start === this.value) {
+      this.stopInteraction();
+      return;
+    }
+    this.endInteraction();
+  };
 
   // 2026-09-25: Fluent 3.1.3 emits change from its value setter, including
   // programmatic writes and min/max/step normalization. Set bounds first and
@@ -292,6 +354,11 @@ export class AppSlider extends LitElement {
 
   firstUpdated(): void { this.syncValue(); }
 
+  disconnectedCallback(): void {
+    this.stopInteraction();
+    super.disconnectedCallback();
+  }
+
   updated(changed: PropertyValues): void {
     if (['value', 'min', 'max', 'step'].some(key => changed.has(key))) this.syncValue();
   }
@@ -309,6 +376,9 @@ export class AppSlider extends LitElement {
     return html`<fluent-slider
       ?disabled=${this.disabled}
       aria-label=${accessibleLabel(this)}
+      @pointerdown=${this.startInteraction}
+      @keydown=${this.onValueKeyDown}
+      @keyup=${this.onReleaseKey}
       @change=${this.onNativeChange}
     ></fluent-slider>`;
   }

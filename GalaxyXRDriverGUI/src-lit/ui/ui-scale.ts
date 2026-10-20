@@ -9,6 +9,10 @@ export const UI_SCALE_MIN = 30;
 export const UI_SCALE_MAX = 150;
 export const UI_SCALE_STEP = 5;
 export const UI_SCALE_DEFAULT = 100;
+// Interface scale baseline (2026-10-20, owner): 90% of the previous size
+// is the new 100%; the slider keeps integer percent labels and every
+// applied factor is multiplied by this baseline.
+export const UI_SCALE_BASELINE = 0.9;
 
 /**
  * Clamp to the supported range and snap to the slider step. The row shows the
@@ -21,6 +25,11 @@ export function normalizeUiScale(value: unknown): number {
   if (!Number.isFinite(number)) return UI_SCALE_DEFAULT;
   const clamped = Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, number));
   return Math.round(clamped / UI_SCALE_STEP) * UI_SCALE_STEP;
+}
+
+/** Platform zoom factor for a stored percent label. */
+export function uiScaleZoom(percent: unknown): number {
+  return (normalizeUiScale(percent) / 100) * UI_SCALE_BASELINE;
 }
 
 let pending = UI_SCALE_DEFAULT;
@@ -37,11 +46,13 @@ function flush(): void {
   const target = pending;
   void (async () => {
     let error: string | undefined;
-    // A drag emits one change per step; only the newest value crosses the IPC.
+    // The interface-scale slider commits on release; this timer still
+    // coalesces startup re-applies and shortcut resyncs, and only the newest
+    // value crosses the IPC.
     if (forceNext || target !== applied) {
       forceNext = false;
       try {
-        await set_webview_zoom(target / 100);
+        await set_webview_zoom(uiScaleZoom(target));
         applied = target;
       } catch (reason) {
         error = reason instanceof Error ? reason.message : String(reason);

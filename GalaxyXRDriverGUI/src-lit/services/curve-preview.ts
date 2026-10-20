@@ -13,6 +13,9 @@ export function previewState(settings: Settings | undefined, bandwidthMbit = set
     ceilingMbit: sf.nvencBitrateMbit !== 0 ? sf.nvencBitrateMbit
       : sf.nvencBandwidthOverrideMbit !== 0 ? sf.nvencBandwidthOverrideMbit : bandwidthMbit,
     clampMbit: sf.nvencVrlinkClampMbit,
+    // 2026-10-20: 'No fallback' fixes the streamer request at the clamp, so the
+    // graph marks a single operating point instead of implying a live curve.
+    fallbackDisabled: sf.nvencVrlinkFallbackMode === 1,
   };
 }
 

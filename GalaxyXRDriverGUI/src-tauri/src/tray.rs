@@ -12,6 +12,9 @@ const TRAY_ID: &str = "companion";
 const OPEN: &str = "companion-open";
 const QUIT: &str = "companion-quit";
 const QUIT_TIMEOUT: Duration = Duration::from_secs(15);
+// A close prompt that never gets answered must not leave an unclosable window:
+// after this delay the request falls back to the settings-flush quit.
+const CLOSE_PROMPT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 struct HiddenPreview {
@@ -26,8 +29,11 @@ struct Policy {
     frontend_ready: bool,
     ready: bool,
     minimize_to_tray: bool,
+    close_action: CloseAction,
     hidden: bool,
     transitioning: bool,
+    // A Close (X) prompt the Companion has not answered yet.
+    pending_close_prompt: Option<u64>,
     // Retain the exact native handle, never just a reusable window label.
     hidden_preview: Option<HiddenPreview>,
     next_token: u64,
@@ -41,7 +47,44 @@ enum QuitRequest {
     Pending,
 }
 
+/// Title-bar Close (X) behaviour, owned by the app settings (gui-settings.json)
+/// and synchronized with the tray preferences. The window's Minimize button is
+/// separate: it always minimizes and hides to tray when `minimize_to_tray` is on.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CloseAction {
+    /// Ask in the Companion, defaulting to closing the app.
+    #[default]
+    Ask,
+    /// Close (quit) without asking.
+    Close,
+    /// Hide to the tray; a non-tray build minimizes instead.
+    Minimise,
+}
+
+/// What a CloseRequested event does, decided without touching window APIs so it
+/// stays unit-testable.
+#[derive(Debug, PartialEq)]
+enum CloseOutcome {
+    Ask,
+    Quit,
+    Hide,
+    Minimise,
+}
+
 impl Policy {
+    /// Close-button decision. Before the frontend registers its listeners there
+    /// is nobody to ask, so a CloseRequested exits exactly as it did before.
+    fn close_outcome(&self) -> CloseOutcome {
+        if !self.frontend_ready { return CloseOutcome::Quit; }
+        match self.close_action {
+            CloseAction::Ask => CloseOutcome::Ask,
+            CloseAction::Close => CloseOutcome::Quit,
+            CloseAction::Minimise if self.ready && self.minimize_to_tray => CloseOutcome::Hide,
+            CloseAction::Minimise => CloseOutcome::Minimise,
+        }
+    }
+
     fn begin_hide(&mut self) -> bool {
         if !self.ready || !self.minimize_to_tray || self.hidden || self.transitioning || self.pending_quit.is_some() {
             return false;
@@ -55,6 +98,21 @@ impl Policy {
         self.next_token = self.next_token.wrapping_add(1).max(1);
         self.pending_quit = Some(self.next_token);
         self.pending_quit
+    }
+
+    /// Opens a Close prompt. A second X press while one is open is ignored.
+    fn begin_close_prompt(&mut self) -> Option<u64> {
+        if self.pending_close_prompt.is_some() { return None; }
+        self.next_token = self.next_token.wrapping_add(1).max(1);
+        self.pending_close_prompt = Some(self.next_token);
+        self.pending_close_prompt
+    }
+
+    /// Retires a prompt token; stale answers from an older prompt return false.
+    fn finish_close_prompt(&mut self, token: u64) -> bool {
+        if self.pending_close_prompt != Some(token) { return false; }
+        self.pending_close_prompt = None;
+        true
     }
 
     fn request_quit(&mut self) -> QuitRequest {
@@ -193,7 +251,7 @@ fn request_quit(app: &AppHandle) {
 // Async IPC avoids blocking the WebView2 event loop while native menus marshal
 // their creation to the main thread (Tauri 2.12).
 #[tauri::command]
-pub async fn sync_companion_lifecycle(window: WebviewWindow, app: AppHandle, state: State<'_, Lifecycle>, minimize_to_tray: bool, labels: Labels) -> Result<(), String> {
+pub async fn sync_companion_lifecycle(window: WebviewWindow, app: AppHandle, state: State<'_, Lifecycle>, close_action: CloseAction, minimize_to_tray: bool, labels: Labels) -> Result<(), String> {
     require_main(&window)?;
     state.policy.lock().map_err(|e| e.to_string())?.frontend_ready = true;
     let _syncing = state.syncing.lock().map_err(|e| e.to_string())?;
@@ -225,6 +283,7 @@ pub async fn sync_companion_lifecycle(window: WebviewWindow, app: AppHandle, sta
     let was_hidden = {
         let mut policy = state.policy.lock().map_err(|e| e.to_string())?;
         policy.ready = true;
+        policy.close_action = close_action;
         policy.minimize_to_tray = minimize_to_tray;
         policy.hidden
     };
@@ -242,6 +301,55 @@ pub fn complete_companion_quit(window: WebviewWindow, app: AppHandle, state: Sta
     let accepted = state.policy.lock().map_err(|e| e.to_string())?.finish_quit(token);
     if !accepted { return Err("Quit request is no longer pending".into()); }
     app.exit(0);
+    Ok(())
+}
+
+/// Emits the Close prompt with a token and guarantees an answer path: a prompt
+/// that is never answered (listener gone or wedged) falls back to the normal
+/// settings-flush quit, so the X can never become a silent no-op.
+fn ask_to_close(app: &AppHandle) {
+    let token = match app.state::<Lifecycle>().policy.lock() {
+        Ok(mut policy) => policy.begin_close_prompt(),
+        Err(error) => { report(app, error.to_string()); return; }
+    };
+    // None means a prompt is already open; the second X press is ignored.
+    let Some(token) = token else { return; };
+    if let Err(error) = app.emit_to("main", "companion-close-requested", token) {
+        report(app, error.to_string());
+        if let Ok(mut policy) = app.state::<Lifecycle>().policy.lock() { policy.finish_close_prompt(token); }
+        request_quit(app);
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(CLOSE_PROMPT_TIMEOUT);
+        let timeout_app = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let unanswered = timeout_app.state::<Lifecycle>().policy.lock()
+                .map(|mut policy| policy.finish_close_prompt(token))
+                .unwrap_or(false);
+            if unanswered { request_quit(&timeout_app); }
+        });
+    });
+}
+
+/// The Companion's own close confirmation resolves a `companion-close-requested`
+/// event through this command; it reuses the settings-flush quit path.
+#[tauri::command]
+pub fn request_companion_quit(window: WebviewWindow, app: AppHandle, state: State<'_, Lifecycle>, token: u64) -> Result<(), String> {
+    require_main(&window)?;
+    if !state.policy.lock().map_err(|e| e.to_string())?.finish_close_prompt(token) {
+        return Err("Close request is no longer pending".into());
+    }
+    request_quit(&app);
+    Ok(())
+}
+
+/// Cancelling the Close prompt retires its token so the timeout cannot quit later.
+#[tauri::command]
+pub fn dismiss_companion_close(window: WebviewWindow, state: State<'_, Lifecycle>, token: u64) -> Result<(), String> {
+    require_main(&window)?;
+    state.policy.lock().map_err(|e| e.to_string())?.finish_close_prompt(token);
     Ok(())
 }
 
@@ -270,8 +378,21 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
     match event {
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
-            let hide_enabled = app.state::<Lifecycle>().policy.lock().map(|p| p.ready && p.minimize_to_tray).unwrap_or(false);
-            if hide_enabled { hide(app); } else { request_quit(app); }
+            let outcome = app.state::<Lifecycle>().policy.lock()
+                .map(|policy| policy.close_outcome())
+                .unwrap_or(CloseOutcome::Quit);
+            match outcome {
+                // The Companion asks in its own dialog and answers with
+                // request_companion_quit; a missing listener (window gone) still exits.
+                CloseOutcome::Ask => ask_to_close(app),
+                CloseOutcome::Quit => request_quit(app),
+                CloseOutcome::Hide => hide(app),
+                CloseOutcome::Minimise => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        if let Err(error) = window.minimize() { report(app, error.to_string()); }
+                    }
+                }
+            }
         }
         WindowEvent::Resized(_) => {
             if let Some(window) = app.get_webview_window("main") {
@@ -290,7 +411,46 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Policy, QuitRequest};
+    use super::{CloseAction, CloseOutcome, Policy, QuitRequest};
+
+    #[test]
+    fn close_prompt_tokens_ignore_repeats_and_stale_answers() {
+        let mut policy = Policy::default();
+        let token = policy.begin_close_prompt().unwrap();
+        // A second X press while the prompt is open is ignored.
+        assert!(policy.begin_close_prompt().is_none());
+        // An answer for another prompt cannot retire this one.
+        assert!(!policy.finish_close_prompt(token + 1));
+        assert_eq!(policy.pending_close_prompt, Some(token));
+        assert!(policy.finish_close_prompt(token));
+        assert_eq!(policy.pending_close_prompt, None);
+        assert!(!policy.finish_close_prompt(token));
+        // A retired prompt never blocks the settings-flush quit behind it.
+        // The prompt already consumed token 1, so the quit request is next.
+        policy.frontend_ready = true;
+        assert_eq!(policy.request_quit(), QuitRequest::Flush(2));
+    }
+
+    #[test]
+    fn close_button_action_decides_ask_close_hide_or_minimise() {
+        let mut policy = Policy::default();
+        // Before the frontend listens there is nobody to ask.
+        assert_eq!(policy.close_outcome(), CloseOutcome::Quit);
+        policy.frontend_ready = true;
+        assert_eq!(policy.close_action, CloseAction::Ask);
+        assert_eq!(policy.close_outcome(), CloseOutcome::Ask);
+        policy.close_action = CloseAction::Close;
+        assert_eq!(policy.close_outcome(), CloseOutcome::Quit);
+        policy.close_action = CloseAction::Minimise;
+        // No usable tray yet: minimize instead of hiding an unreachable window.
+        assert_eq!(policy.close_outcome(), CloseOutcome::Minimise);
+        policy.minimize_to_tray = true;
+        assert_eq!(policy.close_outcome(), CloseOutcome::Minimise);
+        policy.ready = true;
+        assert_eq!(policy.close_outcome(), CloseOutcome::Hide);
+        policy.minimize_to_tray = false;
+        assert_eq!(policy.close_outcome(), CloseOutcome::Minimise);
+    }
 
     #[test]
     fn early_close_exits_but_tray_failure_still_flushes_frontend_settings() {

@@ -47,7 +47,7 @@ export function createAppContext(paths: PathsService): AppContext {
   const aus = new AppUpdateService(sds, appSettingGetter);
   const galaxy = new GalaxySettingsBase(appSetting, dss, dis);
   const ofxr = new OfxrSessionService(appSetting, dss, galaxy);
-  const lifecycle = new CompanionLifecycleService(appSetting, () => ofxr.idle());
+  const lifecycle = new CompanionLifecycleService(appSetting, dialog, () => ofxr.idle());
   const curvePreview = new CurvePreviewPublisher(() => previewState(galaxy.rootSetting, galaxy.streamQualityValues.bandwidth), update => {
     const stopEdit = galaxy.revision.subscribe(update), stopLoad = dss.values.subscribe(update);
     return () => { stopEdit(); stopLoad(); };

@@ -5,9 +5,19 @@ import { invoke } from '@tauri-apps/api/core';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 export type { OfxrPreferences, OfxrStatus };
 
+/** Title-bar Close (X) behavior; the Minimize button is independent. */
+export type CompanionCloseAction = 'ask' | 'close' | 'minimise';
 export interface CompanionTrayLabels { open: string; quit: string; tooltip: string; }
-export function sync_companion_lifecycle(minimizeToTray: boolean, labels: CompanionTrayLabels): Promise<void> {
-    return invoke('sync_companion_lifecycle', { minimizeToTray, labels });
+export function sync_companion_lifecycle(closeAction: CompanionCloseAction, minimizeToTray: boolean, labels: CompanionTrayLabels): Promise<void> {
+    return invoke('sync_companion_lifecycle', { closeAction, minimizeToTray, labels });
+}
+/** Answers a companion-close-requested prompt; the token is the prompt's own. */
+export function request_companion_quit(token: number): Promise<void> {
+    return invoke('request_companion_quit', { token });
+}
+/** Cancelling the prompt retires its token so the native timeout cannot quit later. */
+export function dismiss_companion_close(token: number): Promise<void> {
+    return invoke('dismiss_companion_close', { token });
 }
 export function complete_companion_quit(token: number, error: string | null): Promise<void> {
     return invoke('complete_companion_quit', { token, error });
@@ -151,6 +161,8 @@ export interface CurvePreviewState {
     constancyPct: number;
     ceilingMbit: number;
     clampMbit: number;
+    /** 'No fallback' on: the streamer request is fixed at the clamp. */
+    fallbackDisabled: boolean;
 }
 export async function open_curve_preview(locale: string, snapshot: CurvePreviewState): Promise<void> {
     return invoke('open_curve_preview', { locale, snapshot });

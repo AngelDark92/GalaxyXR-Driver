@@ -46,13 +46,13 @@ kalman('streamFrame.kalmanPosFreeze3dof', 'Freeze Protection');
 group('driver-settings', ['Controllers', 'Controllers Advanced'], ['controllers'], true, 'vendor')('galaxyXr.controllerBypass', 'Controller Bypass');
 group('driver-settings', ['Controllers', 'Controllers Advanced', 'Controller Offsets'], ['controllers', 'ctrlOffsets'], true, 'controllers')('controllers.mirrorOffsetsForRightHand', 'Same Alignment Both Hands');
 
-group('app-settings', ['Application preferences'], ['heading:app-preferences'])('image-enhancements', 'Image Enhancements', {
+group('app-settings', ['Picture'], ['heading:app-picture'])('image-enhancements', 'Image Enhancements', {
   keys: ['streamFrame.enable', 'galaxyXr.sdr10Baseline'],
 });
-group('app-settings', ['Application preferences'], ['heading:app-preferences'])('minimizeToTray', 'Minimize to tray', { source: 'gui-settings.json' });
-group('app-settings', ['Application preferences'], ['heading:app-preferences'])('advanceMode', 'Advanced Mode', { source: 'gui-settings.json' });
-group('app-settings', ['Application preferences'], ['heading:app-preferences'])('devUpdates', 'Developer Builds', { source: 'gui-settings.json' });
-group('app-settings', ['Application preferences'], ['heading:app-preferences'])('debugMode', 'Debug Mode');
+group('app-settings', ['Window'], ['heading:app-window'])('minimizeToTray', 'Minimize to tray', { source: 'gui-settings.json' });
+group('app-settings', ['Advanced'], ['heading:app-advanced'])('advanceMode', 'Advanced Mode', { source: 'gui-settings.json' });
+group('app-settings', ['Updates'], ['heading:app-updates'])('devUpdates', 'Developer Builds', { source: 'gui-settings.json' });
+group('app-settings', ['Advanced'], ['heading:app-advanced'])('debugMode', 'Debug Mode');
 
 group('stream-frame', ['Image Processing', 'Color'], ['heading:image-processing', 'color'], false, 'enhancements')('streamFrame.contrastLinear', 'Linear Contrast');
 const enhance = group('stream-frame', ['Image Processing', 'Image Enhancements'], ['heading:image-processing', 'enhance'], false, 'enhancements');

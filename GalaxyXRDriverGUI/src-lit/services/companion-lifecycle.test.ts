@@ -5,8 +5,8 @@ import type { AppSetting } from '../domain/types';
 import type { AppSettingService } from './app-setting';
 import { CompanionLifecycleService } from './companion-lifecycle';
 
-const bridge = vi.hoisted(() => ({ sync: vi.fn(), complete: vi.fn(), flush: vi.fn(), listen: vi.fn() }));
-vi.mock('../platform/tauri', () => ({ sync_companion_lifecycle: bridge.sync, complete_companion_quit: bridge.complete }));
+const bridge = vi.hoisted(() => ({ sync: vi.fn(), complete: vi.fn(), request: vi.fn(), dismiss: vi.fn(), flush: vi.fn(), listen: vi.fn() }));
+vi.mock('../platform/tauri', () => ({ sync_companion_lifecycle: bridge.sync, complete_companion_quit: bridge.complete, request_companion_quit: bridge.request, dismiss_companion_close: bridge.dismiss }));
 vi.mock('../platform/writer', () => ({ flushFileWrites: bridge.flush }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: bridge.listen }));
 const handlers = new Map<string, (event: { payload: unknown }) => void>();
@@ -19,20 +19,21 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 function fixture(enabled = true, valid = true, beforeQuit?: () => Promise<void>) {
-  const initial = { minimizeToTray: enabled } as AppSetting;
+  const initial = { minimizeToTray: enabled, closeButtonAction: 'ask' } as AppSetting;
   const confirmedValues = signal<AppSetting | undefined>(valid ? initial : undefined);
   const values = signal(initial);
   const readFileError = signal<unknown>(valid ? undefined : { reason: 'Parsing failed' });
   const writeFileError = signal<string | undefined>(undefined);
   const save = vi.fn(async (next: AppSetting) => { values.set(next); confirmedValues.set(next); return true; });
   const settings = { confirmedValues, values, readFileError, writeFileError, save };
-  const service = new CompanionLifecycleService(settings as unknown as AppSettingService, beforeQuit);
+  const dialog = { choose: vi.fn() };
+  const service = new CompanionLifecycleService(settings as unknown as AppSettingService, dialog as never, beforeQuit);
   services.push(service);
-  return { service, settings };
+  return { service, settings, dialog };
 }
 beforeEach(() => {
   vi.resetAllMocks(); handlers.clear(); stops.length = 0; setLocale('en-US', {});
-  bridge.sync.mockResolvedValue(undefined); bridge.complete.mockResolvedValue(undefined); bridge.flush.mockResolvedValue(undefined);
+  bridge.sync.mockResolvedValue(undefined); bridge.complete.mockResolvedValue(undefined); bridge.request.mockResolvedValue(undefined); bridge.dismiss.mockResolvedValue(undefined); bridge.flush.mockResolvedValue(undefined);
   bridge.listen.mockImplementation(async (name: string, callback: (event: { payload: unknown }) => void) => {
     handlers.set(name, callback);
     const stop = vi.fn(() => handlers.delete(name)); stops.push(stop); return stop;
@@ -55,27 +56,28 @@ it.each([true, false])('registers native events before applying confirmed tray p
     expect(handlers.has('companion-quit-requested')).toBe(true);
     expect(handlers.has('companion-lifecycle-error')).toBe(true);
     expect(handlers.has('companion-quit-aborted')).toBe(true);
+    expect(handlers.has('companion-close-requested')).toBe(true);
   });
   await Promise.all([service.start(), service.start()]);
-  expect(bridge.listen).toHaveBeenCalledTimes(3);
-  expect(bridge.sync).toHaveBeenCalledExactlyOnceWith(enabled, { open: 'Open Companion', quit: 'Quit', tooltip: 'Galaxy XR Companion' });
+  expect(bridge.listen).toHaveBeenCalledTimes(4);
+  expect(bridge.sync).toHaveBeenCalledExactlyOnceWith('ask', enabled, { open: 'Open Companion', quit: 'Quit', tooltip: 'Galaxy XR Companion' });
   expect(service.error()).toBeUndefined();
 });
 
 it('keeps invalid/unavailable preferences accessible without overwriting the file and recovers after a valid read', async () => {
   const { service, settings } = fixture(true, false);
   await service.start();
-  expect(bridge.sync.mock.calls[0][0]).toBe(false);
+  expect(bridge.sync.mock.calls[0][1]).toBe(false);
   expect(service.error()).toContain('could not be read');
   expect(settings.save).not.toHaveBeenCalled();
   settings.readFileError.set(undefined);
   settings.confirmedValues.set({ minimizeToTray: true } as AppSetting);
   await tick();
-  expect(bridge.sync.mock.lastCall?.[0]).toBe(true);
+  expect(bridge.sync.mock.lastCall?.[1]).toBe(true);
   expect(service.error()).toBeUndefined();
   // An uninstall/unknown snapshot also disables interception, with no rewrite.
   settings.confirmedValues.set(undefined); await tick();
-  expect(bridge.sync.mock.lastCall?.[0]).toBe(false);
+  expect(bridge.sync.mock.lastCall?.[1]).toBe(false);
   expect(settings.save).not.toHaveBeenCalled();
 });
 
@@ -94,7 +96,7 @@ it('never applies optimistic values while saving or after a failed save', async 
 it('disables native hiding when a subsequent read fails, even if the last confirmed snapshot is retained', async () => {
   const { service, settings } = fixture(); await service.start();
   settings.readFileError.set({ reason: 'Read failed', message: 'access denied' }); await tick();
-  expect(bridge.sync.mock.lastCall?.[0]).toBe(false);
+  expect(bridge.sync.mock.lastCall?.[1]).toBe(false);
   expect(service.error()).toContain('stay accessible in the taskbar');
   expect(settings.save).not.toHaveBeenCalled();
 });
@@ -110,7 +112,7 @@ it('applies a confirmed successful save and prevents concurrent toggles from los
   await service.setMinimizeToTray(true);
   expect(settings.save).toHaveBeenCalledTimes(1);
   pending.resolve(true); await save;
-  expect(bridge.sync.mock.lastCall?.[0]).toBe(false);
+  expect(bridge.sync.mock.lastCall?.[1]).toBe(false);
   expect(service.error()).toBeUndefined();
 });
 
@@ -122,8 +124,8 @@ it('serializes native policy changes and refreshes localized labels', async () =
   setLocale('test', { 'Open Companion': 'Open localized', Quit: 'Quit localized' }); await tick();
   expect(bridge.sync).toHaveBeenCalledTimes(1);
   first.resolve(); await start; await tick();
-  expect(bridge.sync.mock.calls.map(call => call[0])).toEqual([true, false, false]);
-  expect(bridge.sync.mock.lastCall?.[1]).toMatchObject({ open: 'Open localized', quit: 'Quit localized' });
+  expect(bridge.sync.mock.calls.map(call => call[1])).toEqual([true, false, false]);
+  expect(bridge.sync.mock.lastCall?.[2]).toMatchObject({ open: 'Open localized', quit: 'Quit localized' });
 });
 
 it('surfaces native sync and runtime errors and retries a failed policy on another confirmed save', async () => {
@@ -182,7 +184,7 @@ it('waits for an already-started preference change before taking the global flus
   expect(bridge.complete).not.toHaveBeenCalled();
   bridge.flush.mockImplementation(async () => {
     expect(settings.confirmedValues()?.minimizeToTray).toBe(false);
-    expect(bridge.sync.mock.lastCall?.[0]).toBe(false);
+    expect(bridge.sync.mock.lastCall?.[1]).toBe(false);
   });
   saved.resolve(true); await change; await tick();
   expect(bridge.flush).toHaveBeenCalledOnce();
@@ -275,4 +277,50 @@ it('skips a policy update queued behind an in-flight sync if disposed', async ()
   settings.confirmedValues.set({ minimizeToTray: false } as AppSetting); await tick();
   service.dispose(); native.resolve(); await start; await tick();
   expect(bridge.sync).toHaveBeenCalledTimes(1);
+});
+
+it('asks on Close with Close as the default action and quits with the prompt token', async () => {
+  const { service, dialog } = fixture(); await service.start();
+  dialog.choose.mockResolvedValueOnce(true);
+  handlers.get('companion-close-requested')!({ payload: 31 }); await tick();
+  expect(dialog.choose).toHaveBeenCalledOnce();
+  const actions = dialog.choose.mock.calls[0][2];
+  // The owner contract: Close is offered first, primary, so Fluent autofocuses it.
+  expect(actions[0]).toMatchObject({ value: true, primary: true });
+  expect(actions[1]).toMatchObject({ value: false });
+  expect(bridge.request).toHaveBeenCalledExactlyOnceWith(31);
+  expect(bridge.dismiss).not.toHaveBeenCalled();
+});
+
+it('retires the prompt token when Close is declined or the dialog is dismissed', async () => {
+  const { service, dialog } = fixture(); await service.start();
+  dialog.choose.mockResolvedValueOnce(false);
+  handlers.get('companion-close-requested')!({ payload: 32 }); await tick();
+  dialog.choose.mockResolvedValueOnce(undefined);
+  handlers.get('companion-close-requested')!({ payload: 33 }); await tick();
+  expect(dialog.choose).toHaveBeenCalledTimes(2);
+  expect(bridge.dismiss.mock.calls.map(call => call[0])).toEqual([32, 33]);
+  expect(bridge.request).not.toHaveBeenCalled();
+});
+
+it('answers a second Close request instead of stacking prompts', async () => {
+  const { service, dialog } = fixture(); await service.start();
+  const answer = deferred<boolean>();
+  dialog.choose.mockImplementation(() => answer.promise);
+  handlers.get('companion-close-requested')!({ payload: 41 });
+  handlers.get('companion-close-requested')!({ payload: 42 }); await tick();
+  expect(dialog.choose).toHaveBeenCalledOnce();
+  answer.resolve(false); await tick();
+  // The visible prompt retires 41; the ignored one retires 42 so native never
+  // falls back to quitting on its own.
+  expect(bridge.dismiss.mock.calls.map(call => call[0]).sort()).toEqual([41, 42]);
+  expect(bridge.request).not.toHaveBeenCalled();
+});
+
+it('saves the close-button action and syncs it to native before it takes effect', async () => {
+  const { service, settings } = fixture(); await service.start();
+  await service.setCloseButtonAction('minimise');
+  expect(settings.save).toHaveBeenCalledOnce();
+  expect(settings.save.mock.lastCall?.[0]).toMatchObject({ closeButtonAction: 'minimise' });
+  expect(bridge.sync.mock.lastCall?.[0]).toBe('minimise');
 });

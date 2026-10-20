@@ -10,7 +10,7 @@ beforeEach(() => {
   bridge.open.mockResolvedValue(undefined); bridge.publish.mockResolvedValue(undefined);
   bridge.listen.mockResolvedValue(bridge.stop);
 });
-const initial = { curve: 1, constancyPct: 35, ceilingMbit: 450, clampMbit: 350 };
+const initial = { curve: 1, constancyPct: 35, ceilingMbit: 450, clampMbit: 350, fallbackDisabled: false };
 function fixture() {
   let state = { ...initial }, change = () => {};
   const unsubscribe = vi.fn();
@@ -25,7 +25,13 @@ it('uses effective values, ceiling precedence and preserves invalid entries for 
   settings.streamFrame!.nvencBitrateConstancyPct = 101.5;
   settings.streamFrame!.nvencVrlinkClampMbit = 0;
   settings.streamFrame!.nvencBandwidthOverrideMbit = 400;
-  expect(previewState(settings)).toEqual({ curve: 99, constancyPct: 101.5, clampMbit: 0, ceilingMbit: 400 });
+  expect(previewState(settings)).toEqual({ curve: 99, constancyPct: 101.5, clampMbit: 0, ceilingMbit: 400, fallbackDisabled: false });
+  // 2026-10-20: 'No fallback' is surfaced to the graph so it can mark the
+  // fixed operating point instead of implying a live curve.
+  settings.streamFrame!.nvencVrlinkFallbackMode = 1;
+  expect(previewState(settings).fallbackDisabled).toBe(true);
+  settings.streamFrame!.nvencVrlinkFallbackMode = 0;
+  expect(previewState(settings).fallbackDisabled).toBe(false);
   settings.streamFrame!.nvencBitrateMbit = 500;
   expect(previewState(settings).ceilingMbit).toBe(500);
   settings.streamFrame!.nvencBitrateMbit = 0;

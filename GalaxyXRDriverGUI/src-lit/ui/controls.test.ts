@@ -10,6 +10,11 @@ import { describe, expect, it } from 'vitest';
 const guiRoot = new URL('../../', import.meta.url);
 const noop = () => {};
 
+// The adapters run from source inside a VM context, so their event log is untyped here.
+function emittedOf(adapter: { emitted: Array<{ type: string; detail: unknown }> }, type: string) {
+  return adapter.emitted.filter(entry => entry.type === type);
+}
+
 function harness() {
   class MockLitElement {
     isConnected = true;
@@ -19,6 +24,22 @@ function harness() {
       this.emitted.push({ type: event.type, detail: event.detail });
       return true;
     }
+    disconnectedCallback() {}
+  }
+  // Fluent and the adapter both register window/document release handlers; keep
+  // them so a test can finish a drag the way the browser does.
+  const listeners = new Map<string, Set<(event: unknown) => void>>();
+  function listenerTarget(scope: 'window' | 'document') {
+    return {
+      addEventListener(type: string, listener: (event: unknown) => void) {
+        const key = `${scope}:${type}`;
+        if (!listeners.has(key)) listeners.set(key, new Set());
+        listeners.get(key)!.add(listener);
+      },
+      removeEventListener(type: string, listener: (event: unknown) => void) {
+        listeners.get(`${scope}:${type}`)?.delete(listener);
+      },
+    };
   }
   const context = createContext({
     console, setTimeout, clearTimeout,
@@ -31,9 +52,18 @@ function harness() {
     Orientation: { horizontal: 'horizontal', vertical: 'vertical' },
     SliderOrientation: { horizontal: 'horizontal', vertical: 'vertical' },
     SliderMode: { singleValue: 'single-value' },
-    window: { addEventListener: noop, removeEventListener: noop },
-    document: { addEventListener: noop, removeEventListener: noop, documentElement: { scrollLeft: 0, scrollTop: 0 } },
+    window: listenerTarget('window'),
+    document: { ...listenerTarget('document'), documentElement: { scrollLeft: 0, scrollTop: 0 } },
   });
+  function release(type = 'pointerup', scope: 'window' | 'document' = 'window') {
+    const targets = [...(listeners.get(`${scope}:${type}`) ?? [])];
+    for (const listener of targets) listener({ type });
+  }
+  function armed(scope: 'window' | 'document') {
+    return [...listeners.entries()]
+      .filter(([key, set]) => key.startsWith(`${scope}:`) && set.size > 0)
+      .map(([key]) => key.slice(scope.length + 1));
+  }
   function nativeClass(relativePath: string, name: string): any {
     const filename = fileURLToPath(new URL(`node_modules/@fluentui/web-components/dist/esm/${relativePath}`, guiRoot));
     const source = ts.createSourceFile(filename, readFileSync(filename, 'utf8'), ts.ScriptTarget.ES2022, true);
@@ -114,7 +144,7 @@ function harness() {
       },
     };
   }
-  return { AppSelect: module.exports.AppSelect, Dropdown, slider };
+  return { AppSelect: module.exports.AppSelect, Dropdown, armed, release, slider };
 }
 
 describe('Fluent control synchronization', () => {
@@ -185,5 +215,101 @@ describe('Fluent control synchronization', () => {
     native.value = '0.9';
     expect(adapter.value).toBe(0);
     expect(adapter.emitted).toHaveLength(5);
+  });
+
+  it('keeps the interaction bindings on the rendered slider', () => {
+    const { adapter, mount } = harness().slider(0.6, 0, 1, 0.05);
+    mount();
+    const { values } = adapter.render();
+    // The harness cannot fire Lit's host bindings, so pin them here: dropping a
+    // binding would silently stop commit from ever firing in the app.
+    expect(values).toEqual(expect.arrayContaining([
+      adapter.startInteraction, adapter.onValueKeyDown, adapter.onReleaseKey, adapter.onNativeChange,
+    ]));
+  });
+
+  it('commits once when a drag is released, after the live change steps', () => {
+    const { slider, release, armed } = harness();
+    const { adapter, native, mount } = slider(0.6, 0, 1, 0.05);
+    mount();
+    adapter.startInteraction(); // The host @pointerdown binding this harness cannot fire.
+    native.handlePointerDown({ pageX: 80 });
+    native.handlePointerMove({ pageX: 85 });
+    native.handlePointerMove({ pageX: 90 });
+    // Live preview keeps publishing a change per step and commits nothing.
+    expect(emittedOf(adapter, 'change').map(entry => entry.detail)).toEqual([0.8, 0.85, 0.9]);
+    expect(emittedOf(adapter, 'commit')).toEqual([]);
+    release();
+    expect(emittedOf(adapter, 'commit')).toEqual([{ type: 'commit', detail: 0.9 }]);
+    // The release handlers are gone, so a later pointerup cannot commit twice.
+    release();
+    expect(emittedOf(adapter, 'commit')).toHaveLength(1);
+    expect(armed('window')).toEqual([]);
+    expect(armed('document')).toEqual([]);
+  });
+
+  it('commits exactly once for every drag end path', () => {
+    for (const [scope, type] of [['window', 'pointercancel'], ['window', 'blur'], ['document', 'mouseleave']] as const) {
+      const { slider, release } = harness();
+      const { adapter, native, mount } = slider(0.6, 0, 1, 0.05);
+      mount();
+      adapter.startInteraction();
+      native.value = '0.85';
+      release(type, scope);
+      expect(emittedOf(adapter, 'commit')).toEqual([{ type: 'commit', detail: 0.85 }]);
+      release('pointerup');
+      expect(emittedOf(adapter, 'commit')).toHaveLength(1);
+    }
+  });
+
+  it('commits a keyboard step on key release, not while the key is held', () => {
+    const { adapter, native, mount } = harness().slider(0.6, 0, 1, 0.05);
+    mount();
+    adapter.onValueKeyDown({ key: 'ArrowRight' });
+    native.handleKeydown({ key: 'ArrowRight', preventDefault: noop });
+    native.handleKeydown({ key: 'ArrowRight', preventDefault: noop });
+    expect(adapter.value).toBe(0.7);
+    expect(emittedOf(adapter, 'commit')).toEqual([]);
+    adapter.onReleaseKey({ key: 'ArrowRight' });
+    expect(emittedOf(adapter, 'commit')).toEqual([{ type: 'commit', detail: 0.7 }]);
+    // A key that does not move the slider is not a release.
+    adapter.onReleaseKey({ key: 'Tab' });
+    expect(emittedOf(adapter, 'commit')).toHaveLength(1);
+  });
+
+  it('does not commit a keypress Fluent ignored or clamped', () => {
+    const { adapter, native, mount } = harness().slider(1, 0, 1, 0.05);
+    mount();
+    adapter.onValueKeyDown({ key: 'ArrowRight' });
+    native.handleKeydown({ key: 'ArrowRight', preventDefault: noop }); // Already at the maximum.
+    adapter.onReleaseKey({ key: 'ArrowRight' });
+    adapter.onValueKeyDown({ key: 'ArrowRight' });
+    native.handleKeydown({ key: 'ArrowRight', shiftKey: true, preventDefault: noop }); // Fluent ignores Shift+Arrow.
+    adapter.onReleaseKey({ key: 'ArrowRight' });
+    expect(emittedOf(adapter, 'commit')).toEqual([]);
+  });
+
+  it('never commits a disabled slider', () => {
+    const { slider, release } = harness();
+    const { adapter, mount } = slider(0.6, 0, 1, 0.05);
+    mount();
+    adapter.disabled = true;
+    adapter.startInteraction();
+    release();
+    adapter.onReleaseKey({ key: 'ArrowRight' });
+    expect(emittedOf(adapter, 'commit')).toEqual([]);
+  });
+
+  it('drops a drag that is disconnected before release without committing', () => {
+    const { slider, release, armed } = harness();
+    const { adapter, native, mount } = slider(0.6, 0, 1, 0.05);
+    mount();
+    adapter.startInteraction();
+    native.value = '0.75';
+    adapter.disconnectedCallback();
+    release();
+    expect(emittedOf(adapter, 'commit')).toEqual([]);
+    expect(armed('window')).toEqual([]);
+    expect(armed('document')).toEqual([]);
   });
 });

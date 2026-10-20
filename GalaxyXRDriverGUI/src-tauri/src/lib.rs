@@ -58,6 +58,8 @@ pub fn run() {
             curve_preview::publish_curve_preview,
             tray::sync_companion_lifecycle,
             tray::complete_companion_quit,
+            tray::request_companion_quit,
+            tray::dismiss_companion_close,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

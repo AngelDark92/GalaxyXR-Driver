@@ -12,6 +12,9 @@ const appDefaults: AppSetting = {
   // Interface scale (2026-10-19): native webview zoom, integer percent.
   // JsonSettingServiceBase deep-merges this default over older files.
   uiScale: 100,
+  // Close button (2026-10-20): ask first, with Close as the default answer.
+  // The title-bar Minimize button keeps its own tray behavior.
+  closeButtonAction: 'ask',
   updateMode: 'rewrite',
   advanceMode: false,
   // 2026-10-13: the dev (pre-release) update channel is opt-in; the stable

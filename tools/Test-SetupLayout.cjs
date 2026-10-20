@@ -62,6 +62,10 @@ function load(relative) {
     if (id.endsWith('/ui/theme')) return { applyTheme() {} };
     if (id.endsWith('/environment')) return { galaxyXRDriverName: 'GalaxyXRNative', vendor: 'galaxyxr' };
     if (id === '@tauri-apps/plugin-opener') return { openUrl: async () => {} };
+    // Platform bridge modules reached through ui-scale/ui-scale pages: the
+    // markup harness never performs IPC, so inert stubs are enough.
+    if (id === '@tauri-apps/api/core') return { invoke: async () => undefined };
+    if (id === '@tauri-apps/api/event') return { listen: async () => () => {} };
     if (!id.startsWith('.')) throw new Error(`Unexpected dependency: ${id}`);
     return load(path.relative(path.join(root, 'src-lit'), path.resolve(path.dirname(file), id)));
   };
@@ -274,10 +278,17 @@ async function test(name, fn) {
     assert.match(markup(template), /class="about-hero"[\s\S]*Galaxy XR Companion/);
     assert.doesNotMatch(markup(template), /Install Driver|Uninstall driver|Restart Compositor|Restore defaults|Set up your headset/);
   });
-  await test('App Settings notices remain inside Application preferences', () => {
+  await test('App Settings notices render above the grouped preference cards', () => {
     const ctx = context(); ctx.appSetting.readFileError.set(new Error('fixture')); ctx.galaxy.imageModeError.set('mode fixture');
-    const sections = cards(render(AppSettingsPage, ctx).template); assert.equal(sections.length, 1);
-    assert.match(markup(sections[0]), /Application preferences/); assert.match(markup(sections[0]), /Check Settings on Setup/); assert.match(markup(sections[0]), /mode fixture/);
+    const template = render(AppSettingsPage, ctx).template; const sections = cards(template);
+    assert.equal(sections.length, 5);
+    ['Appearance', 'Window', 'Picture', 'Updates', 'Advanced'].forEach((title, index) => {
+      assert.match(markup(sections[index]), new RegExp(`section-label">${title}<`));
+    });
+    const html = markup(template);
+    assert.match(html, /Check Settings on Setup/); assert.match(html, /mode fixture/);
+    // Page-level notices sit above the first card, never inside it.
+    assert.doesNotMatch(markup(sections[0]), /Check Settings on Setup|mode fixture/);
   });
   await test('Image Enhancement page handler: toggling saves directly with no dialog in every combination', async () => {
     for (const [baseline, enabled, requested] of [[true, false, true], [true, true, false], [false, false, true], [false, true, false]]) {
@@ -395,7 +406,7 @@ async function test(name, fn) {
     const report = { checkedAt: Date.now(), driverEnabled: true, errors: [], warnings: [],
       settings: [
         { location: ['Driver Settings', 'Headset', 'Galaxy XR Native Identity'], state: 'On', origin: 'stored', href: '#/driver-settings?setting=native-identity' },
-        { location: ['App Settings', 'Application preferences', 'Image Enhancements'], state: 'Unknown', origin: 'unknown', unavailableReason: 'Install the driver to use this setting.' },
+        { location: ['App Settings', 'Picture', 'Image Enhancements'], state: 'Unknown', origin: 'unknown', unavailableReason: 'Install the driver to use this setting.' },
       ], checks: [{ source: 'settings.json', key: 'galaxyXr.nativeIdentity', enabled: true, origin: 'stored' }] };
     const { page } = render(SetupPage, context({ report }));
     const html = markup(page.renderSettingsCheck());

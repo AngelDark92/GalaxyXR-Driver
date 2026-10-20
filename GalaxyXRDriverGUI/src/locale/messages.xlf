@@ -1773,9 +1773,6 @@ Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — write
       <trans-unit id="companion-20260926-d5c0e299f863cfb1" datatype="html">
         <source>Appearance and advanced preferences are available now.</source>
       </trans-unit>
-      <trans-unit id="companion-20260926-a7599c9c74dd6e78" datatype="html">
-        <source>Application preferences</source>
-      </trans-unit>
       <trans-unit id="companion-20260926-0f2b373c4e8314a7" datatype="html">
         <source>Built on CustomHeadsetOpenVR by sboys3, with Galaxy XR driver work by timkhronos and compdoge.</source>
       </trans-unit>
@@ -3745,7 +3742,7 @@ Value: ofxr.version (gui-settings.json).</source>
         <source>Interface Scale</source>
       </trans-unit>
       <trans-unit id="uiscale-20261019-2" datatype="html">
-        <source>Scales the whole Companion window: text, controls, dialogs and popups. Drag to preview; the value saves as it changes.
+        <source>Scales the whole Companion window: text, controls, dialogs and popups. Drag to preview; the scale applies and saves when you release the slider.
 
 Value: uiScale (gui-settings.json). GUI-only presentation preference.</source>
       </trans-unit>
@@ -3806,7 +3803,7 @@ Value: uiScale (gui-settings.json). GUI-only presentation preference.</source>
         <source>Quit</source>
       </trans-unit>
       <trans-unit id="companion-tray-20261020-10" datatype="html">
-        <source>Keep the Companion running in the system tray when you minimize it or click the window's Close button. Open it again from the tray icon. Choose Quit from the tray menu to exit and stop Optical Flow. Off keeps normal taskbar minimization and closes the app when you click Close. Applies immediately.
+        <source>Keep the Companion running in the system tray when you minimize it. Open it again from the tray icon. Choose Quit from the tray menu to exit and stop Optical Flow. Off keeps normal taskbar minimization. Applies immediately.
 
 Value: minimizeToTray (gui-settings.json). Companion-only window preference; On by default.</source>
       </trans-unit>
@@ -3849,6 +3846,53 @@ Value: minimizeToTray (gui-settings.json). Companion-only window preference; On 
 VRLink stock keeps Valve's behaviour: the request follows a health score built from measured ping against one to four frames of tolerance, can collapse toward 5 % on a bad sample, and halves when the frame pipeline runs four deep. No fallback removes both the health score and the pipeline throttle, so the request stays at your Bitrate value and the encoder target stops moving under a steady picture. Use it when the stream keeps stepping between bitrate levels; the trade is that a genuinely weak link then shows as latency instead of a lower bitrate.
 
 Value: streamFrame.nvencVrlinkFallbackMode (settings.json). Host side — edits the two instructions in the loaded driver_vrlink.dll in memory, nothing on disk.</source>
+      </trans-unit>
+      <trans-unit id="vrlink-fallback-20261020-5" datatype="html">
+        <source>Inactive: Bitrate Fallback is No fallback</source>
+      </trans-unit>
+      <trans-unit id="vrlink-fallback-20261020-6" datatype="html">
+        <source>fixed operating point</source>
+      </trans-unit>
+      <trans-unit id="vrlink-fallback-20261020-7" datatype="html">
+        <source>No fallback is on: the streamer request stays at the clamp, so the applied value is the ceiling whatever curve family or constancy is saved. The dashed marker is the only operating point.</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-1" datatype="html">
+        <source>Appearance</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-2" datatype="html">
+        <source>Window</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-3" datatype="html">
+        <source>Picture</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-4" datatype="html">
+        <source>Updates</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-5" datatype="html">
+        <source>Close button</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-6" datatype="html">
+        <source>Ask each time</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-7" datatype="html">
+        <source>Close the app</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-8" datatype="html">
+        <source>Close the Companion?</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-9" datatype="html">
+        <source>Closing stops Optical Flow and disconnects the Companion from SteamVR. Choose Minimize to tray for the Close button in App Settings to hide the window instead.</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-10" datatype="html">
+        <source>Choose what the window's X does. Ask each time confirms first and closes unless you pick Cancel; Close the app exits at once; Minimize to tray hides the window instead. The Minimize button always minimizes, and hides to the tray when Minimize to tray is on.
+
+Value: closeButtonAction (gui-settings.json). Companion-only window preference; Ask each time by default.</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-11" datatype="html">
+        <source>App preferences could not be saved. Close button behavior was not changed.</source>
+      </trans-unit>
+      <trans-unit id="companion-settings-20261020-13" datatype="html">
+        <source>Update install</source>
       </trans-unit>
     </body>
   </file>

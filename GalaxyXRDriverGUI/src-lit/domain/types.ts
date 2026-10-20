@@ -480,6 +480,10 @@ export type AppSetting = {
   // window, stored as integer percent so the slider, the readout and the
   // applied zoom factor never disagree. GUI-only, 100 by default.
   uiScale: number;
+  // Close button (2026-10-20): what the window's X does. 'ask' prompts in the
+  // Companion with Close as the default, 'close' exits at once, 'minimise'
+  // hides to the tray. GUI-only; the title-bar Minimize button is unaffected.
+  closeButtonAction: 'ask' | 'close' | 'minimise';
   // OFXR Bridge settings block (2026-10-17). Nested defaults are deep-merged
   // over older gui-settings.json files, so an upgrade never hides the block.
   ofxr: OfxrPreferences;

@@ -686,16 +686,25 @@ if (settings.nvencTap) {
                   // report as "running", which locked these rows permanently
                   // when SteamVR was closed; the page already polls every 2 s.
                   const curveLocked = this.ctx.startup.status()?.steamvrRunning === true;
+                  // 2026-10-20: with 'No fallback' the streamer request is a
+                  // constant at the clamp, so both curve rows have no effect.
+                  // They stay editable values (never coerced) but are disabled
+                  // and say why, instead of looking active while inert.
+                  const fallbackFixed = (settings.nvencVrlinkFallbackMode ?? 0) === 1;
+                  const curveDisabled = curveLocked || fallbackFixed;
+                  const curveNote = fallbackFixed
+                    ? html`<span class="note-inline">${t('Inactive: Bitrate Fallback is No fallback')}</span>`
+                    : curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``;
                   parts.push(settingFieldRow('streamFrame.nvencBitrateCurve', html`
-      <app-select ?disabled=${curveLocked} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { settings.nvencBitrateCurve = Number(e.detail); save(); }}></app-select>
-      ${curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``}
+      <app-select ?disabled=${curveDisabled} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { settings.nvencBitrateCurve = Number(e.detail); save(); }}></app-select>
+      ${curveNote}
                   `, {
   tip: t("Choose how the streamer's per-frame request becomes the encoder target. Changing this needs SteamVR closed; the saved value applies to the next session.\n\nLinear maps the request straight onto the ceiling, so a 350 Mbit/s request means your bandwidth. The knees hold more of your ceiling until the request falls further: power knee raises the middle of the range and keeps a proportional tail below 60% of the clamp, while soft knee holds the ceiling until 60%. A constancy of 100% overrides the family and always sends the ceiling, which is the retired bitrate-follows-backoff switch turned off.\n\nValue: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the NVENC average bitrate target."),
   reset: { can: (settings.nvencBitrateCurve ?? 0) !== defaults.nvencBitrateCurve, on: () => galaxy.reset('nvencBitrateCurve') }
                   }));
                   parts.push(settingFieldRow('streamFrame.nvencBitrateConstancyPct', html`
-      <app-number ?disabled=${curveLocked} .value=${settings.nvencBitrateConstancyPct ?? 0} step="5" min="0" max="100" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBitrateConstancyPct = e.detail; } this.noteNumberError('streamFrame.nvencBitrateConstancyPct', e.detail); save(); }}></app-number>
-      ${curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``}
+      <app-number ?disabled=${curveDisabled} .value=${settings.nvencBitrateConstancyPct ?? 0} step="5" min="0" max="100" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBitrateConstancyPct = e.detail; } this.noteNumberError('streamFrame.nvencBitrateConstancyPct', e.detail); save(); }}></app-number>
+      ${curveNote}
                   `, {
   tip: t("Lift the selected curve toward your ceiling. 0 leaves the curve as selected; 100 sends the ceiling whatever the streamer asks. Changing this needs SteamVR closed.\n\nAt a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the power knee at 0%, 402 with Linear at 50%, 414 with the power knee at 50% and 450 at 100%. High constancy overrides the streamer's congestion response; the measured cost is stream resets and stalled pacing, so raise it deliberately.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve."),
   reset: { can: (settings.nvencBitrateConstancyPct ?? 0) !== defaults.nvencBitrateConstancyPct, on: () => galaxy.reset('nvencBitrateConstancyPct') }

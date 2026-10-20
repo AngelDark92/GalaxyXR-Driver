@@ -24,6 +24,8 @@ export class BitrateCurvePanel extends LitElement {
   @property({ type: Number }) pct = 0;
   @property({ type: Number }) ceiling = 450;
   @property({ type: Number }) clamp = 350;
+  /** 'No fallback' on: the streamer request is fixed at the clamp. */
+  @property({ type: Boolean }) fixed = false;
   private resizeObserver?: ResizeObserver;
 
   protected updated() {
@@ -118,6 +120,22 @@ export class BitrateCurvePanel extends LitElement {
     ctx.rotate(-Math.PI / 2);
     ctx.fillText(t('applied (Mbit/s)'), 0, 0);
     ctx.restore();
+
+    // 2026-10-20: with 'No fallback' the request never leaves the clamp, so the
+    // only reachable point on this map is (clamp, ceiling). Mark it instead of
+    // letting the curve imply a range the driver cannot visit.
+    if (this.fixed) {
+      const x = xAt(clamp);
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = '#5f9fdf';
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, H - padB); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#5f9fdf';
+      ctx.beginPath(); ctx.arc(x, yAt(ceiling), 4.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(128,128,128,1)';
+      const label = t('fixed operating point');
+      ctx.fillText(label, Math.min(x - ctx.measureText(label).width, W - padR - ctx.measureText(label).width), padT + 10);
+    }
   }
 
   render() {
@@ -130,7 +148,9 @@ export class BitrateCurvePanel extends LitElement {
           <span class="item"><span class="swatch solid"></span>${t(family.label)} — ${this.pct}%</span>
           <span class="item"><span class="swatch dashed"></span>${t('Streamer standard (linear)')}</span>
         </div>
-        <div class="hint">${t('Steady-state map. Except for Linear at 0%, the driver median-filters the streamer request over five frames; that filter is not shown.')}</div>
+        <div class="hint">${this.fixed
+          ? t('No fallback is on: the streamer request stays at the clamp, so the applied value is the ceiling whatever curve family or constancy is saved. The dashed marker is the only operating point.')
+          : t('Steady-state map. Except for Linear at 0%, the driver median-filters the streamer request over five frames; that filter is not shown.')}</div>
       </div>`;
   }
 }

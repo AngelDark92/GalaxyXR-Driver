@@ -73,7 +73,8 @@ export class CurvePreviewWindow extends LitElement {
         })}</span>
       </header>
       <app-bitrate-curve .curve=${this.state.curve} .pct=${this.state.constancyPct}
-        .ceiling=${this.state.ceilingMbit} .clamp=${this.state.clampMbit}></app-bitrate-curve>
+        .ceiling=${this.state.ceilingMbit} .clamp=${this.state.clampMbit}
+        ?fixed=${this.state.fallbackDisabled === true}></app-bitrate-curve>
       ${error}
     `;
   }

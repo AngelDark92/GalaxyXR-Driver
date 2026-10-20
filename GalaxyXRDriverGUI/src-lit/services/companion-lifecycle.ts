@@ -1,9 +1,14 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { computed, signal } from '../reactive';
 import { subscribeLocale, t } from '../locale/i18n';
-import { complete_companion_quit, sync_companion_lifecycle } from '../platform/tauri';
+import { complete_companion_quit, dismiss_companion_close, request_companion_quit, sync_companion_lifecycle, type CompanionCloseAction } from '../platform/tauri';
 import { flushFileWrites } from '../platform/writer';
 import type { AppSettingService } from './app-setting';
+import type { DialogService } from './dialog';
+
+// Only these values may reach the native policy parser; a hand-edited
+// gui-settings.json otherwise raises a lifecycle error on every launch.
+const CLOSE_ACTIONS: readonly CompanionCloseAction[] = ['ask', 'close', 'minimise'];
 
 /** GUI preferences own persistence; native lifecycle sees confirmed values only. */
 export class CompanionLifecycleService {
@@ -27,7 +32,13 @@ export class CompanionLifecycleService {
   private lastRequested = '';
   private quitTokens = new Set<number>();
 
-  constructor(private readonly appSetting: AppSettingService, private readonly beforeQuit: () => Promise<void> = () => Promise.resolve()) {}
+  private closePromptOpen = false;
+
+  constructor(
+    private readonly appSetting: AppSettingService,
+    private readonly dialog: DialogService,
+    private readonly beforeQuit: () => Promise<void> = () => Promise.resolve(),
+  ) {}
 
   public start(): Promise<void> {
     if (this.disposed) return Promise.resolve();
@@ -52,6 +63,10 @@ export class CompanionLifecycleService {
         if (!this.quitTokens.size) this._quitting.set(false);
       });
       if (this.disposed) return;
+      // Close (X) asks here when the app setting is "ask"; native has already
+      // prevented the close and waits for request_companion_quit.
+      await this.attach<number>('companion-close-requested', token => { void this.promptClose(token); });
+      if (this.disposed) return;
       this.stops.push(
         this.appSetting.confirmedValues.subscribe(() => { void this.synchronize(); }),
         this.appSetting.readFileError.subscribe(() => { void this.synchronize(); }),
@@ -72,14 +87,19 @@ export class CompanionLifecycleService {
     this.preferenceError.set(valid ? undefined : t('App preferences could not be read. The Companion will stay accessible in the taskbar.'));
     // Invalid preferences must never enable hiding using an in-memory default.
     const enabled = valid ? confirmed.minimizeToTray : false;
+    // Same rule for the close button: an unknown or missing preference asks
+    // instead of exiting, and never reaches the native policy parser.
+    const closeAction: CompanionCloseAction = valid && CLOSE_ACTIONS.includes(confirmed.closeButtonAction)
+      ? confirmed.closeButtonAction
+      : 'ask';
     const labels = { open: t('Open Companion'), quit: t('Quit'), tooltip: t('Galaxy XR Companion') };
-    const key = JSON.stringify({ enabled, labels });
+    const key = JSON.stringify({ closeAction, enabled, labels });
     if (key === this.lastRequested) return this.queue;
     this.lastRequested = key;
     this.queue = this.queue.then(async () => {
       if (this.disposed) return;
       try {
-        await sync_companion_lifecycle(enabled, labels);
+        await sync_companion_lifecycle(closeAction, enabled, labels);
         if (!this.disposed) this.nativeError.set(undefined);
       } catch (error) {
         if (key === this.lastRequested) this.lastRequested = '';
@@ -112,6 +132,56 @@ export class CompanionLifecycleService {
       if (!this.disposed) this.operationError.set(String(error));
     } finally {
       this._changing.set(false);
+    }
+  }
+
+  public setCloseButtonAction(action: CompanionCloseAction): Promise<void> {
+    if (this.disposed || this._changing() || this._quitting()) return Promise.resolve();
+    const task = this.applyCloseButtonAction(action);
+    this.activeChange = task;
+    return task.finally(() => { if (this.activeChange === task) this.activeChange = undefined; });
+  }
+
+  private async applyCloseButtonAction(action: CompanionCloseAction): Promise<void> {
+    this._changing.set(true);
+    this.operationError.set(undefined);
+    try {
+      const saved = await this.appSetting.save({ ...this.appSetting.values(), closeButtonAction: action });
+      if (this.disposed) return;
+      if (!saved) {
+        const detail = this.appSetting.writeFileError();
+        this.operationError.set(t('App preferences could not be saved. Close button behavior was not changed.') + (detail ? ` ${detail}` : ''));
+        return;
+      }
+      await this.synchronize();
+    } catch (error) {
+      if (!this.disposed) this.operationError.set(String(error));
+    } finally {
+      this._changing.set(false);
+    }
+  }
+
+  /** Close (X) prompt: Close is the default action, so Enter closes the app. */
+  private async promptClose(token: number): Promise<void> {
+    // Every prompt gets answered so the native token retires; otherwise its
+    // 30 s fallback quit could fire behind a prompt that was never shown.
+    if (this.disposed || this._quitting() || this.closePromptOpen) {
+      await dismiss_companion_close(token).catch(() => undefined);
+      return;
+    }
+    this.closePromptOpen = true;
+    try {
+      const confirmed = await this.dialog.choose(t('Close the Companion?'),
+        t('Closing stops Optical Flow and disconnects the Companion from SteamVR. Choose Minimize to tray for the Close button in App Settings to hide the window instead.'),
+        [{ label: t('Close'), value: true, primary: true }, { label: t('Cancel'), value: false }]);
+      if (this.disposed) return;
+      if (confirmed) await request_companion_quit(token);
+      else await dismiss_companion_close(token);
+    } catch (error) {
+      if (!this.disposed) this.nativeError.set(String(error));
+      await dismiss_companion_close(token).catch(() => undefined);
+    } finally {
+      this.closePromptOpen = false;
     }
   }
 

@@ -13,6 +13,10 @@ pub struct CurvePreviewState {
     pub constancy_pct: f64,
     pub ceiling_mbit: f64,
     pub clamp_mbit: f64,
+    /// 2026-10-20: 'No fallback' fixes the streamer request at the clamp, so
+    /// the curve is not applied; the window marks the fixed operating point.
+    #[serde(default)]
+    pub fallback_disabled: bool,
 }
 
 #[derive(Default)]

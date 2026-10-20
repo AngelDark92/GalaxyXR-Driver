@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeUiScale, UI_SCALE_DEFAULT, UI_SCALE_MAX, UI_SCALE_MIN } from './ui-scale';
+import { normalizeUiScale, UI_SCALE_DEFAULT, UI_SCALE_MAX, UI_SCALE_MIN, uiScaleZoom } from './ui-scale';
 
 describe('normalizeUiScale', () => {
   it('keeps a supported percent unchanged', () => {
@@ -26,5 +26,29 @@ describe('normalizeUiScale', () => {
     expect(normalizeUiScale(112)).toBe(110);
     expect(normalizeUiScale(113)).toBe(115);
     expect(normalizeUiScale('132')).toBe(130);
+  });
+});
+
+describe('uiScaleZoom', () => {
+  it('maps the 100% label to the 90% baseline', () => {
+    expect(uiScaleZoom(100)).toBeCloseTo(0.9, 10);
+  });
+
+  it('maps the default and non-numeric input to the baseline', () => {
+    expect(uiScaleZoom(UI_SCALE_DEFAULT)).toBeCloseTo(0.9, 10);
+    expect(uiScaleZoom(undefined)).toBeCloseTo(0.9, 10);
+    expect(uiScaleZoom('large')).toBeCloseTo(0.9, 10);
+  });
+
+  it('keeps the minimum above the native 0.25 floor', () => {
+    expect(uiScaleZoom(30)).toBeCloseTo(0.27, 10);
+  });
+
+  it('scales the maximum label', () => {
+    expect(uiScaleZoom(150)).toBeCloseTo(1.35, 10);
+  });
+
+  it('snaps to the slider step before applying the baseline', () => {
+    expect(uiScaleZoom(112)).toBeCloseTo(0.99, 10);
   });
 });
