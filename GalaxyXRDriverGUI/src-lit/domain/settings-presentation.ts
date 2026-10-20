@@ -90,6 +90,9 @@ ofxr('ofxr.maxLogMb', 'Flight log size limit (MB)', { source: 'gui-settings.json
 ofxr('ofxr.flushEachEvent', 'Flush every event', { source: 'gui-settings.json' });
 ofxr('ofxr.overlay', 'FPS overlay position', { source: 'gui-settings.json', kind: 'value' });
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencCodec', 'Video Codec');
+// 2026-10-20: sits with the bitrate controls it governs (Stream Quality, not
+// the advanced card) — one plain-language select, stock by default.
+group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencVrlinkFallbackMode', 'Bitrate Fallback', { kind: 'value' });
 const encoder = group('stream-frame', ['Encoder Advanced'], ['heading:encoder'], true, 'encoder', true);
 encoder('streamFrame.nvencForceCbr', 'Force Constant Bitrate');
 encoder('streamFrame.nvencBitrateCurve', 'Bitrate Curve', { kind: 'value' });

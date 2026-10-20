@@ -238,6 +238,8 @@ export type StreamFrameConfig = {
   nvencBitrateCurve: number;
   nvencBitrateConstancyPct: number;
   nvencVrlinkClampMbit: number;
+  /** 0 = VRLink stock, 1 = no fallback (VrlinkFallbackTap in-memory edit). */
+  nvencVrlinkFallbackMode: number;
   // Optional for settings written before the editable H.264 recipe (2026-10-16).
   // GOP/IDR: 0 follows the encoder FPS; -1 preserves upstream parameters.
   nvencH264GopFrames?: number;

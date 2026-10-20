@@ -256,6 +256,16 @@ if (vendor) {
   reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
           }));
           parts.push(this.numberErrorRow('galaxyXr.customBandwidthMbit'));
+          // 2026-10-20: one plain-language select beside the bitrate it governs.
+          // Stock is the default, so an upgrade changes nothing until it is flipped.
+          const fallbackLocked = this.ctx.startup.status()?.steamvrRunning === true;
+          parts.push(settingFieldRow('streamFrame.nvencVrlinkFallbackMode', html`
+      <app-select ?disabled=${fallbackLocked} .value=${settings.nvencVrlinkFallbackMode ?? 0} .options=${[{ value: 0, label: t('VRLink stock') }, { value: 1, label: t('No fallback') }]} @change=${(e: CustomEvent) => { settings.nvencVrlinkFallbackMode = Number(e.detail); save(); }}></app-select>
+      ${fallbackLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``}
+          `, {
+  tip: t("Choose whether VRLink may lower its own bitrate request when it thinks the link is weak. Changing this needs SteamVR closed; the saved value applies to the next session.\n\nVRLink stock keeps Valve's behaviour: the request follows a health score built from measured ping against one to four frames of tolerance, can collapse toward 5 % on a bad sample, and halves when the frame pipeline runs four deep. No fallback removes both the health score and the pipeline throttle, so the request stays at your Bitrate value and the encoder target stops moving under a steady picture. Use it when the stream keeps stepping between bitrate levels; the trade is that a genuinely weak link then shows as latency instead of a lower bitrate.\n\nValue: streamFrame.nvencVrlinkFallbackMode (settings.json). Host side — edits the two instructions in the loaded driver_vrlink.dll in memory, nothing on disk."),
+  reset: { can: (settings.nvencVrlinkFallbackMode ?? 0) !== defaults.nvencVrlinkFallbackMode, on: () => galaxy.reset('nvencVrlinkFallbackMode') }
+          }));
         if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
             || !Number.isInteger(galaxy.streamQualityValues.bandwidth) || galaxy.streamQualityValues.bandwidth <= 0) {
           parts.push(statusMessage('error', t('Invalid stream setting'), t('Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.')));

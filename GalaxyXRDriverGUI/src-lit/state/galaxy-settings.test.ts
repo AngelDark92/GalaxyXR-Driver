@@ -79,11 +79,12 @@ describe('stream-frame integer validation', () => {
       'streamFrame.nvencH264VbvInitialDelay', 'streamFrame.nvencMultiPass', 'streamFrame.nvencPreset',
       'streamFrame.nvencSplitMode', 'streamFrame.nvencAqStrength', 'streamFrame.nvencLowDelayKfScale',
       'streamFrame.nvencMaxQp', 'streamFrame.nvencMinQp', 'streamFrame.nvencMinQpIntra',
-      'streamFrame.nvencBitrateMbit', 'streamFrame.nvencBitrateConstancyPct', 'streamFrame.nvencMaxBitrateHeadroomPct', 'streamFrame.nvencForceFps',
+      'streamFrame.nvencBitrateMbit', 'streamFrame.nvencBitrateConstancyPct', 'streamFrame.nvencVrlinkFallbackMode', 'streamFrame.nvencMaxBitrateHeadroomPct', 'streamFrame.nvencForceFps',
       'streamFrame.nvencVbvFrames', 'streamFrame.nvencQpFovea', 'streamFrame.nvencQpPeriphery']) {
       expect(contractKeys).toContain(key);
     }
-    expect(contractKeys).toHaveLength(29);
+    // 2026-10-20: +1 for streamFrame.nvencVrlinkFallbackMode (0 or 1).
+    expect(contractKeys).toHaveLength(30);
   });
 
   it.each([

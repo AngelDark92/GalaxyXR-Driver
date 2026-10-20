@@ -288,6 +288,7 @@ const nativeDefaults = {
     "nvencBitrateCurve": 0,
     "nvencBitrateConstancyPct": 0,
     "nvencVrlinkClampMbit": 350,
+    "nvencVrlinkFallbackMode": 0,
     "nvencH264GopFrames": 0,
     "nvencH264IdrFrames": 0,
     "nvencH264RefFrames": 3,

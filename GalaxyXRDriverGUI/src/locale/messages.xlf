@@ -3834,6 +3834,22 @@ Value: minimizeToTray (gui-settings.json). Companion-only window preference; On 
       <trans-unit id="ofxr-session-20261020-7" datatype="html">
         <source>Disarm Optical Flow from its current manager before enabling Async Spacewarp.</source>
       </trans-unit>
+      <trans-unit id="vrlink-fallback-20261020-1" datatype="html">
+        <source>Bitrate Fallback</source>
+      </trans-unit>
+      <trans-unit id="vrlink-fallback-20261020-2" datatype="html">
+        <source>VRLink stock</source>
+      </trans-unit>
+      <trans-unit id="vrlink-fallback-20261020-3" datatype="html">
+        <source>No fallback</source>
+      </trans-unit>
+      <trans-unit id="vrlink-fallback-20261020-4" datatype="html">
+        <source>Choose whether VRLink may lower its own bitrate request when it thinks the link is weak. Changing this needs SteamVR closed; the saved value applies to the next session.
+
+VRLink stock keeps Valve's behaviour: the request follows a health score built from measured ping against one to four frames of tolerance, can collapse toward 5 % on a bad sample, and halves when the frame pipeline runs four deep. No fallback removes both the health score and the pipeline throttle, so the request stays at your Bitrate value and the encoder target stops moving under a steady picture. Use it when the stream keeps stepping between bitrate levels; the trade is that a genuinely weak link then shows as latency instead of a lower bitrate.
+
+Value: streamFrame.nvencVrlinkFallbackMode (settings.json). Host side — edits the two instructions in the loaded driver_vrlink.dll in memory, nothing on disk.</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>
