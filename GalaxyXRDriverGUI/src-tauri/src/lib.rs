@@ -4,10 +4,14 @@ mod driver_installation;
 mod ofxr;
 mod webview_zoom;
 mod curve_preview;
+mod tray;
+mod webview_resources;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(curve_preview::Preview::default())
+        .manage(tray::Lifecycle::default())
+        .manage(webview_resources::Resources::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -50,13 +54,15 @@ pub fn run() {
             curve_preview::curve_preview_state,
             curve_preview::close_curve_preview,
             curve_preview::publish_curve_preview,
+            tray::sync_companion_lifecycle,
+            tray::complete_companion_quit,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
             tauri::RunEvent::Exit => ofxr::shutdown_on_exit(),
-            // Closing the Companion takes the preview with it; a lone preview
-            // window must never keep the process alive.
+            // A genuine main-window destruction is still an exit fallback;
+            // CloseRequested is routed through tray/settings-flush policy below.
             tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
@@ -66,7 +72,11 @@ pub fn run() {
                 label,
                 event: tauri::WindowEvent::Destroyed,
                 ..
-            } if label == curve_preview::PREVIEW_LABEL => curve_preview::destroyed(app),
+            } if label == curve_preview::PREVIEW_LABEL => {
+                tray::window_event(app, &label, &tauri::WindowEvent::Destroyed);
+                curve_preview::destroyed(app);
+            }
+            tauri::RunEvent::WindowEvent { label, event, .. } => tray::window_event(app, &label, &event),
             _ => {}
         });
 }

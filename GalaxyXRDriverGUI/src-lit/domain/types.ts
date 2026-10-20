@@ -470,6 +470,7 @@ export type OfxrStatus = {
 };
 
 export type AppSetting = {
+  minimizeToTray: boolean;
   colorScheme: 'system' | 'dark' | 'light';
   updateMode: 'replace' | 'rewrite';
   advanceMode: boolean;

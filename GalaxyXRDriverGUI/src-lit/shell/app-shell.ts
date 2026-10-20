@@ -65,6 +65,7 @@ export class AppShell extends LitElement {
       this.ctx.aus.updateInfo.subscribe(notify),
       this.ctx.checks.checking.subscribe(notify), this.ctx.checks.report.subscribe(notify),
       this.ctx.dss.writeFileError.subscribe(notify), this.ctx.appSetting.writeFileError.subscribe(notify),
+      this.ctx.lifecycle.error.subscribe(notify), this.ctx.lifecycle.quitting.subscribe(notify),
       subscribeLocale(notify),
     );
     this.themeDispose = effect(() => applyTheme(this.ctx.appSetting.values().colorScheme));
@@ -174,8 +175,9 @@ export class AppShell extends LitElement {
     const routes = visibleRoutes(this.driverAvailable, this.ctx.galaxy.debugMode);
     const activeRoute = permittedRoute(this.route, this.driverAvailable, this.ctx.galaxy.debugMode);
     const update = this.ctx.aus.updateInfo();
-    const busy = this.ctx.checks.checking() || this.ctx.sds.installingDriver();
+    const busy = this.ctx.checks.checking() || this.ctx.sds.installingDriver() || this.ctx.lifecycle.quitting();
     const writeError = this.ctx.dss.writeFileError() || this.ctx.appSetting.writeFileError();
+    const lifecycleError = this.ctx.lifecycle.error();
     return html`
       <header class="header" aria-label="Galaxy XR Companion">
         <img class="brand-icon" src="icons/headset_galaxy_xr_ready_2x.png" alt="Galaxy XR Companion" title="Galaxy XR Companion">
@@ -185,8 +187,9 @@ export class AppShell extends LitElement {
           </fluent-tab>`)}
         </fluent-tablist>
       </header>
-      ${busy ? html`<fluent-message-bar class="status" intent="info" role="status"><fluent-spinner slot="icon" size="tiny" aria-hidden="true"></fluent-spinner>${this.ctx.sds.installingDriver() ? t('Updating driver or settings. Please wait…') : t('Checking installation and saved settings…')}</fluent-message-bar>` : nothing}
+      ${busy ? html`<fluent-message-bar class="status" intent="info" role="status"><fluent-spinner slot="icon" size="tiny" aria-hidden="true"></fluent-spinner>${this.ctx.lifecycle.quitting() ? t('Saving settings before quitting…') : this.ctx.sds.installingDriver() ? t('Updating driver or settings. Please wait…') : t('Checking installation and saved settings…')}</fluent-message-bar>` : nothing}
       ${writeError ? html`<fluent-message-bar class="status" intent="error" role="alert"><span slot="icon" aria-hidden="true">!</span><strong>${t('Settings could not be saved.')}</strong> ${t('The controls have been restored to the last verified values.')}<details><summary>${t('Technical details')}</summary>${writeError}</details></fluent-message-bar>` : nothing}
+      ${lifecycleError ? html`<fluent-message-bar class="status" intent="error" role="alert"><span slot="icon" aria-hidden="true">!</span><strong>${t('Companion tray behavior could not be applied')}</strong> ${lifecycleError}</fluent-message-bar>` : nothing}
       ${this.settingMessage ? html`<fluent-message-bar class="status" intent="info" role="status"><span slot="icon" aria-hidden="true">ⓘ</span>${t(this.settingMessage)}</fluent-message-bar>` : nothing}
       <main class="content" aria-busy=${String(busy)} .inert=${busy}>
         ${routes.map(route => html`<section class="panel" role="tabpanel" id=${`panel-${route}`}

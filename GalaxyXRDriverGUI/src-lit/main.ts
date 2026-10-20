@@ -56,6 +56,7 @@ async function boot(): Promise<void> {
   const scaleError = await applyUiScale(ctx.appSetting.values().uiScale);
   if (scaleError) console.warn('Could not apply the saved interface scale', scaleError);
   await loadLocale();
+  await ctx.lifecycle.start();
 
   const host = document.createElement('app-shell');
   (host as unknown as { ctx: unknown }).ctx = ctx;

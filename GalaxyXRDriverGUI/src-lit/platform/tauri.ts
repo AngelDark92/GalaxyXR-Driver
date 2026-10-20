@@ -4,6 +4,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 export type { OfxrPreferences, OfxrStatus };
+
+export interface CompanionTrayLabels { open: string; quit: string; tooltip: string; }
+export function sync_companion_lifecycle(minimizeToTray: boolean, labels: CompanionTrayLabels): Promise<void> {
+    return invoke('sync_companion_lifecycle', { minimizeToTray, labels });
+}
+export function complete_companion_quit(token: number, error: string | null): Promise<void> {
+    return invoke('complete_companion_quit', { token, error });
+}
 // SteamVR settings diff is pure logic in the domain layer (unit-tested by
 // tools/Test-SteamVRSettingsDiff.cjs); re-exported here so the platform
 // module keeps its public API.

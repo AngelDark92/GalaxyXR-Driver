@@ -2687,7 +2687,7 @@ Value: streamFrame.spacewarpEnable (settings.json). Stream side — publishes th
         <source>Lower right</source>
       </trans-unit>
       <trans-unit id="ofxr-20261017-21" datatype="html">
-        <source>Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, closing the Companion disarms it. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.
+        <source>Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, quitting the Companion disarms it; minimizing or closing to the tray keeps it running. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.
 
 Value: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.</source>
       </trans-unit>
@@ -3702,7 +3702,7 @@ Value: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — ex
       <trans-unit id="628060530" datatype="html">
         <source>Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.
 
-Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Closing the Companion closes the graph window too.
+Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.
 
 Value: none (preview only). Client side — no driver call.</source>
       </trans-unit>
@@ -3777,6 +3777,41 @@ Value: uiScale (gui-settings.json). GUI-only presentation preference.</source>
       </trans-unit>
       <trans-unit id="curve-preview-invalid-values" datatype="html">
         <source>Cannot plot these curve values. Check the curve family, constancy, ceiling and clamp in the Companion.</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-20261020-1" datatype="html">
+        <source>Minimize to tray</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-20261020-2" datatype="html">
+        <source>Optical Flow requires the Companion to stay running</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-20261020-3" datatype="html">
+        <source>Keep the Companion open, minimized, or running in the system tray while playing. Quitting the Companion stops Optical Flow.</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-20261020-4" datatype="html">
+        <source>Companion tray behavior could not be applied</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-20261020-5" datatype="html">
+        <source>App preferences could not be read. The Companion will stay accessible in the taskbar.</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-20261020-6" datatype="html">
+        <source>App preferences could not be saved. Tray behavior was not changed.</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-20261020-7" datatype="html">
+        <source>Could not save settings before quitting: {error}</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-20261020-8" datatype="html">
+        <source>Open Companion</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-20261020-9" datatype="html">
+        <source>Quit</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-20261020-10" datatype="html">
+        <source>Keep the Companion running in the system tray when you minimize it or click the window's Close button. Open it again from the tray icon. Choose Quit from the tray menu to exit and stop Optical Flow. Off keeps normal taskbar minimization and closes the app when you click Close. Applies immediately.
+
+Value: minimizeToTray (gui-settings.json). Companion-only window preference; On by default.</source>
+      </trans-unit>
+      <trans-unit id="companion-tray-saving-20261020" datatype="html">
+        <source>Saving settings before quitting…</source>
       </trans-unit>
     </body>
   </file>

@@ -69,6 +69,12 @@ export class AppSettingsPage extends BasePage {
         <span class="scale-value" aria-hidden="true">${normalizeUiScale(appSetting.values().uiScale)}%</span>
       `, {
         tip: t("Scales the whole Companion window: text, controls, dialogs and popups. Drag to preview; the value saves as it changes.\n\nValue: uiScale (gui-settings.json). GUI-only presentation preference.") }),
+      settingFieldRow('minimizeToTray', html`
+        <app-switch .known=${!appSetting.readFileError()} .disabled=${!!appSetting.readFileError() || this.ctx.lifecycle.changing()}
+          .checked=${appSetting.values().minimizeToTray}
+          @change=${(e: CustomEvent<boolean>) => { void this.ctx.lifecycle.setMinimizeToTray(e.detail); }}></app-switch>
+      `, {
+        tip: t("Keep the Companion running in the system tray when you minimize it or click the window's Close button. Open it again from the tray icon. Choose Quit from the tray menu to exit and stop Optical Flow. Off keeps normal taskbar minimization and closes the app when you click Close. Applies immediately.\n\nValue: minimizeToTray (gui-settings.json). Companion-only window preference; On by default.") }),
       settingFieldRow('image-enhancements', html`
         <app-switch .known=${known} .checked=${galaxy.imageEnhancementsEnabled}
           .disabled=${!installed || !known || galaxy.imageModeChanging() || busy}

@@ -58,8 +58,10 @@ function fixture() {
     return github.hold ? new Promise(resolve => github.pending.push(() => resolve(reply()))) : Promise.resolve(reply());
   };
   let callback = 0;
+  const callbacks = new Map(), events = new Map();
+  window.__qa.emitNative = (event, payload) => callbacks.get(events.get(event))?.({ event, payload, id: 1 });
   window.__TAURI_INTERNALS__ = {
-    transformCallback: () => ++callback,
+    transformCallback: fn => { callbacks.set(++callback, fn); return callback; },
     unregisterCallback() {},
     async invoke(command, args = {}, options = {}) {
       calls.push({ command, args });
@@ -69,6 +71,9 @@ function fixture() {
       if (command === 'plugin:path|normalize') return p;
       if (command === 'plugin:path|basename') return p.split('/').at(-1);
       if (command === 'plugin:path|dirname') return p.slice(0, p.lastIndexOf('/'));
+      if (command === 'plugin:event|listen') { events.set(args.event, args.handler); return ++callback; }
+      if (command === 'complete_companion_quit') return window.__qa.holdQuitAck ? new Promise(resolve => { window.__qa.releaseQuitAck = resolve; }) : undefined;
+      if (command === 'plugin:event|unlisten' || command === 'sync_companion_lifecycle' || command === 'set_webview_zoom') return;
       if (command === 'plugin:app|version') return '1.2.13';
       if (command === 'plugin:opener|open_url') {
         if (window.__qa.openerError) throw Error(window.__qa.openerError);
@@ -240,7 +245,37 @@ function fixture() {
     await openRoute('stream-frame');
     assert.equal(await page.evaluate(() => appContext.galaxy.advancedMode), false);
     await page.locator('app-stream-frame-page').getByRole('heading', { name: 'Optical Flow', exact: true }).waitFor();
-    results.push('Optical Flow card stays visible with Advanced Mode off');
+    await page.locator('app-stream-frame-page').getByText('Optical Flow requires the Companion to stay running', { exact: true }).waitFor();
+    await page.locator('app-stream-frame-page .section-card').filter({ has: page.getByRole('heading', { name: 'Optical Flow', exact: true }) }).screenshot({ path: path.join(out, 'optical-flow-requirement.png') });
+    await openRoute('app-settings');
+    const trayRow = page.locator('app-app-settings-page [data-setting-id="minimizeToTray"]');
+    assert.equal(await trayRow.locator('app-switch').evaluate(el => el.checked), true);
+    const oldScale = await page.locator('app-app-settings-page .scale-value').textContent();
+    await page.evaluate(async () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await appContext.appSetting.save({ ...appContext.appSetting.values(), uiScale: 110 });
+    });
+    assert.equal(await page.locator('app-app-settings-page .scale-value').textContent(), oldScale);
+    await page.evaluate(() => {
+      delete document.visibilityState;
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.waitForFunction(() => document.querySelector('app-shell').shadowRoot.querySelector('app-app-settings-page').shadowRoot.querySelector('.scale-value').textContent === '110%');
+    await trayRow.locator('app-switch').click();
+    await page.waitForFunction(() => appContext.appSetting.confirmedValues()?.minimizeToTray === false);
+    await page.waitForFunction(() => __qa.calls.some(call => call.command === 'sync_companion_lifecycle' && call.args.minimizeToTray === false));
+    await page.reload();
+    await page.waitForFunction(() => window.appContext?.appSetting.confirmedValues()?.minimizeToTray === false);
+    await page.locator('app-app-settings-page [data-setting-id="minimizeToTray"]').waitFor();
+    assert.equal(await page.locator('app-app-settings-page [data-setting-id="minimizeToTray"] app-switch').evaluate(el => el.checked), false);
+    await page.evaluate(() => { __qa.holdQuitAck = true; __qa.emitNative('companion-quit-requested', 900); });
+    await page.waitForFunction(() => appContext.lifecycle.quitting());
+    assert.equal(await page.locator('app-shell main.content').evaluate(el => el.inert), true);
+    await page.evaluate(() => __qa.releaseQuitAck());
+    await page.waitForFunction(() => !appContext.lifecycle.quitting());
+    assert.equal(await page.locator('app-shell main.content').evaluate(el => el.inert), false);
+    results.push('Optical Flow running-app notice visible with Advanced off; tray opt-out persists; Quit blocks editing through native acknowledgement');
     await page.evaluate(async () => {
       await appContext.appSetting.save({ ...appContext.appSetting.values(), advanceMode: true });
       appContext.galaxy.sections.set(Object.fromEntries(Object.entries(appContext.galaxy.sections()).map(([key]) => [key, true])));

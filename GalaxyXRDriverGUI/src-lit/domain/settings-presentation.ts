@@ -49,6 +49,7 @@ group('driver-settings', ['Controllers', 'Controllers Advanced', 'Controller Off
 group('app-settings', ['Application preferences'], ['heading:app-preferences'])('image-enhancements', 'Image Enhancements', {
   keys: ['streamFrame.enable', 'galaxyXr.sdr10Baseline'],
 });
+group('app-settings', ['Application preferences'], ['heading:app-preferences'])('minimizeToTray', 'Minimize to tray', { source: 'gui-settings.json' });
 group('app-settings', ['Application preferences'], ['heading:app-preferences'])('advanceMode', 'Advanced Mode', { source: 'gui-settings.json' });
 group('app-settings', ['Application preferences'], ['heading:app-preferences'])('devUpdates', 'Developer Builds', { source: 'gui-settings.json' });
 group('app-settings', ['Application preferences'], ['heading:app-preferences'])('debugMode', 'Debug Mode');

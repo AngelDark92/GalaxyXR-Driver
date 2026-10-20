@@ -2,6 +2,7 @@
 //! A copied manifest, an old info.json, or a successful launch request is not
 //! evidence that this driver initialized in the current SteamVR session.
 use super::*;
+use sysinfo::{ProcessRefreshKind, UpdateKind};
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -100,10 +101,29 @@ fn process_status(running: bool, now: u64) -> RuntimeStatus {
 }
 
 #[tauri::command]
-pub fn get_galaxyxr_runtime_status(steamvr_path: Option<String>, expected_version: String) -> Result<RuntimeStatus> {
+pub async fn get_galaxyxr_runtime_status(steamvr_path: Option<String>, expected_version: String) -> Result<RuntimeStatus> {
+    // 2026-10-20: the visible-page poll must not block native window dragging.
+    // OS process enumeration and runtime-file reads belong on a blocking worker.
+    runtime_worker(move || collect_runtime_status(steamvr_path, expected_version)).await
+}
+
+async fn runtime_worker<T, F>(task: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task).await
+        .map_err(|error| format!("Runtime status worker failed: {error}"))?
+}
+
+fn collect_runtime_status(steamvr_path: Option<String>, expected_version: String) -> Result<RuntimeStatus> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis() as u64;
-    let mut system = System::new_all();
-    system.refresh_processes(ProcessesToUpdate::All, false);
+    // Names/PIDs/start times are baseline process information; only executable
+    // paths are additionally needed for the installed-vrserver identity check.
+    // Avoid the old all-system refresh followed by a second process scan.
+    let mut system = System::new();
+    system.refresh_processes_specifics(ProcessesToUpdate::All, false,
+        ProcessRefreshKind::nothing().without_tasks().with_exe(UpdateKind::OnlyIfNotSet));
     let running = system.processes().values().any(|process| is_steamvr_process(process.name()));
     if !running { return Ok(process_status(false, now)); }
     let Some(steamvr_path) = steamvr_path.filter(|path| !path.trim().is_empty()) else {
@@ -143,6 +163,17 @@ pub fn get_galaxyxr_runtime_status(steamvr_path: Option<String>, expected_versio
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn runtime_work_does_not_execute_on_the_caller_thread() {
+        let caller = std::thread::current().id();
+        let worker = tauri::async_runtime::block_on(runtime_worker(|| Ok(std::thread::current().id()))).unwrap();
+        assert_ne!(caller, worker);
+    }
+    #[test]
+    fn runtime_worker_preserves_report_failures() {
+        let result = tauri::async_runtime::block_on(runtime_worker(|| -> Result<()> { Err("runtime snapshot unavailable".into()) }));
+        assert_eq!(result.unwrap_err(), "runtime snapshot unavailable");
+    }
     #[test]
     fn every_steamvr_process_blocks_cleanup_independent_of_path() {
         for name in ["vrserver.exe", "VRMonitor.EXE", "vrcompositor.exe", "vrserver", "vrmonitor", "vrcompositor"] {

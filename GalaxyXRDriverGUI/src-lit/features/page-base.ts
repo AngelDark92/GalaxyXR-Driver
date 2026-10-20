@@ -134,6 +134,13 @@ export class BasePage extends LitElement {
   @property({ attribute: false }) ctx!: AppContext;
 
   private _unsubs: Array<() => void> = [];
+  private _hiddenUpdate = false;
+  private readonly _onVisibility = () => {
+    if (document.visibilityState !== 'hidden' && this._hiddenUpdate) {
+      this._hiddenUpdate = false;
+      this.requestUpdate();
+    }
+  };
   /** Temporary inspection visibility. Never saved as the Advanced Mode setting. */
   protected revealAdvanced = false;
 
@@ -170,9 +177,15 @@ export class BasePage extends LitElement {
 
   connectedCallback(): void {
     super.connectedCallback();
-    const notify = () => this.requestUpdate();
+    // 2026-10-20: tray-hidden pages retain state, but need no Lit redraws.
+    // Refresh once on return, including updates received while hidden.
+    const notify = () => {
+      if (document.visibilityState === 'hidden') this._hiddenUpdate = true;
+      else this.requestUpdate();
+    };
     const c = this.ctx;
     if (!c) return;
+    document.addEventListener('visibilitychange', this._onVisibility);
     this._unsubs.push(
       c.dss.values.subscribe(notify),
       c.dss.readFileError.subscribe(notify),
@@ -186,6 +199,7 @@ export class BasePage extends LitElement {
       c.checks.report.subscribe(notify),
       c.dis.values.subscribe(notify),
       c.appSetting.values.subscribe(notify),
+      c.lifecycle.changing.subscribe(notify),
       c.sds.systemReady.subscribe(notify),
       c.sds.steamVrConfig.subscribe(notify),
       c.sds.installingDriver.subscribe(notify),
@@ -205,6 +219,8 @@ export class BasePage extends LitElement {
   }
 
   disconnectedCallback(): void {
+    document.removeEventListener('visibilitychange', this._onVisibility);
+    this._hiddenUpdate = false;
     for (const unsub of this._unsubs) unsub();
     this._unsubs = [];
     super.disconnectedCallback();

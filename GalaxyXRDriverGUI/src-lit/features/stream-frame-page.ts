@@ -675,10 +675,13 @@ if (vendor && settings) {
         const ofxr = this.ofxrPreferences();
         const ofxrStatus = this.ofxrStatus;
         parts.push(sectionHeading(t('Optical Flow'), 0, 'optical-flow'));
+        parts.push(statusMessage('info', t('Optical Flow requires the Companion to stay running'),
+          t('Keep the Companion open, minimized, or running in the system tray while playing. Quitting the Companion stops Optical Flow.'),
+          html`<a href="#/app-settings">${t('Open App Settings')}</a>`));
         parts.push(settingFieldRow('ofxr.enabled', html`
       <app-switch .checked=${ofxr.enabled} ?disabled=${!ofxr.enabled && !ofxrCanArm(ofxrStatus)} title=${this.ofxrError ?? t(ofxrDisabledReason(ofxrStatus) ?? '')} @change=${(e: CustomEvent) => { void this.setOfxrEnabled(e.detail); }}></app-switch>
             `, {
-  tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, closing the Companion disarms it. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
+  tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, quitting the Companion disarms it; minimizing or closing to the tray keeps it running. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
             }));
         parts.push(settingFieldRow('ofxr.mode', html`
       <app-select .value=${ofxr.mode} ?disabled=${!ofxr.enabled} .options=${[
@@ -844,7 +847,7 @@ if (settings.nvencTap) {
                   parts.push(fieldRow(t('Bitrate Curve Graph'), html`
       <fluent-button appearance="outline" @click=${() => { void this.openCurveWindow(); }}>${t('Open graph window')}</fluent-button>
                   `, {
-  tip: t("Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Closing the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call.")
+  tip: t("Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call.")
                   }));
                   if (this.curveWindowError) {
                     parts.push(noteRow(html`${t('The graph window could not be opened: {reason}', { reason: this.curveWindowError })}`));

@@ -14,6 +14,7 @@ import { DriverStartupService } from './services/driver-startup';
 import { SettingsCheckService } from './services/settings-check';
 import { GalaxySettingsBase } from './state/galaxy-settings';
 import { CurvePreviewPublisher, previewState } from './services/curve-preview';
+import { CompanionLifecycleService } from './services/companion-lifecycle';
 
 export interface AppContext {
   paths: PathsService;
@@ -27,6 +28,7 @@ export interface AppContext {
   checks: SettingsCheckService;
   startup: DriverStartupService;
   curvePreview: CurvePreviewPublisher;
+  lifecycle: CompanionLifecycleService;
   dispose(): void;
 }
 
@@ -36,6 +38,7 @@ export function createAppContext(paths: PathsService): AppContext {
   }
   const dialog = new DialogService();
   const appSetting = new AppSettingService(paths);
+  const lifecycle = new CompanionLifecycleService(appSetting);
   const appSettingGetter = () => appSetting.values();
   const dis = new DriverInfoService(paths, appSettingGetter);
   const dss = new DriverSettingService(paths, dis, appSettingGetter);
@@ -68,7 +71,9 @@ export function createAppContext(paths: PathsService): AppContext {
     checks,
     startup,
     curvePreview,
+    lifecycle,
     dispose() {
+      lifecycle.dispose();
       curvePreview.dispose();
       stopInstallation(); stopMaintenance(); startup.invalidate();
       sds.dispose();
