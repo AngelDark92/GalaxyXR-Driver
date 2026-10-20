@@ -1,6 +1,6 @@
 {
   "name": "galaxyxrdriver-gui",
-  "version": "1.13.0-dev.11",
+  "version": "1.13.0-dev.12",
   "scripts": {
     "start": "node scripts/configure-tauri.mjs && node generate-env.js && tauri dev",
     "build": "node scripts/configure-tauri.mjs && node generate-env.js && tauri build",

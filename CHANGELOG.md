@@ -6,6 +6,16 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.13.0-dev.12] - 2026-10-19
+
+### Fixes
+
+- gui: create the curve window at startup, not from the command (`e03451b`)
+
+### Other changes
+
+- Revert "fix(gui): create the curve window at startup, not from the command" (`4a22781`)
+
 ## [1.13.0-dev.11] - 2026-10-19
 
 ### Fixes
