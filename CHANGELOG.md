@@ -6,6 +6,40 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.13.0] - 2026-10-20
+
+### Features
+
+- experimental optical flow (ofxr) support (`652f48a`)
+- implement disabled codec switch state management and UI integration while steamvr is running (`65335ae`)
+- Implement bitrate curve families and related functionality (`50351eb`)
+- Implement AV1 split encoding deferral and handshake management for reconnect scenarios (`0561df1`)
+- gui: bundle and version-manage the OFXR optical-flow payload (`e7897d1`)
+- implement interface scale feature with adjustable zoom for the Companion window (`9029f09`)
+- gui: open the bitrate curve graph in its own resizable window (`ee77ba7`)
+- Implement Companion Lifecycle Management and Tray Functionality (`fea04dd`)
+- Implement VrlinkFallbackTap to manage VRLink bitrate fallback behavior (`dfb1068`)
+- Enhance curve preview and UI interactions (`824abf7`)
+
+### Fixes
+
+- gui: expose setting source in the check report (`645a19c`)
+- update portable build directory naming and cleanup logic (`4cd363e`)
+- gui: place the Optical Flow card above Encoder Advanced (`4dbea08`)
+- tools: recognize the OFXR payload in package cleanup (`acb35b8`)
+- curve-preview: implement close functionality for bitrate curve window (`8ab201d`)
+- gui: open the curve preview from the window label, not a URL marker (`490ed4e`)
+- gui: create the curve window at startup, not from the command (`e03451b`)
+- fixed Bitrate Curve window and related functionality, bump taury wry builds (`f740aaa`)
+- OFXR session management and settings persistence (`4de371e`)
+- spacewarp: publish the synthesis mode and harden the host tap (`44c7e6e`)
+- companion: allow only one running instance (`0342fed`)
+
+### Other changes
+
+- Revert "fix(gui): create the curve window at startup, not from the command" (`4a22781`)
+- test(companion): cover the live Optical Flow read in the ASW exclusivity check (`079dd1b`)
+
 ## [1.13.0-dev.18] - 2026-10-20
 
 ### Fixes
