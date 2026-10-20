@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.13.0-dev.14] - 2026-10-20
+
+### Features
+
+- Implement Companion Lifecycle Management and Tray Functionality (`fea04dd`)
+
 ## [1.13.0-dev.13] - 2026-10-20
 
 ### Fixes
