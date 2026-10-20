@@ -9,6 +9,18 @@ mod webview_resources;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Registered FIRST on purpose: this plugin must observe the launch
+        // before any other plugin initialises. The callback runs in the
+        // ALREADY-RUNNING instance (with the second launch's argv), so it
+        // restores that window from the tray and the new process exits.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(curve_preview::Preview::default())
         .manage(tray::Lifecycle::default())
         .manage(webview_resources::Resources::default())
