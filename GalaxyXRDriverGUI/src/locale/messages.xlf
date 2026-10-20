@@ -2601,9 +2601,11 @@ An encoder already created with the tap can retain its earlier parameters and AP
         <source>Async Spacewarp</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-2" datatype="html">
-        <source>Applies live to the running stream. Async Spacewarp is the fallback when the graphics card does not support optical flow: it synthesizes intermediate frames on the headset client, which smooths motion between streamed frames. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.
+        <source>Applies live to the running stream. Async Spacewarp synthesizes frames on the headset client when the stream misses a display tick. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.
 
-Value: streamFrame.spacewarpEnable (settings.json). Stream side — publishes the toggle live to the running vrlink stream; the headset synthesizes the frames.</source>
+Mode: Late frames only synthesizes only when a display tick has no new decoded frame. Half rate presents a synthesized frame on every second display tick, so real frames update at half the display rate; the client still decodes every frame in both modes. Mode changes are saved immediately and apply live.
+
+Value: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json). Stream side — publishes the toggle and mode live to the running vrlink stream; the headset client synthesizes the frames.</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-3" datatype="html">
         <source>Async Spacewarp: Off</source>
@@ -2615,13 +2617,19 @@ Value: streamFrame.spacewarpEnable (settings.json). Stream side — publishes th
         <source>Async Spacewarp: Active</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-6" datatype="html">
-        <source>The running stream carries the request; the headset synthesizes the intermediate frames.</source>
+        <source>The running stream carries the request. Frames are synthesized only while the headset client patch is active.</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-7" datatype="html">
         <source>Async Spacewarp: Waiting for stream</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-8" datatype="html">
         <source>The saved value is not confirmed by the running stream yet. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261017-9" datatype="html">
+        <source>Late frames only</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261017-10" datatype="html">
+        <source>Half rate</source>
       </trans-unit>
       <trans-unit id="ofxr-20261017-1" datatype="html">
         <source>Optical Flow</source>

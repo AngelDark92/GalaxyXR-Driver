@@ -263,6 +263,10 @@ export type StreamFrameConfig = {
   // Async Spacewarp toggle (2026-10-17): never-set key keeps its native
   // default (false) — no migration, and nothing silently rewrites it.
   spacewarpEnable: boolean;
+  // Async Spacewarp mode (2026-10-20): 0 = late frames only, 1 = half rate.
+  // Dormant while the toggle is off; the saved value is user-owned and is
+  // never rewritten by a codec switch or a reset of the other row.
+  spacewarpMode: number;
   nvencLowDelayKfScale: number;
   nvencVuiMatrix: number;
   nvencVuiPrimaries: number;

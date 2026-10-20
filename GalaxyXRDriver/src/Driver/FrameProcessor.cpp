@@ -1796,7 +1796,7 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	// 2026-10-17 add-feature (brief 11-W2B): the async spacewarp boolean rides
 	// the same hot-reload publish (single control path: settings.json ->
 	// SetConfig); its install/publish/retract logic lives inside VrlinkTap.
-	VrlinkTap::Get().SetConfig(settings.config.spacewarpEnable);
+	VrlinkTap::Get().SetConfig(settings.config.spacewarpEnable, settings.config.spacewarpMode);
 	// 2026-10-20 (owner request): 'No fallback' removes VRLink's own ratio
 	// fallback and QThrottle multiply in the loaded driver_vrlink.dll image.
 	// Same single control path (settings.json -> SetConfig); the tap restores

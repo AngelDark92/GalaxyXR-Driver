@@ -1030,6 +1030,9 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["spacewarpEnable"].is_boolean()){
 				newConfig.streamFrame.spacewarpEnable = streamFrameData["spacewarpEnable"].get<bool>();
 			}
+			if(streamFrameData["spacewarpMode"].is_number()){
+				newConfig.streamFrame.spacewarpMode = streamFrameData["spacewarpMode"].get<int>();
+			}
 			if(streamFrameData["nvencLowDelayKfScale"].is_number()){
 				newConfig.streamFrame.nvencLowDelayKfScale = streamFrameData["nvencLowDelayKfScale"].get<int>();
 			}
@@ -2042,6 +2045,7 @@ void ConfigLoader::WriteInfo(){
 				{"nvencMinQpIntra", defaultSettings.streamFrame.nvencMinQpIntra},
 				{"nvencForceCbr", defaultSettings.streamFrame.nvencForceCbr},
 				{"spacewarpEnable", defaultSettings.streamFrame.spacewarpEnable},
+				{"spacewarpMode", defaultSettings.streamFrame.spacewarpMode},
 				{"nvencLowDelayKfScale", defaultSettings.streamFrame.nvencLowDelayKfScale},
 				{"nvencVuiMatrix", defaultSettings.streamFrame.nvencVuiMatrix},
 				{"nvencVuiPrimaries", defaultSettings.streamFrame.nvencVuiPrimaries},
@@ -2194,7 +2198,8 @@ void ConfigLoader::WriteInfo(){
 	const auto spacewarpTap = VrlinkTap::Get().GetRuntimeState();
 	data["spacewarp"] = {
 		{"enabled", spacewarpTap.enabled}, {"hookInstalled", spacewarpTap.hookInstalled},
-		{"published", spacewarpTap.published}, {"status", spacewarpTap.status}};
+		{"published", spacewarpTap.published}, {"publishedValue", spacewarpTap.publishedValue},
+		{"status", spacewarpTap.status}};
 	// 2026-10-20: same seam for the VRLink fallback tap. status is exactly
 	// "off" / "on" / "waiting"; reason explains a fail-closed state.
 	const auto fallbackTap = VrlinkFallbackTap::Get().GetRuntimeState();

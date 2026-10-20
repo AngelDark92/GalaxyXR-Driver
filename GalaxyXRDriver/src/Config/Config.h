@@ -793,6 +793,13 @@ struct StreamFrameConfig{
 	// which publishes the boolean to the client over the pinned vrlink
 	// value-transport impl — see VrlinkTap.h for the pinned gate contract.
 	bool spacewarpEnable = false;
+	// 2026-10-20 (owner directive): which synthesis mode the client runs while
+	// the toggle is on, carried on the same value-transport id (4-byte value:
+	// 0 = off, 1 = late frames only, 2 = half rate). Only 0 and 1 are defined
+	// here; any other stored value publishes as late-frames-only and the saved
+	// value itself is never rewritten. UI: the select beside the Stream Frame
+	// toggle (streamFrame.spacewarpMode in settings.json).
+	int spacewarpMode = 0;
 	// NVENC tap (ACTIVE since 2026-08-27, see NvencTap.h). hooks vrlink's
 	// encoder init/reconfigure. every override is retried with vrlink's
 	// own params on failure, so worst case is stock behaviour + a log line.

@@ -165,6 +165,10 @@ export class OfxrSessionService {
 
   setSpacewarp(enabled: boolean): Promise<void> {
     return this.serialize(async () => {
+      // A different page or process may have armed the layer since this
+      // service last inspected the registry; the exclusion check must read
+      // live state (same rule as selectVersion below).
+      if (enabled) await this.refreshStatus();
       if (enabled && this.galaxy.vendor && (this.preferences().enabled || this.isArmed() || this.status()?.state === 'armed_external')) {
         await this.save({ enabled: false });
         // Always confirm disarm, including a failed earlier Off operation.

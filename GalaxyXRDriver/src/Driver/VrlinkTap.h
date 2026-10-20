@@ -5,8 +5,9 @@
 #include <mutex>
 
 // ============================================================================
-// VrlinkTap — in-process publisher of the async-spacewarp boolean to the
-// Steam Link VR stream (brief 11-W2B-HOST-VRLINKTAP, add-feature 2026-10-17).
+// VrlinkTap — in-process publisher of the async-spacewarp enable/mode value to
+// the Steam Link VR stream (brief 11-W2B-HOST-VRLINKTAP, add-feature 2026-10-17;
+// mode carrier brief C, 2026-10-20).
 //
 // Runtime target: Valve's driver_vrlink.dll, already loaded in vrserver beside
 // this driver. NO hooks on Valve code except ONE lifecycle hook: the typed
@@ -18,6 +19,18 @@
 // 0x48 through that same impl, using exactly the call shape of vrlink's
 // live-proven VTE_USE_ENCODE_TARGET_WIDTH (id 11) width publishes; the
 // receiving VR client auto-instantiates unknown value ids (06-bridge §3).
+//
+// Carrier encoding (2026-10-20): ONE u32 on 0x48 carries the whole state, so the
+// Companion needs no second id and no new RE. Carrier values: 0 = off,
+// 1 = late frames only, 2 = half rate. The stored setting is
+// streamFrame.spacewarpMode (0 = late frames only, the default; 1 = half rate;
+// any other stored value is treated as the default). The carrier value is
+// derived from the CURRENT stored (enabled, mode) pair on every publish
+// attempt, never from a captured request:
+//   want = enabled ? (mode == 1 ? 2u : 1u) : 0u
+// so a client that only understands the legacy boolean still reads 1 and 2 as
+// "enabled", and an explicit Off publishes 0 (only when a value was actually
+// delivered).
 //
 // Derivation + gate (re-derive per-build, never trust: fail CLOSED):
 //   - audited build identity driver_vrlink.dll 13,908,632 B, sha256
@@ -36,20 +49,30 @@
 //     asw-20261017/impl/receipts/06-bridge/REPORT.md §2/§3/§4 (rank 1).
 //
 // Safety contract (mirrors NvencTap — worst case stock stream + one log line):
-//   1. if the bytes at either pinned RVA differ from the audited build, the
-//      tap fails CLOSED: no hook, no publish, one log line, observe-only.
+//   1. fail CLOSED before anything is hooked or published: the module's own
+//      IMAGE_DOS_HEADER / IMAGE_NT_HEADERS must parse (a bad DOS or NT
+//      signature is a rejected image), both pinned RVAs plus their 16-byte
+//      windows must lie inside the image's SizeOfImage, and only then are the
+//      bytes there compared with the audited build. Any failure: no hook, no
+//      publish, one log line, observe-only.
 //   2. publication happens on the hot-reload SetConfig path (the single
-//      control path: GUI toggle -> settings.json -> SetConfig) AND on
+//      control path: GUI toggle/mode -> settings.json -> SetConfig) AND on
 //      vrlink's own publish cadence (a pending publish retries on the next
 //      captured Valve publish), AND immediately on a NEW transport instance
-//      (vrserver restart / reconnect resets the stale latch and re-publishes),
-//      never inside per-frame processing, never on a timer.
+//      (vrserver restart / reconnect resets the delivered-value latch and
+//      re-publishes), never inside per-frame processing, never on a timer.
+//      Every path calls PublishDesired(), which re-derives the wanted value
+//      from the CURRENT stored state under stateLock, so a pending enable can
+//      never overwrite a later explicit Off.
 //   3. driver_vrlink.dll is resolved with GetModuleHandleA only (never
 //      LoadLibrary); an absent module is one throttled log line, tap idle.
 //   4. independent of NvencTap (separate module, separate failure domain);
 //      with spacewarp disabled there are no hooks and no behavior changes.
 //   5. the explicit user OFF is a legitimate publish (the user's own previous
 //      state, published 0 once), never a silent rewrite.
+//   6. stateLock guards enabled / mode / publishedValue / havePublished and is
+//      held across every read and write in the publish path, including the
+//      native call, so a concurrent SetConfig is never torn by a provider tick.
 // ============================================================================
 
 // Frozen per-build pin. Changing any constant requires a fresh gate JSON +
@@ -86,7 +109,8 @@ namespace VrlinkTapPin {
 struct VrlinkTapRuntimeState {
 	bool enabled = false;
 	bool hookInstalled = false;
-	bool published = false;
+	bool published = false;      // havePublished && publishedValue != 0
+	uint32_t publishedValue = 0; // last value actually delivered on 0x48
 	const char* status = "off";
 };
 
@@ -95,11 +119,17 @@ public:
 	static VrlinkTap& Get();
 
 	// single control path: hot reload only (FrameProcessor::UpdateEncoderSettings,
-	// beside the NvencTap::SetConfig line). true: if the pinned impl is valid
-	// and a value-transport capture exists, publish 1 once and mark published;
-	// a failed publish or invalid pin leaves status "waiting" (retried on the
-	// next hot-reload SetConfig). false: publish 0 once (explicit user off —
-	// a legitimate publish of the user's own previous state), then status "off".
+	// beside the NvencTap::SetConfig line). Stores (enabled, mode) under
+	// stateLock, installs the pinned hook when enabled, then publishes the
+	// CURRENT desired value: mode 1 -> 2, any other mode -> 1, disabled -> 0.
+	// A publish that cannot happen (invalid pin, no capture, faulted call)
+	// leaves status "waiting" and is retried on the next SetConfig or the next
+	// captured Valve publish. false publishes 0 only when a value was actually
+	// delivered (explicit user off — a legitimate publish of the user's own
+	// previous state), then status "off".
+	void SetConfig(bool enabled, int mode);
+	// compatibility forwarder for a caller that only carries the legacy boolean:
+	// same as SetConfig(enabled, 0), the default mode, i.e. carrier 0x48=1.
 	void SetConfig(bool enabled);
 	VrlinkTapRuntimeState GetRuntimeState();
 	// pure tri-state classifier for the pinned seam enum
@@ -112,13 +142,18 @@ private:
 
 	// idempotent, self-throttled (1/s); called from SetConfig only while enabled
 	void TryInstall();
-	void DoPublish(bool enable);
+	// recomputes the wanted carrier value from the CURRENT enabled/mode pair and
+	// publishes it; caller must NOT hold stateLock (it takes the lock itself and
+	// holds it across the native call)
+	void PublishDesired();
 	void OnVrlinkPublish(void* vts);
 
 	std::mutex stateLock;
 	std::mutex installationLock;
-	bool enabled = false;    // guarded by stateLock
-	bool published = false;  // guarded by stateLock: the CURRENT requested value was delivered
+	bool enabled = false;         // guarded by stateLock
+	int mode = 0;                 // guarded by stateLock: stored spacewarpMode (0 -> carrier 1, 1 -> carrier 2)
+	uint32_t publishedValue = 0;  // guarded by stateLock: last value actually delivered
+	bool havePublished = false;   // guarded by stateLock: a value was delivered at least once
 	// newest capture wins (vrlink may replace the value-transport object per
 	// session; a fresh publish re-teaches it)
 	std::atomic<void*> capturedVts{nullptr};

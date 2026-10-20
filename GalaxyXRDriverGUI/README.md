@@ -22,6 +22,8 @@ Optical Flow needs the Companion to remain running while you play. Its card disp
 
 On reopening the Companion, a saved enabled selection is armed again after both settings files load successfully. The Enable switch reflects the Companion's current armed state; a failed restore appears beside that switch and can be retried by enabling it again. If Async Spacewarp is also saved On, startup leaves it untouched and asks you to enable Optical Flow again to switch modes. An explicit mode switch waits for the Async Spacewarp Off write to succeed before arming OFXR.
 
+Async Spacewarp has a mode select beside its switch: **Late frames only** (default) synthesizes only a missed display tick, **Half rate** synthesizes every second presented tick so real frames update at half the display rate. The mode is saved with the switch and applies live; the client still decodes every frame.
+
 An explicitly selected OFXR version must be available exactly: the Companion reports a missing version instead of loading another one. Reinstall uses the matching bundled payload and preserves external OFXR installations; Automatic reinstalls the bundled seed. An enabled selection is rearmed after reinstall. Uninstall Optical Flow removes Companion-owned registration and runtime directories.
 
 OFXR is an OpenXR layer, so ordinary OpenVR games do not automatically use it. It needs a compatible graphics API and GPU, an installed NVIDIA driver providing Optical Flow for the NVIDIA backends, and the x64 Microsoft Visual C++ Redistributable. Armed confirms layer registration, not successful NVIDIA initialization or displayed generated frames.

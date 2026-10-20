@@ -170,6 +170,7 @@ export class StreamFramePage extends BasePage {
   static styles = [fieldStyles, css`
     :host { display: block; padding: 0 1rem 2rem 1rem; }
     .rgb-control { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+    .spacewarp-controls { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .rgb-control span { opacity: 0.75; font-size: 90%; }
     .matrix-control { flex-direction: column; align-items: flex-start; gap: 0.3rem; }
     .note-inline { opacity: 0.75; font-size: 0.9rem; }
@@ -306,16 +307,16 @@ if (vendor) {
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
         parts.push(settingFieldRow('streamFrame.spacewarpEnable', html`
-      <app-switch .checked=${!!settings.spacewarpEnable} ?disabled=${this.ctx.ofxr.changing()} @change=${(e: CustomEvent) => { void this.setSpacewarp(e.detail); }}></app-switch>
+      <span class="spacewarp-controls"><app-switch .checked=${!!settings.spacewarpEnable} ?disabled=${this.ctx.ofxr.changing()} @change=${(e: CustomEvent) => { void this.setSpacewarp(e.detail); }}></app-switch><app-select ?disabled=${!settings.spacewarpEnable || this.ctx.ofxr.changing()} .value=${settings.spacewarpMode ?? 0} .options=${[{ value: 0, label: t('Late frames only') }, { value: 1, label: t('Half rate') }]} @change=${(e: CustomEvent) => { settings.spacewarpMode = Number(e.detail); save(); }}></app-select></span>
             `, {
-  tip: t("Applies live to the running stream. Async Spacewarp is the fallback when the graphics card does not support optical flow: it synthesizes intermediate frames on the headset client, which smooths motion between streamed frames. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.\n\nValue: streamFrame.spacewarpEnable (settings.json). Stream side — publishes the toggle live to the running vrlink stream; the headset synthesizes the frames."),
-  reset: { can: settings.spacewarpEnable != defaults.spacewarpEnable, on: () => { galaxy.reset('spacewarpEnable'); } }
+  tip: t("Applies live to the running stream. Async Spacewarp synthesizes frames on the headset client when the stream misses a display tick. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.\n\nMode: Late frames only synthesizes only when a display tick has no new decoded frame. Half rate presents a synthesized frame on every second display tick, so real frames update at half the display rate; the client still decodes every frame in both modes. Mode changes are saved immediately and apply live.\n\nValue: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json). Stream side — publishes the toggle and mode live to the running vrlink stream; the headset client synthesizes the frames."),
+  reset: { can: settings.spacewarpEnable != defaults.spacewarpEnable || settings.spacewarpMode != defaults.spacewarpMode, on: () => { galaxy.reset('spacewarpEnable'); galaxy.reset('spacewarpMode'); } }
             }));
         {
           const spacewarpState = spacewarpStatus(!!settings.spacewarpEnable, this.ctx.dis.values(), this.ctx.startup.status());
           parts.push(statusMessage(spacewarpState === 'on' ? 'success' : spacewarpState === 'waiting' ? 'warning' : 'info',
             t(spacewarpState === 'on' ? 'Async Spacewarp: Active' : spacewarpState === 'waiting' ? 'Async Spacewarp: Waiting for stream' : 'Async Spacewarp: Off'),
-            t(spacewarpState === 'on' ? 'The running stream carries the request; the headset synthesizes the intermediate frames.'
+            t(spacewarpState === 'on' ? 'The running stream carries the request. Frames are synthesized only while the headset client patch is active.'
               : spacewarpState === 'waiting' ? 'The saved value is not confirmed by the running stream yet. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.'
               : 'The stream is left unchanged; no frames are synthesized.')));
         }
