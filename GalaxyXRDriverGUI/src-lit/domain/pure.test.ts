@@ -1,7 +1,7 @@
 // Unit tests for the framework-free helpers in domain/pure.ts.
 // Node environment, no DOM. Run with `npm test` (vitest run).
 import { describe, it, expect } from 'vitest';
-import { cleanJsonComments, deepCopy, deepMerge, isObject, isNewVersion } from './pure';
+import { cleanJsonComments, deepCopy, deepMerge, isDevUpdate, isObject, isNewVersion } from './pure';
 
 describe('cleanJsonComments', () => {
   it('accepts a Windows UTF-8 BOM without altering string contents', () => {
@@ -192,5 +192,33 @@ describe('isNewVersion dev channel ordering', () => {
   it('keeps strict semver with the channel off', () => {
     expect(isNewVersion('1.9.0-dev.8', '1.9.0', false)).toBe(true);
     expect(isNewVersion('1.9.0', '1.9.0-dev.8', false)).toBe(false);
+  });
+});
+
+describe('isDevUpdate update decision', () => {
+  it('never offers a same-base dev build to a stable install', () => {
+    // Owner report 2026-10-21: v1.13.0 shipped after v1.13.0-dev.18, so the
+    // dev build is older, not an update. Only 1.14.0-dev.* is next.
+    expect(isDevUpdate('1.13.0', 'v1.13.0-dev.18')).toBe(false);
+    expect(isDevUpdate('1.13.0', 'v1.13.0-dev.1')).toBe(false);
+    expect(isDevUpdate('1.9.0', 'v1.9.0-dev.8')).toBe(false);
+  });
+  it('offers the next dev line to a stable install', () => {
+    expect(isDevUpdate('1.13.0', 'v1.14.0-dev.1')).toBe(true);
+    expect(isDevUpdate('1.13.0', 'v1.14.0')).toBe(true);
+    expect(isDevUpdate('1.13.0', 'v2.0.0-dev.1')).toBe(true);
+  });
+  it('never offers a dev build its matching stable', () => {
+    expect(isDevUpdate('1.9.0-dev.8', 'v1.9.0')).toBe(false);
+    expect(isDevUpdate('1.13.0-dev.18', 'v1.13.0')).toBe(false);
+  });
+  it('offers the next dev build of the same base', () => {
+    expect(isDevUpdate('1.9.0-dev.8', 'v1.9.0-dev.9')).toBe(true);
+    expect(isDevUpdate('1.9.0-dev.9', 'v1.9.0-dev.10')).toBe(true);
+    expect(isDevUpdate('1.9.0-dev.10', 'v1.9.0-dev.9')).toBe(false);
+    expect(isDevUpdate('1.9.0-dev.8', 'v1.9.0-dev.8')).toBe(false);
+  });
+  it('reports no update when the installed version is unreadable', () => {
+    expect(isDevUpdate('Unknown', 'v1.13.0-dev.18')).toBe(false);
   });
 });

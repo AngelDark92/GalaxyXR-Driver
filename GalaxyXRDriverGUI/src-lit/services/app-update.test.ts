@@ -100,6 +100,23 @@ describe('AppUpdateService release check', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps the strict-semver promotion path with Dev Updates off', async () => {
+    // Deliberate asymmetry (2026-10-21): the dev-channel rule that suppresses a
+    // same-base pre-release never applies with the channel off, so a dev build
+    // is still offered the promoted stable of its own base. /releases/latest
+    // returns exactly that stable, and suppressing it would strand dev builds
+    // until the next base ships.
+    vi.mocked(getVersion).mockResolvedValue('1.13.0-dev.18');
+    fetchMock.mockResolvedValueOnce(release('v1.13.0'));
+    const { service } = createService();
+
+    expect(await service.checkUpdate()).toMatchObject({
+      currentVersion: '1.13.0-dev.18',
+      latestVersion: 'v1.13.0',
+      updateAvailable: true,
+    });
+  });
+
   it('aborts a stalled request after ten seconds, clears its timer, and permits retry', async () => {
     vi.useFakeTimers();
     let requestSignal: AbortSignal | undefined;
@@ -244,6 +261,35 @@ describe('AppUpdateService Dev Updates channel', () => {
       latestVersion: 'v1.9.0-dev.8',
       updateAvailable: false,
       url: tagUrl('v1.9.0-dev.8'),
+    });
+  });
+
+  it('does not offer a same-base dev build to a stable install', async () => {
+    // Owner report 2026-10-21: the live list holds v1.13.0 (stable, published
+    // later) above v1.13.0-dev.18. A stable install must not be told dev.18
+    // is an update — only a 1.14.0-dev.* build can be.
+    vi.mocked(getVersion).mockResolvedValue('1.13.0');
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.13.0', 'v1.13.0-dev.18', 'v1.13.0-dev.17']));
+    const { service } = createService(undefined, true);
+
+    expect(await service.checkUpdate()).toMatchObject({
+      fetchSuccess: true,
+      currentVersion: '1.13.0',
+      updateAvailable: false,
+    });
+  });
+
+  it('offers the next dev line to a stable install', async () => {
+    vi.mocked(getVersion).mockResolvedValue('1.13.0');
+    fetchMock.mockResolvedValueOnce(releaseList(['v1.14.0-dev.1', 'v1.13.0', 'v1.13.0-dev.18']));
+    const { service } = createService(undefined, true);
+
+    expect(await service.checkUpdate()).toMatchObject({
+      fetchSuccess: true,
+      currentVersion: '1.13.0',
+      latestVersion: 'v1.14.0-dev.1',
+      updateAvailable: true,
+      url: tagUrl('v1.14.0-dev.1'),
     });
   });
 

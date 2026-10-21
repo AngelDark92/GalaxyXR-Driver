@@ -245,10 +245,40 @@ export const deepMerge = <TX extends IObject, TY extends IObject, TR = TX & TY>(
   return result as TR;
 };
 
+/** Parse `[v]X.Y.Z[-pre]`. Used by isDevUpdate to compare release bases. */
+const versionShape = /^[vV]?(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/;
+
+/** Dev Updates update decision (owner report, 2026-10-21).
+ *
+ * isNewVersion's dev ordering is deliberately symmetric on one point: a
+ * same-base pre-release outranks its stable, which keeps a promoted stable
+ * from displacing the newest dev build in the releases list. That symmetry
+ * must NOT decide "an update exists": x.y.z stable ships after the
+ * x.y.z-dev.* builds that feed it, so dev.18 is older than 1.13.0 and must
+ * never be offered to someone running 1.13.0. Only a higher base (the next
+ * dev line, 1.14.0-dev.*) or a higher pre-release counter is an update.
+ * Same-base pre-release current vs its stable stays false: the dev build
+ * already carries that content. */
+export function isDevUpdate(current: string, latest: string): boolean {
+  if (!isNewVersion(current, latest, true)) return false;
+  const c = versionShape.exec(current);
+  const l = versionShape.exec(latest);
+  if (!c || !l) return true;
+  const sameBase = Number(c[1]) === Number(l[1]) && Number(c[2]) === Number(l[2]) && Number(c[3]) === Number(l[3]);
+  // Stable current, same-base pre-release candidate: the candidate is older.
+  return !(sameBase && !c[4] && l[4]);
+}
+
 /** devChannel (Dev Updates on): a same-base pre-release ranks ABOVE its
  * stable release, so the stable is never an "update" for a dev build
  * (owner contract, 2026-10-15). Default false keeps strict semver:
- * stable above pre-release. Higher bases win in both orderings. */
+ * stable above pre-release. Higher bases win in both orderings.
+ * This is the release-ordering primitive; the Dev Updates update decision
+ * goes through isDevUpdate, which also rejects a same-base pre-release
+ * offered to a stable install (2026-10-21). With the channel OFF the strict
+ * semver above still governs: a dev build is offered the promoted stable of
+ * its own base, because that is its promotion path and /releases/latest
+ * returns exactly that stable. */
 export function isNewVersion(current: string, latest: string, devChannel = false): boolean {
   if(current.startsWith('v') || current.startsWith('V')){
     current = current.substring(1);

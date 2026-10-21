@@ -5,7 +5,7 @@
 // (installAvailable = the app is newer than the installed driver).
 import { effect, signal } from '../reactive';
 import { getVersion } from '@tauri-apps/api/app';
-import { isNewVersion } from '../domain/pure';
+import { isDevUpdate, isNewVersion } from '../domain/pure';
 import { latestReleaseApiUrl, releasesApiUrl } from '../domain/project';
 import type { AppSetting } from '../domain/types';
 import type { SystemDiagnosticService } from './system-diagnostic';
@@ -103,20 +103,25 @@ export class AppUpdateService {
         const releases: GitHubRelease[] = await response.json();
         // Dev ordering: on an equal x.y.z base a pre-release outranks its
         // stable, so a freshly promoted stable never reads as an update over
-        // the dev build the user already runs.
+        // the dev build the user already runs. The reverse — a stable install
+        // being offered an older same-base dev build — is rejected by
+        // isDevUpdate (2026-10-21); only a higher base is an update.
         const release = selectNewestRelease(releases, true);
         result.fetchSuccess = true;
         // An empty (or fully non-version) list is a successful read with no
         // applicable release: no update and no URL.
         if (release) {
           result.latestVersion = release.tag_name
-          result.updateAvailable = isNewVersion(current, release.tag_name, true)
+          result.updateAvailable = isDevUpdate(current, release.tag_name)
           result.url = release.html_url
         }
       } else {
         const release: GitHubRelease = await response.json();
         result.fetchSuccess = true;
         result.latestVersion = release.tag_name
+        // Channel off: strict semver decides, so a dev build is offered the
+        // promoted stable of its own base — that stable is its promotion path
+        // (owner contract 2026-10-15 is scoped to Dev Updates on).
         result.updateAvailable = isNewVersion(current, release.tag_name)
         result.url = release.html_url
       }
