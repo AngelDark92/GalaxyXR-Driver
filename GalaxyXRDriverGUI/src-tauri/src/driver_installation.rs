@@ -581,8 +581,8 @@ const VRLINK_SEED_RENDER_HEIGHT: i64 = 3840;
 const VRLINK_SEED_ENCODE_WIDTH: i64 = 3072;
 const VRLINK_SEED_STREAM_FORMAT_WIDTH: i64 = 1536;
 const VRLINK_SEED_BANDWIDTH_MBIT: i64 = 350;
-const VRLINK_SEED_TUNING_SECTIONS: [&str; 4] = ["driver_vrlink", "vrlink_xrvst2ue", "vrlink_Oculus Quest Pro", "vrlink_PICO 4 Pro"];
-const VRLINK_SEED_CAPABILITY_SECTIONS: [&str; 3] = ["vrlink_xrvst2ue", "vrlink_Oculus Quest Pro", "vrlink_PICO 4 Pro"];
+const VRLINK_SEED_TUNING_SECTIONS: [&str; 2] = ["driver_vrlink", "vrlink_xrvst2ue"];
+const VRLINK_SEED_CAPABILITY_SECTIONS: [&str; 1] = ["vrlink_xrvst2ue"];
 
 fn seed_vrlink_defaults(ctx: &Context) -> Result<()> {
     let tuning: [(&str, Value); 12] = [
@@ -1427,15 +1427,17 @@ mod tests {
             assert_eq!(settings["driver_vrlink"][key],value,"driver_vrlink.{key}");
         }
         for section in VRLINK_SEED_TUNING_SECTIONS { assert_eq!(settings[section]["renderWidth"],3552,"{section}.renderWidth"); }
-        assert_eq!(settings["vrlink_Oculus Quest Pro"]["supports10bit"],false);
-        assert_eq!(settings["vrlink_Oculus Quest Pro"]["maxStreamFormatWidth"],1536);
+        assert_eq!(settings["vrlink_xrvst2ue"]["supports10bit"],false);
+        assert_eq!(settings["vrlink_xrvst2ue"]["maxStreamFormatWidth"],1536);
         for section in VRLINK_SEED_CAPABILITY_SECTIONS { assert_eq!(settings[section]["minStreamFormatWidth"],1536,"{section}.minStreamFormatWidth"); }
+        assert!(settings.get("vrlink_Oculus Quest Pro").is_none(),"alias section not seeded");
+        assert!(settings.get("vrlink_PICO 4 Pro").is_none(),"alias section not seeded");
         let journal=load_journal(&f.ctx).unwrap();
         assert_eq!(journal["entries"]["driver_vrlink"]["renderWidth"]["present"],false);
         assert_eq!(journal["entries"]["driver_vrlink"]["renderWidth"]["lastValue"],3552);
-        assert_eq!(journal["entries"]["vrlink_Oculus Quest Pro"]["supports10bit"]["present"],false);
-        assert_eq!(journal["entries"]["vrlink_Oculus Quest Pro"]["maxStreamFormatWidth"]["present"],false);
-        assert_eq!(journal["entries"]["vrlink_PICO 4 Pro"]["targetBandwidth"]["lastPresent"],true);
+        assert_eq!(journal["entries"]["vrlink_xrvst2ue"]["supports10bit"]["present"],false);
+        assert_eq!(journal["entries"]["vrlink_xrvst2ue"]["maxStreamFormatWidth"]["present"],false);
+        assert_eq!(journal["entries"]["vrlink_xrvst2ue"]["targetBandwidth"]["lastPresent"],true);
     }
     #[test]
     fn existing_settings_json_suppresses_install_vrlink_seeding() {

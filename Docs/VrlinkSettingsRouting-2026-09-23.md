@@ -63,3 +63,15 @@ The corrected package must still be installed and tested after a restart and
 reconnect. Static binary analysis and a successful build do not establish the
 post-fix live render size, bandwidth mode, or capability negotiation. No live
 settings, driver installation, or SteamVR process was changed during this audit.
+
+## 2026-10-21 update — single identity
+
+The Steam Link client now always reports model `xrvst2ue`: the patched APK writes that
+model number into every runtime-selected `hmd_config.json` entry (it is the headset's
+`Build.PRODUCT`, which stock 2.0.23 also reports on its product-name lookup miss). VRLink
+therefore builds exactly one section, `vrlink_xrvst2ue`, and the Quest Pro / PICO 4 Pro
+alias mirrors in `VrlinkCapabilitySections` and the Companion seed lists were removed.
+`vrlink_xrvst2ue` remains the only additional destination, for both capability requests
+and tuning copies; `COMPANION_PROFILE_SECTIONS` still lists the retired aliases so setup
+cleanup can delete leftovers. The captured routing facts above (Quest Pro → model 3,
+PICO 4 Pro → model 8) describe the pre-change builds and are kept as history.

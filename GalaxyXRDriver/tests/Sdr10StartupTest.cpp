@@ -216,7 +216,7 @@ int main() {
         Check(writes==before,"repeated OFF startup is idempotent");
         fakejournal::RestoreOwnedMatching([](const auto&,const auto&) { return true; });
         CheckOriginal(earlySections,original,"uninstall restores original");
-        for(const auto& model:{"xrvst2ue","Oculus Quest Pro","PICO 4 Pro"}) {
+        for(const auto& model:{"xrvst2ue"}) {
             Reset(profile,original);
             const auto sections=gxr::VrlinkCapabilitySections(profile,model);
             driverConfig.galaxyXr.sdr10Baseline=true;

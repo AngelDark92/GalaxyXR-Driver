@@ -15,11 +15,12 @@ inline std::string VrlinkCapabilitySection(bool useGalaxyProfile, const std::str
     // OFF preserves the previous per-model capability/baseline destination.
     return useGalaxyProfile ? kGalaxyProfileSection : "vrlink_" + (originalModel.empty() ? "xrvst2ue" : originalModel);
 }
-// 2026-09-23: patched Steam Link clients also report these Quest/PICO model
-// identities. Prepare the same settings before connection for all three.
+// 2026-10-21: the Steam Link client reports a single identity (`xrvst2ue`), so
+// the Galaxy profile section is the only additional destination. The former
+// Quest Pro / PICO 4 Pro alias mirrors are gone.
 inline std::vector<std::string> VrlinkCapabilitySections(bool useGalaxyProfile, const std::string& originalModel) {
     if(useGalaxyProfile)
-        return {kGalaxyProfileSection, "vrlink_Oculus Quest Pro", "vrlink_PICO 4 Pro"};
+        return {kGalaxyProfileSection};
     return {VrlinkCapabilitySection(false, originalModel)};
 }
 inline std::vector<std::string> VrlinkTuningSections(bool useGalaxyProfile) {
