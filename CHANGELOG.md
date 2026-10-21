@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.14.0-dev.3] - 2026-10-21
+
+### Features
+
+- retire half rate mode for Async Spacewarp and update related documentation (`59cdb68`)
+
 ## [1.14.0-dev.2] - 2026-10-21
 
 ### Fixes
