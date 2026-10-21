@@ -22,7 +22,7 @@ Optical Flow needs the Companion to remain running while you play. Its card disp
 
 On reopening the Companion, a saved enabled selection is armed again after both settings files load successfully. The Enable switch reflects the Companion's current armed state; a failed restore appears beside that switch and can be retried by enabling it again. If Async Spacewarp is also saved On, startup leaves it untouched and asks you to enable Optical Flow again to switch modes. An explicit mode switch waits for the Async Spacewarp Off write to succeed before arming OFXR.
 
-Async Spacewarp has a mode select beside its switch: **Late frames only** (default) synthesizes only a missed display tick, **Half rate** synthesizes every second presented tick so real frames update at half the display rate. The mode is saved with the switch and applies live; the client still decodes every frame.
+Async Spacewarp's mode selector is hidden in this build: **Half rate is retired** (2026-10-21) because it discarded decoded frames without reducing game rendering or headset load. Every stream runs **Late frames only**. A saved half-rate choice in `settings.json` is kept rather than rewritten and is surfaced as a note under the switch; it applies again if the mode returns.
 
 An explicitly selected OFXR version must be available exactly: the Companion reports a missing version instead of loading another one. Reinstall uses the matching bundled payload and preserves external OFXR installations; Automatic reinstalls the bundled seed. An enabled selection is rearmed after reinstall. Uninstall Optical Flow removes Companion-owned registration and runtime directories.
 

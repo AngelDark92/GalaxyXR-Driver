@@ -797,6 +797,9 @@ struct StreamFrameConfig{
 	// here; any other stored value publishes as late-frames-only and the saved
 	// value itself is never rewritten. UI: the select beside the Stream Frame
 	// toggle (streamFrame.spacewarpMode in settings.json).
+	// 2026-10-21 (owner directive): half rate is retired. The stored value is kept
+	// untouched, but it applies as late-frames-only and the host never publishes
+	// carrier 2; the GUI hides the mode selector. Revival: Docs/RetiredHalfRateASW.md.
 	int spacewarpMode = 0;
 	// NVENC tap (ACTIVE since 2026-08-27, see NvencTap.h). hooks vrlink's
 	// encoder init/reconfigure. every override is retried with vrlink's

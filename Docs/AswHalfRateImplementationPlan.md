@@ -2,6 +2,8 @@
 
 Revision: 2026-10-21, incorporating the headset memory, estimator, identity and latency review, and the owner's clarification that client texture size varies with SteamVR settings.
 
+**Retired 2026-10-21 (owner decision).** Half rate is not selectable, the host never publishes carrier `2`, and the client maps `2` to late frames. Phase B1 landed; B2–E have not started. The code and this plan are kept for revival — see [RetiredHalfRateASW.md](RetiredHalfRateASW.md).
+
 Status: proposed work, not an implementation or runtime validation receipt. This document supersedes the earlier conversational plan. The present task changes documentation only.
 
 ## 1. Outcome, scope and verdict on the review

@@ -78,12 +78,9 @@ Device pages: leave **Custom Shader disabled**. The Galaxy XR image processing r
 
 Async Spacewarp is a Stream Frame switch, Off by default. It asks the headset client to synthesize a frame when the stream misses a display tick. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. Only one synthesis mode runs at a time: enabling it turns Optical Flow off.
 
-The select beside the switch chooses the mode:
+**Half rate is retired (2026-10-21).** The mode selector is hidden in this build. Late frames only is applied to every stream, and a saved half-rate choice is kept in `settings.json` rather than rewritten, so it applies again if the mode returns. Half rate replaced every second decoded frame with a synthesized one without reducing game rendering or headset load; it is parked as an experiment — see [RetiredHalfRateASW.md](RetiredHalfRateASW.md).
 
-- **Late frames only** (default): synthesizes only when a display tick has no new decoded frame.
-- **Half rate**: synthesizes every second presented tick from the previously presented frame, so real frames update at half the display rate. The client still decodes every frame in both modes.
-
-Both values are saved in `settings.json` (`streamFrame.spacewarpEnable`, `streamFrame.spacewarpMode`) and apply live to a running stream. The Companion's status row confirms only that the running stream carries the request; it cannot verify synthesis on the headset, so the client patch is required for either mode to show anything.
+Both values are saved in `settings.json` (`streamFrame.spacewarpEnable`, `streamFrame.spacewarpMode`) and apply live to a running stream. The Companion's status row confirms only that the running stream carries the request; it cannot verify synthesis on the headset, so the client patch is required to show anything.
 
 After changing anything in the Headset section or the input profile, restart SteamVR.
 

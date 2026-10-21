@@ -30,7 +30,9 @@
 //   want = enabled ? (mode == 1 ? 2u : 1u) : 0u
 // so a client that only understands the legacy boolean still reads 1 and 2 as
 // "enabled", and an explicit Off publishes 0 (only when a value was actually
-// delivered).
+// delivered). 2026-10-21 (owner directive): half rate is retired, so
+// EncodeCarrierValue also gates on kHalfRateRetired and publishes 1 for a stored
+// 1; the formula above is the revived form and the stored value is never rewritten.
 //
 // Derivation + gate (re-derive per-build, never trust: fail CLOSED):
 //   - audited build identity driver_vrlink.dll 13,908,632 B, sha256
@@ -151,7 +153,7 @@ private:
 	std::mutex stateLock;
 	std::mutex installationLock;
 	bool enabled = false;         // guarded by stateLock
-	int mode = 0;                 // guarded by stateLock: stored spacewarpMode (0 -> carrier 1, 1 -> carrier 2)
+	int mode = 0;                 // guarded by stateLock: stored spacewarpMode (0 -> carrier 1; 1 -> carrier 2 only while !kHalfRateRetired, else 1)
 	uint32_t publishedValue = 0;  // guarded by stateLock: last value actually delivered
 	bool havePublished = false;   // guarded by stateLock: a value was delivered at least once
 	// newest capture wins (vrlink may replace the value-transport object per
