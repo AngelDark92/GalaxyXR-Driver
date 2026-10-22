@@ -6,6 +6,13 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.14.0-dev.4] - 2026-10-22
+
+### Features
+
+- Add focused tests for headset and NVENC monitoring (`97ec6fd`)
+- Add Galaxy XR workspace skill and project map; fix bug documentation (`673d545`)
+
 ## [1.14.0-dev.3] - 2026-10-21
 
 ### Features
