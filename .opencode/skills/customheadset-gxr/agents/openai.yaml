@@ -1,0 +1,4 @@
+interface:
+  display_name: "Galaxy XR Implementation"
+  short_description: "Implement and validate driver and Companion changes"
+  default_prompt: "Use $customheadset-gxr to implement this Galaxy XR change and run its focused checks."

@@ -1,12 +1,12 @@
 # Project skills and agent guidance
 
 Read [the checkout contract](../AGENTS.md). This directory contains project-scoped
-skills; specialized agent presets are in `../.codex/agents/` (Codex) and
-`../.github/agents/` (Copilot). Hermes loads these skills directly when the
-session runs from this checkout and the repo root is trusted (`hermes skills
-trust` from the checkout root), and delegates roles through `delegate_task`
-with the role contracts in `cavecrew/SKILL.md` pasted into each child's
-`context` — a preset name alone loads nothing.
+skills; specialized agent presets are in `../.codex/agents/` (Codex); OpenCode uses
+`../.opencode/agents/` and Cursor uses `../.cursor/rules/project.mdc`. Hermes loads
+these skills directly when the session runs from this checkout and the repo root
+is trusted (`hermes skills trust` from the checkout root), and delegates roles
+through `delegate_task` with the role contracts in `cavecrew/SKILL.md` pasted into
+each child's `context` — a preset name alone loads nothing.
 
 Use `galaxyxr-workspace` to locate the actual ownership/execution path and
 `customheadset-gxr` plus its matching workflow for implementation. `cavecrew`

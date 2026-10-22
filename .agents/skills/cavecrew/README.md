@@ -8,9 +8,9 @@ compact source citations. The main thread chooses scope and synthesizes findings
 - [Reviewer](../../../.codex/agents/cavecrew-reviewer.toml): read-only concrete diff findings.
 
 Read [SKILL.md](SKILL.md) for selection, chaining and output contracts. Codex
-project roles live in `.codex/agents/*.toml` (Copilot presets: `.github/agents/*.md`);
-this checkout does not require Claude Code plugins, Anthropic model names or
-model-override environment variables.
+project roles live in `.codex/agents/*.toml`; OpenCode uses `.opencode/agents/*.md`
+and Cursor uses `.cursor/rules/project.mdc`. This checkout does not require Claude
+Code plugins, Anthropic model names or model-override environment variables.
 Use the current session's model unless the user or applicable role instructions
 request another supported model. When manually spawning with collaboration
 tools, supply the selected role instructions and explicit file ownership.

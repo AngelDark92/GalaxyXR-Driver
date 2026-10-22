@@ -4012,6 +4012,42 @@ Value: closeButtonAction (gui-settings.json). Companion-only window preference; 
       <trans-unit id="bitrate-monitor-20261021-40" datatype="html">
         <source>Decoder video bytes unavailable; network total shown.</source>
       </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-41" datatype="html">
+        <source>Apply interval</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-42" datatype="html">
+        <source>Captured frame did not provide conclusive codec evidence.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-43" datatype="html">
+        <source>Enter a frame inspection interval from 1 to 3600 seconds.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-44" datatype="html">
+        <source>Frame capture is unavailable or stale.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-45" datatype="html">
+        <source>Frame codec</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-46" datatype="html">
+        <source>Frame codec: unverified</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-47" datatype="html">
+        <source>Frame inspection interval applied. Streaming settings were not changed.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-48" datatype="html">
+        <source>Frame interval (s)</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-49" datatype="html">
+        <source>Invalid interval</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-50" datatype="html">
+        <source>Needs the frame-snapshot driver; see the usage guide.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-51" datatype="html">
+        <source>No headset frame-byte capture is available.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-52" datatype="html">
+        <source>Saved frame interval is invalid; inspection uses 5 seconds until a valid interval is applied.</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>
