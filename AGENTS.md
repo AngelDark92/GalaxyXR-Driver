@@ -20,9 +20,9 @@ Source edits and focused checks needed for an authorized task may proceed. Keep 
 
 ## Workflows and project guidance
 
-- Read `.agents/skills/customheadset-gxr/SKILL.md` and its matching add-feature, edit-behavior or fix-bug workflow before implementation.
-- Use `.agents/skills/galaxyxr-workspace/SKILL.md` and `.agents/skills/galaxyxr-workspace/references/project-map.md` for project navigation and the build/verification map. Verify any path or behavior that may have changed.
-- When cavecrew delegation is requested, read `.agents/skills/cavecrew/SKILL.md`. Host presets: Codex reads `.codex/agents/*.toml`, Copilot `.github/agents/*.md`; Hermes uses the same role contracts through `delegate_task`. Assign disjoint files to builders, aggregate findings in the main thread, and review the completed diff — a child's summary is a self-report, not verified evidence. Delegation never adds permission for builds or deployment.
+- Read `.opencode\skills\customheadset-gxr\SKILL.md` and its matching add-feature, edit-behavior or fix-bug workflow before implementation.
+- Use `.opencode\skills\galaxyxr-workspace\SKILL.md` and `.opencode\skills\galaxyxr-workspace\references\project-map.md` for project navigation and the build/verification map. Verify any path or behavior that may have changed.
+- When cavecrew delegation is requested, read `.opencode\skills\cavecrew\SKILL.md`. OpenCode reads `.opencode\agents\*.md` (and the workspace copies when run from the root), Codex reads `.codex/agents/*.toml`, and Cursor uses `.cursor/rules/project.mdc`; Hermes uses the same role contracts through `delegate_task`. Assign disjoint files to builders, aggregate findings in the main thread, and review the completed diff — a child's summary is a self-report, not verified evidence. Delegation never adds permission for builds or deployment.
 - For build/CI changes, update the affected scripts/configs, consumers, tests, documentation and project guidance together. Do not maintain competing path policies in different skills.
 
 ### Agent hosts and context files
@@ -31,12 +31,14 @@ This checkout ships instructions for several agent hosts. Each host loads differ
 
 | Host | Always-loaded context | Role presets and skills |
 | --- | --- | --- |
+| OpenCode | `../AGENTS.md`, `AGENTS.md`, and the configured workspace/project instructions | `.opencode/skills/` and `.opencode/agents/`; also discovers the workspace copies when run from the root |
+| Cursor | `.cursor/rules/project.mdc`, `AGENTS.md` | rules only; project skills remain in `.opencode/skills/` |
 | Codex | `AGENTS.md` | `.agents/skills/` (its `agents/openai.yaml` interfaces) + `.codex/agents/*.toml` presets |
-| GitHub Copilot | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, `.github/agents/*.md` | path-scoped instructions via `applyTo` |
+| GitHub Copilot | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md` | path-scoped instructions via `applyTo` |
 | Claude Code | `CLAUDE.md` (points to `AGENTS.md`) | none in this checkout |
 | Hermes | `AGENTS.md` (git-root→cwd chain) | `.agents/skills/` after `hermes skills trust`; `delegate_task` replaces host presets |
 
-Hermes does not read `.codex/agents/`, `.github/agents/` or `.github/copilot-instructions.md`; keep their authority in `.agents/skills/` and this file. Hermes project skills load only when the session works in this checkout (or a subdirectory) and the repo root is trusted — run `hermes skills trust` from the checkout root once per machine. Hermes' hub scanner quarantines any project skill it rates dangerous (today: `caveman-compress`, flagged for its subprocess/file-I/O heuristics); the rest load, and the quarantine is a security control — do not bypass it. `delegate_task` children start with fresh context: paste the entire role contract and every needed path into each child's `context`; a preset name loads nothing. Children summarize and cannot ask questions — require the role's `ambiguous.`/`needs-confirm.` refusal instead of a guess — and the main thread re-reads cited lines and reruns the checks, because a child's summary is a self-report.
+Hermes does not read `.codex/agents/`, `.cursor/` or `.github/copilot-instructions.md`; keep their authority in `.agents/skills/` and this file. Hermes project skills load only when the session works in this checkout (or a subdirectory) and the repo root is trusted — run `hermes skills trust` from the checkout root once per machine. OpenCode reads `../AGENTS.md`, this file and both the local and workspace `.opencode` definitions; the local copies win. The migrated copies of the routing and cross-project instruction documents live in `../.opencode/instructions/galaxyxr-driver/`; read the matching one before changing installer, build or cross-project protocol behavior. Hermes' hub scanner quarantines any project skill it rates dangerous (today: `caveman-compress`, flagged for its subprocess/file-I/O heuristics); the rest load, and the quarantine is a security control — do not bypass it. `delegate_task` children start with fresh context: paste the entire role contract and every needed path into each child's `context`; a preset name loads nothing. Children summarize and cannot ask questions — require the role's `ambiguous.`/`needs-confirm.` refusal instead of a guess — and the main thread re-reads cited lines and reruns the checks, because a child's summary is a self-report.
 
 ## External artifact contract (user policy, 2026-10-08)
 

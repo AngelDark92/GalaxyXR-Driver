@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include "nlohmann/json.hpp"
 
 // Read actual tuning from driver_vrlink; per-model copies are not read by the
@@ -248,6 +249,38 @@ static void SetBoolIfDifferent(const char* section, const char* key, bool v){
 	bool cur = vr::VRSettings()->GetBool(section, key, &err);
 	if(err != vr::VRSettingsError_None || cur != v){ gxrsettings::SetBool(section, key, v); }
 }
+static void SetStringSettingIfDifferent(const char* section, const char* key, const char* v){
+	vr::EVRSettingsError err = vr::VRSettingsError_None;
+	char current[512] = {0};
+	vr::VRSettings()->GetString(section, key, current, sizeof(current), &err);
+	if(err != vr::VRSettingsError_None || current[0] == '\0' || std::string(current) != v){
+		gxrsettings::SetString(section, key, v);
+	}
+}
+// 2026-10-21: vrlink only honours an unknown-model custom profile when the section carries
+// "enable" true, and the SAME branch is the one that creates the /eyetracking component from
+// "supportsEyeTracking". The client always reports this identity, so the section copies it
+// verbatim; without the identity strings the enabled branch blanks the HMD name/tracking system.
+static void ApplyGalaxyProfileSectionIdentity(const char* section){
+	SetBoolIfDifferent(section, "enable", true);
+	const std::pair<const char*, const char*> identity[] = {
+		{"manufacturerName", "Samsung"},
+		{"modelNumber", "xrvst2ue"},
+		{"trackingSystemName", "SamsungVST"},
+		{"controllerType", "galaxy_xr_hmd"},
+		{"resourceRoot", "vrlink"},
+		{"inputProfilePath", "{vrlink}/input/galaxy_xr_hmd_profile.json"},
+		// 2026-10-21: vrlink's unknown-HMD settings branch activates the headset from
+		// THIS section ("Found settings for unknown hmd. Attempting to retrieve serial
+		// number for activation."), so an absent serialNumber made AddTrackedDevice run
+		// with an empty serial: SteamVR dropped the HMD and the client timed out. The
+		// value is the serial the client reports in ReceivedHMDStaticProps.
+		{"serialNumber", "VRLINKHMDGALAXYXR"},
+	};
+	for(const auto& entry : identity){
+		SetStringSettingIfDifferent(section, entry.first, entry.second);
+	}
+}
 static void RemoveBoolIfOurs(const char* section, const char* key, bool ours){
 	vr::EVRSettingsError err = vr::VRSettingsError_None;
 	bool cur = vr::VRSettings()->GetBool(section, key, &err);
@@ -281,10 +314,19 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 		DriverLog("GalaxyXR: headset profile apply: section %s profile=%d requestedTile=%d (fixed requested range) supports10bit=%d overlay=%d",
 			section.c_str(), (int)policy.profileEnabled, maxSfw, (int)policy.profileSupports10bit, (int)g.vrlinkDebugOverlay);
 		const char* sec = section.c_str();
+		// The enabled custom profile is what unlocks vrlink's eye-tracking component; identity
+		// strings must be present because that branch rewrites them from the section.
+		ApplyGalaxyProfileSectionIdentity(sec);
 		// 2026-09-25: write an explicit OFF even with profile geometry disabled.
 		// Restoring/removing this key could expose an earlier true value. The
 		// journal still keeps that original value for uninstall/recovery.
 		SetBoolIfDifferent(sec, "supports10bit", policy.profileSupports10bit);
+		// 2026-10-21: vrlink creates its /eyetracking component only when the profile
+		// section says the headset supports eye tracking (driver_vrlink.dll reads this
+		// exact key; known Quest/PICO models got it from built-in capabilities). The
+		// Galaxy XR client always streams fine-tracking gaze, so request it in both
+		// switch states and let the journal restore the original value.
+		SetBoolIfDifferent(sec, "supportsEyeTracking", true);
 		if(policy.profileEnabled){
 			SetInt32IfDifferent(sec, "recommendedRenderWidth", kGalaxyXrRenderWidth);
 			SetInt32IfDifferent(sec, "recommendedRenderHeight", kGalaxyXrRenderHeight);
@@ -452,6 +494,16 @@ void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInit
 		serial.c_str(), trackingSystem.c_str(), origModelNumber.c_str());
 	origManufacturer = vr::VRProperties()->GetStringProperty(container, vr::Prop_ManufacturerName_String);
 	origHmdInputProfile = vr::VRProperties()->GetStringProperty(container, vr::Prop_InputProfilePath_String);
+	// 2026-10-21: SteamVR's own "null" driver publishes a placeholder HMD (tracking
+	// system "null", empty model) whenever no headset is running, so the compositor
+	// can start. It is not our headset: stamping the Galaxy XR identity on it made
+	// SteamVR report a connected Galaxy XR with nothing attached (the 2026-10-21
+	// phantom-HMD report came from a hook that handed that device a serial). Leave
+	// the placeholder untouched and say so.
+	if(trackingSystem == "null" && origModelNumber.empty()){
+		DriverLog("GalaxyXRHmdShim: serial \"%s\" is SteamVR's null-driver placeholder HMD — leaving identity/settings untouched", serial.c_str());
+		return;
+	}
 	haveBackup = true;
 	active = true;
 	DriverLog("GalaxyXRHmdShim: activating settings/identity shim (was model=\"%s\" manufacturer=\"%s\")",

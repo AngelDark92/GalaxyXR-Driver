@@ -1,6 +1,7 @@
 #include "FrameComponentShim.h"
 #include "DriverLog.h"
 #include "EyeTrackingTap.h"
+#include "NvencTap.h"
 #include "DeviceProvider.h"
 #include "ZeroCopy.h"
 #include "../Config/ConfigLoader.h"
@@ -10,6 +11,39 @@
 #include <filesystem>
 #include <fstream>
 #include <ctime>
+#include <mutex>
+
+// 2026-10-21 (S0): admission cadence at the compositor->vrlink seam. File-local
+// counters; FrameShimCadenceSnapshot (declared in NvencTap.h) reads and resets
+// them for the encoder heartbeat. A gap here is an upstream stall, not NVENC.
+namespace {
+std::mutex shimCadenceLock;
+uint32_t shimCadenceCount = 0;
+double shimCadenceLastMs = -1.0, shimCadenceMaxGapMs = 0.0;
+
+double ShimNowMs(){
+	using namespace std::chrono;
+	return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
+}
+
+void FrameShimNoteSubmit(){
+	std::lock_guard<std::mutex> g(shimCadenceLock);
+	const double now = ShimNowMs();
+	if(shimCadenceLastMs >= 0.0){
+		const double gap = now - shimCadenceLastMs;
+		if(gap > shimCadenceMaxGapMs){ shimCadenceMaxGapMs = gap; }
+	}
+	shimCadenceLastMs = now;
+	shimCadenceCount++;
+}
+}
+
+void FrameShimCadenceSnapshot(uint32_t* count, double* maxGapMs){
+	std::lock_guard<std::mutex> g(shimCadenceLock);
+	if(count){ *count = shimCadenceCount; }
+	if(maxGapMs){ *maxGapMs = shimCadenceMaxGapMs; }
+	shimCadenceCount = 0; shimCadenceMaxGapMs = 0.0;
+}
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -149,6 +183,9 @@ void DirectModeComponentShim::GetNextSwapTextureSetIndex(vr::SharedTextureHandle
 }
 
 void DirectModeComponentShim::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]){
+	// 2026-10-21 (S0): admission cadence at the compositor->vrlink seam. One
+	// event per submitted layer pair; the heartbeat reports count and worst gap.
+	FrameShimNoteSubmit();
 	// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C): cadence
 	// logging + last-real-pair capture. Inert unless GXR_OF_CADENCE=1 or
 	// GXR_OF_INJECT=1 (both cached file statics).

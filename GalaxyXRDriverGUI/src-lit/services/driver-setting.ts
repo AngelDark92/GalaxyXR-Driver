@@ -77,10 +77,16 @@ export class DriverSettingService extends JsonSettingServiceBase<Settings> {
   // "velocityFix" bool for months; the default-diff serializer then
   // pruned the explicit velocityFixMode the moment it matched the new
   // published default, and the fossil took over mode selection.
-  private static readonly retiredStreamFrameKeys = ['velocityFix', 'kalmanDupSkip', 'kalmanAdaptiveBoost', 'gameLinkLinearVelocityCutoff', 'gameLinkAngularVelocityCutoffDeg', 'poseTimeOffsetBiasMs', 'poseTimeOffsetBiasEnabled'];
+  private static readonly retiredStreamFrameKeys = ['velocityFix', 'kalmanDupSkip', 'kalmanAdaptiveBoost', 'gameLinkLinearVelocityCutoff', 'gameLinkAngularVelocityCutoffDeg', 'poseTimeOffsetBiasMs', 'poseTimeOffsetBiasEnabled', 'nvencVrlinkFallbackMode'];
   protected override migrateLoadedValues(values: Settings): Settings {
     const sf = (values as any)?.streamFrame;
     if (sf) {
+      // 2026-10-21: the retired No-fallback select is honoured once as Bitrate
+      // Constancy 100 % before its key is pruned, so an upgraded install keeps
+      // the encoder target on the Bandwidth row instead of reverting silently.
+      if (sf.nvencVrlinkFallbackMode === 1 && sf.nvencBitrateConstancyPct !== 100) {
+        sf.nvencBitrateConstancyPct = 100;
+      }
       for (const key of DriverSettingService.retiredStreamFrameKeys) {
         if (key in sf) {
           delete sf[key];

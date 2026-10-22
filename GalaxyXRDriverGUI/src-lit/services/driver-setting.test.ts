@@ -355,6 +355,28 @@ describe('retired HAL timestamp compensation', () => {
   });
 });
 
+// 2026-10-21: the No-fallback select is retired. Its stored choice is honoured
+// once as Bitrate Constancy 100 %, the key is pruned, and nothing else moves.
+describe('retired Bitrate Fallback select', () => {
+  it.each(['', 'galaxyxr'])('raises constancy once and prunes the key for %s', async vendor => {
+    const service = await load(vendor,
+      { streamFrame: { nvencVrlinkFallbackMode: 1, nvencBitrateConstancyPct: 35, nvencBitrateCurve: 1 } },
+      { streamFrame: { nvencVrlinkFallbackMode: 1, nvencBitrateConstancyPct: 35, nvencBitrateCurve: 1 } });
+    expect(service.values()?.streamFrame).not.toHaveProperty('nvencVrlinkFallbackMode');
+    expect(service.values()?.streamFrame?.nvencBitrateConstancyPct).toBe(100);
+    expect(service.values()?.streamFrame?.nvencBitrateCurve).toBe(1);
+    expect(await service.save(service.values()!)).toBe(true);
+    const saved = JSON.parse(storage.files.get(filePath)!);
+    expect(saved.streamFrame).not.toHaveProperty('nvencVrlinkFallbackMode');
+  });
+
+  it('leaves an explicit constancy and the key-free install alone', async () => {
+    const service = await load('galaxyxr', { streamFrame: { nvencBitrateConstancyPct: 60 } },
+      { streamFrame: { nvencBitrateConstancyPct: 60 } });
+    expect(service.values()?.streamFrame?.nvencBitrateConstancyPct).toBe(60);
+  });
+});
+
 describe('reinstall default materialization', () => {
   it('writes current defaults for absent settings without overwriting saved values', async () => {
     const service = await load('galaxyxr', { streamFrame: { saturation: 1.25 } });

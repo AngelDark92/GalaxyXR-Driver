@@ -15,11 +15,12 @@ inline std::string VrlinkCapabilitySection(bool useGalaxyProfile, const std::str
     // OFF preserves the previous per-model capability/baseline destination.
     return useGalaxyProfile ? kGalaxyProfileSection : "vrlink_" + (originalModel.empty() ? "xrvst2ue" : originalModel);
 }
-// 2026-09-23: patched Steam Link clients also report these Quest/PICO model
-// identities. Prepare the same settings before connection for all three.
+// 2026-10-21: the Steam Link client reports a single identity (`xrvst2ue`), so
+// the Galaxy profile section is the only additional destination. The former
+// Quest Pro / PICO 4 Pro alias mirrors are gone.
 inline std::vector<std::string> VrlinkCapabilitySections(bool useGalaxyProfile, const std::string& originalModel) {
     if(useGalaxyProfile)
-        return {kGalaxyProfileSection, "vrlink_Oculus Quest Pro", "vrlink_PICO 4 Pro"};
+        return {kGalaxyProfileSection};
     return {VrlinkCapabilitySection(false, originalModel)};
 }
 inline std::vector<std::string> VrlinkTuningSections(bool useGalaxyProfile) {
@@ -32,8 +33,15 @@ inline std::vector<std::string> VrlinkTuningSections(bool useGalaxyProfile) {
 }
 inline bool IsVrlinkCapabilityKey(const std::string& key) {
     return key == "recommendedRenderWidth" || key == "recommendedRenderHeight"
-        || key == "supports10bit" || key == "minStreamFormatWidth" || key == "maxStreamFormatWidth"
+        || key == "supports10bit" || key == "supportsEyeTracking"
+        || key == "minStreamFormatWidth" || key == "maxStreamFormatWidth"
         || key == "minNonFoveatedStreamFormatWidth" || key == "maxNonFoveatedStreamFormatWidth";
+}
+// The enabled custom profile also carries the identity strings vrlink rewrites when it applies
+// the section, so they follow the same active/inactive routing as the capability keys.
+inline bool IsVrlinkProfileIdentityKey(const std::string& key) {
+    return key == "manufacturerName" || key == "modelNumber" || key == "trackingSystemName"
+        || key == "controllerType" || key == "resourceRoot" || key == "inputProfilePath";
 }
 inline bool IsVrlinkTuningKey(const std::string& key) {
     return key == "encodeWidth" || key == "streamFormatWidth" || key == "automaticStreamFormatWidth"
@@ -54,7 +62,7 @@ inline bool IsVrlinkSettingsSection(const std::string& section) {
 inline bool ShouldRestoreInactiveVrlinkKey(const std::string& section, const std::string& key,
     bool useGalaxyProfile, const std::string& originalModel) {
     if(!IsVrlinkSettingsSection(section) || IsVrlinkReservedKey(key)) return false;
-    if(IsVrlinkCapabilityKey(key)) {
+    if(IsVrlinkCapabilityKey(key) || IsVrlinkProfileIdentityKey(key)) {
         // Before HMD activation, an OFF route does not yet know the patched
         // model. Do not remove its previous profile using a guessed fallback.
         if(!useGalaxyProfile && originalModel.empty()) return false;

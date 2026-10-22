@@ -153,6 +153,14 @@ int main(int argc, char** argv) {
         sf["nvencBitrateCurve"] = 2;
         sf["nvencBitrateConstancyPct"] = 35;
         sf["nvencBitrateScale"] = false;
+    } else if (scenario == 28) {
+        // 2026-10-21: streamFrame.nvencVrlinkFallbackMode is retired. A stored
+        // 1 is honoured once as Bitrate Constancy 100 (the encoder target is the
+        // Bandwidth row), the key is ignored, and the file is not rewritten.
+        sf["nvencSettingsVersion"] = 4;
+        sf["nvencBitrateCurve"] = 2;
+        sf["nvencBitrateConstancyPct"] = 35;
+        sf["nvencVrlinkFallbackMode"] = 1;
     } else return 2;
     const auto path = testFolder + "settings.json";
     { std::ofstream out(path); out << input.dump(); }
@@ -260,6 +268,14 @@ int main(int argc, char** argv) {
                 "explicit curve and constancy survive an existing-install load (explicit wins over the retired bool)");
             json stored; { std::ifstream in(path); in >> stored; }
             Check(stored == input, "existing settings file is not rewritten on load");
+        } else if (scenario == 28) {
+            Check(s.nvencBitrateConstancyPct == 100,
+                "retired No-fallback key is honoured once as Bitrate Constancy 100");
+            Check(s.nvencBitrateCurve == 2, "curve family survives the retired key");
+            json stored; { std::ifstream in(path); in >> stored; }
+            Check(stored == input, "retired key load does not rewrite settings.json");
+            Check(stored["streamFrame"]["nvencBitrateConstancyPct"] == 35,
+                "saved constancy stays 35 on disk while runtime uses 100");
         } else if (scenario >= 23 && scenario <= 26) {
             const std::string field = scenario == 24 ? "streamFrame.nvencMultiPass"
                 : scenario == 26 ? "galaxyXr.customStreamFormatWidth" : "streamFrame.nvencH264GopFrames";

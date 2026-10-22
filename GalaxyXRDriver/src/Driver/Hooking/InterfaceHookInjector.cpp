@@ -98,7 +98,15 @@ static void DetourTrackedDevicePoseUpdated006(vr::IVRServerDriverHost *_this, ui
 
 static void DetourTrackedDeviceAdded006(vr::IVRServerDriverHost *_this, const char *pchDeviceSerialNumber, vr::ETrackedDeviceClass eDeviceClass, vr::ITrackedDeviceServerDriver *pDriver)
 {
-	if (Driver->HandleDeviceAdded(pchDeviceSerialNumber, eDeviceClass, pDriver))  
+	// 2026-10-21: do NOT invent a serial for an empty-serial HMD add. In the
+	// observed startup log only SteamVR's own "null" placeholder driver
+	// publishes one, and rewriting it turned that dummy into the active HMD
+	// ("Active HMD set to null.VRLINKHMDGALAXYXR"), so SteamVR reported a
+	// connected Galaxy XR with no headset attached. vrlink's unknown-HMD
+	// branch takes its serial from the profile section, written before vrlink
+	// reads the settings (GalaxyXR.cpp ApplyGalaxyProfileSectionIdentity); an
+	// empty serial there is a settings defect to fix at the source.
+	if (Driver->HandleDeviceAdded(pchDeviceSerialNumber, eDeviceClass, pDriver))
 	{
 		TrackedDeviceAddedHook006.originalFunc(_this, pchDeviceSerialNumber, eDeviceClass, pDriver);
 		// // Add 19 more copies with random serial numbers

@@ -359,13 +359,11 @@ struct GalaxyXrConfig{
 	// "Using defaults as unknown headset: 1" and "Warning: HMD does not
 	// support 10bit." -> "Using 10bit mode: 0": the stream is 8-bit HEVC.
 	// 2026-09-23 routing correction: tuning always reaches driver_vrlink.
-	// On additionally mirrors tuning/profile requests to vrlink_xrvst2ue,
-	// vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection.
-	// Known Quest/PICO models bypass per-model capability loading in the
-	// inspected VRLink build; those requests do not override built-in profiles.
-	// Each section keeps its own recovery journal originals. Off preserves
-	// tuning in driver_vrlink and capabilities in vrlink_<original model>
-	// (xrvst2ue fallback); an active SDR10 baseline still requests capabilities.
+	// 2026-10-21: the client reports one identity (xrvst2ue), so On also mirrors
+	// tuning/profile requests to vrlink_xrvst2ue only; the Quest Pro / PICO 4 Pro
+	// aliases are no longer written. Off preserves tuning in driver_vrlink and
+	// capabilities in vrlink_<original model> (xrvst2ue, i.e. the same section);
+	// an active SDR10 baseline still requests capabilities.
 	// Only unchanged journal-owned values are restored. Requires a SteamVR
 	// restart/reconnect; verify actual negotiation in driver_vrlink.txt.
 	bool vrlinkHeadsetProfile = true;
@@ -799,6 +797,9 @@ struct StreamFrameConfig{
 	// here; any other stored value publishes as late-frames-only and the saved
 	// value itself is never rewritten. UI: the select beside the Stream Frame
 	// toggle (streamFrame.spacewarpMode in settings.json).
+	// 2026-10-21 (owner directive): half rate is retired. The stored value is kept
+	// untouched, but it applies as late-frames-only and the host never publishes
+	// carrier 2; the GUI hides the mode selector. Revival: Docs/RetiredHalfRateASW.md.
 	int spacewarpMode = 0;
 	// NVENC tap (ACTIVE since 2026-08-27, see NvencTap.h). hooks vrlink's
 	// encoder init/reconfigure. every override is retried with vrlink's
@@ -867,14 +868,6 @@ struct StreamFrameConfig{
 	int nvencBitrateConstancyPct = 0;
 	// vrlink's own encoder ceiling (reference for the scaling), settings.json only
 	int nvencVrlinkClampMbit = 350;
-	// 2026-10-20 (owner request): remove VRLink's own bitrate fallback and its
-	// pipeline throttle instead of reshaping their result. 0 = VRLink stock
-	// (byte-identical behaviour, the default), 1 = no fallback: the controller's
-	// health ratio is forced healthy and the QThrottle multiply is removed, so
-	// the encoder request is min(targetBandwidth, 350) at any ping and phase.
-	// Applied in memory to the loaded driver_vrlink.dll by VrlinkFallbackTap;
-	// nothing is written on disk. See VrlinkFallbackTap.h for the pinned sites.
-	int nvencVrlinkFallbackMode = 0;
 	std::string nvencValidationError; // Transient parse error, never persisted as a setting.
 	// 2026-10-16: explicit H.264 compatibility controls. Defaults retain the
 	// tested recipe; entered values are never replaced with that recipe.

@@ -6,6 +6,31 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.14.0-dev.4] - 2026-10-22
+
+### Features
+
+- Add focused tests for headset and NVENC monitoring (`97ec6fd`)
+- Add Galaxy XR workspace skill and project map; fix bug documentation (`673d545`)
+
+## [1.14.0-dev.3] - 2026-10-21
+
+### Features
+
+- retire half rate mode for Async Spacewarp and update related documentation (`59cdb68`)
+
+## [1.14.0-dev.2] - 2026-10-21
+
+### Fixes
+
+- device identity now defaults to xrvst2ue like newer steamlink builds, no need for replacing other headsets settings (`5c7a840`)
+
+## [1.14.0-dev.1] - 2026-10-21
+
+### Features
+
+- update: implement isDevUpdate function and related tests for version comparison (`b0abc90`)
+
 ## [1.13.0] - 2026-10-20
 
 ### Features

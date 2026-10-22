@@ -40,11 +40,17 @@ double NowVtSeconds(){
 		std::chrono::steady_clock::now().time_since_epoch()).count() / 1000000.0;
 }
 
+// 2026-10-21 (owner directive): half rate is retired. The stored setting is kept
+// untouched, but this build never publishes carrier 2 - a stored 1 applies as
+// late-frames-only, exactly like every unknown stored value. Flip this constant
+// (and the client's matching flag) to revive; see Docs/RetiredHalfRateASW.md.
+constexpr bool kHalfRateRetired = true;
+
 // Carrier value from the CURRENT stored pair (brief C): 0 = off, 1 = late
 // frames only, 2 = half rate. The stored setting is 0-based (spacewarpMode:
 // 0 = late frames only — the default and every unknown value — 1 = half rate).
 uint32_t EncodeCarrierValue(bool enabled, int mode){
-	return enabled ? (mode == 1 ? 2u : 1u) : 0u;
+	return enabled ? ((mode == 1 && !kHalfRateRetired) ? 2u : 1u) : 0u;
 }
 
 // PE-header sanity for the bounds gate: e_lfanew beyond this cannot be a real

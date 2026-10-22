@@ -13,18 +13,18 @@ static void Check(bool result, const char* description) {
 }
 int main() {
     const std::vector<std::string> models = {"", "xrvst2ue", "Galaxy XR", "Oculus Quest Pro", "PICO 4 Pro", "Patched Quest Identity"};
-    const std::vector<std::string> profiles = {"vrlink_xrvst2ue", "vrlink_Oculus Quest Pro", "vrlink_PICO 4 Pro"};
-    const std::vector<std::string> tuning = {"driver_vrlink", "vrlink_xrvst2ue", "vrlink_Oculus Quest Pro", "vrlink_PICO 4 Pro"};
+    const std::vector<std::string> profiles = {"vrlink_xrvst2ue"};
+    const std::vector<std::string> tuning = {"driver_vrlink", "vrlink_xrvst2ue"};
     for(const auto& model : models) {
         Check(gxr::VrlinkCapabilitySection(true, model) == "vrlink_xrvst2ue", "ON always uses exact Galaxy capability section");
         Check(gxr::VrlinkCapabilitySection(false, model) == "vrlink_" + (model.empty() ? "xrvst2ue" : model), "OFF preserves original-model capability destination");
-        Check(gxr::VrlinkCapabilitySections(true, model) == profiles, "ON mirrors capabilities to the exact three model identities");
+        Check(gxr::VrlinkCapabilitySections(true, model) == profiles, "ON writes capabilities to the single Galaxy identity section");
         Check(gxr::VrlinkCapabilitySections(false, model) == std::vector<std::string>{"vrlink_" + (model.empty() ? "xrvst2ue" : model)}, "OFF retains only the original-model capability destination");
         for(bool baseline : {false, true}) for(bool profile : {false, true}) {
             Config config{}; config.galaxyXr.sdr10Baseline = baseline; config.galaxyXr.vrlinkHeadsetProfile = profile;
             const auto policy = gxr::ResolveSdr10Policy(config);
             Check(std::string(gxr::VrlinkTuningSection(profile)) == "driver_vrlink", "primary tuning reads always use the consumed global section");
-            Check(gxr::VrlinkTuningSections(profile) == (profile ? tuning : std::vector<std::string>{"driver_vrlink"}), "global tuning is always written and ON retains all three mirrors");
+            Check(gxr::VrlinkTuningSections(profile) == (profile ? tuning : std::vector<std::string>{"driver_vrlink"}), "global tuning is always written and ON adds the Galaxy section");
             for(const auto& key : {"renderWidth", "streamFormatWidth", "targetBandwidth", "automaticBandwidth", "customOldExpertKey"})
                 Check(!gxr::ShouldRestoreInactiveVrlinkKey("driver_vrlink", key, profile, model), "route cleanup never restores consumed global tuning for any headset identity");
             const auto capabilities = gxr::VrlinkCapabilitySections(profile, model);

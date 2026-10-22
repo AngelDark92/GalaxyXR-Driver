@@ -7,6 +7,8 @@
 #include "Config/SteamVRSettingsJournal.h"
 #include "Config/StreamTiers.h"
 #include <atomic>
+#include <algorithm>
+#include <cstring>
 #include <iostream>
 
 Config driverConfig;
@@ -31,6 +33,7 @@ void Mutate(const char* section, const char* key, bool present, const Json& valu
 void SetInt32(const char* s,const char* k,int32_t v) { Mutate(s,k,true,v); }
 void SetFloat(const char* s,const char* k,float v) { Mutate(s,k,true,v); }
 void SetBool(const char* s,const char* k,bool v) { Mutate(s,k,true,v); }
+void SetString(const char* s,const char* k,const char* v) { Mutate(s,k,true,Json(v)); }
 void RemoveKeyInSection(const char* s,const char* k,vr::EVRSettingsError* error) {
     Mutate(s,k,false,nullptr); if(error) *error=vr::VRSettingsError_None;
 }
@@ -56,6 +59,14 @@ struct FakeSettings {
         const bool found=settings.contains(s)&&settings[s].contains(k)&&settings[s][k].is_number_integer();
         *error=found?vr::VRSettingsError_None:vr::VRSettingsError_ReadFailed;
         return found?settings[s][k].get<int32_t>():0;
+    }
+    uint32_t GetString(const char* s,const char* k,char* out,uint32_t len,vr::EVRSettingsError* error) {
+        const bool found=settings.contains(s)&&settings[s].contains(k)&&settings[s][k].is_string();
+        *error=found?vr::VRSettingsError_None:vr::VRSettingsError_ReadFailed;
+        const std::string value=found?settings[s][k].get<std::string>():std::string();
+        const uint32_t n=(uint32_t)(len?std::min<size_t>(value.size(),(size_t)len-1):0);
+        if(len){ std::memcpy(out,value.data(),n); out[n]='\0'; }
+        return n;
     }
 };
 FakeSettings* TestSettings() { static FakeSettings api; return &api; }
@@ -216,7 +227,7 @@ int main() {
         Check(writes==before,"repeated OFF startup is idempotent");
         fakejournal::RestoreOwnedMatching([](const auto&,const auto&) { return true; });
         CheckOriginal(earlySections,original,"uninstall restores original");
-        for(const auto& model:{"xrvst2ue","Oculus Quest Pro","PICO 4 Pro"}) {
+        for(const auto& model:{"xrvst2ue"}) {
             Reset(profile,original);
             const auto sections=gxr::VrlinkCapabilitySections(profile,model);
             driverConfig.galaxyXr.sdr10Baseline=true;

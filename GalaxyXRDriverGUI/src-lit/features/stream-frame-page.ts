@@ -11,6 +11,7 @@ import { t } from '../locale/i18n';
 import { pageIntro, statusMessage } from '../ui/presentation';
 import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
 import { spacewarpStatus } from '../domain/spacewarp-status';
+import { HALF_RATE_AVAILABLE, isRetiredModeSelection, spacewarpModeValues } from '../domain/spacewarp-modes';
 import { codecSwitchState } from '../domain/codec-selection';
 import { ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
@@ -220,6 +221,7 @@ export class StreamFramePage extends BasePage {
         'streamFrame.nvencH264SliceData': settings.nvencH264SliceData,
         'streamFrame.nvencH264VbvInitialDelay': settings.nvencH264VbvInitialDelay,
         'streamFrame.nvencVuiFullRange': settings.nvencVuiFullRange,
+        'streamFrame.nvencBitrateConstancyPct': settings.nvencBitrateConstancyPct,
         'streamFrame.nvencVuiMatrix': settings.nvencVuiMatrix,
         'streamFrame.nvencVuiPrimaries': settings.nvencVuiPrimaries,
         'streamFrame.nvencVuiTransfer': settings.nvencVuiTransfer,
@@ -257,16 +259,15 @@ if (vendor) {
   reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
           }));
           parts.push(this.numberErrorRow('galaxyXr.customBandwidthMbit'));
-          // 2026-10-20: one plain-language select beside the bitrate it governs.
-          // Stock is the default, so an upgrade changes nothing until it is flipped.
-          const fallbackLocked = this.ctx.startup.status()?.steamvrRunning === true;
-          parts.push(settingFieldRow('streamFrame.nvencVrlinkFallbackMode', html`
-      <app-select ?disabled=${fallbackLocked} .value=${settings.nvencVrlinkFallbackMode ?? 0} .options=${[{ value: 0, label: t('VRLink stock') }, { value: 1, label: t('No fallback') }]} @change=${(e: CustomEvent) => { settings.nvencVrlinkFallbackMode = Number(e.detail); save(); }}></app-select>
-      ${fallbackLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``}
-          `, {
-  tip: t("Choose whether VRLink may lower its own bitrate request when it thinks the link is weak. Changing this needs SteamVR closed; the saved value applies to the next session.\n\nVRLink stock keeps Valve's behaviour: the request follows a health score built from measured ping against one to four frames of tolerance, can collapse toward 5 % on a bad sample, and halves when the frame pipeline runs four deep. No fallback removes both the health score and the pipeline throttle, so the request stays at your Bitrate value and the encoder target stops moving under a steady picture. Use it when the stream keeps stepping between bitrate levels; the trade is that a genuinely weak link then shows as latency instead of a lower bitrate.\n\nValue: streamFrame.nvencVrlinkFallbackMode (settings.json). Host side — edits the two instructions in the loaded driver_vrlink.dll in memory, nothing on disk."),
-  reset: { can: (settings.nvencVrlinkFallbackMode ?? 0) !== defaults.nvencVrlinkFallbackMode, on: () => galaxy.reset('nvencVrlinkFallbackMode') }
-          }));
+        // 2026-10-21 (S1): the driver publishes whether the encoder ceiling sits
+        // above the clamp VRLink honours. Show it; aligning is an explicit click,
+        // never a silent rewrite.
+        const bitratePolicy = this.ctx.dis.values()?.bitratePolicy;
+        if (bitratePolicy?.overdrive) {
+          const clamp = bitratePolicy.clampMbit;
+          parts.push(noteRow(html`${t('Encoder ceiling {ceiling} Mbit is above the VRLink request clamp of {clamp} Mbit: the streamer paces for less than the encoder sends.', { ceiling: bitratePolicy.ceilingMbit, clamp })}
+            <fluent-button appearance="outline" @click=${() => { if ((settings.nvencBitrateMbit ?? 0) !== 0) { settings.nvencBitrateMbit = clamp; } else { galaxy.setStreamQualityValue('bandwidth', clamp); } save(); }}>${t('Align bitrate to {clamp} Mbit', { clamp })}</fluent-button>`));
+        }
         if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
             || !Number.isInteger(galaxy.streamQualityValues.bandwidth) || galaxy.streamQualityValues.bandwidth <= 0) {
           parts.push(statusMessage('error', t('Invalid stream setting'), t('Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.')));
@@ -306,10 +307,13 @@ if (vendor) {
   tip: t("Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.\n\nAn encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.\n\nValue: streamFrame.nvencTap (settings.json). Encoder side — hooks NVIDIA NVENC session creation and reconfiguration."),
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
+        // 2026-10-21 (owner directive): the Half rate selection is retired from this row;
+        // the saved mode value and the driver contract stay untouched.
+        const spacewarpMode = settings.spacewarpMode ?? 0;
         parts.push(settingFieldRow('streamFrame.spacewarpEnable', html`
-      <span class="spacewarp-controls"><app-switch .checked=${!!settings.spacewarpEnable} ?disabled=${this.ctx.ofxr.changing()} @change=${(e: CustomEvent) => { void this.setSpacewarp(e.detail); }}></app-switch><app-select ?disabled=${!settings.spacewarpEnable || this.ctx.ofxr.changing()} .value=${settings.spacewarpMode ?? 0} .options=${[{ value: 0, label: t('Late frames only') }, { value: 1, label: t('Half rate') }]} @change=${(e: CustomEvent) => { settings.spacewarpMode = Number(e.detail); save(); }}></app-select></span>
+      <span class="spacewarp-controls"><app-switch .checked=${!!settings.spacewarpEnable} ?disabled=${this.ctx.ofxr.changing()} @change=${(e: CustomEvent) => { void this.setSpacewarp(e.detail); }}></app-switch>${HALF_RATE_AVAILABLE ? html`<app-select ?disabled=${!settings.spacewarpEnable || this.ctx.ofxr.changing()} .value=${spacewarpMode} .options=${spacewarpModeValues().map((value) => ({ value, label: value === 1 ? t('Half rate') : t('Late frames only') }))} @change=${(e: CustomEvent) => { settings.spacewarpMode = Number(e.detail); save(); }}></app-select>` : html``}</span>
             `, {
-  tip: t("Applies live to the running stream. Async Spacewarp synthesizes frames on the headset client when the stream misses a display tick. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.\n\nMode: Late frames only synthesizes only when a display tick has no new decoded frame. Half rate presents a synthesized frame on every second display tick, so real frames update at half the display rate; the client still decodes every frame in both modes. Mode changes are saved immediately and apply live.\n\nValue: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json). Stream side — publishes the toggle and mode live to the running vrlink stream; the headset client synthesizes the frames."),
+  tip: `${isRetiredModeSelection(spacewarpMode) ? t('Half rate is retired in this build. Late frames only is applied; your saved choice is kept.') + '\n\n' : ''}${t("Applies live to the running stream. Async Spacewarp synthesizes frames on the headset client when the stream misses a display tick. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.\n\nMode: Late frames only synthesizes when a display tick has no new decoded frame. Mode changes are saved immediately and apply live.\n\nValue: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json). Stream side — publishes the toggle and mode live to the running vrlink stream; the headset client synthesizes the frames.")}`,
   reset: { can: settings.spacewarpEnable != defaults.spacewarpEnable || settings.spacewarpMode != defaults.spacewarpMode, on: () => { galaxy.reset('spacewarpEnable'); galaxy.reset('spacewarpMode'); } }
             }));
         {
@@ -687,15 +691,8 @@ if (settings.nvencTap) {
                   // report as "running", which locked these rows permanently
                   // when SteamVR was closed; the page already polls every 2 s.
                   const curveLocked = this.ctx.startup.status()?.steamvrRunning === true;
-                  // 2026-10-20: with 'No fallback' the streamer request is a
-                  // constant at the clamp, so both curve rows have no effect.
-                  // They stay editable values (never coerced) but are disabled
-                  // and say why, instead of looking active while inert.
-                  const fallbackFixed = (settings.nvencVrlinkFallbackMode ?? 0) === 1;
-                  const curveDisabled = curveLocked || fallbackFixed;
-                  const curveNote = fallbackFixed
-                    ? html`<span class="note-inline">${t('Inactive: Bitrate Fallback is No fallback')}</span>`
-                    : curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``;
+                  const curveDisabled = curveLocked;
+                  const curveNote = curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``;
                   parts.push(settingFieldRow('streamFrame.nvencBitrateCurve', html`
       <app-select ?disabled=${curveDisabled} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { settings.nvencBitrateCurve = Number(e.detail); save(); }}></app-select>
       ${curveNote}

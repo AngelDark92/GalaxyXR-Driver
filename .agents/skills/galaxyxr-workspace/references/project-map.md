@@ -232,12 +232,13 @@ User docs: `Docs/StreamFrame.md`, `TunerUsage.md`, `DriverUninstall.md`,
 Each host has its own preset surface for the same three roles — Codex reads
 `.codex/agents/cavecrew-investigator.toml` (read-only symbol/execution-path
 discovery), `cavecrew-builder.toml` (bounded assigned edits) and
-`cavecrew-reviewer.toml` (read-only concrete diff findings); Copilot reads
-`.github/agents/*.md`; Codex and Hermes read the shared `.agents/skills/`.
-Codex discovers standalone role files in `.codex/agents/`; do not add a separate
-registration requirement. The exact role links are available in the cavecrew skill.
+`cavecrew-reviewer.toml` (read-only concrete diff findings); OpenCode reads
+`.opencode/agents/*.md`, Cursor reads `.cursor/rules/project.mdc`, and Hermes reads
+the shared `.agents/skills/`. Codex discovers standalone role files in
+`.codex/agents/`; do not add a separate registration requirement. The exact role
+links are available in the cavecrew skill.
 
-Hermes does not read `.codex/agents/` or `.github/agents/`. Trust the checkout
+Hermes does not read `.codex/agents/`, `.opencode/agents/` or `.cursor/`. Trust the checkout
 once (`hermes skills trust` from the checkout root) so `.agents/skills/` loads,
 then delegate with `delegate_task`: children inherit the session model, get a
 fresh context and cannot ask questions, so paste the role contract and every

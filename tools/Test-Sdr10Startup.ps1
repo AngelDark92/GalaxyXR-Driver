@@ -29,6 +29,8 @@ $functions = @(
     'static void ApplyStreamQualitySetting()',
     'static void SetInt32IfDifferent(',
     'static void SetBoolIfDifferent(',
+    'static void SetStringSettingIfDifferent(',
+    'static void ApplyGalaxyProfileSectionIdentity(',
     'static void RemoveBoolIfOurs(',
     'static void ApplyHeadsetProfileSetting(',
     'static void ApplyVrlinkExtraKeysIn(',

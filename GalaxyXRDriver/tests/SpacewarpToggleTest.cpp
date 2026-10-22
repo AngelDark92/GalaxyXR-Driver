@@ -58,10 +58,6 @@ void DriverLog(const char* format, ...){
 // the real NvencTap.cpp is NOT compiled here — only the WriteInfo call surface.
 NvencTap& NvencTap::Get(){ static NvencTap stub; return stub; }
 NvencTapRuntimeState NvencTap::GetRuntimeState(){ return {}; }
-// 2026-10-20: ConfigLoader::WriteInfo also emits the VRLink fallback block; the
-// real tap is a separate failure domain and is not compiled into this harness.
-VrlinkFallbackTap& VrlinkFallbackTap::Get(){ static VrlinkFallbackTap stub; return stub; }
-VrlinkFallbackRuntimeState VrlinkFallbackTap::GetRuntimeState(){ return {}; }
 // Distortion globals are only read by WriteInfo's profile listing (empty here).
 std::unordered_map<std::string, DistortionProfileConfig> builtInDistortionProfiles;
 
@@ -349,6 +345,27 @@ int ScenarioTap(){
 	// re-enable publishes again
 	VrlinkTap::Get().SetConfig(true);
 	CheckPublished(0x48, 4, 0, 1, "re-enable: publish 1 again after an off cycle");
+	// 2026-10-21: half rate is retired. A stored 1 must publish 1 (late frames),
+	// never 2, and every published 0x48 value must stay out of the half-rate slot.
+	{
+		const size_t beforeRetired = gImplCalls.size();
+		VrlinkTap::Get().SetConfig(false);
+		VrlinkTap::Get().SetConfig(true, 1);
+		Check(gImplCalls.size() == beforeRetired + 2 && gImplCalls.back().id == 0x48
+			&& (gImplCalls.back().payload & gImplCalls.back().payloadMask) == 1,
+			"retired: a stored half rate publishes late-frames only");
+		VrlinkTap::Get().SetConfig(false);
+		VrlinkTap::Get().SetConfig(true, 2);
+		Check(gImplCalls.back().id == 0x48
+			&& (gImplCalls.back().payload & gImplCalls.back().payloadMask) == 1,
+			"retired: an unknown stored mode publishes late-frames only");
+		bool publishedHalf = false;
+		for(const auto &record : gImplCalls){
+			if(record.id == 0x48 && (record.payload & record.payloadMask) == 2) publishedHalf = true;
+		}
+		Check(!publishedHalf, "retired: carrier 2 is never published");
+		VrlinkTap::Get().SetConfig(true, 1);  // leave the stored half state for the reconnect case
+	}
 	// 2026-10-17: post-restart republish — a NEW transport instance resets the
 	// stale latch and auto-publishes for the fresh connection with no reload
 	const int beforeReconnect = (int)gImplCalls.size();

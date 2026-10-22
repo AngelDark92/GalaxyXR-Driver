@@ -25,12 +25,12 @@ it('uses effective values, ceiling precedence and preserves invalid entries for 
   settings.streamFrame!.nvencBitrateConstancyPct = 101.5;
   settings.streamFrame!.nvencVrlinkClampMbit = 0;
   settings.streamFrame!.nvencBandwidthOverrideMbit = 400;
-  expect(previewState(settings)).toEqual({ curve: 99, constancyPct: 101.5, clampMbit: 0, ceilingMbit: 400, fallbackDisabled: false });
-  // 2026-10-20: 'No fallback' is surfaced to the graph so it can mark the
-  // fixed operating point instead of implying a live curve.
-  settings.streamFrame!.nvencVrlinkFallbackMode = 1;
+  expect(previewState(settings)).toEqual({ curve: 99, constancyPct: 101.5, clampMbit: 0, ceilingMbit: 400, fallbackDisabled: true });
+  // 2026-10-21: a constancy of 100 marks the fixed operating point; any lower
+  // value leaves the curve live even when the streamer request is steady.
+  settings.streamFrame!.nvencBitrateConstancyPct = 100;
   expect(previewState(settings).fallbackDisabled).toBe(true);
-  settings.streamFrame!.nvencVrlinkFallbackMode = 0;
+  settings.streamFrame!.nvencBitrateConstancyPct = 60;
   expect(previewState(settings).fallbackDisabled).toBe(false);
   settings.streamFrame!.nvencBitrateMbit = 500;
   expect(previewState(settings).ceilingMbit).toBe(500);
