@@ -593,8 +593,11 @@ fn seed_vrlink_defaults(ctx: &Context) -> Result<()> {
         ("recommendedBandwidthMbit", json!(VRLINK_SEED_BANDWIDTH_MBIT)), ("targetBandwidth", json!(VRLINK_SEED_BANDWIDTH_MBIT)),
         ("debugRegionColoring", json!(false)), ("showAdvancedGraphs", json!(false)),
     ];
-    let capability: [(&str, Value); 7] = [
+    let capability: [(&str, Value); 8] = [
         ("supports10bit", json!(false)),
+        // vrlink only creates the /eyetracking component for an unknown model when this
+        // key is present; the Galaxy XR client always streams gaze.
+        ("supportsEyeTracking", json!(true)),
         ("recommendedRenderWidth", json!(VRLINK_SEED_RENDER_WIDTH)), ("recommendedRenderHeight", json!(VRLINK_SEED_RENDER_HEIGHT)),
         ("minStreamFormatWidth", json!(VRLINK_SEED_STREAM_FORMAT_WIDTH)), ("maxStreamFormatWidth", json!(VRLINK_SEED_STREAM_FORMAT_WIDTH)),
         ("minNonFoveatedStreamFormatWidth", json!(VRLINK_SEED_STREAM_FORMAT_WIDTH)), ("maxNonFoveatedStreamFormatWidth", json!(VRLINK_SEED_STREAM_FORMAT_WIDTH)),

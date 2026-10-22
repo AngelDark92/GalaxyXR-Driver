@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "NvencTap.h"
 #include "NvencPostPack.h"
+#include "NvencFrameProbe.h"
 #include "CurveMath.h"
 #include "DriverLog.h"
 #include "../../../ThirdParty/minhook/include/MinHook.h"
@@ -20,6 +21,12 @@
 #include <fstream>
 #include <sstream>
 #include "../../../ThirdParty/json/single_include/nlohmann/json.hpp"
+
+// Versioned read-only data export for external measurement tools. It contains
+// owned frame copies, never pointers into unlocked NVENC output buffers.
+extern "C" {
+__declspec(dllexport) gxr::frameprobe::Probe GalaxyXR_NVENC_Probe_v1;
+}
 
 static double NowSecondsNv(){
 	return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -240,8 +247,22 @@ struct Submit { void* out; double t; };
 Submit submits[16];
 int submitHead = 0;
 
+// 2026-10-21 (S1): published ceiling/clamp/request relationship (see
+// BitratePolicyState). Written on the encode thread, read by the info writer.
+std::mutex policyLock;
+BitratePolicyState policyState;
+
+// 2026-10-21 (S0): one admission event at the DirectMode shim. Measures the
+// cadence the compositor offers vrlink, independently of NVENC. Declared in
+// NvencTap.h; defined after the stats block below.
+
 std::mutex statsLock;
 NvencTapStats stats;
+gxr::frameprobe::State frameProbeState; // serialized by statsLock below
+uint64_t frameProbeEpoch = 0;
+void* frameProbeEncoder = nullptr;
+uint32_t frameProbeInitCount = 0, frameProbeLastIndex = 0;
+int frameProbeCodec = -2;
 // 2026-10-19: defined beside RecordRequest (which fills the window); declared
 // here because ApplyOverrides reads it earlier in the file.
 double RequestMedian();
@@ -1258,6 +1279,34 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			target = (std::min<int64_t>)(target, cfg.bitrateMbit * 1000000ll);
 		}
 		uint32_t avg = (uint32_t)target;
+		// 2026-10-21 (S1): publish ceiling vs VRLink's request clamp vs the
+		// request it actually makes. A ceiling above the clamp while the request
+		// sits at the clamp means the encoder is asked for more than the
+		// streamer requests, so the pacer plans for less than it receives. The
+		// Companion shows this and offers an explicit align action; nothing is
+		// rewritten here.
+		{
+			double reqM = RequestMedian();
+			if(reqM <= 0.0){ reqM = rc.averageBitRate / 1e6; }
+			std::lock_guard<std::mutex> g(policyLock);
+			const bool od = cfg.vrlinkClampMbit > 0 && cfg.bitrateMbit > cfg.vrlinkClampMbit
+				&& reqM >= (double)cfg.vrlinkClampMbit - 0.5;
+			policyState.overdrive = od;
+			policyState.ceilingMbit = cfg.bitrateMbit;
+			policyState.clampMbit = cfg.vrlinkClampMbit;
+			policyState.requestMbit = (int)(reqM + 0.5);
+			policyState.targetMbit = (int)((avg + 500000ull) / 1000000ull);
+			static int loggedOverdrive = -1;
+			if((int)od != loggedOverdrive){
+				loggedOverdrive = (int)od;
+				if(od){
+					DriverLog("NvencTap: bitrate overdrive: encoder ceiling %d Mbit is above VRLink's %d Mbit request clamp (request %.0fM) — the pacer plans for less than the encoder sends; align the Bandwidth row or lift the clamp",
+						cfg.bitrateMbit, cfg.vrlinkClampMbit, reqM);
+				}else{
+					DriverLog("NvencTap: bitrate overdrive cleared (ceiling %d, clamp %d, request %.0fM)", cfg.bitrateMbit, cfg.vrlinkClampMbit, reqM);
+				}
+			}
+		}
 		double head = 1.0 + cfg.maxBitrateHeadroomPct / 100.0;
 		uint32_t mx = (uint32_t)(avg * head);
 		if(rc.averageBitRate != avg || rc.maxBitRate != mx){
@@ -1792,6 +1841,23 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 	}else{
 		st = origEncodePicture(encoder, params);
 	}
+	// 2026-10-21 (S0): occupancy + stale-slot hygiene. Only a successful submit
+	// owns a pairing entry; a failed one used to leave its timestamp in the ring
+	// until a later wrap, which could pair with a reused bitstream buffer and
+	// report a bogus submit->lock latency.
+	{
+		std::lock_guard<std::mutex> g(statsLock);
+		if(st == NV_ENC_SUCCESS){
+			stats.inflight++;
+			if(stats.inflight > stats.ivInflightMax){ stats.ivInflightMax = stats.inflight; }
+		}
+	}
+	if(st != NV_ENC_SUCCESS && params && params->outputBitstream){
+		std::lock_guard<std::mutex> g(submitLock);
+		for(int i = 0; i < 16; i++){
+			if(submits[i].out == params->outputBitstream){ submits[i].out = nullptr; submits[i].t = 0; }
+		}
+	}
 	if(NvencTap::Get().GetConfig().enabled && params && st != NV_ENC_SUCCESS){
 		encFails.fetch_add(1);
 		lastEncFailStatus.store((uint32_t)st);
@@ -1888,6 +1954,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 		}
 	}
 	bool idr = params->pictureType == NV_ENC_PIC_TYPE_IDR || params->pictureType == NV_ENC_PIC_TYPE_I;
+	const int probeSessionCodec = SessionCodecOf(encoder); // accepted session, epoch boundary only
 	bool newMax = false;
 	{
 		std::lock_guard<std::mutex> g(statsLock);
@@ -1898,6 +1965,21 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 		int b = n < 262144 ? 0 : n < 524288 ? 1 : n < 1048576 ? 2 : n < 1572864 ? 3 : n < 2097152 ? 4 : n < 4194304 ? 5 : 6;
 		stats.sizeBucket[b]++;
 		stats.lastAvgQp = params->frameAvgQP; if(params->frameAvgQP > stats.maxAvgQp){ stats.maxAvgQp = params->frameAvgQP; }
+		// 2026-10-21: capture at most one ordinary frame per second plus a
+		// retained keyframe for same-generation parameter sets. NVENC still
+		// owns this locked buffer; only the bounded owned copy is published.
+		if(frameProbeEncoder != encoder || frameProbeInitCount != stats.initCalls
+			|| frameProbeCodec != probeSessionCodec || params->frameIdx < frameProbeLastIndex){
+			++frameProbeEpoch;
+		}
+		frameProbeEncoder = encoder;
+		frameProbeInitCount = stats.initCalls;
+		frameProbeCodec = probeSessionCodec;
+		frameProbeLastIndex = params->frameIdx;
+		frameProbeState.Record(GalaxyXR_NVENC_Probe_v1, GetCurrentProcessId(), GetTickCount64(),
+			frameProbeEpoch, stats.lockCalls, stats.sumFrameBytes, params->frameIdx,
+			params->bitstreamBufferPtr, n, idr);
+		if(latMs >= 0 && stats.inflight > 0){ stats.inflight--; }
 		if(latMs >= 0 && latMs < 5000){
 			stats.latSamples++; stats.latSumMs += latMs; if(latMs > stats.latMaxMs){ stats.latMaxMs = latMs; }
 			stats.ivLatSamples++; stats.ivLatSumMs += latMs; if(latMs > stats.ivLatMaxMs){ stats.ivLatMaxMs = latMs; } if(latMs >= 11.1){ stats.ivLatOver11++; }
@@ -2186,6 +2268,11 @@ NvencTapRuntimeState NvencTap::GetRuntimeState(){
 	state.requestedCodec = config.codec;
 	return state;
 }
+BitratePolicyState NvencTap::GetBitratePolicyState(){
+	std::lock_guard<std::mutex> g(policyLock);
+	return policyState;
+}
+
 NvencTapStats NvencTap::GetStats(){
 	std::lock_guard<std::mutex> g(statsLock);
 	return stats;
@@ -2280,15 +2367,19 @@ void NvencTap::MaybeHeartbeat(){
 			s.sessionUpgrade == 1 ? "12.1 LIVE" : s.sessionUpgrade == 2 ? "REJECTED" : "not attempted", s.sessionUpgradeStatus, s.retagCalls);
 	}
 	if(s.ivReqCount || s.ivLatSamples){
-		DriverLog("NvencTap: last 10s: vrlink asked avg=%.0fM min=%.0fM max=%.0fM (n=%u) | submit->lock mean=%.2fms max=%.1fms over-11.1ms=%u/%u (%.0f%%) | SUBMIT BLOCKED mean=%.2fms max=%.1fms over-10ms=%u/%u (vrlink watchdog resets on >10)",
+		uint32_t shimCount = 0; double shimGapMaxMs = 0;
+		FrameShimCadenceSnapshot(&shimCount, &shimGapMaxMs);
+		DriverLog("NvencTap: last 10s: vrlink asked avg=%.0fM min=%.0fM max=%.0fM (n=%u) | submit->lock mean=%.2fms max=%.1fms over-11.1ms=%u/%u (%.0f%%) | SUBMIT BLOCKED mean=%.2fms max=%.1fms over-10ms=%u/%u (vrlink watchdog resets on >10) | shim n=%u gap max=%.0fms | inflight max=%u",
 			s.ivReqCount ? s.ivReqSumMbit / s.ivReqCount : 0.0, s.ivReqCount ? s.ivReqMinMbit : 0.0, s.ivReqMaxMbit, s.ivReqCount,
 			s.ivLatSamples ? s.ivLatSumMs / s.ivLatSamples : 0.0, s.ivLatMaxMs, s.ivLatOver11, s.ivLatSamples,
 			s.ivLatSamples ? 100.0 * s.ivLatOver11 / s.ivLatSamples : 0.0,
-			s.ivSubmitSamples ? s.ivSubmitSumMs / s.ivSubmitSamples : 0.0, s.ivSubmitMaxMs, s.ivSubmitOver10, s.ivSubmitSamples);
+			s.ivSubmitSamples ? s.ivSubmitSumMs / s.ivSubmitSamples : 0.0, s.ivSubmitMaxMs, s.ivSubmitOver10, s.ivSubmitSamples,
+			shimCount, shimGapMaxMs, s.ivInflightMax);
 		std::lock_guard<std::mutex> g(statsLock);
 		stats.ivReqCount = 0; stats.ivReqSumMbit = 0; stats.ivReqMinMbit = 1e9; stats.ivReqMaxMbit = 0;
 		stats.ivLatSamples = 0; stats.ivLatOver11 = 0; stats.ivLatSumMs = 0; stats.ivLatMaxMs = 0;
 		stats.ivSubmitSamples = 0; stats.ivSubmitOver10 = 0; stats.ivSubmitSumMs = 0; stats.ivSubmitMaxMs = 0;
+		stats.ivInflightMax = stats.inflight;
 	}
 	if(s.lockCalls){
 		DriverLog("NvencTap: frames %u avg=%.0fKB max=%.2fMB maxIDR=%.2fMB idr=%u avgQP=%u(max %u) | size buckets <256K:%u <512K:%u <1M:%u <1.5M:%u <2M:%u <4M:%u >=4M:%u",

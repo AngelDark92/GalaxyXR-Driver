@@ -221,6 +221,7 @@ export class StreamFramePage extends BasePage {
         'streamFrame.nvencH264SliceData': settings.nvencH264SliceData,
         'streamFrame.nvencH264VbvInitialDelay': settings.nvencH264VbvInitialDelay,
         'streamFrame.nvencVuiFullRange': settings.nvencVuiFullRange,
+        'streamFrame.nvencBitrateConstancyPct': settings.nvencBitrateConstancyPct,
         'streamFrame.nvencVuiMatrix': settings.nvencVuiMatrix,
         'streamFrame.nvencVuiPrimaries': settings.nvencVuiPrimaries,
         'streamFrame.nvencVuiTransfer': settings.nvencVuiTransfer,
@@ -258,16 +259,15 @@ if (vendor) {
   reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
           }));
           parts.push(this.numberErrorRow('galaxyXr.customBandwidthMbit'));
-          // 2026-10-20: one plain-language select beside the bitrate it governs.
-          // Stock is the default, so an upgrade changes nothing until it is flipped.
-          const fallbackLocked = this.ctx.startup.status()?.steamvrRunning === true;
-          parts.push(settingFieldRow('streamFrame.nvencVrlinkFallbackMode', html`
-      <app-select ?disabled=${fallbackLocked} .value=${settings.nvencVrlinkFallbackMode ?? 0} .options=${[{ value: 0, label: t('VRLink stock') }, { value: 1, label: t('No fallback') }]} @change=${(e: CustomEvent) => { settings.nvencVrlinkFallbackMode = Number(e.detail); save(); }}></app-select>
-      ${fallbackLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``}
-          `, {
-  tip: t("Choose whether VRLink may lower its own bitrate request when it thinks the link is weak. Changing this needs SteamVR closed; the saved value applies to the next session.\n\nVRLink stock keeps Valve's behaviour: the request follows a health score built from measured ping against one to four frames of tolerance, can collapse toward 5 % on a bad sample, and halves when the frame pipeline runs four deep. No fallback removes both the health score and the pipeline throttle, so the request stays at your Bitrate value and the encoder target stops moving under a steady picture. Use it when the stream keeps stepping between bitrate levels; the trade is that a genuinely weak link then shows as latency instead of a lower bitrate.\n\nValue: streamFrame.nvencVrlinkFallbackMode (settings.json). Host side — edits the two instructions in the loaded driver_vrlink.dll in memory, nothing on disk."),
-  reset: { can: (settings.nvencVrlinkFallbackMode ?? 0) !== defaults.nvencVrlinkFallbackMode, on: () => galaxy.reset('nvencVrlinkFallbackMode') }
-          }));
+        // 2026-10-21 (S1): the driver publishes whether the encoder ceiling sits
+        // above the clamp VRLink honours. Show it; aligning is an explicit click,
+        // never a silent rewrite.
+        const bitratePolicy = this.ctx.dis.values()?.bitratePolicy;
+        if (bitratePolicy?.overdrive) {
+          const clamp = bitratePolicy.clampMbit;
+          parts.push(noteRow(html`${t('Encoder ceiling {ceiling} Mbit is above the VRLink request clamp of {clamp} Mbit: the streamer paces for less than the encoder sends.', { ceiling: bitratePolicy.ceilingMbit, clamp })}
+            <fluent-button appearance="outline" @click=${() => { if ((settings.nvencBitrateMbit ?? 0) !== 0) { settings.nvencBitrateMbit = clamp; } else { galaxy.setStreamQualityValue('bandwidth', clamp); } save(); }}>${t('Align bitrate to {clamp} Mbit', { clamp })}</fluent-button>`));
+        }
         if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
             || !Number.isInteger(galaxy.streamQualityValues.bandwidth) || galaxy.streamQualityValues.bandwidth <= 0) {
           parts.push(statusMessage('error', t('Invalid stream setting'), t('Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.')));
@@ -691,15 +691,8 @@ if (settings.nvencTap) {
                   // report as "running", which locked these rows permanently
                   // when SteamVR was closed; the page already polls every 2 s.
                   const curveLocked = this.ctx.startup.status()?.steamvrRunning === true;
-                  // 2026-10-20: with 'No fallback' the streamer request is a
-                  // constant at the clamp, so both curve rows have no effect.
-                  // They stay editable values (never coerced) but are disabled
-                  // and say why, instead of looking active while inert.
-                  const fallbackFixed = (settings.nvencVrlinkFallbackMode ?? 0) === 1;
-                  const curveDisabled = curveLocked || fallbackFixed;
-                  const curveNote = fallbackFixed
-                    ? html`<span class="note-inline">${t('Inactive: Bitrate Fallback is No fallback')}</span>`
-                    : curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``;
+                  const curveDisabled = curveLocked;
+                  const curveNote = curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``;
                   parts.push(settingFieldRow('streamFrame.nvencBitrateCurve', html`
       <app-select ?disabled=${curveDisabled} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { settings.nvencBitrateCurve = Number(e.detail); save(); }}></app-select>
       ${curveNote}

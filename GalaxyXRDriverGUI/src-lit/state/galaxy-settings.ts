@@ -106,7 +106,6 @@ export const streamFrameNumberContracts: Record<string, StreamFrameNumberContrac
   },
   'streamFrame.nvencBitrateMbit': { range: 'nonnegative', check: value => value >= 0 },
   'streamFrame.nvencBitrateConstancyPct': { range: '0 to 100', check: value => value >= 0 && value <= 100 },
-  'streamFrame.nvencVrlinkFallbackMode': { range: '0 or 1', check: value => value === 0 || value === 1 },
   'streamFrame.nvencMaxBitrateHeadroomPct': { range: 'nonnegative', check: value => value >= 0 },
   'streamFrame.nvencForceFps': { range: 'nonnegative', check: value => value >= 0 },
   'streamFrame.nvencVbvFrames': { range: 'nonnegative', check: value => value >= 0 },

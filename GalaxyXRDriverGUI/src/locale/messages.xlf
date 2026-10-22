@@ -3842,30 +3842,17 @@ Value: minimizeToTray (gui-settings.json). Companion-only window preference; On 
       <trans-unit id="ofxr-session-20261020-7" datatype="html">
         <source>Disarm Optical Flow from its current manager before enabling Async Spacewarp.</source>
       </trans-unit>
-      <trans-unit id="vrlink-fallback-20261020-1" datatype="html">
-        <source>Bitrate Fallback</source>
+      <trans-unit id="bitrate-overdrive-20261021-1" datatype="html">
+        <source>Encoder ceiling {ceiling} Mbit is above the VRLink request clamp of {clamp} Mbit: the streamer paces for less than the encoder sends.</source>
       </trans-unit>
-      <trans-unit id="vrlink-fallback-20261020-2" datatype="html">
-        <source>VRLink stock</source>
-      </trans-unit>
-      <trans-unit id="vrlink-fallback-20261020-3" datatype="html">
-        <source>No fallback</source>
-      </trans-unit>
-      <trans-unit id="vrlink-fallback-20261020-4" datatype="html">
-        <source>Choose whether VRLink may lower its own bitrate request when it thinks the link is weak. Changing this needs SteamVR closed; the saved value applies to the next session.
-
-VRLink stock keeps Valve's behaviour: the request follows a health score built from measured ping against one to four frames of tolerance, can collapse toward 5 % on a bad sample, and halves when the frame pipeline runs four deep. No fallback removes both the health score and the pipeline throttle, so the request stays at your Bitrate value and the encoder target stops moving under a steady picture. Use it when the stream keeps stepping between bitrate levels; the trade is that a genuinely weak link then shows as latency instead of a lower bitrate.
-
-Value: streamFrame.nvencVrlinkFallbackMode (settings.json). Host side — edits the two instructions in the loaded driver_vrlink.dll in memory, nothing on disk.</source>
-      </trans-unit>
-      <trans-unit id="vrlink-fallback-20261020-5" datatype="html">
-        <source>Inactive: Bitrate Fallback is No fallback</source>
+      <trans-unit id="bitrate-overdrive-20261021-2" datatype="html">
+        <source>Align bitrate to {clamp} Mbit</source>
       </trans-unit>
       <trans-unit id="vrlink-fallback-20261020-6" datatype="html">
         <source>fixed operating point</source>
       </trans-unit>
       <trans-unit id="vrlink-fallback-20261020-7" datatype="html">
-        <source>No fallback is on: the streamer request stays at the clamp, so the applied value is the ceiling whatever curve family or constancy is saved. The dashed marker is the only operating point.</source>
+        <source>Bitrate Constancy is 100 %: the encoder target is the ceiling whatever the streamer asks. The dashed marker is the only operating point.</source>
       </trans-unit>
       <trans-unit id="companion-settings-20261020-1" datatype="html">
         <source>Appearance</source>
@@ -3904,6 +3891,126 @@ Value: closeButtonAction (gui-settings.json). Companion-only window preference; 
       </trans-unit>
       <trans-unit id="companion-settings-20261020-13" datatype="html">
         <source>Update install</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-1" datatype="html">
+        <source>ADB path</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-2" datatype="html">
+        <source>All files</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-3" datatype="html">
+        <source>Apply ADB</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-4" datatype="html">
+        <source>Average</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-5" datatype="html">
+        <source>BITRATE MONITOR</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-6" datatype="html">
+        <source>Browse…</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-7" datatype="html">
+        <source>CURRENT Mbps</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-8" datatype="html">
+        <source>Connecting…</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-9" datatype="html">
+        <source>Counter is stale; waiting for a fresh measurement.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-10" datatype="html">
+        <source>Export CSV</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-11" datatype="html">
+        <source>Export CSV…</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-12" datatype="html">
+        <source>Export failed</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-13" datatype="html">
+        <source>Export measured samples</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-14" datatype="html">
+        <source>Galaxy XR Bitrate Monitor</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-15" datatype="html">
+        <source>HEADSET VIA USB ADB</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-16" datatype="html">
+        <source>Headset WLAN RX includes all interface traffic and protocol overhead; it is not video-only bitrate.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-17" datatype="html">
+        <source>Independent sampling, approximately once per second</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-18" datatype="html">
+        <source>LAST 300 SAMPLES</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-19" datatype="html">
+        <source>Max window</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-20" datatype="html">
+        <source>Measured bytes over time • decimal Mbps • no stream settings are changed</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-21" datatype="html">
+        <source>Min window</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-22" datatype="html">
+        <source>Min/max are sampling-window rates, not per-packet peaks. Average is weighted by elapsed time.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-23" datatype="html">
+        <source>NVENC OUTPUT</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-24" datatype="html">
+        <source>No completed measurement windows yet.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-25" datatype="html">
+        <source>Pause</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-26" datatype="html">
+        <source>Paused</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-27" datatype="html">
+        <source>Preferences could not be saved</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-28" datatype="html">
+        <source>Read-only measurement</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-29" datatype="html">
+        <source>Reset statistics</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-30" datatype="html">
+        <source>Resume</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-31" datatype="html">
+        <source>Saved</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-32" datatype="html">
+        <source>Select adb.exe</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-33" datatype="html">
+        <source>Stopping measurement workers…</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-34" datatype="html">
+        <source>USB debugging only; wireless ADB is never selected.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-35" datatype="html">
+        <source>USB serial (optional)</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-36" datatype="html">
+        <source>Waiting for counter samples…</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-37" datatype="html">
+        <source>Waiting for measured byte deltas</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-38" datatype="html">
+        <source>Waiting for two fresh samples…</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-39" datatype="html">
+        <source>windows</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261021-40" datatype="html">
+        <source>Decoder video bytes unavailable; network total shown.</source>
       </trans-unit>
     </body>
   </file>

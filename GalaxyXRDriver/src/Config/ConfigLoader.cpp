@@ -16,7 +16,6 @@
 #include "Windows.h"
 #include "../Driver/NvencTap.h"
 #include "../Driver/VrlinkTap.h"
-#include "../Driver/VrlinkFallbackTap.h"
 #else
 #include <unistd.h>
 #endif
@@ -274,7 +273,7 @@ void ConfigLoader::ParseConfig(){
 				DriverLog("Config: %s", newConfig.streamFrame.nvencValidationError.c_str());
 			}
 		};
-		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencBitrateCurve", "nvencBitrateConstancyPct", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencVrlinkClampMbit", "nvencVrlinkFallbackMode", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
+		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencBitrateCurve", "nvencBitrateConstancyPct", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencVrlinkClampMbit", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
 		for(const char* key : {"customStreamFormatWidth", "customBandwidthMbit", "customEncodeWidth", "customStreamFormatWidthOverride"}){ validateInteger("galaxyXr", key); }
 		if(data["debugMode"].is_boolean()){
 			newConfig.debugMode = data["debugMode"].get<bool>();
@@ -968,10 +967,19 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["nvencVrlinkClampMbit"].is_number()){
 				newConfig.streamFrame.nvencVrlinkClampMbit = streamFrameData["nvencVrlinkClampMbit"].get<int>();
 			}
-			// 2026-10-20: 0 = VRLink stock, 1 = no fallback (see VrlinkFallbackTap.h).
-			// Never coerced: any other value is rejected by validateInteger above.
-			if(streamFrameData["nvencVrlinkFallbackMode"].is_number()){
-				newConfig.streamFrame.nvencVrlinkFallbackMode = streamFrameData["nvencVrlinkFallbackMode"].get<int>();
+			// 2026-10-21 retirement (owner decision): streamFrame.nvencVrlinkFallbackMode
+			// is gone. It pinned two instructions inside driver_vrlink.dll, which cannot
+			// survive Valve's updates (one image change made it inert, another needed a
+			// re-pin), and with Bitrate Constancy at 100 % the encoder target is the
+			// Bandwidth row regardless of the streamer's request. A stored 1 is honoured
+			// once by raising constancy to 100 % in memory; the key is left on disk
+			// untouched, so nothing silently reverts and the file stays the user's.
+			if(streamFrameData["nvencVrlinkFallbackMode"].is_number()
+				&& streamFrameData["nvencVrlinkFallbackMode"].get<int>() == 1
+				&& newConfig.streamFrame.nvencBitrateConstancyPct != 100){
+				DriverLog("Config: retired streamFrame.nvencVrlinkFallbackMode 1 -> nvencBitrateConstancyPct %d -> 100",
+					newConfig.streamFrame.nvencBitrateConstancyPct);
+				newConfig.streamFrame.nvencBitrateConstancyPct = 100;
 			}
 			if(streamFrameData["nvencH264GopFrames"].is_number_integer()){
 				newConfig.streamFrame.nvencH264GopFrames = streamFrameData["nvencH264GopFrames"].get<int>();
@@ -1627,7 +1635,7 @@ void ConfigLoader::ParseConfig(){
 					jsf["nvencTap"] = sf.nvencTap; jsf["nvencFixLevel"] = sf.nvencFixLevel; jsf["nvencForceCbr"] = sf.nvencForceCbr;
 					jsf["nvencVbvFrames"] = sf.nvencVbvFrames; jsf["nvencLowDelayKfScale"] = sf.nvencLowDelayKfScale;
 					jsf["nvencMaxBitrateHeadroomPct"] = sf.nvencMaxBitrateHeadroomPct; jsf["nvencForceFps"] = sf.nvencForceFps;
-					jsf["nvencBitrateCurve"] = sf.nvencBitrateCurve; jsf["nvencBitrateConstancyPct"] = sf.nvencBitrateConstancyPct; jsf["nvencVrlinkFallbackMode"] = sf.nvencVrlinkFallbackMode; jsf["nvencPresetMerge"] = sf.nvencPresetMerge;
+					jsf["nvencBitrateCurve"] = sf.nvencBitrateCurve; jsf["nvencBitrateConstancyPct"] = sf.nvencBitrateConstancyPct; jsf["nvencPresetMerge"] = sf.nvencPresetMerge;
 					jsf["nvencSplitMode"] = sf.nvencSplitMode; jsf["nvencPreset"] = sf.nvencPreset;
 					// 2026-09-26: v3 -> v4 also enters this writeback. Literal
 					// defaults here erased valid tuning on the following reload.
@@ -2025,7 +2033,6 @@ void ConfigLoader::WriteInfo(){
 				{"nvencBitrateCurve", defaultSettings.streamFrame.nvencBitrateCurve},
 				{"nvencBitrateConstancyPct", defaultSettings.streamFrame.nvencBitrateConstancyPct},
 				{"nvencVrlinkClampMbit", defaultSettings.streamFrame.nvencVrlinkClampMbit},
-				{"nvencVrlinkFallbackMode", defaultSettings.streamFrame.nvencVrlinkFallbackMode},
 				{"nvencH264GopFrames", defaultSettings.streamFrame.nvencH264GopFrames},
 				{"nvencH264IdrFrames", defaultSettings.streamFrame.nvencH264IdrFrames},
 				{"nvencH264RefFrames", defaultSettings.streamFrame.nvencH264RefFrames},
@@ -2200,12 +2207,15 @@ void ConfigLoader::WriteInfo(){
 		{"enabled", spacewarpTap.enabled}, {"hookInstalled", spacewarpTap.hookInstalled},
 		{"published", spacewarpTap.published}, {"publishedValue", spacewarpTap.publishedValue},
 		{"status", spacewarpTap.status}};
-	// 2026-10-20: same seam for the VRLink fallback tap. status is exactly
-	// "off" / "on" / "waiting"; reason explains a fail-closed state.
-	const auto fallbackTap = VrlinkFallbackTap::Get().GetRuntimeState();
-	data["vrlinkFallback"] = {
-		{"enabled", fallbackTap.enabled}, {"applied", fallbackTap.applied},
-		{"status", fallbackTap.status}, {"reason", fallbackTap.reason ? fallbackTap.reason : ""}};
+	// 2026-10-21 (S1): the encoder ceiling vs the request clamp VRLink honours.
+	// overdrive = the ceiling is above the clamp while the request sits at the
+	// clamp; the Companion shows it and offers an explicit align action, and the
+	// driver never rewrites the user's value.
+	const auto bitratePolicy = NvencTap::Get().GetBitratePolicyState();
+	data["bitratePolicy"] = {
+		{"overdrive", bitratePolicy.overdrive}, {"ceilingMbit", bitratePolicy.ceilingMbit},
+		{"clampMbit", bitratePolicy.clampMbit}, {"requestMbit", bitratePolicy.requestMbit},
+		{"targetMbit", bitratePolicy.targetMbit}};
 #endif
 	ordered_json& distortionProfilesJson = data["builtInDistortionProfiles"];
 	for(auto profilePair : builtInDistortionProfiles){

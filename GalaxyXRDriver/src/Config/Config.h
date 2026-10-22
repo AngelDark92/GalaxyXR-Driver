@@ -868,14 +868,6 @@ struct StreamFrameConfig{
 	int nvencBitrateConstancyPct = 0;
 	// vrlink's own encoder ceiling (reference for the scaling), settings.json only
 	int nvencVrlinkClampMbit = 350;
-	// 2026-10-20 (owner request): remove VRLink's own bitrate fallback and its
-	// pipeline throttle instead of reshaping their result. 0 = VRLink stock
-	// (byte-identical behaviour, the default), 1 = no fallback: the controller's
-	// health ratio is forced healthy and the QThrottle multiply is removed, so
-	// the encoder request is min(targetBandwidth, 350) at any ping and phase.
-	// Applied in memory to the loaded driver_vrlink.dll by VrlinkFallbackTap;
-	// nothing is written on disk. See VrlinkFallbackTap.h for the pinned sites.
-	int nvencVrlinkFallbackMode = 0;
 	std::string nvencValidationError; // Transient parse error, never persisted as a setting.
 	// 2026-10-16: explicit H.264 compatibility controls. Defaults retain the
 	// tested recipe; entered values are never replaced with that recipe.

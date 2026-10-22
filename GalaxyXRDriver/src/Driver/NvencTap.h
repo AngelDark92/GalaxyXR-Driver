@@ -276,6 +276,13 @@ struct NvencTapStats {
 	// reset watchdog keys on. submit->lock (the latency above) includes
 	// vrlink's own scheduling and is NOT engine time.
 	uint32_t ivSubmitSamples = 0, ivSubmitOver10 = 0; double ivSubmitSumMs = 0, ivSubmitMaxMs = 0;
+	// 2026-10-21 (S0): real occupancy on the encode path. The 16-slot
+	// submits[] table pairs a lock to its submit by bitstream pointer; it is
+	// not an occupancy counter and a failed submit used to leave its
+	// timestamp behind until the ring wrapped, inflating the latency numbers.
+	// inflight = pictures submitted and not yet locked; ivInflightMax is the
+	// interval high-water mark.
+	uint32_t inflight = 0, ivInflightMax = 0;
 	// preset-merge health: fetches of the canonical preset config and the
 	// struct version that finally worked (0 = none yet / all rejected)
 	uint32_t presetFetchOk = 0, presetFetchFail = 0;
@@ -319,6 +326,27 @@ struct NvencTapRuntimeState {
 	uint32_t encodeWidth = 0, encodeHeight = 0;
 };
 
+// 2026-10-21 (S1): the relationship between the encoder ceiling (Bandwidth
+// row), VRLink's own request clamp, and the request it currently makes.
+// overdrive = the ceiling is above the clamp while the request sits at the
+// clamp: the encoder is asked to send more than the streamer requests, so the
+// pacer plans for less than it receives. Published for the Companion, which
+// shows it and offers an explicit align action; the driver never rewrites the
+// user's value.
+struct BitratePolicyState {
+	bool overdrive = false;
+	int ceilingMbit = 0;
+	int clampMbit = 0;
+	int requestMbit = 0;
+	int targetMbit = 0;
+};
+
+// 2026-10-21 (S0): admission cadence at the DirectMode shim, i.e. what the
+// compositor offers vrlink before any encoding (defined in
+// FrameComponentShim.cpp). Returns the interval event count and the worst gap
+// between consecutive submissions, then resets both.
+void FrameShimCadenceSnapshot(uint32_t* count, double* maxGapMs);
+
 class NvencTap{
 public:
 	static NvencTap& Get();
@@ -337,6 +365,7 @@ public:
 	bool ConfigPublished() const { return cfgPublished.load(std::memory_order_relaxed); }
 	NvencTapStats GetStats();
 	NvencTapRuntimeState GetRuntimeState();
+	BitratePolicyState GetBitratePolicyState();
 
 	// periodic one-line summary to the log while enabled (10 s)
 	void MaybeHeartbeat();

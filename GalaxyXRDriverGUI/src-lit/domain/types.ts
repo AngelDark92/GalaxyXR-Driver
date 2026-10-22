@@ -238,8 +238,6 @@ export type StreamFrameConfig = {
   nvencBitrateCurve: number;
   nvencBitrateConstancyPct: number;
   nvencVrlinkClampMbit: number;
-  /** 0 = VRLink stock, 1 = no fallback (VrlinkFallbackTap in-memory edit). */
-  nvencVrlinkFallbackMode: number;
   // Optional for settings written before the editable H.264 recipe (2026-10-16).
   // GOP/IDR: 0 follows the encoder FPS; -1 preserves upstream parameters.
   nvencH264GopFrames?: number;
@@ -544,6 +542,15 @@ export type DriverInfo = {
     // Pinned cross-child seam (brief 11, 2026-10-17): the keys and the status
     // enum are read verbatim from info.json — exactly 'off' | 'on' | 'waiting'.
     status: 'off' | 'on' | 'waiting';
+  };
+  // 2026-10-21 (S1): encoder ceiling vs the request clamp VRLink honours.
+  // overdrive = ceiling above clamp while the request sits at the clamp.
+  bitratePolicy?: {
+    overdrive: boolean;
+    ceilingMbit: number;
+    clampMbit: number;
+    requestMbit: number;
+    targetMbit: number;
   };
 }
 export type ResolutionInfo = {

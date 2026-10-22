@@ -58,10 +58,6 @@ void DriverLog(const char* format, ...){
 // the real NvencTap.cpp is NOT compiled here — only the WriteInfo call surface.
 NvencTap& NvencTap::Get(){ static NvencTap stub; return stub; }
 NvencTapRuntimeState NvencTap::GetRuntimeState(){ return {}; }
-// 2026-10-20: ConfigLoader::WriteInfo also emits the VRLink fallback block; the
-// real tap is a separate failure domain and is not compiled into this harness.
-VrlinkFallbackTap& VrlinkFallbackTap::Get(){ static VrlinkFallbackTap stub; return stub; }
-VrlinkFallbackRuntimeState VrlinkFallbackTap::GetRuntimeState(){ return {}; }
 // Distortion globals are only read by WriteInfo's profile listing (empty here).
 std::unordered_map<std::string, DistortionProfileConfig> builtInDistortionProfiles;
 

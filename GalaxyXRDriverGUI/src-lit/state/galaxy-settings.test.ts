@@ -79,12 +79,12 @@ describe('stream-frame integer validation', () => {
       'streamFrame.nvencH264VbvInitialDelay', 'streamFrame.nvencMultiPass', 'streamFrame.nvencPreset',
       'streamFrame.nvencSplitMode', 'streamFrame.nvencAqStrength', 'streamFrame.nvencLowDelayKfScale',
       'streamFrame.nvencMaxQp', 'streamFrame.nvencMinQp', 'streamFrame.nvencMinQpIntra',
-      'streamFrame.nvencBitrateMbit', 'streamFrame.nvencBitrateConstancyPct', 'streamFrame.nvencVrlinkFallbackMode', 'streamFrame.nvencMaxBitrateHeadroomPct', 'streamFrame.nvencForceFps',
+      'streamFrame.nvencBitrateMbit', 'streamFrame.nvencBitrateConstancyPct', 'streamFrame.nvencMaxBitrateHeadroomPct', 'streamFrame.nvencForceFps',
       'streamFrame.nvencVbvFrames', 'streamFrame.nvencQpFovea', 'streamFrame.nvencQpPeriphery']) {
       expect(contractKeys).toContain(key);
     }
-    // 2026-10-20: +1 for streamFrame.nvencVrlinkFallbackMode (0 or 1).
-    expect(contractKeys).toHaveLength(30);
+    // 2026-10-21: -1 with the retirement of streamFrame.nvencVrlinkFallbackMode.
+    expect(contractKeys).toHaveLength(29);
   });
 
   it.each([
@@ -383,6 +383,9 @@ describe('schema migrations', () => {
     expect(gs.settings?.nvencBitrateConstancyPct).toBe(100);
     expect((gs.rootSetting as any).streamFrame.nvencBitrateScale).toBeUndefined();
   });
+
+  // 2026-10-21: the No-fallback select is retired; migration of the stored key
+  // lives in DriverSettingService.migrateLoadedValues and driver-setting.test.ts.
 
   it('preserves explicit pre-v3 encoder and headset-profile Off choices', async () => {
     const off = {

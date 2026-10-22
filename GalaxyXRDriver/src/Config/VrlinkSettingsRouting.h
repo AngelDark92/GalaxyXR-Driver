@@ -33,8 +33,15 @@ inline std::vector<std::string> VrlinkTuningSections(bool useGalaxyProfile) {
 }
 inline bool IsVrlinkCapabilityKey(const std::string& key) {
     return key == "recommendedRenderWidth" || key == "recommendedRenderHeight"
-        || key == "supports10bit" || key == "minStreamFormatWidth" || key == "maxStreamFormatWidth"
+        || key == "supports10bit" || key == "supportsEyeTracking"
+        || key == "minStreamFormatWidth" || key == "maxStreamFormatWidth"
         || key == "minNonFoveatedStreamFormatWidth" || key == "maxNonFoveatedStreamFormatWidth";
+}
+// The enabled custom profile also carries the identity strings vrlink rewrites when it applies
+// the section, so they follow the same active/inactive routing as the capability keys.
+inline bool IsVrlinkProfileIdentityKey(const std::string& key) {
+    return key == "manufacturerName" || key == "modelNumber" || key == "trackingSystemName"
+        || key == "controllerType" || key == "resourceRoot" || key == "inputProfilePath";
 }
 inline bool IsVrlinkTuningKey(const std::string& key) {
     return key == "encodeWidth" || key == "streamFormatWidth" || key == "automaticStreamFormatWidth"
@@ -55,7 +62,7 @@ inline bool IsVrlinkSettingsSection(const std::string& section) {
 inline bool ShouldRestoreInactiveVrlinkKey(const std::string& section, const std::string& key,
     bool useGalaxyProfile, const std::string& originalModel) {
     if(!IsVrlinkSettingsSection(section) || IsVrlinkReservedKey(key)) return false;
-    if(IsVrlinkCapabilityKey(key)) {
+    if(IsVrlinkCapabilityKey(key) || IsVrlinkProfileIdentityKey(key)) {
         // Before HMD activation, an OFF route does not yet know the patched
         // model. Do not remove its previous profile using a guessed fallback.
         if(!useGalaxyProfile && originalModel.empty()) return false;
