@@ -18,6 +18,13 @@ from the current or retained same-generation frame); ambiguous, truncated or
 stale samples remain unverified. The standalone Python/Tk utility below remains
 available for source-tree work.
 
+Closing or hiding the monitor cancels its sampler workers, kills any in-flight
+`adb` child, and runs `adb kill-server`; it does not itself quit the Companion.
+This also stops the ADB server on the inherited port, so another Android tool
+that needs it will start it again. To delete a portable package folder, quit the
+Companion from the tray as well, because its running EXE is the file that keeps
+that folder locked.
+
 Double-click [`tools/Start-BitrateMonitor.cmd`](../tools/Start-BitrateMonitor.cmd).
 This standalone Windows utility uses **64-bit Python 3.10+ with Tk** and the
 standard library only. There is no pip install, browser engine, server or driver

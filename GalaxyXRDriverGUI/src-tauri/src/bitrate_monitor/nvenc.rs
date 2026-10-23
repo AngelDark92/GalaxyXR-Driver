@@ -12,6 +12,8 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const PREFIX_SIZE: usize = 112;
@@ -84,10 +86,11 @@ pub struct NvencSampler {
     codec_sampled_at: f64,
     codec_frame_age: f64,
     last: Option<(String, u64, u64)>,
+    stop: Arc<AtomicBool>,
 }
 
 impl NvencSampler {
-    pub fn new(info_path: Option<&str>, codec_interval: f64) -> Result<Self, SamplerError> {
+    pub fn new(info_path: Option<&str>, codec_interval: f64, stop: Arc<AtomicBool>) -> Result<Self, SamplerError> {
         if !codec_interval.is_finite() || !(1.0..=3600.0).contains(&codec_interval) {
             return Err(SamplerError::new(
                 "invalid-interval",
@@ -113,6 +116,7 @@ impl NvencSampler {
             codec_sampled_at: 0.0,
             codec_frame_age: 0.0,
             last: None,
+            stop,
         })
     }
 
@@ -219,6 +223,9 @@ impl NvencSampler {
     }
 
     pub fn sample(&mut self) -> Result<Sample, SamplerError> {
+        if self.stop.load(Ordering::SeqCst) {
+            return Err(SamplerError::new("cancelled", "Sampling stopped."));
+        }
         let (info, _) = self.metadata()?;
         let tap = info
             .get("encoderTap")

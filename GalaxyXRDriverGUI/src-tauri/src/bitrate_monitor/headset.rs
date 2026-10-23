@@ -8,6 +8,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const ADB_TIMEOUT: Duration = Duration::from_secs(3);
@@ -46,7 +48,27 @@ pub fn default_adb() -> String {
     String::new()
 }
 
-fn run_adb(adb_path: &str, args: &[&str], timeout: Duration) -> Result<String, SamplerError> {
+pub(super) fn kill_server(adb_path: &str) {
+    let path = if adb_path.trim().is_empty() { default_adb() } else { adb_path.to_string() };
+    if path.is_empty() {
+        return;
+    }
+    let _ = run_adb(&path, &["kill-server"], ADB_TIMEOUT, &AtomicBool::new(false));
+}
+
+fn cancelled() -> SamplerError {
+    SamplerError::new("cancelled", "Sampling stopped.")
+}
+
+fn run_adb(
+    adb_path: &str,
+    args: &[&str],
+    timeout: Duration,
+    stop: &AtomicBool,
+) -> Result<String, SamplerError> {
+    if stop.load(Ordering::SeqCst) {
+        return Err(cancelled());
+    }
     if adb_path.trim().is_empty() || !Path::new(adb_path).is_file() {
         return Err(SamplerError::new("adb-missing", "Choose an existing adb executable."));
     }
@@ -90,6 +112,11 @@ fn run_adb(adb_path: &str, args: &[&str], timeout: Duration) -> Result<String, S
                 return Err(SamplerError::new("adb-failed", format!("ADB is unavailable: {error}")))
             }
         }
+        if stop.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(cancelled());
+        }
         if started.elapsed() > timeout {
             let _ = child.kill();
             let _ = child.wait();
@@ -108,8 +135,8 @@ fn valid_serial(serial: &str) -> bool {
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'))
 }
 
-fn usb_serial(adb_path: &str) -> Result<String, SamplerError> {
-    let serial = run_adb(adb_path, &["-d", "get-serialno"], ADB_TIMEOUT)?.trim().to_string();
+fn usb_serial(adb_path: &str, stop: &AtomicBool) -> Result<String, SamplerError> {
+    let serial = run_adb(adb_path, &["-d", "get-serialno"], ADB_TIMEOUT, stop)?.trim().to_string();
     if !valid_serial(&serial) {
         return Err(SamplerError::new(
             "usb-missing",
@@ -119,8 +146,8 @@ fn usb_serial(adb_path: &str) -> Result<String, SamplerError> {
     Ok(serial)
 }
 
-fn galaxy_xr_model(adb_path: &str) -> Result<String, SamplerError> {
-    let model = run_adb(adb_path, &["-d", "shell", "getprop", "ro.product.model"], ADB_TIMEOUT)?
+fn galaxy_xr_model(adb_path: &str, stop: &AtomicBool) -> Result<String, SamplerError> {
+    let model = run_adb(adb_path, &["-d", "shell", "getprop", "ro.product.model"], ADB_TIMEOUT, stop)?
         .trim()
         .to_string();
     let canonical: String = model
@@ -252,15 +279,17 @@ struct ProbeState {
 pub struct HeadsetSampler {
     adb_path: String,
     serial: String,
+    stop: Arc<AtomicBool>,
     verified_identity: Option<(String, String)>,
     probe: ProbeState,
 }
 
 impl HeadsetSampler {
-    pub fn new(adb_path: &str, serial: &str) -> Self {
+    pub fn new(adb_path: &str, serial: &str, stop: Arc<AtomicBool>) -> Self {
         Self {
             adb_path: if adb_path.trim().is_empty() { default_adb() } else { adb_path.to_string() },
             serial: serial.trim().to_string(),
+            stop,
             verified_identity: None,
             probe: ProbeState::default(),
         }
@@ -272,8 +301,16 @@ impl HeadsetSampler {
     }
 
     fn read_decoder(&mut self, serial: &str, boot_id: &str) -> Result<Option<Sample>, SamplerError> {
+        if self.stop.load(Ordering::SeqCst) {
+            return Err(cancelled());
+        }
         let now = monotonic_now();
-        let pids_text = match run_adb(&self.adb_path, &["-d", "shell", "pidof", "com.valvesoftware.steamlinkvr"], ADB_TIMEOUT) {
+        let pids_text = match run_adb(
+            &self.adb_path,
+            &["-d", "shell", "pidof", "com.valvesoftware.steamlinkvr"],
+            ADB_TIMEOUT,
+            &self.stop,
+        ) {
             Ok(text) => text,
             Err(_) => return Ok(None),
         };
@@ -288,6 +325,7 @@ impl HeadsetSampler {
             &self.adb_path,
             &["-d", "logcat", "-d", "-t", "100", "-v", "epoch", "GXRDecoderProbe:I", "*:S"],
             ADB_TIMEOUT,
+            &self.stop,
         ) {
             Ok(text) => text,
             Err(_) => return Ok(None),
@@ -329,7 +367,10 @@ impl HeadsetSampler {
     }
 
     pub fn sample(&mut self) -> Result<Sample, SamplerError> {
-        let serial = usb_serial(&self.adb_path)?;
+        if self.stop.load(Ordering::SeqCst) {
+            return Err(cancelled());
+        }
+        let serial = usb_serial(&self.adb_path, &self.stop)?;
         if !self.serial.is_empty() && self.serial != serial {
             return Err(SamplerError::new(
                 "usb-changed",
@@ -340,6 +381,7 @@ impl HeadsetSampler {
             &self.adb_path,
             &["-d", "shell", "cat", "/proc/sys/kernel/random/boot_id"],
             ADB_TIMEOUT,
+            &self.stop,
         )?
         .trim()
         .to_string();
@@ -348,11 +390,11 @@ impl HeadsetSampler {
         }
         let identity = (serial.clone(), boot_id.clone());
         if self.verified_identity.as_ref() != Some(&identity) {
-            galaxy_xr_model(&self.adb_path)?;
+            galaxy_xr_model(&self.adb_path, &self.stop)?;
             self.verified_identity = Some(identity);
         }
         if let Some(sample) = self.read_decoder(&serial, &boot_id)? {
-            if usb_serial(&self.adb_path)? != serial {
+            if usb_serial(&self.adb_path, &self.stop)? != serial {
                 return Err(SamplerError::new(
                     "usb-changed",
                     "USB headset changed while sampling; waiting for a new baseline.",
@@ -362,18 +404,23 @@ impl HeadsetSampler {
         }
         // Freshness and counters from a different device must not survive a
         // USB change between commands. -d still prohibits network ADB.
-        if usb_serial(&self.adb_path)? != serial {
+        if usb_serial(&self.adb_path, &self.stop)? != serial {
             return Err(SamplerError::new(
                 "usb-changed",
                 "USB headset changed while sampling; waiting for a new baseline.",
             ));
         }
-        let routes = run_adb(&self.adb_path, &["-d", "shell", "ip", "route"], ADB_TIMEOUT)?;
+        let routes = run_adb(&self.adb_path, &["-d", "shell", "ip", "route"], ADB_TIMEOUT, &self.stop)?;
         let started = monotonic_now();
-        let counters = parse_net_dev(&run_adb(&self.adb_path, &["-d", "shell", "cat", "/proc/net/dev"], ADB_TIMEOUT)?);
+        let counters = parse_net_dev(&run_adb(
+            &self.adb_path,
+            &["-d", "shell", "cat", "/proc/net/dev"],
+            ADB_TIMEOUT,
+            &self.stop,
+        )?);
         let finished = monotonic_now();
         let interface = choose_wlan_interface(&counters, &routes)?;
-        if usb_serial(&self.adb_path)? != serial {
+        if usb_serial(&self.adb_path, &self.stop)? != serial {
             return Err(SamplerError::new(
                 "usb-changed",
                 "USB headset changed while sampling; waiting for a new baseline.",

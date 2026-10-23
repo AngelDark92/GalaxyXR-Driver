@@ -9,7 +9,7 @@ mod headset;
 mod nvenc;
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -165,22 +165,35 @@ pub struct Monitor {
     // windows with the same label/profile.
     opening: Mutex<()>,
     inner: Mutex<Inner>,
+    // Async close/hide cleanup must finish before process exit so adb.exe does
+    // not outlive the Companion. Incremented before spawning a teardown thread.
+    cleanup_pending: Arc<AtomicUsize>,
 }
 
 #[derive(Default)]
 struct Inner {
     generation: u64,
     stop: Option<Arc<AtomicBool>>,
+    handles: Vec<std::thread::JoinHandle<()>>,
     theme: String,
     info_path: Option<String>,
+    adb_path: Option<String>,
 }
 
 impl Inner {
-    fn stop_workers(&mut self) {
+    /// Stop the current generation and hand its handles and ADB path to the
+    /// caller. The caller joins off the event loop, then shuts ADB down.
+    fn take_session(&mut self) -> (Option<Arc<AtomicBool>>, Vec<std::thread::JoinHandle<()>>, Option<String>) {
         self.generation = self.generation.wrapping_add(1);
-        if let Some(stop) = self.stop.take() {
+        let stop = self.stop.take();
+        if let Some(stop) = &stop {
             stop.store(true, Ordering::SeqCst);
         }
+        (
+            stop,
+            std::mem::take(&mut self.handles),
+            self.adb_path.take(),
+        )
     }
 }
 
@@ -292,17 +305,21 @@ pub async fn open_bitrate_monitor(
 }
 
 #[tauri::command]
-pub fn close_bitrate_monitor(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+pub fn close_bitrate_monitor(window: WebviewWindow, app: AppHandle, monitor: State<'_, Monitor>) -> Result<(), String> {
     require_main(&window)?;
-    if let Some(monitor) = app.get_webview_window(WINDOW_LABEL) {
-        monitor.close().map_err(|e| e.to_string())?;
+    shutdown_async(&monitor, true);
+    if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
+        window.close().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn close_bitrate_monitor_window(window: WebviewWindow) -> Result<(), String> {
+pub fn close_bitrate_monitor_window(window: WebviewWindow, monitor: State<'_, Monitor>) -> Result<(), String> {
     require_monitor(&window)?;
+    // Stop samplers and the ADB server before destroying the WebView that
+    // requested the close. Destroyed() is only a fallback.
+    shutdown_async(&monitor, true);
     window.close().map_err(|e| e.to_string())
 }
 
@@ -348,13 +365,6 @@ pub fn start_bitrate_monitor(
 ) -> Result<u64, String> {
     require_monitor(&window)?;
     validate_config(&config)?;
-    let (generation, stop) = {
-        let mut inner = monitor.inner.lock().map_err(|e| e.to_string())?;
-        inner.stop_workers();
-        let stop = Arc::new(AtomicBool::new(false));
-        inner.stop = Some(stop.clone());
-        (inner.generation, stop)
-    };
     let resolved = MonitorConfig {
         info_path: config.info_path.clone(),
         adb_path: if config.adb_path.trim().is_empty() {
@@ -365,15 +375,43 @@ pub fn start_bitrate_monitor(
         serial: config.serial.clone(),
         codec_interval: config.codec_interval,
     };
-    spawn_worker(app.clone(), generation, stop.clone(), Source::Nvenc, resolved.clone());
-    spawn_worker(app, generation, stop, Source::Headset, resolved);
+    let (generation, stop, old_handles) = {
+        let mut inner = monitor.inner.lock().map_err(|e| e.to_string())?;
+        let (_, old_handles, _) = inner.take_session();
+        let stop = Arc::new(AtomicBool::new(false));
+        inner.stop = Some(stop.clone());
+        inner.adb_path = Some(resolved.adb_path.clone());
+        (inner.generation, stop, old_handles)
+    };
+    // The previous generation gets its stop flag immediately; join it off the
+    // event loop so a slow fs/process read cannot block the new start.
+    if !old_handles.is_empty() {
+        std::thread::spawn(move || {
+            for handle in old_handles {
+                let _ = handle.join();
+            }
+        });
+    }
+    let mut handles = Vec::with_capacity(2);
+    for (source, config) in [(Source::Nvenc, resolved.clone()), (Source::Headset, resolved)] {
+        match spawn_worker(app.clone(), generation, stop.clone(), source, config) {
+            Ok(handle) => handles.push(handle),
+            Err(error) => {
+                stop.store(true, Ordering::SeqCst);
+                return Err(format!("Could not start the bitrate monitor worker: {error}"));
+            }
+        }
+    }
+    if let Ok(mut inner) = monitor.inner.lock() {
+        inner.handles = handles;
+    }
     Ok(generation)
 }
 
 #[tauri::command]
 pub fn stop_bitrate_monitor(window: WebviewWindow, monitor: State<'_, Monitor>) -> Result<(), String> {
     require_monitor(&window)?;
-    monitor.inner.lock().map_err(|e| e.to_string())?.stop_workers();
+    shutdown_async(&monitor, true);
     Ok(())
 }
 
@@ -430,10 +468,78 @@ pub async fn write_bitrate_csv(window: WebviewWindow, path: String, content: Str
 }
 
 pub fn destroyed(app: &AppHandle) {
-    if let Ok(mut inner) = app.state::<Monitor>().inner.lock() {
-        inner.stop_workers();
-    }
+    shutdown_async(&app.state::<Monitor>(), true);
     let _ = app.emit_to("main", CLOSED_EVENT, ());
+}
+
+/// Stops the monitor when its Companion hides to the tray. No session means
+/// no ADB shutdown: never disturb a server this monitor did not start.
+pub fn suspend(app: &AppHandle) {
+    shutdown_async(&app.state::<Monitor>(), true);
+}
+
+/// Bounded, synchronous teardown for application exit. Cancels the workers,
+/// joins them, then shuts the monitor's ADB server down before the process
+/// can terminate the cleanup thread.
+pub fn shutdown_on_exit(app: &AppHandle) {
+    let Some(monitor) = app.try_state::<Monitor>() else { return; };
+    let session = match monitor.inner.lock() {
+        Ok(mut inner) => Some(inner.take_session()),
+        Err(_) => None,
+    };
+    if let Some((stop, handles, adb_path)) = session {
+        if let Some(stop) = &stop {
+            stop.store(true, Ordering::SeqCst);
+        }
+        for handle in handles {
+            let _ = handle.join();
+        }
+        if let Some(path) = adb_path {
+            headset::kill_server(&path);
+        }
+    }
+    // A close/hide command may have handed the same teardown to a background
+    // thread. Do not let process exit terminate that thread before adb.exe is
+    // gone. Workers are cancel-aware, so this normally completes in <100 ms.
+    let deadline = Instant::now() + Duration::from_secs(4);
+    while monitor.cleanup_pending.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if monitor.cleanup_pending.load(Ordering::SeqCst) > 0 {
+        log::warn!("Bitrate monitor teardown still pending at exit; adb.exe may need manual cleanup");
+    }
+}
+
+fn shutdown_async(monitor: &Monitor, kill_adb: bool) {
+    let (stop, handles, adb_path) = match monitor.inner.lock() {
+        Ok(mut inner) => inner.take_session(),
+        Err(_) => return,
+    };
+    if stop.is_none() && handles.is_empty() && adb_path.is_none() {
+        return;
+    }
+    if let Some(stop) = &stop {
+        stop.store(true, Ordering::SeqCst);
+    }
+    let pending = monitor.cleanup_pending.clone();
+    pending.fetch_add(1, Ordering::SeqCst);
+    let thread_pending = pending.clone();
+    let spawned = std::thread::Builder::new()
+        .name("bitrate-teardown".into())
+        .spawn(move || {
+            for handle in handles {
+                let _ = handle.join();
+            }
+            if kill_adb {
+                if let Some(path) = adb_path {
+                    headset::kill_server(&path);
+                }
+            }
+            thread_pending.fetch_sub(1, Ordering::SeqCst);
+        });
+    if spawned.is_err() {
+        pending.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 fn preferences_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -480,18 +586,29 @@ impl Sampler {
     }
 }
 
-fn create_sampler(source: Source, config: &MonitorConfig) -> Result<Sampler, SamplerError> {
+fn create_sampler(source: Source, config: &MonitorConfig, stop: &Arc<AtomicBool>) -> Result<Sampler, SamplerError> {
     match source {
-        Source::Nvenc => nvenc::NvencSampler::new(config.info_path.as_deref(), config.codec_interval).map(Sampler::Nvenc),
-        Source::Headset => Ok(Sampler::Headset(headset::HeadsetSampler::new(&config.adb_path, &config.serial))),
+        Source::Nvenc => nvenc::NvencSampler::new(config.info_path.as_deref(), config.codec_interval, stop.clone())
+            .map(Sampler::Nvenc),
+        Source::Headset => Ok(Sampler::Headset(headset::HeadsetSampler::new(
+            &config.adb_path,
+            &config.serial,
+            stop.clone(),
+        ))),
     }
 }
 
-fn spawn_worker(app: AppHandle, generation: u64, stop: Arc<AtomicBool>, source: Source, config: MonitorConfig) {
+fn spawn_worker(
+    app: AppHandle,
+    generation: u64,
+    stop: Arc<AtomicBool>,
+    source: Source,
+    config: MonitorConfig,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
     let name = format!("bitrate-{}", source.key());
-    let _ = std::thread::Builder::new().name(name).spawn(move || {
+    std::thread::Builder::new().name(name).spawn(move || {
         run_worker(app, generation, stop, source, config);
-    });
+    })
 }
 
 fn run_worker(app: AppHandle, generation: u64, stop: Arc<AtomicBool>, source: Source, config: MonitorConfig) {
@@ -502,11 +619,14 @@ fn run_worker(app: AppHandle, generation: u64, stop: Arc<AtomicBool>, source: So
         }
         let started = Instant::now();
         if sampler.is_none() {
-            match create_sampler(source, &config) {
+            match create_sampler(source, &config, &stop) {
                 Ok(created) => {
                     sampler = Some(created);
                 }
                 Err(error) => {
+                    if stop.load(Ordering::SeqCst) {
+                        break;
+                    }
                     let event = SampleEvent {
                         generation,
                         source: source.key(),
@@ -520,14 +640,25 @@ fn run_worker(app: AppHandle, generation: u64, stop: Arc<AtomicBool>, source: So
         if let Some(active) = sampler.as_mut() {
             match active.sample() {
                 Ok(sample) => {
+                    if stop.load(Ordering::SeqCst) {
+                        active.close();
+                        break;
+                    }
                     let event = SampleEvent { generation, source: source.key(), sample: Some(sample), error: None };
                     if app.emit_to(WINDOW_LABEL, SAMPLE_EVENT, event).is_err() {
                         break;
                     }
                 }
+                Err(error) if error.code == "cancelled" => {
+                    active.close();
+                    break;
+                }
                 Err(error) => {
                     active.close();
                     sampler = None;
+                    if stop.load(Ordering::SeqCst) {
+                        break;
+                    }
                     let event = SampleEvent {
                         generation,
                         source: source.key(),
@@ -571,5 +702,61 @@ mod tests {
             config.codec_interval = value;
             assert!(validate_config(&config).is_err(), "{value} must be rejected");
         }
+    }
+
+    #[test]
+    fn shutdown_async_joins_workers_and_completes_without_adb_path() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+        let monitor = super::Monitor::default();
+        let stop = Arc::new(AtomicBool::new(false));
+        let observed = stop.clone();
+        let handle = std::thread::spawn(move || {
+            while !observed.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        {
+            let mut inner = monitor.inner.lock().unwrap();
+            inner.stop = Some(stop.clone());
+            inner.handles.push(handle);
+        }
+        super::shutdown_async(&monitor, true);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while monitor.cleanup_pending.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(monitor.cleanup_pending.load(Ordering::SeqCst), 0);
+        assert!(stop.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn take_session_signals_workers_and_clears_state() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::Duration;
+        let stop = Arc::new(AtomicBool::new(false));
+        let observed = stop.clone();
+        let handle = std::thread::spawn(move || {
+            while !observed.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let mut inner = super::Inner::default();
+        inner.stop = Some(stop.clone());
+        inner.handles.push(handle);
+        inner.adb_path = Some("C:/platform-tools/adb.exe".into());
+        let (taken, handles, adb) = inner.take_session();
+        assert!(taken.is_some());
+        assert!(stop.load(Ordering::SeqCst));
+        assert_eq!(handles.len(), 1);
+        assert_eq!(adb.as_deref(), Some("C:/platform-tools/adb.exe"));
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        assert!(inner.stop.is_none());
+        assert!(inner.handles.is_empty());
+        assert!(inner.adb_path.is_none());
     }
 }

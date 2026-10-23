@@ -201,6 +201,9 @@ fn hide(app: &AppHandle) {
                 }
             }
         }
+        // Hiding the Companion must also stop the monitor's telemetry and ADB
+        // server; do not rely on a WebView visibility event alone.
+        crate::bitrate_monitor::suspend(app);
         let main = app.get_webview_window("main").ok_or("Companion window is unavailable")?;
         crate::webview_resources::set_background(&main, true)?;
         main.hide().map_err(|e| e.to_string())

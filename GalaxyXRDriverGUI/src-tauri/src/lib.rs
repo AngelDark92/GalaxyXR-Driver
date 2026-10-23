@@ -88,14 +88,20 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
-            tauri::RunEvent::Exit => ofxr::shutdown_on_exit(),
+            tauri::RunEvent::Exit => {
+                bitrate_monitor::shutdown_on_exit(app);
+                ofxr::shutdown_on_exit();
+            }
             // A genuine main-window destruction is still an exit fallback;
             // CloseRequested is routed through tray/settings-flush policy below.
             tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
                 ..
-            } if label == "main" => app.exit(0),
+            } if label == "main" => {
+                bitrate_monitor::shutdown_on_exit(app);
+                app.exit(0);
+            }
             tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
