@@ -17,6 +17,7 @@ import { ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 import { codecEncoderDefaults, streamFrameIntegerError } from '../state/galaxy-settings';
 import { BITRATE_CURVE_FAMILIES } from '../domain/bitrate-curve';
+import { open } from '@tauri-apps/plugin-dialog';
 import '../ui/controls';
 import './driver-banner';
 import './system-ready';
@@ -146,6 +147,15 @@ export class StreamFramePage extends BasePage {
   private ofxrPreferences(): OfxrPreferences { return this.ctx.ofxr.preferences(); }
   private setOfxrEnabled(enabled: boolean): Promise<void> { return this.ctx.ofxr.setEnabled(enabled); }
   private selectOfxrVersion(version: string): Promise<void> { return this.ctx.ofxr.selectVersion(version); }
+  private async importOfxr(): Promise<void> {
+    try {
+      const selected = await open({ directory: true, multiple: false, title: t('Select the OFXR Bridge build folder') });
+      if (typeof selected === 'string') await this.ctx.ofxr.importBuild(selected);
+    } catch (error) {
+      this.ctx.ofxr.setError(String(error instanceof Error ? error.message : error));
+      this.requestUpdate();
+    }
+  }
   private reinstallOfxr(): Promise<void> { return this.ctx.ofxr.reinstall(); }
   private removeOfxr(): Promise<void> { return this.ctx.ofxr.remove(); }
   private updateOfxr(patch: Partial<OfxrPreferences>): Promise<void> { return this.ctx.ofxr.update(patch); }
@@ -252,22 +262,13 @@ if (vendor) {
             parts.push(statusMessage('warning', t('H.264 tile width above 1024'),
               t('Steam Link negotiates H.264 at 1024 × 4096. A tile width above 1024 requests a taller four-tile frame and may fail to encode. Your value is kept and remains editable; reset Tile Width to use 1024.')));
           }
-          parts.push(fieldRow(t('Bitrate (Mbit/s)'), html`
+          parts.push(fieldRow(t('Max Bitrate (Mbit/s)'), html`
       <app-number .value=${galaxy.streamQualityValues.bandwidth} step="1" min="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxy.setStreamQualityValue('bandwidth', e.detail); } this.noteNumberError('galaxyXr.customBandwidthMbit', e.detail); save(); }}></app-number>
           `, {
-  tip: t("Set the stream bandwidth budget and highest requested encoder target. The budget is written to targetBandwidth and recommendedBandwidthMbit for pacing. The streamer's request is limited by the VRLink request clamp; the driver maps that request to the configured encoder target.\n\nA target is not a guarantee of actual encoded output or constant sent bits. Actual encoded and wire rates depend on content and encoder behavior. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; encoder side — requested bitrate target."),
+  tip: t("Set the stream bandwidth budget and the highest requested encoder target (the Max Bitrate ceiling for the curve). The budget is written to targetBandwidth and recommendedBandwidthMbit for pacing. The driver maps the streamer's request directly onto this Max Bitrate; there is no separate 350 Mbit/s clamp. No curve point or applied target can exceed this Max Bitrate value.\n\nA target is not a guarantee of actual encoded output or constant sent bits. Actual encoded and wire rates depend on content and encoder behavior. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; encoder side — requested bitrate target."),
   reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
           }));
           parts.push(this.numberErrorRow('galaxyXr.customBandwidthMbit'));
-        // 2026-10-21 (S1): the driver publishes whether the encoder ceiling sits
-        // above the clamp VRLink honours. Show it; aligning is an explicit click,
-        // never a silent rewrite.
-        const bitratePolicy = this.ctx.dis.values()?.bitratePolicy;
-        if (bitratePolicy?.overdrive) {
-          const clamp = bitratePolicy.clampMbit;
-          parts.push(noteRow(html`${t('Highest requested encoder target {ceiling} Mbit/s is above the VRLink request clamp of {clamp} Mbit/s. Pacing and encoder targets may differ; actual encoded and wire rates vary.', { ceiling: bitratePolicy.ceilingMbit, clamp })}
-            <fluent-button appearance="outline" @click=${() => { if ((settings.nvencBitrateMbit ?? 0) !== 0) { settings.nvencBitrateMbit = clamp; } else { galaxy.setStreamQualityValue('bandwidth', clamp); } save(); }}>${t('Align bitrate to {clamp} Mbit', { clamp })}</fluent-button>`));
-        }
         if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
             || !Number.isInteger(galaxy.streamQualityValues.bandwidth) || galaxy.streamQualityValues.bandwidth <= 0) {
           parts.push(statusMessage('error', t('Invalid stream setting'), t('Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.')));
@@ -555,15 +556,6 @@ if (vendor && settings) {
             `, {
   tip: t("Choose who computes the optical flow. FidelityFX runs on any graphics card. The NVIDIA options use the GPU's hardware Optical Flow engine and require an NVIDIA Turing generation or newer card with Optical Flow support (TU117-based GTX 1650 class cards are not supported). NVIDIA Medium with 50% resolution is the recommended starting point; the GPU cost and quality trade off against each other.\n\nValue: ofxr.mode (gui-settings.json). Companion side — writes backend and nvidia_preset into the OFXR layer configuration; applies at the next game start.")
             }));
-        parts.push(settingFieldRow('ofxr.scale', html`
-      <app-select .value=${ofxr.scale} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed() || ofxr.mode === 'fidelityfx'} .options=${[
-        { value: 100, label: t('100% (full resolution)') },
-        { value: 75, label: t('75%') },
-        { value: 50, label: t('50% (recommended)') }
-      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ scale: e.detail }); }}></app-select>
-            `, {
-  tip: t("Resolution the NVIDIA optical-flow engine runs at. Lower costs less GPU time; 50% is the recommended default, 100% is usually too expensive for little extra gain.\n\nValue: ofxr.scale (gui-settings.json). Companion side — writes nvidia_input_scale; applies at the next game start.")
-            }));
         parts.push(settingFieldRow('ofxr.bidirectional', html`
       <app-switch .checked=${ofxr.bidirectional} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed() || ofxr.mode === 'fidelityfx'} @change=${(e: CustomEvent) => { void this.updateOfxr({ bidirectional: e.detail }); }}></app-switch>
             `, {
@@ -587,19 +579,25 @@ if (vendor && settings) {
         parts.push(fieldRow(t('OFXR Bridge version'), html`
       <app-select .value=${ofxr.version} ?disabled=${this.ctx.ofxr.changing()} .options=${[
         { value: '', label: t('Automatic (newest installed)') },
-        ...((ofxrStatus?.versions ?? []).map(entry => ({
-          value: entry.version,
-          label: `${entry.source === 'external' ? t('External') : entry.source === 'downloaded' ? t('Downloaded') : t('Bundled')} v${entry.version}`
-        })))
+        ...((ofxrStatus?.versions ?? []).map(entry => {
+          const source = entry.source === 'external' ? t('External')
+            : entry.source === 'imported' ? t('Imported')
+            : entry.source === 'downloaded' ? t('Downloaded') : t('Bundled');
+          return {
+            value: entry.version,
+            label: entry.label ? `${source} ${entry.label} (v${entry.version})` : `${source} v${entry.version}`
+          };
+        }))
       ]} @change=${(e: CustomEvent) => { void this.selectOfxrVersion(e.detail); }}></app-select>
             `, {
-  tip: t("Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Downloaded was imported by you; External belongs to OFXR's own tray and is never modified by the Companion. Switching versions disarms first because the layer's arm event belongs to the payload path.\n\nValue: ofxr.version (gui-settings.json).")
+  tip: t("Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Imported is a build you copied from a folder; Downloaded is reserved for future use; External belongs to OFXR's own tray. Imported builds are used as-is with no version-compatibility check: download any fork, unzip it, and install it from its folder. Switching versions disarms first because the layer's arm event belongs to the payload path.\n\nValue: ofxr.version (gui-settings.json).")
             }));
         parts.push(fieldRow(t('Manage OFXR Bridge'), html`
+      <fluent-button ?disabled=${this.ctx.ofxr.changing()} @click=${() => { void this.importOfxr(); }}>${t('Install from folder…')}</fluent-button>
       <fluent-button ?disabled=${this.ctx.ofxr.changing() || !ofxrStatus || ofxrStatus.state === 'unavailable'} @click=${() => { void this.reinstallOfxr(); }}>${t('Reinstall')}</fluent-button>
       <fluent-button appearance="primary" class="danger" ?disabled=${this.ctx.ofxr.changing()} @click=${() => { void this.removeOfxr(); }}>${t('Uninstall Optical Flow')}</fluent-button>
             `, {
-  tip: t("Reinstall deletes the Companion-owned runtime directory for the selected version and stages the bundled payload again, verifying its files. Uninstall disarms the layer, removes the Companion registration and deletes every payload directory the Companion created; OFXR tray installs are left untouched. The driver uninstall performs the same cleanup.")
+  tip: t("Install from folder copies a downloaded OFXR Bridge build into the Companion's own runtime area. The build must contain XR_APILAYER_XRFrameBridge_diagnostic.dll and its own ofxr_bridge.ini; the whole payload folder is copied so fork-specific helper DLLs survive. No version check is applied. The Companion only manages the settings shared by every fork (backend, NVIDIA preset, bidirectional flow, flight recorder and overlay position); Hybrid, 3X, NVIDIA input scale, frame-generation mode, Vulkan/D3D11 bridges and other build-specific options stay in the downloaded build's own tray. Reinstall re-stages the bundled payload. Uninstall removes the Companion's copies but leaves external tray installs untouched. Driver uninstall keeps imported builds.")
             }));
         parts.push(settingFieldRow('ofxr.overlay', html`
       <app-select .value=${ofxr.overlay} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed()} .options=${[
@@ -658,7 +656,7 @@ if (settings.nvencTap) {
                 parts.push(fieldRow(t('Bandwidth Override (Mbit/s)'), html`
       <app-number .value=${settings.nvencBandwidthOverrideMbit} step="25" min="0" max="600" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBandwidthOverrideMbit = e.detail; } this.noteNumberError('streamFrame.nvencBandwidthOverrideMbit', e.detail); save(); }}></app-number>
                 `, {
-  tip: t("Override the normal stream bandwidth budget. 0 follows the Bitrate row above instead of forcing a separate value.\n\nNonzero supplies the network pacing budget and highest requested encoder target instead of the Bitrate row. It does not guarantee actual encoded output or constant sent bits. Requires a SteamVR restart.\n\nValue: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — pacing budget and requested encoder target."),
+  tip: t("Override the normal stream bandwidth budget. 0 follows the Max Bitrate row above instead of forcing a separate value.\n\nNonzero supplies the network pacing budget and highest requested encoder target instead of the Max Bitrate row. It does not guarantee actual encoded output or constant sent bits. Requires a SteamVR restart.\n\nValue: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — pacing budget and requested encoder target."),
   reset: { can: settings.nvencBandwidthOverrideMbit != defaults.nvencBandwidthOverrideMbit, on: () => { galaxy.reset('nvencBandwidthOverrideMbit'); } }
                 }));
                 parts.push(this.numberErrorRow('streamFrame.nvencBandwidthOverrideMbit'));
@@ -682,7 +680,7 @@ if (settings.nvencTap) {
         rc: evidence.effectiveRateControl === 2 ? 'CBR' : evidence.effectiveRateControl === 1 ? 'VBR'
           : evidence.effectiveRateControl === 0 ? t('Constant QP') : t('Unknown') })}</span>` : html``}
                 `, {
-  tip: t("Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it. Requires a SteamVR restart.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes."),
+  tip: t("Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off is the default for every codec and preserves upstream rate control, which may already be CBR. Turn it on whenever it helps. The reset arrow restores Off. Requires a SteamVR restart.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes."),
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
                 {
@@ -694,24 +692,24 @@ if (settings.nvencTap) {
                   const curveDisabled = curveLocked;
                   const curveNote = curveLocked ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>` : html``;
                   parts.push(settingFieldRow('streamFrame.nvencBitrateCurve', html`
-      <app-select ?disabled=${curveDisabled} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { settings.nvencBitrateCurve = Number(e.detail); save(); }}></app-select>
+      <app-select ?disabled=${curveDisabled} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { galaxy.setBitrateCurve(Number(e.detail)); }}></app-select>
       ${curveNote}
                   `, {
-  tip: t("Choose how the streamer's per-frame request becomes the requested encoder target. Close SteamVR to change this; the saved value applies to the next session. Requires a SteamVR restart.\n\nThe ceiling is the highest requested encoder target, not a guaranteed actual output limit. Linear maps a request at the VRLink clamp to that ceiling. Power knee raises targets in the middle of the range and keeps a proportional tail below 60% of the clamp; soft knee requests the ceiling from 60% upward. At 100% constancy, every positive request selects the ceiling regardless of curve family. None of these settings guarantees constant encoded output or constant sent bits.\n\nValue: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the requested NVENC average bitrate target."),
-  reset: { can: (settings.nvencBitrateCurve ?? 0) !== defaults.nvencBitrateCurve, on: () => galaxy.reset('nvencBitrateCurve') }
+  tip: t("Choose how the streamer's per-frame request becomes the requested encoder target. Close SteamVR to change this; the saved value applies to the next session. Requires a SteamVR restart.\n\nThe ceiling is the highest requested encoder target, not a guaranteed actual output limit. Linear maps a request at Max Bitrate to that ceiling; below it the request passes through. Power knee raises targets in the middle of the range and keeps a proportional tail below 60% of Max Bitrate; soft knee requests the ceiling from 60% upward. Custom uses seven points in the graph window: P1 is fixed at request 0 with an editable floor, P2–P5 are free, P6 starts at the fixed Max Bitrate endpoint overlapping hidden P7 and can move left to start the plateau, and P7 is fixed at full request and Max Bitrate and is shown only as the curve endpoint. At 100% constancy, every positive request selects the ceiling regardless of curve family. No point or applied target can exceed Max Bitrate. None of these settings guarantees constant encoded output or constant sent bits.\n\nValue: streamFrame.nvencBitrateCurve and streamFrame.nvencBitrateCurvePoints (settings.json). Encoder side — reshapes the requested NVENC average bitrate target."),
+  reset: { can: (settings.nvencBitrateCurve ?? 0) !== defaults.nvencBitrateCurve, on: () => galaxy.resetBitrateCurve() }
                   }));
                   parts.push(settingFieldRow('streamFrame.nvencBitrateConstancyPct', html`
       <app-number ?disabled=${curveDisabled} .value=${settings.nvencBitrateConstancyPct ?? 0} step="5" min="0" max="100" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBitrateConstancyPct = e.detail; } this.noteNumberError('streamFrame.nvencBitrateConstancyPct', e.detail); save(); }}></app-number>
       ${curveNote}
                   `, {
-  tip: t("Lift the selected curve toward the highest requested encoder target. 0 leaves the selected curve unchanged; 100 requests the ceiling for any positive streamer request. Close SteamVR to change this. Requires a SteamVR restart.\n\nWith a 450 Mbit/s ceiling and 350 Mbit/s clamp, a 280 Mbit/s request maps to targets of 360 with Linear at 0%, about 381 with power knee at 0%, about 402 with Linear at 50%, about 414 with power knee at 50%, and 450 at 100%. These are requested targets, not guaranteed encoded or wire rates. Higher constancy reduces the encoder target's response to congestion and can increase stream resets or stalled pacing.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve."),
+  tip: t("Lift the selected curve toward Max Bitrate. 0 leaves the selected curve unchanged; 100 requests Max Bitrate for any positive streamer request; the applied target never exceeds it. Close SteamVR to change this. Requires a SteamVR restart.\n\nWith a 450 Mbit/s Max Bitrate, a 280 Mbit/s request is 62% of the range: 280 with Linear at 0%, about 315 with power knee at 0%, about 355 with Linear at 50%, about 377 with power knee at 50%, and 450 at 100%. These are requested targets, not guaranteed encoded or wire rates. Higher constancy reduces the encoder target's response to congestion and can increase stream resets or stalled pacing.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve."),
   reset: { can: (settings.nvencBitrateConstancyPct ?? 0) !== defaults.nvencBitrateConstancyPct, on: () => galaxy.reset('nvencBitrateConstancyPct') }
                   }));
                   parts.push(this.numberErrorRow('streamFrame.nvencBitrateConstancyPct'));
                   parts.push(fieldRow(t('Bitrate Curve Graph'), html`
       <fluent-button appearance="outline" @click=${() => { void this.openCurveWindow(); }}>${t('Open graph window')}</fluent-button>
                   `, {
-  tip: t("Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear reference mapping. The graph shows requested encoder targets, not measured encoded output or wire rates; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call.")
+  tip: t("Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Editable, drawn from the same arithmetic the driver uses. Drag P1–P6 to shape a Custom curve; P1 stays at request 0 with an editable floor, P2–P5 are free, P6 starts on the fixed Max Bitrate endpoint and moves left to start the plateau, and hidden P7 stays at full request and Max Bitrate. Selecting a preset seeds the handles.\n\nSolid line: the applied curve after Bitrate Constancy; the thin line is the base curve through the seven points. Dashed line: the linear reference mapping; the top line is Max Bitrate. The graph shows requested encoder targets, not measured encoded output or wire rates; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.\n\nValue: streamFrame.nvencBitrateCurve + streamFrame.nvencBitrateCurvePoints (settings.json). Client side graph; the main window validates and saves committed edits.")
                   }));
                   if (this.curveWindowError) {
                     parts.push(noteRow(html`${t('The graph window could not be opened: {reason}', { reason: this.curveWindowError })}`));

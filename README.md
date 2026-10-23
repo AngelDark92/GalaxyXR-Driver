@@ -54,7 +54,7 @@ In **Driver Settings** and **Image Settings**:
 
 - **Headset:** Galaxy XR Recognition on, Native Panel Resolution on (default), Stream Quality: Tile Width 1536, Bandwidth 350 Mbit/s (defaults).
 - **Controllers:** Official Controller Layout on. Controller Motion Filter: Kalman CA (recommended). Leave the offsets alone unless the controllers visibly sit wrong in your hand; the shipped values were measured against the official models.
-- **Picture mode:** **SDR 10-bit baseline** sends a 10-bit SDR stream (off by default; HEVC/AV1 only — selecting H.264 turns it off and keeps the switch disabled). It is independent of **Image Enhancements** (on by default): enable either in any order, no warning, and picture adjustments are not reset.
+- **Picture mode:** **SDR 10-bit baseline** sends a 10-bit SDR stream (on by default; a saved Off stays Off; HEVC/AV1 only - selecting H.264 turns it off and keeps the switch disabled, and the driver suppresses the baseline request). It is independent of **Image Enhancements** (on by default): enable either in any order, no warning, and picture adjustments are not reset.
 
 Then restart SteamVR once.
 
@@ -63,6 +63,12 @@ Then restart SteamVR once.
 Same as installing: extract the new zip, run the Companion and press **Install Driver** (or **Reinstall driver**) on **Setup**. Your saved settings are kept.
 
 The Companion checks this repository's latest stable release and tells you when a newer one exists; if the check fails, **About** shows the error and **Check for updates** retries it. Enable **Developer Builds** under **App Settings → Updates** to also see newer pre-release builds: a stable release is only offered the next dev line (for example, 1.14.0 is offered 1.15.0-dev.*), never an older dev build that shipped before it.
+
+## Optical Flow (OFXR Bridge)
+
+The Companion bundles the actively maintained [djules75/OFXR-Bridge](https://github.com/djules75/OFXR-Bridge) payload (v0.2.14.2, V557). You can also download any fork or newer build, unzip it, and use **Image Settings → Optical Flow → Install from folder…** in the Companion. The build must contain `XR_APILAYER_XRFrameBridge_diagnostic.dll` and its own `ofxr_bridge.ini`; the whole `ofxr` payload folder is copied, so fork-specific helper DLLs survive. There is deliberately no version-compatibility check: a build newer than this Companion is accepted.
+
+The Companion owns only the settings every fork shares: backend and NVIDIA preset, NVIDIA bidirectional flow, flight-recorder on/size/flush, and overlay position. **NVIDIA OFA resolution, Hybrid, 3X frame generation, frame-generation mode, Vulkan/D3D11 bridges and any other build-specific option stay in the downloaded build's own tray/INI** and are preserved by the Companion's merge. If a fork's own tray is armed, disarm it there before letting the Companion arm its imported copy; the Companion never silently takes over another manager's registration. Imported builds are retained when the driver is uninstalled; **Uninstall Optical Flow** removes the Companion's copies only.
 
 ## Troubleshooting and issues
 
@@ -73,6 +79,7 @@ The full setup, feature and troubleshooting notes live in the [setup and image p
 ## Documentation
 
 - [Setup and image processing guide](Docs/StreamFrame.md): install, recommended configuration, feature notes, distortion correction by eye, troubleshooting from `vrserver.txt`.
+- [OFXR Bridge builds](Docs/OFXRBridge.md): installing a downloaded fork, shared vs build-specific settings, and the verified layer contract.
 - [Camera-based distortion tuning](Docs/TunerUsage.md): measuring lens correction with a fisheye camera, the sweep and overlay tools, mirroring one eye onto the other.
 - [Portable build cleanup](Docs/PortableBuildCleanup.md): local builds and reclaiming generated files.
 - [Release workflow](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md): how releases are built and published.
@@ -114,6 +121,32 @@ Based on the original Quest Pro iconpack made by **Lux / Hekky**.
 
 Built on [CustomHeadsetOpenVR](https://github.com/sboys3/CustomHeadsetOpenVR) by sboys3, with modifications by timkhronos and compdoge ([CustomHeadsetOpenVR](https://github.com/timkhronos/CustomHeadsetOpenVrGxR)). The camera calibration scripts in `tools/` started from sboys3's calibration code (see `tools/LICENSE-sboys3-camera-calibration`).
 
+### OFXR Bridge
+
+The Optical Flow feature uses the independent [OFXR-Bridge](https://github.com/tig3rmast3r/OFXR-Bridge) project (LGPL-3.0-or-later), originally by **tig3rmast3r**. The bundled payload is the actively maintained fork by **djules75** ([djules75/OFXR-Bridge](https://github.com/djules75/OFXR-Bridge), v0.2.14.2 / V557). **elliotttate** maintains the experimental native-DLSS frame-generation branch ([native-dlss-fg](https://github.com/elliotttate/OFXR-Bridge/tree/native-dlss-fg)).
+
+Other public forks are credited here as a snapshot of the project's network; forks are experimental and are not endorsed or verified by this driver:
+
+- [joschi127/OFXR-Bridge](https://github.com/joschi127/OFXR-Bridge)
+- [funchat72/OFXR-Bridge](https://github.com/funchat72/OFXR-Bridge)
+- [srounce/OFXR-Bridge](https://github.com/srounce/OFXR-Bridge)
+- [cdhiggs/OFXR-Bridge](https://github.com/cdhiggs/OFXR-Bridge)
+- [satyaloka93/OFXR-Bridge](https://github.com/satyaloka93/OFXR-Bridge)
+- [lerapeurdu62280-debug/OFXR-Bridge](https://github.com/lerapeurdu62280-debug/OFXR-Bridge)
+- [kireig/OFXR-Bridge](https://github.com/kireig/OFXR-Bridge)
+- [hatrd/OFXR-Bridge](https://github.com/hatrd/OFXR-Bridge)
+- [XiaoMeow-1145/OFXR-Bridge](https://github.com/XiaoMeow-1145/OFXR-Bridge)
+- [Omni-NexusAI/OFXR-Bridge](https://github.com/Omni-NexusAI/OFXR-Bridge)
+- [danny1marshall1587-maker/OFXR-Bridge](https://github.com/danny1marshall1587-maker/OFXR-Bridge)
+- [feanor91/OFXR-Bridge](https://github.com/feanor91/OFXR-Bridge)
+- [StormRU/OFXR-Bridge](https://github.com/StormRU/OFXR-Bridge)
+- [Nikoyevitch/OFXR-Bridge](https://github.com/Nikoyevitch/OFXR-Bridge)
+- [gramster/OFXR-Bridge](https://github.com/gramster/OFXR-Bridge)
+
+See the [OFXR-Bridge network](https://github.com/tig3rmast3r/OFXR-Bridge/network/members) for the current fork list.
+
 ## License
 
 GPLv2, same as the original project.
+
+The bundled OFXR Bridge payload is a separate LGPL-3.0-or-later component and is shipped unmodified. Its source, tag, commit and license texts are recorded in `GalaxyXRDriverGUI/ofxr/NOTICE`, `GalaxyXRDriverGUI/ofxr/payload.json` and `GalaxyXRDriverGUI/ofxr/LICENSE`.

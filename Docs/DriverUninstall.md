@@ -15,7 +15,7 @@
 - `%APPDATA%/GalaxyXR/CustomHeadset`, including driver and GUI settings, saved distortion profiles, diagnostics, status, installation receipt, and recovery journal after successful cleanup.
 - `%APPDATA%/GalaxyXR/Backups` (recovery backups, including those written by Restore defaults) and the temporary debug AU dump `%TEMP%/gxr_au_dump.bin`.
 - `steamvr.vrsettings.galaxyxr-identity-backup-*.json` files beside SteamVR settings.
-- Companion-owned OpenXR implicit-layer registrations, manifests and `ofxr_bridge.ini`; the OFXR runtime install itself is kept.
+- Companion-owned OpenXR implicit-layer registrations and manifests; `ofxr_bridge.ini` is removed only from Companion-created runtime directories. External OFXR tray installs and imported fork builds are kept; imported builds are retained across driver uninstall.
 - Persistent SteamVR overrides written by this driver and this GUI, restored using the journal described below.
 
 **The bundle's `GalaxyXRNative` directory is preserved.** Installation copies its files before registration; uninstall only removes owned installation locations. Receipt schema 2 distinguishes installed `packages` from preserved `sourcePaths`. Previous schema 1 external bundle registrations are unregistered and preserved, including sources installed with the 2026-09-15 test build. The portable GUI, source bundle, and ZIP remain available for reinstalling. Shared SteamVR files and shared configuration directories are preserved.

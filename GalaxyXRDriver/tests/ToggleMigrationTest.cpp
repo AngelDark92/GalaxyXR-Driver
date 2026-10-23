@@ -56,6 +56,12 @@ int main(int argc, char** argv) {
         input["galaxyXr"]["customStreamFormatWidth"] = 1856;
         sf.update(customTuning);
         sf["nvencBitrateScale"] = false; // retired bool: must migrate to constancy 100
+        sf["nvencBitrateCurve"] = 3;
+        sf["nvencBitrateCurvePoints"] = json::array({
+            json{{"x", 0.0}, {"y", 0.0}}, json{{"x", 0.1}, {"y", 0.05}},
+            json{{"x", 0.4}, {"y", 0.3}}, json{{"x", 0.7}, {"y", 0.9}},
+            json{{"x", 1.0}, {"y", 1.0}},
+        });
         sf["postPack"] = {{"enable",false},{"casEnable",false}};
         if (scenario == 8) std::ofstream(testFolder + "nvenc-settings-v4.migrated") << "4";
     } else if (scenario == 1) {
@@ -197,6 +203,16 @@ int main(int argc, char** argv) {
             Check(s.nvencVuiFullRange == 1 && s.nvencVuiMatrix == 1
                 && s.nvencVuiPrimaries == 1 && s.nvencVuiTransfer == 1, "VUI choices preserved");
             Check(s.nvencBitrateMbit == 123 && s.nvencBandwidthOverrideMbit == 234, "bandwidth tuning preserved");
+            if (scenario == 0) {
+                Check(s.nvencBitrateCurve == 3 && s.nvencBitrateCurvePoints.size() == 7,
+                    "five-point custom curve upgrades to seven points");
+                Check(s.nvencBitrateCurvePoints[2].x == 0.4 && s.nvencBitrateCurvePoints[2].y == 0.3,
+                    "custom curve point values parsed exactly");
+                Check(s.nvencBitrateCurvePoints[4].x == 0.85 && s.nvencBitrateCurvePoints[4].y == 0.95
+                    && s.nvencBitrateCurvePoints[5].x == 1.0 && s.nvencBitrateCurvePoints[5].y == 1.0
+                    && s.nvencBitrateCurvePoints[6].x == 1.0 && s.nvencBitrateCurvePoints[6].y == 1.0,
+                    "upgrade leaves P6 overlapping hidden P7 until dragged");
+            }
             Check(driverConfig.galaxyXr.customStreamFormatWidth == 1856, "valid custom stream width preserved");
         } else if (scenario == 1) {
             const StreamFrameConfig defaults;
@@ -221,8 +237,8 @@ int main(int argc, char** argv) {
             Check(s.nvencVbvFrames == 0 && s.nvencLowDelayKfScale == 0
                 && s.nvencForceFps == 0 && s.nvencSplitMode == 0, "upgrade preserves disabled encoder budgeting overrides");
         } else if (scenario == 13 || scenario == 15) {
-            Check(s.nvencTap && s.nvencFixLevel && s.nvencForceCbr
-                && s.nvencBitrateConstancyPct == 0 && s.nvencPresetMerge, "fresh/reset config enables reference encoder switches");
+            Check(s.nvencTap && s.nvencFixLevel && !s.nvencForceCbr
+                && s.nvencBitrateConstancyPct == 0 && s.nvencPresetMerge, "fresh/reset config enables reference encoder switches with Force CBR off");
             Check(s.nvencPreset == 0 && s.nvencVbvFrames == 2 && s.nvencLowDelayKfScale == 2
                 && s.nvencForceFps == 90 && s.nvencSplitMode == 1, "fresh/reset config uses reference encoder tuning");
             Check(s.nvencAqStrength == 0 && s.nvencMinQp == 0 && s.nvencMinQpIntra == 0 && s.nvencMaxQp == 0
@@ -232,7 +248,8 @@ int main(int argc, char** argv) {
             Check(s.postPack.enable && s.postPack.casEnable && !s.cas.enable, "fresh/reset config uses only post-pack sharpening");
             Check(!s.postPack.limitedRange, "fresh/reset config keeps the lifted-blacks remap OFF (owner directive 2026-10-17)");
             Check(driverConfig.galaxyXr.nativeIdentity && driverConfig.galaxyXr.nativeResolution, "fresh/reset config enables native identity and resolution");
-            Check(!driverConfig.galaxyXr.sdr10Baseline && !driverConfig.galaxyXr.profileSupports10bit, "fresh/reset config keeps current SDR10 OFF policy");
+            Check(driverConfig.galaxyXr.sdr10Baseline && !driverConfig.galaxyXr.profileSupports10bit,
+                "fresh/reset config enables the 10-bit SDR baseline while the explicit capability request stays off");
             Check(s.enable, "fresh/reset config resolves the Image Enhancements master ON (owner directive 2026-10-17)");
             Check(!driverConfig.customShader.enable, "old custom-shader processing is inactive after reset");
             Check(s.gamma == 2.2 && s.brightness == 1.0 && s.saturation == 50, "old picture tuning returns to defaults");

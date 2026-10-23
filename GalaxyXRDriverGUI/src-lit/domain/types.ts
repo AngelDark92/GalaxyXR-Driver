@@ -195,6 +195,8 @@ export type StreamFrameDimmingConfig = {
   dimSeconds: number;
   brightenSeconds: number;
 };
+export type BitrateCurvePoint = { x: number; y: number };
+
 export type StreamFrameConfig = {
   enable: boolean;
   saturation: number;
@@ -237,7 +239,7 @@ export type StreamFrameConfig = {
   nvencForceFps: number;
   nvencBitrateCurve: number;
   nvencBitrateConstancyPct: number;
-  nvencVrlinkClampMbit: number;
+  nvencBitrateCurvePoints: BitrateCurvePoint[];
   // Optional for settings written before the editable H.264 recipe (2026-10-16).
   // GOP/IDR: 0 follows the encoder FPS; -1 preserves upstream parameters.
   nvencH264GopFrames?: number;
@@ -450,7 +452,6 @@ export type OfxrPreferences = {
   // the bundled seed. The dropdown lists versions reported by ofxr_status.
   version: string;
   mode: 'fidelityfx' | 'nvidia-fast' | 'nvidia-medium' | 'nvidia-slow';
-  scale: 50 | 75 | 100;
   bidirectional: boolean;
   logging: boolean;
   maxLogMb: number;
@@ -462,7 +463,8 @@ export type OfxrPreferences = {
 // registration state, never a synthesized value.
 export type OfxrVersion = {
   version: string;
-  source: 'bundled' | 'downloaded' | 'external' | string;
+  source: 'bundled' | 'downloaded' | 'imported' | 'external' | string;
+  label?: string | null;
 };
 
 export type OfxrStatus = {
@@ -544,11 +546,9 @@ export type DriverInfo = {
     status: 'off' | 'on' | 'waiting';
   };
   // 2026-10-21 (S1): encoder ceiling vs the request clamp VRLink honours.
-  // overdrive = ceiling above clamp while the request sits at the clamp.
+  // Observed request, Max Bitrate and applied target.
   bitratePolicy?: {
-    overdrive: boolean;
     ceilingMbit: number;
-    clampMbit: number;
     requestMbit: number;
     targetMbit: number;
   };

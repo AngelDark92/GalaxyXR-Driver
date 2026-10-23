@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { CurvePreviewPublisher, previewState } from './curve-preview';
 import { driverDefaults } from '../domain/driver-defaults';
+import { DEFAULT_BITRATE_CURVE_POINTS } from '../domain/bitrate-curve';
 
 const bridge = vi.hoisted(() => ({ open: vi.fn(), publish: vi.fn(), listen: vi.fn(), stop: vi.fn() }));
 vi.mock('../platform/tauri', () => ({ open_curve_preview: bridge.open, publish_curve_preview: bridge.publish }));
@@ -10,7 +11,8 @@ beforeEach(() => {
   bridge.open.mockResolvedValue(undefined); bridge.publish.mockResolvedValue(undefined);
   bridge.listen.mockResolvedValue(bridge.stop);
 });
-const initial = { curve: 1, constancyPct: 35, ceilingMbit: 450, clampMbit: 350, fallbackDisabled: false };
+const points = DEFAULT_BITRATE_CURVE_POINTS.map(point => ({ ...point }));
+const initial = { curve: 1, constancyPct: 35, ceilingMbit: 450, fallbackDisabled: false, points, locked: false };
 function fixture() {
   let state = { ...initial }, change = () => {};
   const unsubscribe = vi.fn();
@@ -23,13 +25,13 @@ it('uses effective values, ceiling precedence and preserves invalid entries for 
   const settings = structuredClone(driverDefaults);
   settings.streamFrame!.nvencBitrateCurve = 99;
   settings.streamFrame!.nvencBitrateConstancyPct = 101.5;
-  settings.streamFrame!.nvencVrlinkClampMbit = 0;
   settings.streamFrame!.nvencBandwidthOverrideMbit = 400;
-  expect(previewState(settings)).toEqual({ curve: 99, constancyPct: 101.5, clampMbit: 0, ceilingMbit: 400, fallbackDisabled: true });
+  expect(previewState(settings)).toEqual({ curve: 99, constancyPct: 101.5, ceilingMbit: 400, fallbackDisabled: true, points: DEFAULT_BITRATE_CURVE_POINTS, locked: false });
   // 2026-10-21: a constancy of 100 marks the fixed operating point; any lower
   // value leaves the curve live even when the streamer request is steady.
   settings.streamFrame!.nvencBitrateConstancyPct = 100;
   expect(previewState(settings).fallbackDisabled).toBe(true);
+  expect(previewState(settings, 400, true).locked).toBe(true);
   settings.streamFrame!.nvencBitrateConstancyPct = 60;
   expect(previewState(settings).fallbackDisabled).toBe(false);
   settings.streamFrame!.nvencBitrateMbit = 500;

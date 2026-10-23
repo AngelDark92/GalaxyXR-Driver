@@ -14,10 +14,14 @@ import type { AppSettingService } from '../services/app-setting';
 import { effect, signal } from '../reactive';
 import type { DriverSettingService } from '../services/driver-setting';
 import type { DriverInfoService } from '../services/driver-info';
-import type { Settings, StreamFrameConfig, ControllersConfig, GalaxyXrConfig, HandOffsets } from '../domain/types';
+import type { Settings, StreamFrameConfig, ControllersConfig, GalaxyXrConfig, HandOffsets, BitrateCurvePoint } from '../domain/types';
 import { vendor } from '../environment';
 import { t } from '../locale/i18n';
 import { baselineRequested, imageEnhancementsEnabled, changePictureMode } from '../domain/image-mode';
+import {
+  DEFAULT_BITRATE_CURVE_POINTS, bitrateCurveFivePointsValid, bitrateCurvePointsForFamily,
+  bitrateCurvePointsValid, bitrateCurveSixPointsValid, normalizeBitrateCurvePoints,
+} from '../domain/bitrate-curve';
 
 function defaultStreamFrame(): StreamFrameConfig { return structuredClone(driverDefaults.streamFrame!); }
 
@@ -67,14 +71,14 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // mid-stream-change flow automatically. The row value applies exactly as
 // saved.
 // The codec-0 row's tile and bandwidth must stay pinned to the GENERATED
-// driver defaults. 2026-10-17 (owner directive, revised): Force CBR is ON in
-// every row — codec switches and the reset arrows apply On, and turning it off
+// driver defaults. 2026-10-23 (owner directive): Force CBR is OFF in
+// every row — codec switches and the reset arrows apply Off, and turning it on
 // is the user's own choice; selecting H.264 also turns the SDR 10-bit baseline
 // off (capability: H.264 cannot carry 10-bit; see applyCodecEncoderDefaults).
 export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number, streamFormatWidth: number, bandwidthMbit: number }> = {
-  0: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
-  1: { forceCbr: true, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1024, bandwidthMbit: 500 },
-  2: { forceCbr: true, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 400 },
+  0: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
+  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1024, bandwidthMbit: 500 },
+  2: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 400 },
 };
 
 // 2026-10-16 (owner directive): inline per-key validation for the Stream
@@ -350,6 +354,20 @@ export class GalaxySettingsBase {
           rawSf.streamFrameSchema = 5;
           queueMicrotask(() => this.save());
         }
+        // 2026-10-23 migration: the preceding GUI generated five or six custom
+        // curve points. Upgrade a valid stored shape to the seven-point
+        // plateau form and persist it. Invalid hand-edited shapes are left
+        // untouched so the driver's validation remains visible.
+        if (rawSf && canMigrate && (rawSf.nvencBitrateCurve ?? 0) === 3
+            && Array.isArray(rawSf.nvencBitrateCurvePoints)
+            && (bitrateCurveFivePointsValid(rawSf.nvencBitrateCurvePoints)
+              || bitrateCurveSixPointsValid(rawSf.nvencBitrateCurvePoints))) {
+          const upgraded = normalizeBitrateCurvePoints(rawSf.nvencBitrateCurvePoints);
+          if (bitrateCurvePointsValid(upgraded)) {
+            rawSf.nvencBitrateCurvePoints = upgraded;
+            queueMicrotask(() => this.save());
+          }
+        }
         // 2026-10-19 migration: the retired streamFrame.nvencBitrateScale bool
         // becomes nvencBitrateConstancyPct (true -> 0, false -> 100).
         // Presence-based and idempotent: the fossil is removed, so it runs at
@@ -543,6 +561,51 @@ export class GalaxySettingsBase {
     g.customBandwidthMbit = key === 'bandwidth' ? value : shown.bandwidth;
   }
 
+  // 2026-10-23 (owner request): seven-point bitrate curve. Presets 0..2 keep
+  // their analytic shape and the points are derived for the graph. P1 x=0 has
+  // an editable floor; P6 is the fixed-height Max Bitrate plateau start with a
+  // movable x; P7 is fixed at (1,1). Selecting Custom keeps a valid saved
+  // shape; if the saved points are invalid, seed them from the family that was
+  // displayed. Moving a handle goes through setCustomBitrateCurve below, which
+  // switches the family to Custom.
+  setBitrateCurve(curve: number): void {
+    if (!this.settings) return;
+    if (!Number.isInteger(curve) || curve < 0 || curve > 3) return;
+    const sf = this.settings;
+    if (curve === 3 && !bitrateCurvePointsValid(sf.nvencBitrateCurvePoints)) {
+      sf.nvencBitrateCurvePoints = (bitrateCurveFivePointsValid(sf.nvencBitrateCurvePoints)
+        || bitrateCurveSixPointsValid(sf.nvencBitrateCurvePoints))
+        ? normalizeBitrateCurvePoints(sf.nvencBitrateCurvePoints)
+        : bitrateCurvePointsForFamily(sf.nvencBitrateCurve ?? 0);
+    } else if (curve === 3 && (sf.nvencBitrateCurve ?? 0) !== 3) {
+      // First Custom selection after a preset starts from the shape the user
+      // is looking at. A previously customized (non-default) shape is kept.
+      const defaults = this.defaults.nvencBitrateCurvePoints ?? DEFAULT_BITRATE_CURVE_POINTS;
+      const atDefault = sf.nvencBitrateCurvePoints.length === defaults.length
+        && sf.nvencBitrateCurvePoints.every((point, index) =>
+          point.x === defaults[index].x && point.y === defaults[index].y);
+      if (atDefault) {
+        sf.nvencBitrateCurvePoints = bitrateCurvePointsForFamily(sf.nvencBitrateCurve ?? 0);
+      }
+    }
+    sf.nvencBitrateCurve = curve;
+    this.save();
+  }
+  setCustomBitrateCurve(points: BitrateCurvePoint[]): boolean {
+    if (!this.settings || !bitrateCurvePointsValid(points)) return false;
+    this.settings.nvencBitrateCurve = 3;
+    this.settings.nvencBitrateCurvePoints = points.map(point => ({ ...point }));
+    this.save();
+    return true;
+  }
+  resetBitrateCurve(): void {
+    if (!this.settings) return;
+    this.settings.nvencBitrateCurve = this.defaults.nvencBitrateCurve ?? 0;
+    this.settings.nvencBitrateCurvePoints = (this.defaults.nvencBitrateCurvePoints ?? DEFAULT_BITRATE_CURVE_POINTS)
+      .map(point => ({ ...point }));
+    this.save();
+  }
+
   // 2026-10-16 (owner directive): switching codecs loads this codec's
   // optimized defaults — Tile Width, Bandwidth, Force CBR, Frame Size Cap,
   // Keyframe Size Budget, Multi-Engine Encoding — replacing whatever the
@@ -550,7 +613,7 @@ export class GalaxySettingsBase {
   // multipass, QP, postPack, the H.264 recipe) keep their values;
   // the switch is an explicit user action, never a load-time or driver-side
   // rewrite.
-  // 2026-10-17 (owner directive, revised): Force CBR is On in every row. Selecting
+  // 2026-10-23 (owner directive): Force CBR is Off in every row. Selecting
   // H.264 also turns the SDR 10-bit baseline off — H.264 cannot carry 10-bit
   // — writing sdr10Baseline false only; the retired consent key and the
   // explicit advanced 10-bit capability request (galaxyXr.profileSupports10bit)
@@ -717,8 +780,11 @@ export class GalaxySettingsBase {
       if (this.rootSetting.galaxyXr.componentRebaseIncludeTrim === undefined) {
         this.rootSetting.galaxyXr.componentRebaseIncludeTrim = true;
       }
+      // 2026-10-23 (owner directive): 10-bit SDR is On by default. Only a
+      // missing key follows the shipped default; an explicitly stored Off
+      // stays user-authoritative.
       if (this.rootSetting.galaxyXr.sdr10Baseline === undefined) {
-        this.rootSetting.galaxyXr.sdr10Baseline = false;
+        this.rootSetting.galaxyXr.sdr10Baseline = true;
       }
       // 2026-10-18: the driver default for the official controller layout is
       // now On; a stored file without the key must read the same value here
@@ -739,7 +805,11 @@ export class GalaxySettingsBase {
     return !!(this.rootSetting?.customShader?.enable && this.rootSetting?.customShader?.enableForOther);
   }
   sdr10BaselineActive(): boolean {
-    return !!this.rootSetting?.galaxyXr?.sdr10Baseline && !this.sdr10BaselineConflict();
+    // 2026-10-23: H.264 is 8-bit only. mirror the driver's codec gate so a
+    // stored On cannot show as active while the switch is forced Off.
+    return !!this.rootSetting?.galaxyXr?.sdr10Baseline
+      && this.rootSetting?.streamFrame?.nvencCodec !== 1
+      && !this.sdr10BaselineConflict();
   }
 
   async save(): Promise<boolean> {

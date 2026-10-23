@@ -4,9 +4,23 @@ import { css } from 'lit';
 // CSS does not reach a page's buttons, inputs, links or dialogs through a shadow root.
 export const interactiveStyles = css`
   *, *::before, *::after { box-sizing: border-box; }
-  :host { color: var(--colorNeutralForeground1, #242424); font-family: var(--fontFamilyBase, "Segoe UI", system-ui, sans-serif); }
+  :host {
+    color: var(--colorNeutralForeground1, #242424);
+    font-family: var(--fontFamilyBase, "Segoe UI", system-ui, sans-serif);
+    /* 2026-10-23 (owner directive): desktop-application text is not
+       selectable. Document CSS cannot reach a shadow root, so every component
+       adopting this stylesheet repeats the policy and its copy exceptions. */
+    -webkit-user-select: none;
+    user-select: none;
+  }
   [hidden] { display: none !important; }
   button, input, select, textarea { font: inherit; }
+  input, textarea, select, [contenteditable=""], [contenteditable="true"],
+  pre, code, .technical, .error, .window-error {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  img { -webkit-user-drag: none; }
   button, .btn {
     color: var(--colorNeutralForeground1, #242424);
     background: var(--colorNeutralBackground1, #fff);

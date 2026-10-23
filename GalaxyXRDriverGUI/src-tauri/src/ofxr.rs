@@ -28,7 +28,6 @@ use std::sync::Mutex;
 pub struct OfxrPreferences {
     pub enabled: bool,
     pub mode: String,
-    pub scale: u32,
     pub bidirectional: bool,
     pub logging: bool,
     pub max_log_mb: u32,
@@ -51,12 +50,15 @@ pub struct OfxrStatus {
 }
 
 /// One selectable runtime payload: a versioned directory (or the bundled
-/// seed). `source` is `bundled`, `downloaded` or `external` (OFXR's own tray).
+/// seed). `source` is `bundled`, `downloaded`, `imported` or `external`
+/// (OFXR's own tray). `label` preserves an imported build's release name.
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct OfxrVersion {
     pub version: String,
     pub source: String,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 const STATE_NOT_INSTALLED: &str = "not_installed";
@@ -138,7 +140,6 @@ struct StatusFacts {
 struct MappedPreferences {
     backend: &'static str,
     nvidia_preset: &'static str,
-    nvidia_input_scale: u32,
     nvidia_bidirectional: bool,
     logging_enabled: bool,
     max_file_mb: u32,
@@ -160,12 +161,6 @@ fn map_preferences(prefs: &OfxrPreferences) -> Result<MappedPreferences, String>
             ))
         }
     };
-    if !matches!(prefs.scale, 50 | 75 | 100) {
-        return Err(format!(
-            "Unsupported OFXR NVIDIA input scale {}; expected 50, 75 or 100.",
-            prefs.scale
-        ));
-    }
     let overlay = match prefs.overlay.as_str() {
         "off" => "off",
         "upper-left" => "upper_left",
@@ -181,7 +176,6 @@ fn map_preferences(prefs: &OfxrPreferences) -> Result<MappedPreferences, String>
     Ok(MappedPreferences {
         backend,
         nvidia_preset,
-        nvidia_input_scale: prefs.scale,
         nvidia_bidirectional: prefs.bidirectional,
         logging_enabled: prefs.logging,
         max_file_mb: prefs.max_log_mb,
@@ -234,11 +228,6 @@ fn render_ini(
     let mut wanted: Vec<(&str, &str, String)> = vec![
         ("ofxr", "backend", values.backend.to_string()),
         ("ofxr", "nvidia_preset", values.nvidia_preset.to_string()),
-        (
-            "ofxr",
-            "nvidia_input_scale",
-            values.nvidia_input_scale.to_string(),
-        ),
         (
             "ofxr",
             "nvidia_bidirectional",
@@ -668,6 +657,12 @@ fn read_payload_version(directory: &Path) -> Option<String> {
 struct ReceiptEntry {
     version: String,
     source: String,
+    #[serde(default)]
+    label: Option<String>,
+    /// Imported builds are user-supplied copies. Driver uninstall keeps them;
+    /// the explicit "Uninstall Optical Flow" action removes them.
+    #[serde(default)]
+    retain_on_uninstall: bool,
 }
 
 fn receipt_path(local_directory: &Path) -> PathBuf {
@@ -693,6 +688,11 @@ fn read_receipt(local_directory: &Path) -> Vec<ReceiptEntry> {
                     Some(ReceiptEntry {
                         version: entry.get("version")?.as_str()?.to_string(),
                         source: entry.get("source")?.as_str()?.to_string(),
+                        label: entry.get("label").and_then(Value::as_str).map(str::to_string),
+                        retain_on_uninstall: entry
+                            .get("retainOnUninstall")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                     })
                 })
                 .collect()
@@ -709,12 +709,28 @@ fn write_receipt(local_directory: &Path, entries: &[ReceiptEntry]) -> Result<(),
 }
 
 fn receipt_record(local_directory: &Path, version: &str, source: &str) -> Result<(), String> {
+    receipt_record_full(local_directory, version, source, None, false)
+}
+
+fn receipt_record_full(
+    local_directory: &Path,
+    version: &str,
+    source: &str,
+    label: Option<&str>,
+    retain_on_uninstall: bool,
+) -> Result<(), String> {
     let mut entries = read_receipt(local_directory);
     match entries.iter_mut().find(|entry| entry.version == version) {
-        Some(entry) => entry.source = source.to_string(),
+        Some(entry) => {
+            entry.source = source.to_string();
+            entry.label = label.map(str::to_string);
+            entry.retain_on_uninstall = retain_on_uninstall;
+        }
         None => entries.push(ReceiptEntry {
             version: version.to_string(),
             source: source.to_string(),
+            label: label.map(str::to_string),
+            retain_on_uninstall,
         }),
     }
     write_receipt(local_directory, &entries)
@@ -730,10 +746,17 @@ fn receipt_remove(local_directory: &Path, version: &str) -> Result<(), String> {
 
 /// Deletes exactly the runtime directories this Companion created. External
 /// OFXR tray installs are never listed here and therefore never deleted.
-fn remove_owned_runtime_dirs(local_directory: &Path) -> Result<Vec<String>, String> {
+/// `include_retained` is true for the explicit optical-flow uninstall and false
+/// for driver uninstall, which keeps imported user-supplied builds.
+fn remove_owned_runtime_dirs(local_directory: &Path, include_retained: bool) -> Result<Vec<String>, String> {
     let entries = read_receipt(local_directory);
     let mut removed = Vec::new();
+    let mut retained = Vec::new();
     for entry in entries {
+        if entry.retain_on_uninstall && !include_retained {
+            retained.push(entry);
+            continue;
+        }
         let directory = runtime_version_directory(local_directory, &entry.version)?;
         if !is_real_directory(&directory) {
             continue;
@@ -742,15 +765,21 @@ fn remove_owned_runtime_dirs(local_directory: &Path) -> Result<Vec<String>, Stri
             .map_err(|error| format!("Removing {} failed: {error}", directory.display()))?;
         removed.push(entry.version);
     }
-    match fs::remove_file(receipt_path(local_directory)) {
-        Ok(()) => {}
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(format!(
-                "Removing {} failed: {error}",
-                receipt_path(local_directory).display()
-            ))
+    // Keep the receipt for imported builds a driver uninstall deliberately
+    // retains; only delete it when no retained entry remains.
+    if retained.is_empty() {
+        match fs::remove_file(receipt_path(local_directory)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "Removing {} failed: {error}",
+                    receipt_path(local_directory).display()
+                ))
+            }
         }
+    } else {
+        write_receipt(local_directory, &retained)?;
     }
     Ok(removed)
 }
@@ -780,7 +809,11 @@ fn collect_versions(local_directory: &Path, bundled_directory: Option<&Path>) ->
                 .find(|entry| entry.version == version)
                 .map(|entry| entry.source.clone())
                 .unwrap_or_else(|| "external".to_string());
-            versions.push(OfxrVersion { version, source });
+            let label = owned
+                .iter()
+                .find(|entry| entry.version == version)
+                .and_then(|entry| entry.label.clone());
+            versions.push(OfxrVersion { version, source, label });
         }
     }
     if let Some(bundled) = bundled_directory {
@@ -790,6 +823,7 @@ fn collect_versions(local_directory: &Path, bundled_directory: Option<&Path>) ->
                     versions.push(OfxrVersion {
                         version,
                         source: "bundled".to_string(),
+                        label: None,
                     });
                 }
             }
@@ -949,6 +983,176 @@ fn stage_bundled(
         runtime_dir,
         version: bundled.version.clone(),
     })
+}
+
+/// Resolve a user-selected OFXR build folder: either the folder containing the
+/// layer DLL directly or the release root with an `ofxr` subfolder. The build's
+/// own INI is required so fork-specific keys survive.
+fn import_payload_directory(source: &Path) -> Result<PathBuf, String> {
+    let source = fs::canonicalize(source)
+        .map_err(|error| format!("Opening {} failed: {error}", source.display()))?;
+    if !is_real_directory(&source) {
+        return Err("Select a folder containing the OFXR Bridge build.".into());
+    }
+    let direct = source.join(LAYER_DLL_NAME).is_file();
+    let nested = source.join("ofxr").join(LAYER_DLL_NAME).is_file();
+    let directory = if direct {
+        source.clone()
+    } else if nested {
+        source.join("ofxr")
+    } else {
+        return Err(format!(
+            "{} does not contain {LAYER_DLL_NAME}.",
+            source.display()
+        ));
+    };
+    if !is_real_directory(&directory) || !directory.join(INI_NAME).is_file() {
+        return Err(
+            "The selected OFXR Bridge build has no ofxr_bridge.ini. Keep the build's own INI so its fork-specific settings are preserved."
+                .into(),
+        );
+    }
+    Ok(directory)
+}
+
+fn copy_import_tree(
+    source: &Path,
+    target: &Path,
+    files: &mut u32,
+    bytes: &mut u64,
+) -> Result<(), String> {
+    fs::create_dir_all(target)
+        .map_err(|error| format!("Creating {} failed: {error}", target.display()))?;
+    for entry in fs::read_dir(source)
+        .map_err(|error| format!("Reading {} failed: {error}", source.display()))?
+    {
+        let entry = entry.map_err(|error| format!("Reading {} failed: {error}", source.display()))?;
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("Reading {} failed: {error}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!("Imported OFXR builds cannot contain links: {}", path.display()));
+        }
+        let name = path
+            .file_name()
+            .ok_or_else(|| format!("Invalid entry in {}", source.display()))?;
+        let destination = target.join(name);
+        if metadata.is_dir() {
+            copy_import_tree(&path, &destination, files, bytes)?;
+        } else if metadata.is_file() {
+            *files += 1;
+            if *files > 64 {
+                return Err("The selected OFXR build contains too many files.".into());
+            }
+            *bytes = bytes.saturating_add(metadata.len());
+            if *bytes > 128 * 1024 * 1024 {
+                return Err("The selected OFXR build is larger than 128 MiB.".into());
+            }
+            fs::copy(&path, &destination).map_err(|error| {
+                format!(
+                    "Copying {} to {} failed: {error}",
+                    path.display(),
+                    destination.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn import_label(source: &Path) -> String {
+    let selected = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("OFXR Bridge");
+    if selected.eq_ignore_ascii_case("ofxr") {
+        return source
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            .unwrap_or(selected)
+            .to_string();
+    }
+    selected.to_string()
+}
+
+fn import_version_hint(directory: &Path, label: &str) -> u64 {
+    if let Ok(text) = fs::read_to_string(directory.join("payload.json")) {
+        if let Ok(document) = serde_json::from_str::<Value>(&text) {
+            if let Some(version) = document.get("version").and_then(Value::as_str) {
+                if let Ok(numeric) = version.trim_start_matches('0').parse::<u64>() {
+                    if numeric > 0 {
+                        return numeric;
+                    }
+                }
+            }
+        }
+    }
+    let normalized = label.trim().trim_start_matches(|character| character == 'v' || character == 'V');
+    if !normalized.is_empty() && normalized.chars().all(|character| character.is_ascii_digit()) {
+        return normalized.parse::<u64>().unwrap_or(0);
+    }
+    0
+}
+
+fn free_import_version(local_directory: &Path, requested: u64) -> Result<String, String> {
+    let mut used: Vec<u64> = Vec::new();
+    if let Ok(entries) = fs::read_dir(local_directory.join(RUNTIME_ROOT_NAME)) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !is_real_directory(&path) {
+                continue;
+            }
+            if let Some(version) = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(version_from_dir_name)
+            {
+                if let Ok(numeric) = version.parse::<u64>() {
+                    used.push(numeric);
+                }
+            }
+        }
+    }
+    let mut candidate = if requested > 0 {
+        requested
+    } else {
+        used.iter().copied().max().unwrap_or(0).saturating_add(1).max(1)
+    };
+    loop {
+        let directory = runtime_version_directory(local_directory, &candidate.to_string())?;
+        if !directory.exists() {
+            return Ok(candidate.to_string());
+        }
+        candidate = candidate.saturating_add(1);
+    }
+}
+
+/// Copies a downloaded fork build into the Companion-owned RuntimeLayer. No
+/// version compatibility check is applied: a build newer than this Companion
+/// is accepted. The full payload folder is copied so fork-specific helper
+/// DLLs survive; only the common INI keys are merged later.
+fn import_payload(local_directory: &Path, source: &Path) -> Result<String, String> {
+    let directory = import_payload_directory(source)?;
+    let label = import_label(source);
+    let requested = import_version_hint(&directory, &label);
+    let version = free_import_version(local_directory, requested)?;
+    let target = runtime_version_directory(local_directory, &version)?;
+    if target.exists() {
+        return Err(format!("The imported OFXR runtime directory already exists: {}", target.display()));
+    }
+    let mut files = 0;
+    let mut bytes = 0;
+    if let Err(reason) = copy_import_tree(&directory, &target, &mut files, &mut bytes) {
+        let _ = fs::remove_dir_all(&target);
+        return Err(reason);
+    }
+    if !target.join(LAYER_DLL_NAME).is_file() || !target.join(INI_NAME).is_file() {
+        let _ = fs::remove_dir_all(&target);
+        return Err("The copied OFXR Bridge build is incomplete.".into());
+    }
+    receipt_record_full(local_directory, &version, "imported", Some(&label), true)?;
+    Ok(version)
 }
 
 // ---------------------------------------------------------------------------
@@ -1319,7 +1523,7 @@ fn remove_impl() -> Result<OfxrStatus, String> {
     remove_companion_registrations()?;
     remove_companion_manifests()?;
     let local_directory = platform::local_directory()?;
-    remove_owned_runtime_dirs(&local_directory)?;
+    remove_owned_runtime_dirs(&local_directory, true)?;
     Ok(status_impl(None))
 }
 
@@ -1372,26 +1576,22 @@ fn remove_companion_manifests() -> Result<(), String> {
     Ok(())
 }
 
-/// Retires the Companion's bridge INI from every versioned runtime directory
-/// (and, for older layouts, the install root). The layer DLL and its
-/// RuntimeLayer directory are kept: the OFXR install itself is not ours to
-/// delete.
+/// Retires the Companion's bridge INI from receipt-owned versioned runtime
+/// directories (and, for older layouts, the install root). External OFXR tray
+/// installs are never listed in the receipt and therefore never modified.
+/// Imported builds retained across driver uninstall keep their INI.
 #[cfg(windows)]
-fn remove_companion_ini_files() -> Result<(), String> {
+fn remove_companion_ini_files(include_retained: bool) -> Result<(), String> {
     let local_directory = platform::local_directory()?;
-    let root = local_directory.join(RUNTIME_ROOT_NAME);
     let mut errors: Vec<String> = Vec::new();
-    let entries = match fs::read_dir(&root) {
-        Ok(entries) => Some(entries),
-        Err(error) if error.kind() == ErrorKind::NotFound => None,
-        Err(error) => return Err(format!("Reading {} failed: {error}", root.display())),
-    };
-    for entry in entries.into_iter().flatten().flatten() {
-        let path = entry.path();
-        if !is_real_directory(&path) {
+    for entry in read_receipt(&local_directory) {
+        if entry.retain_on_uninstall && !include_retained {
             continue;
         }
-        remove_companion_ini(&path.join(INI_NAME), &mut errors);
+        let path = runtime_version_directory(&local_directory, &entry.version)?;
+        if is_real_directory(&path) {
+            remove_companion_ini(&path.join(INI_NAME), &mut errors);
+        }
     }
     // Older layouts keep the INI at the install root even without RuntimeLayer.
     remove_companion_ini(&local_directory.join(INI_NAME), &mut errors);
@@ -1430,11 +1630,11 @@ pub fn cleanup_companion_state() -> Result<(), String> {
     if let Err(reason) = remove_companion_manifests() {
         errors.push(reason);
     }
-    if let Err(reason) = remove_companion_ini_files() {
+    if let Err(reason) = remove_companion_ini_files(false) {
         errors.push(reason);
     }
     if let Ok(local_directory) = platform::local_directory() {
-        if let Err(reason) = remove_owned_runtime_dirs(&local_directory) {
+        if let Err(reason) = remove_owned_runtime_dirs(&local_directory, false) {
             errors.push(reason);
         }
     }
@@ -1507,6 +1707,13 @@ pub fn ofxr_apply(prefs: OfxrPreferences) -> Result<(), String> {
 #[tauri::command]
 pub fn ofxr_reinstall(prefs: OfxrPreferences) -> Result<OfxrStatus, String> {
     reinstall_impl(prefs)
+}
+
+#[tauri::command]
+pub fn ofxr_import(source: String) -> Result<String, String> {
+    let _command = command_guard();
+    let local_directory = platform::local_directory()?;
+    import_payload(&local_directory, Path::new(&source))
 }
 
 #[tauri::command]
@@ -2001,7 +2208,6 @@ mod tests {
 
     fn prefs(
         mode: &str,
-        scale: u32,
         bidirectional: bool,
         logging: bool,
         max_log_mb: u32,
@@ -2011,7 +2217,6 @@ mod tests {
         OfxrPreferences {
             enabled: true,
             mode: mode.to_string(),
-            scale,
             bidirectional,
             logging,
             max_log_mb,
@@ -2022,7 +2227,7 @@ mod tests {
     }
 
     fn sample_prefs() -> OfxrPreferences {
-        prefs("fidelityfx", 50, false, false, 32, false, "upper-right")
+        prefs("fidelityfx", false, false, 32, false, "upper-right")
     }
 
     fn write_layer_files(directory: &Path, manifest: Option<&str>) {
@@ -2039,10 +2244,9 @@ mod tests {
 
     #[test]
     fn ini_merge_writes_owned_keys_and_preserves_foreign_content() {
-        let existing = "[ofxr]\r\nenabled=1\r\nframe_generation=ofxr\r\nmotion_vectors=off\r\nbackend=fidelityfx\r\n\r\n[tray]\r\nbackend=nvidia\r\n\r\n[diagnostics]\r\nlogging_enabled=0\r\nmax_file_mb=32\r\nflush_each_event=0\r\ncustom=keep\r\n\r\n[overlay]\r\nposition=upper_right\r\n";
+        let existing = "[ofxr]\r\nenabled=1\r\nframe_generation=ofxr\r\nmotion_vectors=off\r\nbackend=fidelityfx\r\nnvidia_input_scale=25\r\n\r\n[tray]\r\nbackend=nvidia\r\n\r\n[diagnostics]\r\nlogging_enabled=0\r\nmax_file_mb=32\r\nflush_each_event=0\r\ncustom=keep\r\n\r\n[overlay]\r\nposition=upper_right\r\n";
         let values = map_preferences(&prefs(
             "nvidia-slow",
-            75,
             true,
             true,
             64,
@@ -2055,11 +2259,11 @@ mod tests {
         assert!(rendered.contains("enabled=1"), "foreign [ofxr] key kept");
         assert!(rendered.contains("frame_generation=ofxr"));
         assert!(rendered.contains("motion_vectors=off"));
+        assert!(rendered.contains("nvidia_input_scale=25"), "build-specific scale is preserved");
         assert!(rendered.contains("[tray]\r\nbackend=nvidia"));
         assert!(rendered.contains("custom=keep"), "foreign [diagnostics] key kept");
         assert!(rendered.contains("backend=nvidia"));
         assert!(rendered.contains("nvidia_preset=slow"));
-        assert!(rendered.contains("nvidia_input_scale=75"));
         assert!(rendered.contains("nvidia_bidirectional=1"));
         assert!(rendered.contains("logging_enabled=1"));
         assert!(rendered.contains("max_file_mb=64"));
@@ -2113,7 +2317,7 @@ mod tests {
         ];
         for (mode, backend, preset) in cases {
             let mapped =
-                map_preferences(&prefs(mode, 50, false, false, 32, false, "upper-right"))
+                map_preferences(&prefs(mode, false, false, 32, false, "upper-right"))
                     .expect("valid mode");
             assert_eq!(mapped.backend, backend, "backend for {mode}");
             assert_eq!(mapped.nvidia_preset, preset, "preset for {mode}");
@@ -2121,7 +2325,6 @@ mod tests {
 
         let mapped = map_preferences(&prefs(
             "nvidia-medium",
-            100,
             true,
             true,
             128,
@@ -2129,7 +2332,6 @@ mod tests {
             "lower-right",
         ))
         .expect("valid prefs");
-        assert_eq!(mapped.nvidia_input_scale, 100);
         assert!(mapped.nvidia_bidirectional);
         assert!(mapped.logging_enabled);
         assert_eq!(mapped.max_file_mb, 128);
@@ -2144,27 +2346,15 @@ mod tests {
             ("lower-right", "lower_right"),
         ] {
             let mapped = map_preferences(&prefs(
-                "fidelityfx", 50, false, false, 32, false, preference,
+                "fidelityfx", false, false, 32, false, preference,
             ))
             .expect("valid overlay");
             assert_eq!(mapped.overlay, ini, "overlay spelling for {preference}");
         }
-        for scale in [50, 75, 100] {
-            assert_eq!(
-                map_preferences(&prefs(
-                    "fidelityfx", scale, false, false, 32, false, "off"
-                ))
-                .expect("valid scale")
-                .nvidia_input_scale,
-                scale
-            );
-        }
 
-        assert!(map_preferences(&prefs("nvidia-ultra", 50, false, false, 32, false, "off"))
+        assert!(map_preferences(&prefs("nvidia-ultra", false, false, 32, false, "off"))
             .is_err());
-        assert!(map_preferences(&prefs("fidelityfx", 60, false, false, 32, false, "off"))
-            .is_err());
-        assert!(map_preferences(&prefs("fidelityfx", 50, false, false, 32, false, "top"))
+        assert!(map_preferences(&prefs("fidelityfx", false, false, 32, false, "top"))
             .is_err());
     }
 
@@ -2445,7 +2635,7 @@ mod tests {
         .expect("existing ini");
 
         let values =
-            map_preferences(&prefs("nvidia-fast", 75, true, true, 96, true, "off"))
+            map_preferences(&prefs("nvidia-fast", true, true, 96, true, "off"))
                 .expect("map prefs");
         write_ini(&runtime_dir, &values, Some("Local\\OFXRBridgeArmStop-7")).expect("write ini");
         let text = fs::read_to_string(runtime_dir.join(INI_NAME)).expect("read ini");
@@ -2453,9 +2643,53 @@ mod tests {
         assert!(text.contains("enabled=1"));
         assert!(text.contains("backend=nvidia"));
         assert!(text.contains("nvidia_preset=fast"));
-        assert!(text.contains("nvidia_input_scale=75"));
         assert!(text.contains("position=off"));
         assert!(text.contains("max_file_mb=96"));
         assert!(text.contains("control_event=Local\\OFXRBridgeArmStop-7"));
+    }
+
+    #[test]
+    fn imports_a_fork_payload_without_a_version_gate_and_preserves_build_keys() {
+        let local = TempRoot::new("import-local");
+        let source = TempRoot::new("import-source");
+        let payload = source.0.join("OFXR-Bridge-v9999");
+        fs::create_dir_all(&payload).expect("payload dir");
+        fs::write(payload.join(LAYER_DLL_NAME), b"fork-layer").expect("dll");
+        let original_ini = "[ofxr]\r\nnvidia_input_scale=25\r\nframe_generation=dlss\r\nhybrid=1\r\nbackend=nvidia\r\n";
+        fs::write(payload.join(INI_NAME), original_ini).expect("ini");
+        fs::write(payload.join("payload.json"), "{\"version\":\"9999\"}").expect("payload version");
+
+        let version = import_payload(&local.0, &payload).expect("import");
+        assert_eq!(version, "9999", "a build newer than the bundled V557 is accepted");
+        let runtime = runtime_version_directory(&local.0, &version).expect("runtime dir");
+        assert_eq!(fs::read_to_string(runtime.join(INI_NAME)).expect("copied ini"), original_ini);
+        assert!(runtime.join(LAYER_DLL_NAME).is_file());
+        let receipt = read_receipt(&local.0);
+        assert_eq!(receipt.len(), 1);
+        assert_eq!(receipt[0].source, "imported");
+        assert_eq!(receipt[0].label.as_deref(), Some("OFXR-Bridge-v9999"));
+        assert!(receipt[0].retain_on_uninstall);
+
+        let values = map_preferences(&sample_prefs()).expect("map prefs");
+        write_ini(&runtime, &values, Some("Local\\OFXRBridgeArmStop-3")).expect("merge ini");
+        let merged = fs::read_to_string(runtime.join(INI_NAME)).expect("merged ini");
+        assert!(merged.contains("nvidia_input_scale=25"), "build-specific scale preserved");
+        assert!(merged.contains("frame_generation=dlss"), "fork-specific mode preserved");
+        assert!(merged.contains("hybrid=1"), "fork-specific hybrid preserved");
+        assert!(merged.contains("backend=fidelityfx"), "shared backend merged");
+
+        remove_owned_runtime_dirs(&local.0, false).expect("driver uninstall");
+        assert!(runtime.exists(), "driver uninstall retains the imported build");
+        remove_owned_runtime_dirs(&local.0, true).expect("explicit optical-flow uninstall");
+        assert!(!runtime.exists(), "explicit uninstall removes the imported copy");
+    }
+
+    #[test]
+    fn import_rejects_a_build_without_its_own_ini() {
+        let local = TempRoot::new("import-no-ini");
+        let source = TempRoot::new("import-no-ini-source");
+        fs::write(source.0.join(LAYER_DLL_NAME), b"layer").expect("dll");
+        assert!(import_payload(&local.0, &source.0).is_err());
+        assert!(read_receipt(&local.0).is_empty(), "a rejected import records nothing");
     }
 }

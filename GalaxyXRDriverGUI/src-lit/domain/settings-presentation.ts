@@ -77,13 +77,14 @@ group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 've
 // Async Spacewarp (2026-10-17): stream synthesis toggle; its page row lives in
 // the vendor build's Stream Quality branch, so it mirrors nvencTap's gate.
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpEnable', 'Async Spacewarp');
-// Optical Flow (2026-10-17): the managed OFXR Bridge card. All eight rows are
-// gui-settings.json values owned by the Companion; the page's Enable switch is
-// additionally gated by the native ofxr_status() state.
+// Optical Flow (2026-10-17; 2026-10-23): the managed OFXR Bridge card. The
+// remaining rows are gui-settings.json values owned by the Companion; the
+// page's Enable switch is additionally gated by the native ofxr_status()
+// state. NVIDIA input scale and other build-specific options are set in the
+// imported OFXR build's own tray and are not written by the Companion.
 const ofxr = group('stream-frame', ['Optical Flow'], ['heading:optical-flow'], false, 'vendor');
 ofxr('ofxr.enabled', 'Enable Optical Flow', { source: 'gui-settings.json' });
 ofxr('ofxr.mode', 'Backend', { source: 'gui-settings.json', kind: 'value' });
-ofxr('ofxr.scale', 'NVIDIA OFA resolution', { source: 'gui-settings.json', kind: 'value' });
 ofxr('ofxr.bidirectional', 'NVIDIA bidirectional consistency', { source: 'gui-settings.json' });
 ofxr('ofxr.logging', 'Bridge flight recorder', { source: 'gui-settings.json' });
 ofxr('ofxr.maxLogMb', 'Flight log size limit (MB)', { source: 'gui-settings.json', kind: 'value' });

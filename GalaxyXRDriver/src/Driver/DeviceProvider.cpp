@@ -139,11 +139,16 @@ vr::EVRInitError GalaxyXRDeviceProvider::Init(vr::IVRDriverContext *pDriverConte
 	
 	// the shim classes can be used to implement entirely new headsets, not just shim existing ones
 	if(driverConfig.fakeHeadset.enable){
-		FakeHeadset* fakeHeadsetImplementation = new FakeHeadset();
-		fakeHeadsetImplementation->deviceProvider = this;
-		shims.insert(fakeHeadsetImplementation);
-		vr::ITrackedDeviceServerDriver* driver = new ShimTrackedDeviceDriver(fakeHeadsetImplementation, nullptr);
-		vr::VRServerDriverHost()->TrackedDeviceAdded("FakeCustomHMD", vr::TrackedDeviceClass_HMD, driver);
+		if(!driverConfig.debugMode){
+			DriverLog("GalaxyXRNative: fakeHeadset.enable ignored because Debug Mode is off; no FakeCustomHMD added");
+		} else {
+			DriverLog("GalaxyXRNative: fakeHeadset.enable is ON; adding FakeCustomHMD (debug phantom headset)");
+			FakeHeadset* fakeHeadsetImplementation = new FakeHeadset();
+			fakeHeadsetImplementation->deviceProvider = this;
+			shims.insert(fakeHeadsetImplementation);
+			vr::ITrackedDeviceServerDriver* driver = new ShimTrackedDeviceDriver(fakeHeadsetImplementation, nullptr);
+			vr::VRServerDriverHost()->TrackedDeviceAdded("FakeCustomHMD", vr::TrackedDeviceClass_HMD, driver);
+		}
 	}
 	
 	driverConfigLoader.info.runtimeInitialized = true;

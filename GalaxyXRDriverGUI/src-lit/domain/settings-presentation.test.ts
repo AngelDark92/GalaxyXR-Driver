@@ -40,7 +40,7 @@ describe('human-readable settings inspection', () => {
     expect(row.location).toEqual(['Image Settings', 'Optical Flow', 'Enable Optical Flow']);
     expect(row.state).toBe('Off');
     const ofxrEntries = SETTINGS_PRESENTATION.filter(entry => entry.id.startsWith('ofxr.'));
-    expect(ofxrEntries).toHaveLength(8);
+    expect(ofxrEntries).toHaveLength(7);
     expect(ofxrEntries.every(entry => entry.source === 'gui-settings.json' && entry.gate === 'vendor')).toBe(true);
     expect(settingUnavailable(settingPresentation('ofxr.enabled')!, { ...c, vendor: false })).toMatch(/Galaxy XR build/);
     const checks = inspectBooleanSettings({ ofxr: { enabled: true, logging: false } }, {}, 'gui-settings.json');

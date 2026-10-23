@@ -475,14 +475,22 @@ void CheckCodecOverride(void* encoder){
 	Check(seenVbvSize == 2500000u, "h264 rc: vbvFrames=0 leaves the caller's VBV size untouched");
 	Check(memcmp(&rcVbv0, &savedRcVbv0, sizeof(rcVbv0)) == 0, "h264 rc: vbvFrames=0 caller config fully restored");
 
-	// Scaling 350 -> 500 Mbit must leave a zero-frame VBV request alone,
-	// including large valid caller buffers which previously failed validation.
-	h264RcCfg.bitrateMbit = 500; h264RcCfg.vrlinkClampMbit = 350;
+	// A request above Max Bitrate is capped at Max Bitrate, and a zero-frame
+	// VBV request is left alone, including large valid caller buffers which
+	// previously failed validation. No 350 Mbit clamp participates.
+	h264RcCfg.bitrateMbit = 500;
 	h264RcCfg.bitrateConstancyPct = 0;
 	h264RcCfg.h264VbvInitialDelay = 123456;
 	NvencTap::Get().SetConfig(h264RcCfg);
-	rcVbv0.rcParams.averageBitRate = 350000000;
-	rcVbv0.rcParams.maxBitRate = 350000000;
+	// A request below Max Bitrate passes through unchanged; the retired 350
+	// reference must not scale it upward.
+	rcVbv0.rcParams.averageBitRate = 280000000;
+	rcVbv0.rcParams.maxBitRate = 280000000;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS,
+		"linear no-clamp: below-max request init delegated");
+	Check(seenBitrate == 280000000u, "linear no-clamp: 280 Mbit request stays 280 Mbit");
+	rcVbv0.rcParams.averageBitRate = 600000000;
+	rcVbv0.rcParams.maxBitRate = 600000000;
 	rcVbv0.rcParams.vbvInitialDelay = 123456;
 	for(uint32_t callerVbv : {2500000u, 4000000000u}){
 		rcVbv0.rcParams.vbvBufferSize = callerVbv;
@@ -491,7 +499,7 @@ void CheckCodecOverride(void* encoder){
 		Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS,
 			"scaled VBV zero: initialization accepts caller buffer");
 		Check(seenBitrate == 500000000u && seenVbvSize == callerVbv && seenVbvDelay == 123456u,
-			"scaled VBV zero: 350->500 bitrate preserves buffer and initial delay");
+			"VBV zero: request 600 is capped at 500 while buffer and initial delay are preserved");
 		Check(memcmp(&rcVbv0, &savedScaledConfig, sizeof(rcVbv0)) == 0
 			&& memcmp(&rcInitVbv0, &savedScaledInit, sizeof(rcInitVbv0)) == 0,
 			"scaled VBV zero: complete init and config restored");
@@ -503,7 +511,7 @@ void CheckCodecOverride(void* encoder){
 		Check(NvencTapShims::ReconfigureEncoder(h264Enc, &reconfigure) == NV_ENC_SUCCESS,
 			"scaled VBV zero: reconfigure delegated");
 		Check(seenBitrate == 500000000u && seenVbvSize == callerVbv && seenVbvDelay == 123456u,
-			"scaled VBV zero: reconfigure preserves buffer and initial delay");
+			"VBV zero: reconfigure preserves the capped target, buffer and initial delay");
 		Check(memcmp(&rcVbv0, &savedScaledConfig, sizeof(rcVbv0)) == 0
 			&& memcmp(&reconfigure, &savedReconfigure, sizeof(reconfigure)) == 0,
 			"scaled VBV zero: complete reconfigure and config restored");
@@ -516,9 +524,79 @@ void CheckCodecOverride(void* encoder){
 	Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS,
 		"scaled positive VBV: large caller buffer does not reject explicit replacement");
 	Check(seenBitrate == 500000000u && seenVbvSize == (uint32_t)(500000000.0 / 90.0 * 2)
-		&& seenVbvDelay == 123456u, "scaled positive VBV: configured frames use nominal 90 FPS, delay preserved");
+		&& seenVbvDelay == 123456u, "positive VBV: configured frames use nominal 90 FPS, delay preserved");
 	Check(memcmp(&rcVbv0, &savedScaledConfig, sizeof(rcVbv0)) == 0,
 		"scaled positive VBV: caller config restored");
+
+	// 2026-10-23: the Custom seven-point curve through the tap. Drive five
+	// identical requests so the median window is deterministic, then assert the
+	// applied target and the Max Bitrate cap.
+	NvencTapConfig customCfg; customCfg.enabled = true; customCfg.codec = 1; customCfg.splitMode = 1;
+	customCfg.bitrateMbit = 450;
+	customCfg.bitrateCurve = 3;
+	customCfg.bitrateCurvePoints = {
+		{0.0, 0.1}, {0.1, 0.15}, {0.4, 0.3}, {0.7, 0.9},
+		{0.85, 0.95}, {0.95, 1.0}, {1.0, 1.0}
+	};
+	NV_ENC_CONFIG customRc = {}; customRc.version = Tag111(7, true); customRc.rcParams.version = Tag111(1);
+	customRc.rcParams.averageBitRate = 180000000;
+	customRc.rcParams.maxBitRate = 180000000;
+	customRc.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+	NV_ENC_INITIALIZE_PARAMS customInit = {}; customInit.version = Tag111(5, true);
+	customInit.encodeGUID = NV_ENC_CODEC_H264_GUID; customInit.encodeConfig = &customRc;
+	customInit.frameRateNum = 90; customInit.frameRateDen = 1;
+	NvencTap::Get().SetConfig(customCfg);
+	for(int i = 0; i < 5; ++i){
+		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
+			"custom curve: five-request median init delegated");
+	}
+	Check(seenBitrate == 135000000u, "custom curve: x=0.4 maps to 0.3 * 450 Mbit");
+	customCfg.bitrateConstancyPct = 50;
+	NvencTap::Get().SetConfig(customCfg);
+	for(int i = 0; i < 5; ++i){
+		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
+			"custom curve: pct50 init delegated");
+	}
+	Check(seenBitrate == 246475150u, "custom curve: pct50 lifts 0.3 to sqrt(0.3) * 450");
+
+	// A request above Max Bitrate must still cap every applied target.
+	customCfg.bitrateMbit = 300;
+	customCfg.bitrateConstancyPct = 0;
+	customCfg.bitrateCurvePoints = {
+		{0.0, 0.0}, {0.2, 0.5}, {0.4, 0.9}, {0.7, 1.0},
+		{0.85, 1.0}, {0.95, 1.0}, {1.0, 1.0}
+	};
+	customRc.rcParams.averageBitRate = 600000000;
+	customRc.rcParams.maxBitRate = 600000000;
+	NvencTap::Get().SetConfig(customCfg);
+	for(int i = 0; i < 5; ++i){
+		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
+			"custom curve: max-cap init delegated");
+	}
+	Check(seenBitrate == 300000000u,
+		"custom curve: a request above Max Bitrate maps to exactly Max Bitrate");
+
+	// A request inside the range still maps through the seven points.
+	customRc.rcParams.averageBitRate = 120000000;
+	customRc.rcParams.maxBitRate = 120000000;
+	NvencTap::Get().SetConfig(customCfg);
+	for(int i = 0; i < 5; ++i){
+		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
+			"custom curve: interior-point init delegated");
+	}
+	Check(seenBitrate == 270000000u && seenBitrate <= 300000000u,
+		"custom curve: x=0.4 maps to 0.9 * 300 and never exceeds the maximum");
+
+	// Invalid point sets fail closed, before the driver call.
+	customCfg.bitrateCurvePoints = {
+		{0.0, 0.0}, {0.4, 0.3}, {0.2, 0.2}, {0.7, 0.9},
+		{0.85, 0.95}, {0.95, 1.0}, {1.0, 1.0}
+	};
+	NvencTap::Get().SetConfig(customCfg);
+	const int beforeCustomInvalid = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_ERR_INVALID_PARAM
+		&& initDriverCalls == beforeCustomInvalid,
+		"custom curve: crossed points are refused without a driver call");
 
 	ConfigureCodec(true, 0);
 }

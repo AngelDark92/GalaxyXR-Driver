@@ -4,6 +4,8 @@
 #include <mutex>
 #include <cstdint>
 #include <string>
+#include <vector>
+#include "CurveMath.h"
 
 // ============================================================================
 // NvencTap — hook on vrlink's NVENC usage (nvEncodeAPI64.dll), rebuilt
@@ -12,8 +14,11 @@
 //   * every nvEncReconfigureEncoder at 3072-wide frames fails with
 //     NV_ENC_ERR_INVALID_PARAM ("NVENC: Invalid Level", 100-300x per
 //     session) -> vrlink cannot adjust bitrate after init at all.
-//   * vrlink clamps the encoder request to avg 350 / max 402.5 Mbit/s no
-//     matter what targetBandwidth says (run 3: 600 requested, 350 sent).
+//   * historically vrlink clamped the encoder request to avg 350 / max 402.5
+//     Mbit/s no matter what targetBandwidth said (run 3: 600 requested, 350
+//     sent). The 2026-10-23 curve maps the observed request onto Max Bitrate,
+//     and the driver writes targetBandwidth/recommendedBandwidthMbit = Max
+//     Bitrate; VRLink's own request cap is not patched.
 //   * the stream is 8-bit HEVC ("Using 10bit mode: 0").
 //
 // Mechanism: MinHook on NvEncodeAPICreateInstance; the returned caller-
@@ -117,15 +122,17 @@ struct NvencTapConfig {
 	// rate; frames that are not sent simply cost nothing.
 	int forceFps = 0;
 	// 2026-10-19 bitrate curve: how vrlink's request maps onto bitrateMbit.
-	// 0 = linear (the pre-curve mapping: target = B * request / clamp),
-	// 1 = power knee, 2 = soft knee (see CurveMath.h). constancy 0..100
-	// lifts the selected curve toward the ceiling: 0 = the curve itself,
-	// 100 = constant ceiling (the retired nvencBitrateScale=false).
+	// 0 = linear (request passes through, capped at Max Bitrate), 1 = power
+	// knee, 2 = soft knee, 3 = Custom seven-point curve (see CurveMath.h).
+	// constancy 0..100 lifts the selected curve toward the ceiling: 0 = the
+	// curve itself, 100 = constant ceiling (the retired nvencBitrateScale=false).
 	int bitrateCurve = 0;
 	int bitrateConstancyPct = 0;
-	// the encoder ceiling vrlink applies to its own request (run 3: 600
-	// asked, 350 sent). the reference point for every curve.
-	int vrlinkClampMbit = 350;
+	// 2026-10-23: seven normalized control points for the Custom family. P1 is
+	// fixed at x=0 with an editable floor; P6 has y=1 and a movable x plateau
+	// start; P7 is fixed at (1,1). Invalid points are refused by validation
+	// before a request is accepted.
+	std::vector<GxrCurvePoint> bitrateCurvePoints;
 	// 2026-10-16: explicit H.264 tuning; zero GOP/IDR derives rational fps,
 	// -1 preserves the caller. Other fields use their documented NVENC values.
 	int h264GopFrames = 0, h264IdrFrames = 0;
@@ -325,17 +332,11 @@ struct NvencTapRuntimeState {
 	uint32_t encodeWidth = 0, encodeHeight = 0;
 };
 
-// 2026-10-21 (S1): the relationship between the encoder ceiling (Bandwidth
-// row), VRLink's own request clamp, and the request it currently makes.
-// overdrive = the ceiling is above the clamp while the request sits at the
-// clamp: the encoder is asked to send more than the streamer requests, so the
-// pacer plans for less than it receives. Published for the Companion, which
-// shows it and offers an explicit align action; the driver never rewrites the
-// user's value.
+// 2026-10-23: the observed request, configured Max Bitrate and applied target.
+// The old 350 Mbit clamp/overdrive fields are gone; the curve maps the request
+// onto Max Bitrate directly. Published for diagnostics only.
 struct BitratePolicyState {
-	bool overdrive = false;
 	int ceilingMbit = 0;
-	int clampMbit = 0;
 	int requestMbit = 0;
 	int targetMbit = 0;
 };

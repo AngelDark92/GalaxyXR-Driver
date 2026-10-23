@@ -4,10 +4,10 @@ import { ofxrDefaults } from '../domain/ofxr';
 import type { AppSetting, OfxrStatus } from '../domain/types';
 import { OfxrSessionService } from './ofxr-session';
 
-const bridge = vi.hoisted(() => ({ status: vi.fn(), arm: vi.fn(), disarm: vi.fn(), apply: vi.fn(), reinstall: vi.fn(), remove: vi.fn() }));
+const bridge = vi.hoisted(() => ({ status: vi.fn(), arm: vi.fn(), disarm: vi.fn(), apply: vi.fn(), import: vi.fn(), reinstall: vi.fn(), remove: vi.fn() }));
 vi.mock('../platform/tauri', () => ({
   ofxr_status: bridge.status, ofxr_arm: bridge.arm, ofxr_disarm: bridge.disarm,
-  ofxr_apply: bridge.apply, ofxr_reinstall: bridge.reinstall, ofxr_remove: bridge.remove,
+  ofxr_apply: bridge.apply, ofxr_import: bridge.import, ofxr_reinstall: bridge.reinstall, ofxr_remove: bridge.remove,
 }));
 const status = (state: OfxrStatus['state']): OfxrStatus => ({ state, version: '116', runtimeDir: 'runtime/v116', reason: null, versions: [] });
 const tick = async () => { for (let i = 0; i < 15; ++i) await Promise.resolve(); };
@@ -145,12 +145,30 @@ describe('confirmed synthesis mode switching', () => {
   });
   it('only applies confirmed saved backend preferences', async () => {
     const { service, app } = fixture(true); app.save.mockResolvedValueOnce(false);
-    await service.update({ scale: 75 }); expect(bridge.apply).not.toHaveBeenCalled();
-    await service.update({ scale: 75 }); expect(bridge.apply).toHaveBeenCalledWith(expect.objectContaining({ scale: 75 }));
+    await service.update({ bidirectional: true }); expect(bridge.apply).not.toHaveBeenCalled();
+    await service.update({ bidirectional: true }); expect(bridge.apply).toHaveBeenCalledWith(expect.objectContaining({ bidirectional: true }));
   });
 });
 
 describe('OFXR management', () => {
+  it('imports a fork build, records its version and rearms an enabled selection', async () => {
+    const { service, app } = fixture(true);
+    bridge.import.mockResolvedValue('9999');
+    await service.importBuild('/tmp/ofxr-fork');
+    expect(bridge.import).toHaveBeenCalledWith('/tmp/ofxr-fork');
+    expect(app.values().ofxr.version).toBe('9999');
+    expect(bridge.arm).toHaveBeenCalled();
+  });
+  it('refuses to reinstall over an imported build', async () => {
+    const { service } = fixture(true);
+    bridge.status.mockResolvedValue({
+      state: 'ready', version: '9999', runtimeDir: 'runtime/v9999', reason: null,
+      versions: [{ version: '9999', source: 'imported', label: 'OFXR-Bridge-v9999' }],
+    });
+    await service.reinstall();
+    expect(bridge.reinstall).not.toHaveBeenCalled();
+    expect(service.error()).toContain('imported');
+  });
   it('rearms an enabled selection after successful reinstall', async () => {
     const { service } = fixture(true); await service.reinstall();
     expect(bridge.reinstall).toHaveBeenCalledWith(expect.objectContaining({ version: '116' })); expect(service.isArmed()).toBe(true);

@@ -273,7 +273,7 @@ void ConfigLoader::ParseConfig(){
 				DriverLog("Config: %s", newConfig.streamFrame.nvencValidationError.c_str());
 			}
 		};
-		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencBitrateCurve", "nvencBitrateConstancyPct", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencVrlinkClampMbit", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
+		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencBitrateCurve", "nvencBitrateConstancyPct", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
 		for(const char* key : {"customStreamFormatWidth", "customBandwidthMbit", "customEncodeWidth", "customStreamFormatWidthOverride"}){ validateInteger("galaxyXr", key); }
 		if(data["debugMode"].is_boolean()){
 			newConfig.debugMode = data["debugMode"].get<bool>();
@@ -953,6 +953,54 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["nvencBitrateConstancyPct"].is_number()){
 				newConfig.streamFrame.nvencBitrateConstancyPct = streamFrameData["nvencBitrateConstancyPct"].get<int>();
 			}
+			// 2026-10-23 (owner request): seven normalized control points for the
+			// Custom curve. P1 is fixed at x=0 with a free y floor; P6 has y=1
+			// with a movable x plateau start; P7 is fixed at (1,1). Files from
+			// the preceding five- or six-point shapes are upgraded in memory:
+			// keep P1..P5, then add the plateau start and the fixed endpoint.
+			if(streamFrameData.contains("nvencBitrateCurvePoints")){
+				const auto &pointsData = streamFrameData["nvencBitrateCurvePoints"];
+				bool pointsOk = pointsData.is_array() && (pointsData.size() == 5 || pointsData.size() == 6 || pointsData.size() == 7);
+				std::vector<StreamFrameBitratePoint> parsed;
+				if(pointsOk){
+					for(const auto &pointData : pointsData){
+						if(!pointData.is_object() || !pointData["x"].is_number() || !pointData["y"].is_number()){
+							pointsOk = false;
+							break;
+						}
+						parsed.push_back({pointData["x"].get<double>(), pointData["y"].get<double>()});
+					}
+				}
+				if(pointsOk && parsed.size() == 5){
+					// Five-point shape -> six points (P1 on the y axis, P6 at 1).
+					parsed.front().x = 0.0;
+					if(parsed.back().x >= 1.0 - 1e-9){
+						const auto &left = parsed[parsed.size() - 2];
+						const auto &right = parsed.back();
+						parsed.insert(parsed.begin() + (std::ptrdiff_t)(parsed.size() - 1),
+							{(left.x + right.x) * 0.5, (left.y + right.y) * 0.5});
+					} else {
+						parsed.push_back({1.0, 1.0});
+					}
+				}
+				if(pointsOk && parsed.size() == 6){
+					// Six-point shape -> seven points. P6 starts at the fixed
+					// endpoint, overlapping hidden P7; dragging it left is what
+					// starts the plateau. A P5 too close to the edge is nudged
+					// left so the final ordering gap remains valid.
+					const double gap = 0.001;
+					if(parsed[4].x > 1.0 - gap){ parsed[4].x = 1.0 - gap; }
+					parsed.resize(5);
+					parsed.push_back({1.0, 1.0});
+					parsed.push_back({1.0, 1.0});
+				}
+				if(pointsOk && parsed.size() == 7){
+					newConfig.streamFrame.nvencBitrateCurvePoints = parsed;
+				} else {
+					newConfig.streamFrame.nvencValidationError = "streamFrame.nvencBitrateCurvePoints must be an array of five, six or seven {x,y} numbers; seven-point curves anchor P1 at x=0, P6 at Max Bitrate with a movable x, and P7 at (1,1).";
+					DriverLog("Config: %s", newConfig.streamFrame.nvencValidationError.c_str());
+				}
+			}
 			// 2026-10-19 schema migration: the retired nvencBitrateScale bool
 			// becomes the constancy percentage. Only an absent new key is
 			// translated; an explicit curve/pct choice always wins. Runs on
@@ -964,9 +1012,8 @@ void ConfigLoader::ParseConfig(){
 				DriverLog("Config: streamFrame.nvencBitrateScale %s -> nvencBitrateConstancyPct %d (retired key)",
 					scale ? "true" : "false", newConfig.streamFrame.nvencBitrateConstancyPct);
 			}
-			if(streamFrameData["nvencVrlinkClampMbit"].is_number()){
-				newConfig.streamFrame.nvencVrlinkClampMbit = streamFrameData["nvencVrlinkClampMbit"].get<int>();
-			}
+			// 2026-10-23: nvencVrlinkClampMbit is retired and ignored. The curve
+			// and target normalize against Max Bitrate; old files keep the key.
 			// 2026-10-21 retirement (owner decision): streamFrame.nvencVrlinkFallbackMode
 			// is gone. It pinned two instructions inside driver_vrlink.dll, which cannot
 			// survive Valve's updates (one image change made it inert, another needed a
@@ -2032,7 +2079,13 @@ void ConfigLoader::WriteInfo(){
 				{"nvencForceFps", defaultSettings.streamFrame.nvencForceFps},
 				{"nvencBitrateCurve", defaultSettings.streamFrame.nvencBitrateCurve},
 				{"nvencBitrateConstancyPct", defaultSettings.streamFrame.nvencBitrateConstancyPct},
-				{"nvencVrlinkClampMbit", defaultSettings.streamFrame.nvencVrlinkClampMbit},
+				{"nvencBitrateCurvePoints", [&]{
+					json points = json::array();
+					for(const auto &point : defaultSettings.streamFrame.nvencBitrateCurvePoints){
+						points.push_back({{"x", point.x}, {"y", point.y}});
+					}
+					return points;
+				}()},
 				{"nvencH264GopFrames", defaultSettings.streamFrame.nvencH264GopFrames},
 				{"nvencH264IdrFrames", defaultSettings.streamFrame.nvencH264IdrFrames},
 				{"nvencH264RefFrames", defaultSettings.streamFrame.nvencH264RefFrames},
@@ -2207,14 +2260,11 @@ void ConfigLoader::WriteInfo(){
 		{"enabled", spacewarpTap.enabled}, {"hookInstalled", spacewarpTap.hookInstalled},
 		{"published", spacewarpTap.published}, {"publishedValue", spacewarpTap.publishedValue},
 		{"status", spacewarpTap.status}};
-	// 2026-10-21 (S1): the encoder ceiling vs the request clamp VRLink honours.
-	// overdrive = the ceiling is above the clamp while the request sits at the
-	// clamp; the Companion shows it and offers an explicit align action, and the
-	// driver never rewrites the user's value.
+	// 2026-10-23: observed streamer request, Max Bitrate and applied target.
+	// The old 350 Mbit clamp/overdrive pair is retired; this is diagnostics only.
 	const auto bitratePolicy = NvencTap::Get().GetBitratePolicyState();
 	data["bitratePolicy"] = {
-		{"overdrive", bitratePolicy.overdrive}, {"ceilingMbit", bitratePolicy.ceilingMbit},
-		{"clampMbit", bitratePolicy.clampMbit}, {"requestMbit", bitratePolicy.requestMbit},
+		{"ceilingMbit", bitratePolicy.ceilingMbit}, {"requestMbit", bitratePolicy.requestMbit},
 		{"targetMbit", bitratePolicy.targetMbit}};
 #endif
 	ordered_json& distortionProfilesJson = data["builtInDistortionProfiles"];

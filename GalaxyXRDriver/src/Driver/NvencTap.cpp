@@ -291,7 +291,7 @@ std::string RequestDescription(const NvencTapConfig& c){
 	std::ostringstream out;
 	out << "codec=" << c.codec << " preset=" << c.preset << '/' << c.presetAuto << '/' << c.presetMerge
 		<< " split=" << c.splitMode << " multipass=" << c.multiPass << " fps=" << c.forceFps
-		<< " bitrate=" << c.bitrateMbit << '/' << c.bitrateCurve << '/' << c.bitrateConstancyPct << '/' << c.vrlinkClampMbit << '/' << c.maxBitrateHeadroomPct
+		<< " bitrate=" << c.bitrateMbit << '/' << c.bitrateCurve << '/' << c.bitrateConstancyPct << '/' << c.maxBitrateHeadroomPct
 		<< " cbr=" << c.forceCbr << " vbv=" << c.vbvFrames << " kf=" << c.lowDelayKfScale
 		<< " qp=" << c.minQp << '/' << c.minQpIntra << '/' << c.maxQp << " aq=" << c.aqStrength
 		<< " qpMap=" << c.qpFovea << '/' << c.qpPeriphery << '/' << c.qpEdgeFalloff << '/' << c.qpFoveaTop << " fixLevel=" << c.fixLevel
@@ -1263,53 +1263,41 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	if(cfg.bitrateMbit > 0){
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
 		int64_t target = cfg.bitrateMbit * 1000000ll;
-		if(cfg.vrlinkClampMbit > 0 && rc.averageBitRate > 0){
-			if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0){
-				// 2026-10-19 default curve: byte-identical to the pre-curve
-				// integer formula. pow() is not bit-exact, so the untouched
-				// configuration never enters the curve header.
-				target = (int64_t)((double)rc.averageBitRate * (double)cfg.bitrateMbit / (double)cfg.vrlinkClampMbit);
-			} else {
-				// 2026-10-19: the curve reads the median of the last five
-				// requests so one deep one-frame dip cannot drag the target;
-				// the current call is already in the window (RecordRequest
-				// runs before ApplyOverrides).
-				double reqMbit = RequestMedian();
-				if(reqMbit <= 0.0){ reqMbit = rc.averageBitRate / 1e6; }
-				double x = reqMbit / (double)cfg.vrlinkClampMbit;
-				if(x < 0.0){ x = 0.0; } else if(x > 1.0){ x = 1.0; }
-				target = (int64_t)((double)cfg.bitrateMbit * 1e6 * GxrCurveTarget(x, cfg.bitrateCurve, cfg.bitrateConstancyPct));
-			}
-			target = (std::min<int64_t>)(target, cfg.bitrateMbit * 1000000ll);
+		if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0){
+			// 2026-10-23: no 350 reference. Linear at 0% is the request
+			// itself, capped at Max Bitrate below. This keeps the direct
+			// integer path exact and removes the old clamp scaling.
+			target = (int64_t)rc.averageBitRate;
+		} else {
+			// The curve reads the median of the last five requests so one
+			// deep one-frame dip cannot drag the target; the current call is
+			// already in the window (RecordRequest runs before ApplyOverrides).
+			double reqMbit = RequestMedian();
+			if(reqMbit <= 0.0){ reqMbit = rc.averageBitRate / 1e6; }
+			double x = reqMbit / (double)cfg.bitrateMbit;
+			if(x < 0.0){ x = 0.0; } else if(x > 1.0){ x = 1.0; }
+			target = (int64_t)((double)cfg.bitrateMbit * 1e6 * GxrCurveTarget(x, cfg.bitrateCurve, cfg.bitrateConstancyPct, cfg.bitrateCurvePoints));
+			// A zero request with a zero floor keeps the historical no-request
+			// behavior (leave the caller's target). A raised custom P1 floor is
+			// a real target and is applied even when the request is zero.
+			if(target <= 0 && reqMbit <= 0.0){ target = cfg.bitrateMbit * 1000000ll; }
 		}
+		// Linear at 0% historically left a zero request alone rather than
+		// writing an invalid zero average into the encoder session.
+		if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0 && rc.averageBitRate <= 0){
+			target = cfg.bitrateMbit * 1000000ll;
+		}
+		target = (std::min<int64_t>)(target, cfg.bitrateMbit * 1000000ll);
 		uint32_t avg = (uint32_t)target;
-		// 2026-10-21 (S1): publish ceiling vs VRLink's request clamp vs the
-		// request it actually makes. A ceiling above the clamp while the request
-		// sits at the clamp means the encoder is asked for more than the
-		// streamer requests, so the pacer plans for less than it receives. The
-		// Companion shows this and offers an explicit align action; nothing is
-		// rewritten here.
+		// Diagnostics only: request, Max Bitrate and applied target. No clamp
+		// assumption and no automatic alignment.
 		{
 			double reqM = RequestMedian();
 			if(reqM <= 0.0){ reqM = rc.averageBitRate / 1e6; }
 			std::lock_guard<std::mutex> g(policyLock);
-			const bool od = cfg.vrlinkClampMbit > 0 && cfg.bitrateMbit > cfg.vrlinkClampMbit
-				&& reqM >= (double)cfg.vrlinkClampMbit - 0.5;
-			policyState.overdrive = od;
 			policyState.ceilingMbit = cfg.bitrateMbit;
-			policyState.clampMbit = cfg.vrlinkClampMbit;
 			policyState.requestMbit = (int)(reqM + 0.5);
 			policyState.targetMbit = (int)((avg + 500000ull) / 1000000ull);
-			static int loggedOverdrive = -1;
-			if((int)od != loggedOverdrive){
-				loggedOverdrive = (int)od;
-				if(od){
-					DriverLog("NvencTap: bitrate overdrive: encoder ceiling %d Mbit is above VRLink's %d Mbit request clamp (request %.0fM) — the pacer plans for less than the encoder sends; align the Bandwidth row or lift the clamp",
-						cfg.bitrateMbit, cfg.vrlinkClampMbit, reqM);
-				}else{
-					DriverLog("NvencTap: bitrate overdrive cleared (ceiling %d, clamp %d, request %.0fM)", cfg.bitrateMbit, cfg.vrlinkClampMbit, reqM);
-				}
-			}
 		}
 		double head = 1.0 + cfg.maxBitrateHeadroomPct / 100.0;
 		uint32_t mx = (uint32_t)(avg * head);
@@ -1487,9 +1475,11 @@ std::string ValidateRequest(const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_P
 	if(cfg.splitMode > 0 && cfg.codec != 1 && !IsH264(p->encodeGUID) && (ApiMajor(p->version) < 12 || StructVer(p->version) < 6)){ return "streamFrame.nvencSplitMode requires NVENC API 12.1 initialization parameters."; }
 	if(cfg.preset < 0 || cfg.preset > 7 || cfg.multiPass < -1 || cfg.multiPass > 2){ return "streamFrame.nvencPreset must be 0..7 and streamFrame.nvencMultiPass must be -1..2."; }
 	if(cfg.forceFps < 0 || cfg.bitrateMbit < 0 || cfg.vbvFrames < 0 || cfg.maxBitrateHeadroomPct < 0){ return "streamFrame.nvencForceFps, streamFrame.nvencBitrateMbit, streamFrame.nvencVbvFrames and streamFrame.nvencMaxBitrateHeadroomPct cannot be negative."; }
-	if(cfg.bitrateCurve < 0 || cfg.bitrateCurve > 2){ return "streamFrame.nvencBitrateCurve must be 0 (linear), 1 (power knee) or 2 (soft knee)."; }
+	if(cfg.bitrateCurve < 0 || cfg.bitrateCurve > 3){ return "streamFrame.nvencBitrateCurve must be 0 (linear), 1 (power knee), 2 (soft knee) or 3 (custom seven-point curve)."; }
+	if(cfg.bitrateCurve == GxrCurveCustom && !GxrCurvePointsValid(cfg.bitrateCurvePoints)){
+		return "streamFrame.nvencBitrateCurvePoints must be seven finite {x,y} points with P1 at x=0, P6 at y=1 with a movable x, P7 at (1,1), x strictly increasing, y non-decreasing, and all values in 0..1.";
+	}
 	if(cfg.bitrateConstancyPct < 0 || cfg.bitrateConstancyPct > 100){ return "streamFrame.nvencBitrateConstancyPct must be 0..100."; }
-	if(cfg.bitrateMbit > 0 && cfg.vrlinkClampMbit <= 0 && cfg.bitrateConstancyPct < 100){ return "Bitrate scaling requires a positive streamFrame.nvencVrlinkClampMbit unless constancy is 100."; }
 	const double maxValue = (double)(std::numeric_limits<uint32_t>::max)();
 	const double bitrate = cfg.bitrateMbit > 0 ? cfg.bitrateMbit * 1000000.0 : p->encodeConfig->rcParams.averageBitRate;
 	if(bitrate * (1.0 + cfg.maxBitrateHeadroomPct / 100.0) > maxValue){ return "streamFrame.nvencBitrateMbit with streamFrame.nvencMaxBitrateHeadroomPct exceeds the NVENC uint32 bit-rate field."; }

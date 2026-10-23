@@ -1,7 +1,7 @@
 {
   "$schema": "../../../../builds/GalaxyXR-Driver/gui/schemas/desktop-schema.json",
   "identifier": "curve-preview",
-  "description": "Read-only bitrate curve preview window",
+  "description": "Bitrate curve editor window",
   "windows": [
     "curve-preview"
   ],

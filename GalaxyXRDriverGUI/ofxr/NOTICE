@@ -1,14 +1,21 @@
 OFXR Bridge payload (LGPL-3.0-or-later)
 
 Upstream: https://github.com/tig3rmast3r/OFXR-Bridge
-Source tag: v0.2.1  commit: dad56ac
-Built from that tag with MSVC 14.44 + CMake (Ninja), FidelityFX SDK v1.1.4
-(pinned commit c6efa6bf7f2027b3ec94f28578bb5965eabb9e55).
+Active fork: https://github.com/djules75/OFXR-Bridge
+Source tag: 0.2.14.2 (V557)  commit: f64d4b0aa7e15747bc2060c8f962b830a53b02ab
+Release: https://github.com/djules75/OFXR-Bridge/releases/tag/0.2.14.2
 
-The DLL is shipped unmodified and loaded dynamically as an OpenXR implicit
-layer. Written offer: the corresponding source is the upstream repository at
-the commit above; it is not modified by this package.
+The DLL and INI are shipped unmodified from the fork's release payload. The
+layer is loaded dynamically as an OpenXR implicit layer. The corresponding
+source is the repositories above at the listed tag and commit; this package
+does not modify that source.
+
+Third-party components and their license texts are listed in the fork's
+THIRD_PARTY.md and licenses directory at the source release above, including
+the AMD FidelityFX SDK (MIT), Khronos OpenXR-SDK and Vulkan-Headers
+(Apache-2.0 OR MIT), Valve OpenVR (BSD-3-Clause), safetyhook (BSL-1.0) and
+Zydis (MIT).
 
 This payload is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE. See LICENSE.
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See LICENSE.

@@ -176,7 +176,7 @@
   {
     "source": "features/driver-settings-page.ts",
     "originalLine": 103,
-    "summary": "Send the stream as 10-bit SDR. Off by default; works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.",
+    "summary": "Send the stream as 10-bit SDR. On by default; a saved Off stays Off. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.",
     "details": "Turning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit)."
   },
   {
@@ -356,8 +356,8 @@
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 104,
-    "summary": "Streaming bandwidth budget, written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally.",
-    "details": "HEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; used as the encoder bitrate."
+    "summary": "Set the stream bandwidth budget and the highest requested encoder target (the Max Bitrate ceiling for the curve). The budget is written to targetBandwidth and recommendedBandwidthMbit for pacing. The driver maps the streamer's request directly onto this Max Bitrate; there is no separate 350 Mbit/s clamp. No curve point or applied target can exceed this Max Bitrate value.",
+    "details": "A target is not a guarantee of actual encoded output or constant sent bits. Actual encoded and wire rates depend on content and encoder behavior. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; encoder side — requested bitrate target."
   },
   {
     "source": "features/stream-frame-page.ts",
@@ -368,8 +368,8 @@
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 363,
-    "summary": "Override the normal stream bandwidth budget. 0 follows the Bitrate row above instead of forcing a separate value.",
-    "details": "0 uses the Tile Width and Bandwidth settings. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the Bandwidth row's value.\n\nValue: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — nonzero writes the network pacer and the encoder bitrate, replacing the Bitrate row."
+    "summary": "Override the normal stream bandwidth budget. 0 follows the Max Bitrate row above instead of forcing a separate value.",
+    "details": "Nonzero supplies the network pacing budget and highest requested encoder target instead of the Max Bitrate row. It does not guarantee actual encoded output or constant sent bits. Requires a SteamVR restart.\n\nValue: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — pacing budget and requested encoder target."
   },
   {
     "source": "features/stream-frame-page.ts",
@@ -386,8 +386,8 @@
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 401,
-    "summary": "Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.",
-    "details": "Value: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."
+    "summary": "Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off is the default for every codec and preserves upstream rate control, which may already be CBR. Turn it on whenever it helps. The reset arrow restores Off. Requires a SteamVR restart.",
+    "details": "Value: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes."
   },
   {
     "source": "features/stream-frame-page.ts",
@@ -1009,12 +1009,6 @@
   },
   {
     "source": "features/stream-frame-page.ts",
-    "originalLine": 583,
-    "summary": "Resolution the NVIDIA optical-flow engine runs at. Lower costs less GPU time; 50% is the recommended default, 100% is usually too expensive for little extra gain.",
-    "details": "Value: ofxr.scale (gui-settings.json). Companion side — writes nvidia_input_scale; applies at the next game start."
-  },
-  {
-    "source": "features/stream-frame-page.ts",
     "originalLine": 592,
     "summary": "Compute optical flow in both directions and reject inconsistent vectors. Better quality around occlusions for slightly more GPU cost.",
     "details": "Value: ofxr.bidirectional (gui-settings.json). Companion side — writes nvidia_bidirectional; applies at the next game start."
@@ -1046,20 +1040,20 @@
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 699,
-    "summary": "Choose how the streamer's per-frame request becomes the encoder target. Changing this needs SteamVR closed; the saved value applies to the next session.",
-    "details": "Linear maps the request straight onto the ceiling, so a 350 Mbit/s request means your bandwidth. The knees hold more of your ceiling until the request falls further: power knee raises the middle of the range and keeps a proportional tail below 60% of the clamp, while soft knee holds the ceiling until 60%. A constancy of 100% overrides the family and always sends the ceiling, which is the retired bitrate-follows-backoff switch turned off.\n\nValue: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the NVENC average bitrate target."
+    "summary": "Choose how the streamer's per-frame request becomes the requested encoder target. Close SteamVR to change this; the saved value applies to the next session. Requires a SteamVR restart.",
+    "details": "The ceiling is the highest requested encoder target, not a guaranteed actual output limit. Linear maps a request at Max Bitrate to that ceiling; below it the request passes through. Power knee raises targets in the middle of the range and keeps a proportional tail below 60% of Max Bitrate; soft knee requests the ceiling from 60% upward. Custom uses seven points in the graph window: P1 is fixed at request 0 with an editable floor, P2–P5 are free, P6 starts at the fixed Max Bitrate endpoint overlapping hidden P7 and can move left to start the plateau, and P7 is fixed at full request and Max Bitrate and is shown only as the curve endpoint. At 100% constancy, every positive request selects the ceiling regardless of curve family. No point or applied target can exceed Max Bitrate. None of these settings guarantees constant encoded output or constant sent bits.\n\nValue: streamFrame.nvencBitrateCurve and streamFrame.nvencBitrateCurvePoints (settings.json). Encoder side — reshapes the requested NVENC average bitrate target."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 706,
-    "summary": "Lift the selected curve toward your ceiling. 0 leaves the curve as selected; 100 sends the ceiling whatever the streamer asks. Changing this needs SteamVR closed.",
-    "details": "At a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the power knee at 0%, 402 with Linear at 50%, 414 with the power knee at 50% and 450 at 100%. High constancy overrides the streamer's congestion response; the measured cost is stream resets and stalled pacing, so raise it deliberately.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve."
+    "summary": "Lift the selected curve toward Max Bitrate. 0 leaves the selected curve unchanged; 100 requests Max Bitrate for any positive streamer request; the applied target never exceeds it. Close SteamVR to change this. Requires a SteamVR restart.",
+    "details": "With a 450 Mbit/s Max Bitrate, a 280 Mbit/s request is 62% of the range: 280 with Linear at 0%, about 315 with power knee at 0%, about 355 with Linear at 50%, about 377 with power knee at 50%, and 450 at 100%. These are requested targets, not guaranteed encoded or wire rates. Higher constancy reduces the encoder target's response to congestion and can increase stream resets or stalled pacing.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 713,
-    "summary": "Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.",
-    "details": "Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call."
+    "summary": "Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Editable, drawn from the same arithmetic the driver uses. Drag P1–P6 to shape a Custom curve; P1 stays at request 0 with an editable floor, P2–P5 are free, P6 starts on the fixed Max Bitrate endpoint and moves left to start the plateau, and hidden P7 stays at full request and Max Bitrate. Selecting a preset seeds the handles.",
+    "details": "Solid line: the applied curve after Bitrate Constancy; the thin line is the base curve through the seven points. Dashed line: the linear reference mapping; the top line is Max Bitrate. The graph shows requested encoder targets, not measured encoded output or wire rates; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.\n\nValue: streamFrame.nvencBitrateCurve + streamFrame.nvencBitrateCurvePoints (settings.json). Client side graph; the main window validates and saves committed edits."
   },
   {
     "source": "features/app-settings-page.ts",

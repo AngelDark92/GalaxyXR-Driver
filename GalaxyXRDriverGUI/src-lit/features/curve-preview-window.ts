@@ -1,10 +1,13 @@
 // 2026-10-19 standalone bitrate curve window.
-//
-// Mounted by curve.html only. Native events carry the Companion's exact values;
-// there is no timer, disk reader, settings writer, migration or driver action.
+// 2026-10-23: editable seven-point graph. Mounted by curve.html only. Native
+// events carry the Companion's exact values; the window never writes settings.
+// Committed point edits and resets are relayed to the main window.
 import { LitElement, html, css } from 'lit';
 import { customElement } from 'lit/decorators.js';
-import { curve_preview_state, type CurvePreviewState } from '../platform/tauri';
+import {
+  curve_preview_state, submit_curve_preview_edit, submit_curve_preview_reset,
+  type CurvePreviewPoint, type CurvePreviewState,
+} from '../platform/tauri';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { t } from '../locale/i18n';
 import './bitrate-curve';
@@ -12,10 +15,11 @@ import './bitrate-curve';
 @customElement('app-curve-preview')
 export class CurvePreviewWindow extends LitElement {
   static styles = css`
-    :host { display: block; padding-top: 0.75rem; }
+    :host { display: block; padding-top: 0.75rem; -webkit-user-select: none; user-select: none; }
     header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.35rem; }
     .meta { font-size: 0.85rem; opacity: 0.8; margin-left: auto; }
-    .error { color: #c42b1c; font-size: 0.85rem; margin: 0.5rem 0 0; }
+    .error { color: #c42b1c; font-size: 0.85rem; margin: 0.5rem 0 0; -webkit-user-select: text; user-select: text; }
+    .locked { color: #b07a2a; font-size: 0.85rem; }
   `;
 
   private state?: CurvePreviewState;
@@ -63,18 +67,41 @@ export class CurvePreviewWindow extends LitElement {
     }
   }
 
+  private async onPointsChange(event: CustomEvent<{ points: CurvePreviewPoint[] }>) {
+    try {
+      await submit_curve_preview_edit(event.detail.points);
+      this.error = '';
+    } catch (error) {
+      this.error = String(error);
+    }
+    this.requestUpdate();
+  }
+
+  private async onReset() {
+    try {
+      await submit_curve_preview_reset();
+      this.error = '';
+    } catch (error) {
+      this.error = String(error);
+    }
+    this.requestUpdate();
+  }
+
   render() {
-    const error = this.error ? html`<p class="error" role="alert">${t('The graph window could not be opened: {reason}', { reason: this.error })}</p>` : html``;
+    const error = this.error ? html`<p class="error" role="alert">${t('The graph window could not apply the change: {reason}', { reason: this.error })}</p>` : html``;
     if (!this.state) return error;
     return html`
       <header>
-        <span class="meta">${t('Ceiling {ceiling} Mbit/s, clamp {clamp} Mbit/s', {
-          ceiling: String(this.state.ceilingMbit), clamp: String(this.state.clampMbit),
+        <span class="meta">${t('Max Bitrate {ceiling} Mbit/s', {
+          ceiling: String(this.state.ceilingMbit),
         })}</span>
+        ${this.state.locked ? html`<span class="locked">${t('Close SteamVR to change')}</span>` : ''}
       </header>
       <app-bitrate-curve .curve=${this.state.curve} .pct=${this.state.constancyPct}
-        .ceiling=${this.state.ceilingMbit} .clamp=${this.state.clampMbit}
-        ?fixed=${this.state.fallbackDisabled === true}></app-bitrate-curve>
+        .ceiling=${this.state.ceilingMbit}
+        .points=${this.state.points} ?fixed=${this.state.fallbackDisabled === true}
+        ?editable=${true} ?locked=${this.state.locked === true}
+        @points-change=${this.onPointsChange} @points-reset=${this.onReset}></app-bitrate-curve>
       ${error}
     `;
   }

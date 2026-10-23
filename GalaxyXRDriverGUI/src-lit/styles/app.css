@@ -34,7 +34,23 @@ body {
   color: var(--colorNeutralForeground1, #202020);
   background: var(--colorNeutralBackground2, #f5f5f5);
   overflow: hidden;
+  /* 2026-10-23 (owner directive): the Companion is a desktop application,
+     not a web page. UI text is not selectable; editable controls and
+     diagnostic detail blocks below keep selection so values and errors can
+     still be copied. user-select is inherited into open shadow trees. */
+  -webkit-user-select: none;
+  user-select: none;
 }
+
+/* Document-level exceptions for light-DOM surfaces (dialogs, the monitor
+   window, boot errors). Shadow roots repeat these in interactiveStyles. */
+input, textarea, select, [contenteditable=""], [contenteditable="true"],
+pre, code, .technical, .error, .window-error {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+img { -webkit-user-drag: none; }
 
 a {
   color: var(--colorBrandForegroundLink, #1a73e8);

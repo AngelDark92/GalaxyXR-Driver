@@ -25,7 +25,7 @@ const POPUP_CSS = `
     color:var(--colorNeutralForeground1, #202020); color-scheme:inherit;
     font:400 14px/1.55 'Segoe UI', system-ui, sans-serif;
     box-shadow:0 8px 32px #0004; text-align:left; white-space:normal;
-    overflow-wrap:anywhere; user-select:text; }
+    overflow-wrap:anywhere; user-select:none; }
   [data-gxr-help]::backdrop { background:transparent; }
   [data-gxr-help] header { display:flex; align-items:flex-start; gap:16px; }
   [data-gxr-help] h2 { margin:0; flex:1; font:600 16px/1.4 'Segoe UI',system-ui,sans-serif; }

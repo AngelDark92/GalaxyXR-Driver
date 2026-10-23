@@ -310,9 +310,15 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 	// follow the EFFECTIVE policy (active baseline forces both on, inactive
 	// disables the 10-bit request and keeps stored geometry). the debug overlay is not
 	// baseline-owned and keeps its stored-config read
+	// 2026-10-23: H.264 is 8-bit only. the GUI switch reads Off and disabled
+	// while that codec is selected; suppress the request here as well so a
+	// hand-edited or older stored On cannot disagree with the visible field.
+	if(policy.codecBlocked){
+		DriverLog("GalaxyXR: SDR10 baseline is stored On but H.264 is selected (streamFrame.nvencCodec=1). H.264 carries 8-bit only, so the baseline's supports10bit request is suppressed; the Companion switch reads Off and disabled until another codec is selected. A stored explicit advanced profileSupports10bit request remains user-owned.");
+	}
 	for(const auto& section : gxr::VrlinkCapabilitySections(g.vrlinkHeadsetProfile, modelNumberIn)){
-		DriverLog("GalaxyXR: headset profile apply: section %s profile=%d requestedTile=%d (fixed requested range) supports10bit=%d overlay=%d",
-			section.c_str(), (int)policy.profileEnabled, maxSfw, (int)policy.profileSupports10bit, (int)g.vrlinkDebugOverlay);
+		DriverLog("GalaxyXR: headset profile apply: section %s profile=%d requestedTile=%d (fixed requested range) supports10bit=%d codecBlocked=%d overlay=%d",
+			section.c_str(), (int)policy.profileEnabled, maxSfw, (int)policy.profileSupports10bit, (int)policy.codecBlocked, (int)g.vrlinkDebugOverlay);
 		const char* sec = section.c_str();
 		// The enabled custom profile is what unlocks vrlink's eye-tracking component; identity
 		// strings must be present because that branch rewrites them from the section.

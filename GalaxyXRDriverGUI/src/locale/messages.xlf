@@ -1680,7 +1680,7 @@ Enabled by default. Stream size and bandwidth, render overrides, diagnostics, an
         The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_&lt;original model&gt; destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.</source>
       </trans-unit>
       <trans-unit id="sdr10-opt-in-273e6bb8a7648ff4" datatype="html">
-        <source>Send the stream as 10-bit SDR. Off by default; works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.
+        <source>Send the stream as 10-bit SDR. On by default; a saved Off stays Off. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.
 
 Turning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.
 
@@ -2932,7 +2932,7 @@ On (default): the tuner forces the angular grid + warped overlays on while activ
 Value: streamFrame.distortion.tune.forceGrid (settings.json). Driver side — forces grid overlays during tuner sessions.</source>
       </trans-unit>
       <trans-unit id="1607213352" datatype="html">
-        <source>Bitrate (Mbit/s)</source>
+        <source>Max Bitrate (Mbit/s)</source>
       </trans-unit>
       <trans-unit id="2290962057" datatype="html">
         <source>Bitrate Headroom (%)</source>
@@ -3109,7 +3109,7 @@ Interactive tuning of the distortion CENTER offsets. While on: the image gently 
 Value: streamFrame.distortion.centerTune.enable (settings.json). Driver side — the in-headset center-offset tuner.</source>
       </trans-unit>
       <trans-unit id="379854560" datatype="html">
-        <source>Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it. Requires a SteamVR restart.
+        <source>Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off is the default for every codec and preserves upstream rate control, which may already be CBR. Turn it on whenever it helps. The reset arrow restores Off. Requires a SteamVR restart.
 
 Value: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes.</source>
       </trans-unit>
@@ -3376,7 +3376,7 @@ Performance: draws the processed frame directly into the layer texture instead o
 Value: streamFrame.directRender (settings.json). Driver side — renders the processed frame directly into the layer texture.</source>
       </trans-unit>
       <trans-unit id="1339468676" datatype="html">
-        <source>Send the stream as 10-bit SDR. Off by default; works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.
+        <source>Send the stream as 10-bit SDR. On by default; a saved Off stays Off. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.
 
 Turning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.
 
@@ -3574,7 +3574,7 @@ Value: streamFrame.nvencQpFovea + nvencQpPeriphery (settings.json). Encoder side
 Value: streamFrame.distortion.tune.segments (settings.json). Driver side — angular segment count per tuning band.</source>
       </trans-unit>
       <trans-unit id="93620499" datatype="html">
-        <source>Set the stream bandwidth budget and highest requested encoder target. The budget is written to targetBandwidth and recommendedBandwidthMbit for pacing. The streamer's request is limited by the VRLink request clamp; the driver maps that request to the configured encoder target.
+        <source>Set the stream bandwidth budget and highest requested encoder target (the Max Bitrate ceiling for the curve). The budget is written to targetBandwidth and recommendedBandwidthMbit for pacing. The driver maps the streamer's request directly onto this Max Bitrate; there is no separate 350 Mbit/s clamp. No curve point or applied target can exceed this Max Bitrate value.
 
 A target is not a guarantee of actual encoded output or constant sent bits. Actual encoded and wire rates depend on content and encoder behavior. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.
 
@@ -3685,7 +3685,7 @@ Value: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset mer
         <source>streamer request (Mbit/s)</source>
       </trans-unit>
       <trans-unit id="2194687293" datatype="html">
-        <source>applied (Mbit/s)</source>
+        <source>applied target (Mbit/s)</source>
       </trans-unit>
       <trans-unit id="3333270645" datatype="html">
         <source>Streamer standard (linear)</source>
@@ -3696,28 +3696,28 @@ Value: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset mer
       <trans-unit id="469935408" datatype="html">
         <source>Choose how the streamer's per-frame request becomes the requested encoder target. Close SteamVR to change this; the saved value applies to the next session. Requires a SteamVR restart.
 
-The ceiling is the highest requested encoder target, not a guaranteed actual output limit. Linear maps a request at the VRLink clamp to that ceiling. Power knee raises targets in the middle of the range and keeps a proportional tail below 60% of the clamp; soft knee requests the ceiling from 60% upward. At 100% constancy, every positive request selects the ceiling regardless of curve family. None of these settings guarantees constant encoded output or constant sent bits.
+The ceiling is the highest requested encoder target, not a guaranteed actual output limit. Linear maps a request at Max Bitrate to that ceiling; below it the request passes through. Power knee raises targets in the middle of the range and keeps a proportional tail below 60% of Max Bitrate; soft knee requests the ceiling from 60% upward. Custom uses seven points in the graph window: P1 is fixed at request 0 with an editable floor, P2–P5 are free, P6 starts at the fixed Max Bitrate endpoint overlapping hidden P7 and can move left to start the plateau, and P7 is fixed at full request and Max Bitrate and is shown only as the curve endpoint. At 100% constancy, every positive request selects the ceiling regardless of curve family. No point or applied target can exceed Max Bitrate. None of these settings guarantees constant encoded output or constant sent bits.
 
-Value: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the requested NVENC average bitrate target.</source>
+Value: streamFrame.nvencBitrateCurve and streamFrame.nvencBitrateCurvePoints (settings.json). Encoder side — reshapes the requested NVENC average bitrate target.</source>
       </trans-unit>
       <trans-unit id="1939510974" datatype="html">
-        <source>Lift the selected curve toward the highest requested encoder target. 0 leaves the selected curve unchanged; 100 requests the ceiling for any positive streamer request. Close SteamVR to change this. Requires a SteamVR restart.
+        <source>Lift the selected curve toward Max Bitrate. 0 leaves the selected curve unchanged; 100 requests Max Bitrate for any positive streamer request; the applied target never exceeds it. Close SteamVR to change this. Requires a SteamVR restart.
 
-With a 450 Mbit/s ceiling and 350 Mbit/s clamp, a 280 Mbit/s request maps to targets of 360 with Linear at 0%, about 381 with power knee at 0%, about 402 with Linear at 50%, about 414 with power knee at 50%, and 450 at 100%. These are requested targets, not guaranteed encoded or wire rates. Higher constancy reduces the encoder target's response to congestion and can increase stream resets or stalled pacing.
+With a 450 Mbit/s Max Bitrate, a 280 Mbit/s request is 62% of the range: 280 with Linear at 0%, about 315 with power knee at 0%, about 355 with Linear at 50%, about 377 with power knee at 50%, and 450 at 100%. These are requested targets, not guaranteed encoded or wire rates. Higher constancy reduces the encoder target's response to congestion and can increase stream resets or stalled pacing.
 
 Value: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve.</source>
       </trans-unit>
       <trans-unit id="628060530" datatype="html">
-        <source>Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.
+        <source>Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Editable, drawn from the same arithmetic the driver uses. Drag P1–P6 to shape a Custom curve; P1 stays at request 0 with an editable floor, P2–P5 are free, P6 starts on the fixed Max Bitrate endpoint and moves left to start the plateau, and hidden P7 stays at full request and Max Bitrate. Selecting a preset seeds the handles.
 
-Solid line: the selected curve and percentage. Dashed line: the linear reference mapping. The graph shows requested encoder targets, not measured encoded output or wire rates; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.
+Solid line: the applied curve after Bitrate Constancy; the thin line is the base curve through the seven points. Dashed line: the linear reference mapping; the top line is Max Bitrate. The graph shows requested encoder targets, not measured encoded output or wire rates; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.
 
-Value: none (preview only). Client side — no driver call.</source>
+Value: streamFrame.nvencBitrateCurve + streamFrame.nvencBitrateCurvePoints (settings.json). Client side graph; the main window validates and saves committed edits.</source>
       </trans-unit>
       <trans-unit id="1058167583" datatype="html">
-        <source>Applied encoder target in Mbit/s for each streamer request, at the ceiling and clamp currently saved.
+        <source>Applied encoder target in Mbit/s for each streamer request, at the Max Bitrate currently saved.
 
-The graph reads the saved bandwidth, override and clamp values, so editing those updates it. It does not measure the stream; delivered rate stays content- and transport-bound.</source>
+The graph reads the saved bandwidth and override values, so editing those updates it. It does not measure the stream; delivered rate stays content- and transport-bound.</source>
       </trans-unit>
       <trans-unit id="ofxr-20261019-1" datatype="html">
         <source>OFXR Bridge version</source>
@@ -3741,12 +3741,12 @@ The graph reads the saved bandwidth, override and clamp values, so editing those
         <source>Uninstall Optical Flow</source>
       </trans-unit>
       <trans-unit id="ofxr-20261019-8" datatype="html">
-        <source>Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Downloaded was imported by you; External belongs to OFXR's own tray and is never modified by the Companion. Switching versions disarms first because the layer's arm event belongs to the payload path.
+        <source>Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Imported is a build you copied from a folder; Downloaded is reserved for future use; External belongs to OFXR's own tray. Imported builds are used as-is with no version-compatibility check: download any fork, unzip it, and install it from its folder. Switching versions disarms first because the layer's arm event belongs to the payload path.
 
 Value: ofxr.version (gui-settings.json).</source>
       </trans-unit>
       <trans-unit id="ofxr-20261019-9" datatype="html">
-        <source>Reinstall deletes the Companion-owned runtime directory for the selected version and stages the bundled payload again, verifying its files. Uninstall disarms the layer, removes the Companion registration and deletes every payload directory the Companion created; OFXR tray installs are left untouched. The driver uninstall performs the same cleanup.</source>
+        <source>Install from folder copies a downloaded OFXR Bridge build into the Companion's own runtime area. The build must contain XR_APILAYER_XRFrameBridge_diagnostic.dll and its own ofxr_bridge.ini; the whole payload folder is copied so fork-specific helper DLLs survive. No version check is applied. The Companion only manages the settings shared by every fork (backend, NVIDIA preset, bidirectional flow, flight recorder and overlay position); Hybrid, 3X, NVIDIA input scale, frame-generation mode, Vulkan/D3D11 bridges and other build-specific options stay in the downloaded build's own tray. Reinstall re-stages the bundled payload. Uninstall removes the Companion's copies but leaves external tray installs untouched. Driver uninstall keeps imported builds.</source>
       </trans-unit>
 
       <trans-unit id="uiscale-20261019-1" datatype="html">
@@ -3774,7 +3774,7 @@ Value: uiScale (gui-settings.json). GUI-only presentation preference.</source>
         <source>Bitrate curve</source>
       </trans-unit>
       <trans-unit id="4131997893" datatype="html">
-        <source>Ceiling {ceiling} Mbit/s, clamp {clamp} Mbit/s</source>
+        <source>Max Bitrate {ceiling} Mbit/s</source>
       </trans-unit>
       <trans-unit id="2851497539" datatype="html">
         <source>Could not read settings.json: {reason}</source>
@@ -3784,7 +3784,7 @@ Value: uiScale (gui-settings.json). GUI-only presentation preference.</source>
         <source>Close</source>
       </trans-unit>
       <trans-unit id="curve-preview-invalid-values" datatype="html">
-        <source>Cannot plot these curve values. Check the curve family, constancy, ceiling and clamp in the Companion.</source>
+        <source>Cannot plot these curve values. Check the curve family, constancy, Max Bitrate and the seven points.</source>
       </trans-unit>
       <trans-unit id="companion-tray-20261020-1" datatype="html">
         <source>Minimize to tray</source>
@@ -3841,12 +3841,6 @@ Value: minimizeToTray (gui-settings.json). Companion-only window preference; On 
       </trans-unit>
       <trans-unit id="ofxr-session-20261020-7" datatype="html">
         <source>Disarm Optical Flow from its current manager before enabling Async Spacewarp.</source>
-      </trans-unit>
-      <trans-unit id="bitrate-overdrive-20261021-1" datatype="html">
-        <source>Highest requested encoder target {ceiling} Mbit/s is above the VRLink request clamp of {clamp} Mbit/s. Pacing and encoder targets may differ; actual encoded and wire rates vary.</source>
-      </trans-unit>
-      <trans-unit id="bitrate-overdrive-20261021-2" datatype="html">
-        <source>Align bitrate to {clamp} Mbit</source>
       </trans-unit>
       <trans-unit id="vrlink-fallback-20261020-6" datatype="html">
         <source>fixed operating point</source>
@@ -4169,6 +4163,63 @@ This request is not a hard encoded-output size limit. Validate its actual effect
 NVENC bytes come from the installed driver's read-only telemetry; the headset uses USB ADB and labels WLAN RX as all-traffic when decoder telemetry is unavailable. The window keeps its own pause, reset and CSV export state.
 
 Value: none (diagnostic only). Native side — read-only process telemetry and ADB.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-1" datatype="html">
+        <source>Custom (seven points)</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-2" datatype="html">
+        <source>Max Bitrate {value} Mbit/s</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-3" datatype="html">
+        <source>Base curve (points)</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-4" datatype="html">
+        <source>Request</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-5" datatype="html">
+        <source>Target</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-6" datatype="html">
+        <source>Reset points</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-7" datatype="html">
+        <source>Point {index} request Mbit/s</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-8" datatype="html">
+        <source>Point {index} target Mbit/s</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-9" datatype="html">
+        <source>Enter whole numbers for the request and target.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-10" datatype="html">
+        <source>Points must keep their order: request increases left-to-right and target never decreases.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-11" datatype="html">
+        <source>P1 is fixed at request 0 with an editable floor. P2–P5 move freely. P6 begins at the fixed Max Bitrate endpoint, overlapping the hidden P7; drag it left to begin the flat max section earlier. P7 is shown only as the curve endpoint, not as a selectable point. Request must increase left-to-right and target must never decrease. The applied target is lifted toward Max Bitrate by Bitrate Constancy and never exceeds it.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-15" datatype="html">
+        <source>Close SteamVR to change the curve.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-12" datatype="html">
+        <source>Bitrate Constancy is 100%: the applied target is pinned to Max Bitrate. The points still shape the base curve and apply when constancy is lowered.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-13" datatype="html">
+        <source>Custom (editing)</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-14" datatype="html">
+        <source>The graph window could not apply the change: {reason}</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261023-1" datatype="html">
+        <source>Select the OFXR Bridge build folder</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261023-2" datatype="html">
+        <source>Install from folder…</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261023-3" datatype="html">
+        <source>Imported</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261023-4" datatype="html">
+        <source>Reinstall only replaces the bundled payload. Select the bundled version, or remove the imported build through Uninstall Optical Flow first.</source>
       </trans-unit>
     </body>
   </file>
