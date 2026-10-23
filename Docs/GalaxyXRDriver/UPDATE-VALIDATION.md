@@ -49,7 +49,7 @@ These are local end-of-task checks; the release workflow builds and packages onl
 | Check | Required evidence |
 |---|---|
 | Clean checkout/source apply | Source helper succeeds from a separate extraction; ThirdParty retained; no duplicate old project folders are used |
-| Full production build | `npm ci`, `npm test`, full `Build-Portable.ps1` or release builder, native Rust tests succeed; no `-GuiOnly` shortcut |
+| Full production build | `npm ci`, `npm test`, full `Build-Portable.ps1` (the end-of-plan gate) plus release builder, native Rust tests succeed; no `-GuiOnly` shortcut |
 | Portable integrity | New GUI beside complete GalaxyXRNative directory; matching version/manifest/DLL/resources and all locale assets; no development server required |
 | First launch, no driver | About selected; About + App Settings visible; all other routes blocked; clean/install/check controls available only in About |
 | Install and initialize | Install verifies files only; Start SteamVR shows pending; fresh current-session native proof shows initialized; physical picture/controller test completed |

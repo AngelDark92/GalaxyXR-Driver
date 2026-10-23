@@ -30,7 +30,6 @@ const appDefaults: AppSetting = {
     enabled: false,
     version: '',
     mode: 'fidelityfx',
-    scale: 50,
     bidirectional: false,
     logging: false,
     maxLogMb: 32,

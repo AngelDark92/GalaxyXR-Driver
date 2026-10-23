@@ -52,6 +52,7 @@ static Config StoredConfig() {
     c.streamFrame.nvencMaxQp = 30;
     c.streamFrame.nvencTap = true;
     c.galaxyXr.vrlinkHeadsetProfile = false;
+    c.galaxyXr.sdr10Baseline = false; // stored Off fixture; the shipped default is now On
     c.galaxyXr.profileSupports10bit = false;
     c.galaxyXr.force10bit = true; // retired: the baseline must not read or write it
     return c;
@@ -77,11 +78,28 @@ int main() {
         GalaxyXrConfig current{};
         current.profileSupports10bit = true;
         GalaxyXrConfig absent{};
-        Check(gxr::MigrateSdr10Settings(absent, false) && !absent.profileSupports10bit,
-            "never-set compatibility field receives legacy OFF default");
+        Check(gxr::MigrateSdr10Settings(absent, false) && absent.sdr10Baseline && !absent.profileSupports10bit,
+            "never-set baseline defaults ON with the explicit compatibility request still off");
         current.sdr10SettingsVersion = 3;
         Check(!gxr::MigrateSdr10Settings(current) && current.profileSupports10bit,
             "migration leaves current/future compatibility values untouched");
+    }
+    // 2026-10-23 (owner directive): the shipped default requests the 10-bit
+    // SDR baseline. H.264 is 8-bit only and suppresses it so the disabled GUI
+    // switch and the real capability request agree.
+    {
+        Config c{};
+        const auto p = gxr::ResolveSdr10Policy(c);
+        Check(p.requested && p.active && !p.codecBlocked && p.profileEnabled && p.profileSupports10bit,
+            "default config requests the 10-bit SDR baseline");
+        c.streamFrame.nvencCodec = 1;
+        const auto h264 = gxr::ResolveSdr10Policy(c);
+        Check(h264.codecBlocked && !h264.requested && !h264.active && !h264.profileSupports10bit,
+            "H.264 suppresses the stored/default 10-bit request");
+        c.galaxyXr.profileSupports10bit = true;
+        const auto h264Advanced = gxr::ResolveSdr10Policy(c);
+        Check(h264Advanced.codecBlocked && !h264Advanced.active && h264Advanced.profileSupports10bit,
+            "H.264 keeps an explicit advanced capability request user-owned");
     }
     // 2026-09-25: the removed compatibility toggle must not keep the request
     // enabled when the visible baseline switch is turned off.
@@ -114,30 +132,30 @@ int main() {
             "baseline ON + master OFF: neutral baseline holds");
         Check(comboOff.profileSupports10bit, "baseline ON + master OFF: 10-bit capability request remains active");
     }
-    // ---- default-off: every policy field passes the stored config through exactly ----
+    // ---- stored off: every policy field passes the stored config through exactly ----
     {
         Config c = StoredConfig();
         gxr::Sdr10BaselinePolicy p = gxr::ResolveSdr10Policy(c);
-        Check(!p.requested && !p.conflict && !p.active, "default off: requested/conflict/active all false");
-        Check(p.profileEnabled == c.galaxyXr.vrlinkHeadsetProfile, "default off: profile enabled passes through stored value");
-        Check(p.profileSupports10bit == c.galaxyXr.profileSupports10bit, "default off: supports10bit passes through stored value");
-        Check(p.saturation == c.streamFrame.saturation, "default off: saturation passthrough exact");
-        Check(p.vibrance == c.streamFrame.vibrance, "default off: vibrance passthrough exact");
-        Check(p.contrast == c.streamFrame.contrast, "default off: contrast passthrough exact");
-        Check(p.contrastMidpoint == c.streamFrame.contrastMidpoint, "default off: contrast midpoint passthrough exact");
-        Check(p.contrastLinear == c.streamFrame.contrastLinear, "default off: contrast linear passthrough exact");
-        Check(p.gamma == c.streamFrame.gamma, "default off: gamma passthrough exact");
-        Check(p.brightness == c.streamFrame.brightness, "default off: brightness passthrough exact");
-        Check(p.colorMultiplier.r == c.streamFrame.colorMultiplier.r && p.colorMultiplier.g == c.streamFrame.colorMultiplier.g && p.colorMultiplier.b == c.streamFrame.colorMultiplier.b, "default off: tint passthrough exact");
-        Check(p.srgbMatrix == c.streamFrame.srgbMatrix, "default off: matrix passthrough exact (incl. empty)");
-        Check(p.dither == c.streamFrame.dither, "default off: dither passthrough exact");
-        Check(p.blackFloorRangeMode == c.streamFrame.blackFloor.rangeMode, "default off: black floor range mode passthrough exact");
-        Check(p.blackFloorShadowLift == c.streamFrame.blackFloor.shadowLift, "default off: shadow lift passthrough exact");
-        Check(p.blackFloorFloorCode == c.streamFrame.blackFloor.floorCode && p.blackFloorKneeCode == c.streamFrame.blackFloor.kneeCode, "default off: floor/knee codes passthrough exact");
-        Check(p.blackFloorBlackPointCode == c.streamFrame.blackFloor.blackPointCode, "default off: black point passthrough exact");
-        Check(p.postPackEnable == c.streamFrame.postPack.enable, "default off: post-pack passthrough exact");
-        Check(p.vuiFullRange == c.streamFrame.nvencVuiFullRange && p.vuiMatrix == c.streamFrame.nvencVuiMatrix, "default off: VUI fullRange/matrix passthrough exact");
-        Check(p.vuiPrimaries == c.streamFrame.nvencVuiPrimaries && p.vuiTransfer == c.streamFrame.nvencVuiTransfer, "default off: VUI primaries/transfer passthrough exact");
+        Check(!p.requested && !p.conflict && !p.active, "stored off: requested/conflict/active all false");
+        Check(p.profileEnabled == c.galaxyXr.vrlinkHeadsetProfile, "stored off: profile enabled passes through stored value");
+        Check(p.profileSupports10bit == c.galaxyXr.profileSupports10bit, "stored off: supports10bit passes through stored value");
+        Check(p.saturation == c.streamFrame.saturation, "stored off: saturation passthrough exact");
+        Check(p.vibrance == c.streamFrame.vibrance, "stored off: vibrance passthrough exact");
+        Check(p.contrast == c.streamFrame.contrast, "stored off: contrast passthrough exact");
+        Check(p.contrastMidpoint == c.streamFrame.contrastMidpoint, "stored off: contrast midpoint passthrough exact");
+        Check(p.contrastLinear == c.streamFrame.contrastLinear, "stored off: contrast linear passthrough exact");
+        Check(p.gamma == c.streamFrame.gamma, "stored off: gamma passthrough exact");
+        Check(p.brightness == c.streamFrame.brightness, "stored off: brightness passthrough exact");
+        Check(p.colorMultiplier.r == c.streamFrame.colorMultiplier.r && p.colorMultiplier.g == c.streamFrame.colorMultiplier.g && p.colorMultiplier.b == c.streamFrame.colorMultiplier.b, "stored off: tint passthrough exact");
+        Check(p.srgbMatrix == c.streamFrame.srgbMatrix, "stored off: matrix passthrough exact (incl. empty)");
+        Check(p.dither == c.streamFrame.dither, "stored off: dither passthrough exact");
+        Check(p.blackFloorRangeMode == c.streamFrame.blackFloor.rangeMode, "stored off: black floor range mode passthrough exact");
+        Check(p.blackFloorShadowLift == c.streamFrame.blackFloor.shadowLift, "stored off: shadow lift passthrough exact");
+        Check(p.blackFloorFloorCode == c.streamFrame.blackFloor.floorCode && p.blackFloorKneeCode == c.streamFrame.blackFloor.kneeCode, "stored off: floor/knee codes passthrough exact");
+        Check(p.blackFloorBlackPointCode == c.streamFrame.blackFloor.blackPointCode, "stored off: black point passthrough exact");
+        Check(p.postPackEnable == c.streamFrame.postPack.enable, "stored off: post-pack passthrough exact");
+        Check(p.vuiFullRange == c.streamFrame.nvencVuiFullRange && p.vuiMatrix == c.streamFrame.nvencVuiMatrix, "stored off: VUI fullRange/matrix passthrough exact");
+        Check(p.vuiPrimaries == c.streamFrame.nvencVuiPrimaries && p.vuiTransfer == c.streamFrame.nvencVuiTransfer, "stored off: VUI primaries/transfer passthrough exact");
     }
     // ---- active with the master OFF: every effective value is the neutral baseline ----
     {

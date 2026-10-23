@@ -75,9 +75,15 @@ disabled. Live assertions require fresh PID/module evidence.
 
 The read-only bitrate graph uses a separate `curve.html` / `src-lit/curve-main.ts`
 entry. `src-lit/services/curve-preview.ts` owns the Companion subscription while
-`src-tauri/src/curve_preview.rs` creates the native window on demand. Keep both
-HTML entries in Vite and the per-locale asset verifier. See
-`Docs/CompanionGraphWindow.md` for async WebView2 creation, lifecycle and QA.
+`src-tauri/src/curve_preview.rs` creates the native window on demand. The
+on-demand bitrate monitor uses `bitrate.html` / `src-lit/bitrate-main.ts`;
+`src-tauri/src/bitrate_monitor/` owns the native window and the read-only
+NVENC/USB ADB samplers, and `src-lit/features/bitrate-monitor-window.ts` starts
+them only on mount/visible and stops them on close/hide. Debug Mode gates the
+open control. Keep all three HTML entries in Vite and the per-locale asset
+verifier. See `Docs/CompanionGraphWindow.md` for async WebView2 creation,
+lifecycle and QA, and `Docs/BitrateMonitor.md` for the monitor's measurement
+contract.
 
 - `features/driver-settings-page.ts`: headset/device and legacy controls.
 - `features/stream-frame-page.ts`: stream/image processing controls.
@@ -133,8 +139,8 @@ and restores the previous working directory. Tauri-generated `gen/schemas` stay
 there and are copied to stable `gui/schemas/`. Capability `$schema` links point to
 that stable location; never regenerate an in-source `src-tauri/gen/` directory.
 
-Full staging: `node build.js --vendor galaxyxr` or `--vendor neutral`. Only when
-full local verification is authorized/necessary, run
+Full staging: `node build.js --vendor galaxyxr` or `--vendor neutral`. Every
+completed plan also runs the full local portable build:
 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-Portable.ps1`;
 exit 0 plus `Built test package: ...` proves a complete local package.
 `-DriverOnly`/`-GuiOnly` are partial builds. Version changes use

@@ -326,8 +326,10 @@ class Dashboard:
             card["now"].set(f"{rates.current:.2f}")
             for field, variable in card["fields"].items():
                 variable.set(f"{getattr(rates, field):.2f}")
-            fps = "" if rates.fps is None else f" • {rates.fps:.1f} FPS"
-            card["note"].set(f"{rates.seconds:.1f} s • {rates.samples} " + t("windows") + fps)
+            rate_unit = (t("buffers/s") if key == "nvenc" else
+                         t("decoder input frames/s") if sample.get("measurement_kind") == "decoder_input" else None)
+            count_rate = "" if rates.fps is None or rate_unit is None else f" • {rates.fps:.1f} {rate_unit}"
+            card["note"].set(f"{rates.seconds:.1f} s • {rates.samples} " + t("windows") + count_rate)
             self.histories[key].append((sample["monotonic_time"], rates.current))
             record = dict(local_time=datetime.now().astimezone().isoformat(timespec="milliseconds"),
                           source=key, source_id=sample["source_id"], label=sample.get("label", ""),
@@ -341,6 +343,7 @@ class Dashboard:
                           total_bytes=sample["total_bytes"], frames=sample.get("frames"),
                           current_mbps=rates.current, average_mbps=rates.average,
                           min_window_mbps=rates.minimum, max_window_mbps=rates.maximum,
+                          # Legacy CSV key: source counter rate, not displayed headset FPS.
                           measured_seconds=rates.seconds, fps=rates.fps)
             self.records.append(record)
             self.last_results[key] = record

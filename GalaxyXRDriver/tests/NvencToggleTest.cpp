@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <future>
 #include <condition_variable>
+#include <cstdarg>
+#include <functional>
 HMODULE WINAPI FakeModule(LPCSTR);
 FARPROC WINAPI FakeExport(HMODULE, LPCSTR);
 #define GetModuleHandleA FakeModule
@@ -19,8 +21,20 @@ FARPROC WINAPI FakeExport(HMODULE, LPCSTR);
 #include <iostream>
 
 Config driverConfig;
-int logCalls = 0;
-void DriverLog(const char*, ...) { ++logCalls; }
+std::atomic<int> logCalls{0};
+std::mutex capturedLogLock;
+std::string largestBufferLog;
+void DriverLog(const char* format, ...) {
+	++logCalls;
+	if(std::strstr(format, "new largest encoded")){
+		char message[1024];
+		va_list args; va_start(args, format);
+		std::vsnprintf(message, sizeof(message), format, args);
+		va_end(args);
+		std::lock_guard<std::mutex> guard(capturedLogLock);
+		largestBufferLog = message;
+	}
+}
 
 namespace {
 int checks = 0;
@@ -69,6 +83,10 @@ NV_ENC_CONFIG_HEVC_VUI_PARAMETERS seenHevcVui{};
 NV_ENC_CONFIG_AV1 seenAv1Config{};
 uint32_t seenH264Gop = 0, seenH264Idr = 0;
 int rejectedPresetCalls = 0;
+std::function<NVENCSTATUS(void*, NV_ENC_PIC_PARAMS*)> encodeMapCallback;
+NVENCSTATUS NVENCAPI EncodeMapCallback(void* encoder, NV_ENC_PIC_PARAMS* params){
+	return encodeMapCallback(encoder, params);
+}
 
 void Check(bool condition, const char* label){
 	checks++;
@@ -457,6 +475,129 @@ void CheckCodecOverride(void* encoder){
 	Check(seenVbvSize == 2500000u, "h264 rc: vbvFrames=0 leaves the caller's VBV size untouched");
 	Check(memcmp(&rcVbv0, &savedRcVbv0, sizeof(rcVbv0)) == 0, "h264 rc: vbvFrames=0 caller config fully restored");
 
+	// A request above Max Bitrate is capped at Max Bitrate, and a zero-frame
+	// VBV request is left alone, including large valid caller buffers which
+	// previously failed validation. No 350 Mbit clamp participates.
+	h264RcCfg.bitrateMbit = 500;
+	h264RcCfg.bitrateConstancyPct = 0;
+	h264RcCfg.h264VbvInitialDelay = 123456;
+	NvencTap::Get().SetConfig(h264RcCfg);
+	// A request below Max Bitrate passes through unchanged; the retired 350
+	// reference must not scale it upward.
+	rcVbv0.rcParams.averageBitRate = 280000000;
+	rcVbv0.rcParams.maxBitRate = 280000000;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS,
+		"linear no-clamp: below-max request init delegated");
+	Check(seenBitrate == 280000000u, "linear no-clamp: 280 Mbit request stays 280 Mbit");
+	rcVbv0.rcParams.averageBitRate = 600000000;
+	rcVbv0.rcParams.maxBitRate = 600000000;
+	rcVbv0.rcParams.vbvInitialDelay = 123456;
+	for(uint32_t callerVbv : {2500000u, 4000000000u}){
+		rcVbv0.rcParams.vbvBufferSize = callerVbv;
+		const auto savedScaledConfig = rcVbv0;
+		const auto savedScaledInit = rcInitVbv0;
+		Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS,
+			"scaled VBV zero: initialization accepts caller buffer");
+		Check(seenBitrate == 500000000u && seenVbvSize == callerVbv && seenVbvDelay == 123456u,
+			"VBV zero: request 600 is capped at 500 while buffer and initial delay are preserved");
+		Check(memcmp(&rcVbv0, &savedScaledConfig, sizeof(rcVbv0)) == 0
+			&& memcmp(&rcInitVbv0, &savedScaledInit, sizeof(rcInitVbv0)) == 0,
+			"scaled VBV zero: complete init and config restored");
+		NV_ENC_RECONFIGURE_PARAMS reconfigure = {}; reconfigure.version = Tag111(1, true);
+		reconfigure.reInitEncodeParams = rcInitVbv0;
+		const auto savedReconfigure = reconfigure;
+		const auto oldStatus = reconfigureDriverStatus;
+		reconfigureDriverStatus = NV_ENC_SUCCESS;
+		Check(NvencTapShims::ReconfigureEncoder(h264Enc, &reconfigure) == NV_ENC_SUCCESS,
+			"scaled VBV zero: reconfigure delegated");
+		Check(seenBitrate == 500000000u && seenVbvSize == callerVbv && seenVbvDelay == 123456u,
+			"VBV zero: reconfigure preserves the capped target, buffer and initial delay");
+		Check(memcmp(&rcVbv0, &savedScaledConfig, sizeof(rcVbv0)) == 0
+			&& memcmp(&reconfigure, &savedReconfigure, sizeof(reconfigure)) == 0,
+			"scaled VBV zero: complete reconfigure and config restored");
+		reconfigureDriverStatus = oldStatus;
+	}
+	h264RcCfg.vbvFrames = 2;
+	NvencTap::Get().SetConfig(h264RcCfg);
+	rcInitVbv0.frameRateNum = 15;
+	const auto savedScaledConfig = rcVbv0;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS,
+		"scaled positive VBV: large caller buffer does not reject explicit replacement");
+	Check(seenBitrate == 500000000u && seenVbvSize == (uint32_t)(500000000.0 / 90.0 * 2)
+		&& seenVbvDelay == 123456u, "positive VBV: configured frames use nominal 90 FPS, delay preserved");
+	Check(memcmp(&rcVbv0, &savedScaledConfig, sizeof(rcVbv0)) == 0,
+		"scaled positive VBV: caller config restored");
+
+	// 2026-10-23: the Custom seven-point curve through the tap. Drive five
+	// identical requests so the median window is deterministic, then assert the
+	// applied target and the Max Bitrate cap.
+	NvencTapConfig customCfg; customCfg.enabled = true; customCfg.codec = 1; customCfg.splitMode = 1;
+	customCfg.bitrateMbit = 450;
+	customCfg.bitrateCurve = 3;
+	customCfg.bitrateCurvePoints = {
+		{0.0, 0.1}, {0.1, 0.15}, {0.4, 0.3}, {0.7, 0.9},
+		{0.85, 0.95}, {0.95, 1.0}, {1.0, 1.0}
+	};
+	NV_ENC_CONFIG customRc = {}; customRc.version = Tag111(7, true); customRc.rcParams.version = Tag111(1);
+	customRc.rcParams.averageBitRate = 180000000;
+	customRc.rcParams.maxBitRate = 180000000;
+	customRc.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+	NV_ENC_INITIALIZE_PARAMS customInit = {}; customInit.version = Tag111(5, true);
+	customInit.encodeGUID = NV_ENC_CODEC_H264_GUID; customInit.encodeConfig = &customRc;
+	customInit.frameRateNum = 90; customInit.frameRateDen = 1;
+	NvencTap::Get().SetConfig(customCfg);
+	for(int i = 0; i < 5; ++i){
+		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
+			"custom curve: five-request median init delegated");
+	}
+	Check(seenBitrate == 135000000u, "custom curve: x=0.4 maps to 0.3 * 450 Mbit");
+	customCfg.bitrateConstancyPct = 50;
+	NvencTap::Get().SetConfig(customCfg);
+	for(int i = 0; i < 5; ++i){
+		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
+			"custom curve: pct50 init delegated");
+	}
+	Check(seenBitrate == 246475150u, "custom curve: pct50 lifts 0.3 to sqrt(0.3) * 450");
+
+	// A request above Max Bitrate must still cap every applied target.
+	customCfg.bitrateMbit = 300;
+	customCfg.bitrateConstancyPct = 0;
+	customCfg.bitrateCurvePoints = {
+		{0.0, 0.0}, {0.2, 0.5}, {0.4, 0.9}, {0.7, 1.0},
+		{0.85, 1.0}, {0.95, 1.0}, {1.0, 1.0}
+	};
+	customRc.rcParams.averageBitRate = 600000000;
+	customRc.rcParams.maxBitRate = 600000000;
+	NvencTap::Get().SetConfig(customCfg);
+	for(int i = 0; i < 5; ++i){
+		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
+			"custom curve: max-cap init delegated");
+	}
+	Check(seenBitrate == 300000000u,
+		"custom curve: a request above Max Bitrate maps to exactly Max Bitrate");
+
+	// A request inside the range still maps through the seven points.
+	customRc.rcParams.averageBitRate = 120000000;
+	customRc.rcParams.maxBitRate = 120000000;
+	NvencTap::Get().SetConfig(customCfg);
+	for(int i = 0; i < 5; ++i){
+		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
+			"custom curve: interior-point init delegated");
+	}
+	Check(seenBitrate == 270000000u && seenBitrate <= 300000000u,
+		"custom curve: x=0.4 maps to 0.9 * 300 and never exceeds the maximum");
+
+	// Invalid point sets fail closed, before the driver call.
+	customCfg.bitrateCurvePoints = {
+		{0.0, 0.0}, {0.4, 0.3}, {0.2, 0.2}, {0.7, 0.9},
+		{0.85, 0.95}, {0.95, 1.0}, {1.0, 1.0}
+	};
+	NvencTap::Get().SetConfig(customCfg);
+	const int beforeCustomInvalid = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_ERR_INVALID_PARAM
+		&& initDriverCalls == beforeCustomInvalid,
+		"custom curve: crossed points are refused without a driver call");
+
 	ConfigureCodec(true, 0);
 }
 
@@ -764,6 +905,104 @@ void CheckDeltaMapConversion(){
 	ConfigureCodec(true, 0);
 }
 
+void CheckMapSubmissionLifetime(){
+	// The fake NVIDIA call deliberately submits another picture before it
+	// finishes reading the first map. This exercises ownership at the actual
+	// shim boundary, including the ABI adapter and direct caller restoration.
+	const auto savedEncode = origEncodePicture;
+	origEncodePicture = EncodeMapCallback;
+	auto makePic = [](uint32_t frame, int8_t* map, uint32_t size, uint32_t width, uint32_t height){
+		NV_ENC_PIC_PARAMS p = {}; p.version = Tag111(4, true);
+		p.inputBuffer = reinterpret_cast<void*>(9); p.frameIdx = frame;
+		p.inputWidth = width; p.inputHeight = height;
+		*reinterpret_cast<int8_t**>(reinterpret_cast<unsigned char*>(&p) + kQpDeltaMap11Offset) = map;
+		*reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(&p) + kQpDeltaMapSize11Offset) = size;
+		return p;
+	};
+	auto deliveredMap = [](const NV_ENC_PIC_PARAMS* p){
+		if(Is111(p->version)){
+			return std::make_pair(*reinterpret_cast<int8_t* const*>(reinterpret_cast<const unsigned char*>(p) + kQpDeltaMap11Offset),
+				*reinterpret_cast<const uint32_t*>(reinterpret_cast<const unsigned char*>(p) + kQpDeltaMapSize11Offset));
+		}
+		return std::make_pair(p->qpDeltaMap, p->qpDeltaMapSize);
+	};
+	for(int kind : {0, 1, 2}){
+		NvencTapConfig cfg; cfg.enabled = true; cfg.codec = kind == 1 ? 2 : 1;
+		// Exercise both direct (H.264) and upgraded (AV1/generated) paths.
+		cfg.splitMode = kind == 0 ? 0 : 1;
+		if(kind == 2){ cfg.qpFovea = -8; cfg.qpPeriphery = 4; cfg.qpEdgeFalloff = 0; }
+		NvencTap::Get().SetConfig(cfg);
+		void* encoder = OpenSession();
+		int8_t outerSource[16] = {10, -70, 60, 5};
+		int8_t innerSource[16] = {-7, -7, -7, -7, -7, -7, -7, -7, -7, -7, -7, -7, -7, -7, -7, -7};
+		std::vector<int8_t> expected;
+		uint32_t width = 64, height = 64, sourceSize = 4;
+		if(kind == 0){ expected = {10, 10, -51, -51, 10, 10, -51, -51, -51, -51, 5, 5, -51, -51, 5, 5}; }
+		if(kind == 1){
+			width = height = 128; sourceSize = 16;
+			const int8_t source[16] = {10, 10, 5, 7, -70, 10, 5, 7, 31, 31, -32, 0, 31, 31, 0, -32};
+			std::copy(source, source + 16, outerSource);
+			expected = {-128, 20, -128, -128};
+		}
+		if(kind == 2){ height = 128; expected.assign(16, -8); expected.insert(expected.end(), 16, 4); }
+		auto outer = makePic(201, outerSource, sourceSize, width, height);
+		auto inner = makePic(202, innerSource, sourceSize, width, height);
+		const auto savedOuter = outer, savedInner = inner;
+		NvencTapConfig innerConfig = cfg;
+		if(kind == 2){ innerConfig.qpFovea = 7; innerConfig.qpPeriphery = 9; }
+		bool beforeMatches = false, afterMatches = false, innerDistinct = false;
+		encodeMapCallback = [&](void*, NV_ENC_PIC_PARAMS* p){
+			auto map = deliveredMap(p);
+			if(p->frameIdx == 202){
+				innerDistinct = map.first && map.second && map.first[0] == (kind == 1 ? -28 : kind == 2 ? 7 : -7);
+				return NV_ENC_ERR_GENERIC;
+			}
+			beforeMatches = map.first && map.second == expected.size() && std::equal(expected.begin(), expected.end(), map.first);
+			NvencTap::Get().SetConfig(innerConfig);
+			NvencTapShims::EncodePicture(encoder, &inner);
+			afterMatches = beforeMatches && std::equal(expected.begin(), expected.end(), map.first);
+			return NV_ENC_ERR_GENERIC;
+		};
+		Check(NvencTapShims::EncodePicture(encoder, &outer) == NV_ENC_ERR_GENERIC,
+			"map lifetime: reentrant NVIDIA failure returned unchanged");
+		Check(beforeMatches && innerDistinct && afterMatches,
+			"map lifetime: nested H264/AV1/generated map does not overwrite in-flight bytes");
+		Check(memcmp(&outer, &savedOuter, sizeof(outer)) == 0 && memcmp(&inner, &savedInner, sizeof(inner)) == 0,
+			"map lifetime: nested caller pictures fully restored");
+
+		// Keep the first NVIDIA call in flight until a second thread has
+		// converted its map. Promises give a deterministic overlap without
+		// racing the fixture's usual global capture fields or log counter.
+		NvencTap::Get().SetConfig(cfg);
+		std::promise<void> entered, release;
+		auto enteredFuture = entered.get_future();
+		auto releaseFuture = release.get_future().share();
+		encodeMapCallback = [&](void*, NV_ENC_PIC_PARAMS* p){
+			auto map = deliveredMap(p);
+			if(p->frameIdx == 202){ return NV_ENC_SUCCESS; }
+			entered.set_value();
+			releaseFuture.wait();
+			afterMatches = map.first && map.second == expected.size() && std::equal(expected.begin(), expected.end(), map.first);
+			return NV_ENC_ERR_GENERIC;
+		};
+		auto first = std::async(std::launch::async, [&]{ return NvencTapShims::EncodePicture(encoder, &outer); });
+		const bool firstEntered = enteredFuture.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+		NvencTap::Get().SetConfig(innerConfig);
+		auto second = std::async(std::launch::async, [&]{ return NvencTapShims::EncodePicture(encoder, &inner); });
+		const bool overlapped = second.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+		release.set_value();
+		Check(first.get() == NV_ENC_ERR_GENERIC && second.get() == NV_ENC_SUCCESS && firstEntered && overlapped,
+			"map lifetime: another encode completes while NVIDIA holds the first map");
+		Check(afterMatches, "map lifetime: concurrent H264/AV1/generated conversion preserves the first map");
+		Check(memcmp(&outer, &savedOuter, sizeof(outer)) == 0 && memcmp(&inner, &savedInner, sizeof(inner)) == 0,
+			"map lifetime: concurrent caller pictures fully restored");
+		Check(NvencTapShims::DestroyEncoder(encoder) == NV_ENC_SUCCESS, "map lifetime: fixture session destroyed");
+	}
+	origEncodePicture = savedEncode;
+	encodeMapCallback = {};
+	ConfigureCodec(true, 0);
+}
+
 void CheckSessionCodecGating(){
 	// The per-frame map paths must key off the LIVE session codec, not the
 	// tap config: a swap that fails at init and falls back to vrlink's
@@ -964,6 +1203,20 @@ NVENCSTATUS NVENCAPI CaptureEncode(void*, NV_ENC_PIC_PARAMS* p){
 	return encodeDriverStatus;
 }
 NVENCSTATUS NVENCAPI CaptureLock(void*, NV_ENC_LOCK_BITSTREAM* p){ ++ordinaryCalls; seenOrdinary = p; seenLockVersion = p ? p->version : 0; if(p){ p->bitstreamSizeInBytes = 2000000; } return NV_ENC_SUCCESS; }
+
+void CheckOutputBufferLog(){
+	Configure(true, 0);
+	void* encoder = OpenSession();
+	NV_ENC_LOCK_BITSTREAM lock = {}; lock.version = Tag111(1, true);
+	Check(NvencTapShims::LockBitstream(encoder, &lock) == NV_ENC_SUCCESS,
+		"output buffer log: successful lock delegated");
+	{
+		std::lock_guard<std::mutex> guard(capturedLogLock);
+		Check(largestBufferLog.find("NvencTap: new largest encoded output buffer: 2000000 bytes (1.91 MiB)") == 0,
+			"output buffer log: searchable prefix, buffer scope and binary units are explicit");
+	}
+	Check(NvencTapShims::DestroyEncoder(encoder) == NV_ENC_SUCCESS, "output buffer log: fixture session destroyed");
+}
 
 void CheckOffPassthrough(void* encoder){
 	Configure(false, 1);
@@ -1503,7 +1756,9 @@ int main(){
 	Check(seenCapsVersion == Tag111(1), "new OFF session continues with stock ABI");
 	CheckCodecOverride(stock);
 	CheckExplicitSettings();
+	CheckOutputBufferLog();
 	CheckDeltaMapConversion();
+	CheckMapSubmissionLifetime();
 	CheckSessionCodecGating();
 	CheckObserveOnlyInit();
 	CheckSplitGateAndRefusalKeys();

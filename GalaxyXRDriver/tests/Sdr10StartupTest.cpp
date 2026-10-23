@@ -78,6 +78,9 @@ void ApplyNativeResolutionSetting() {}
 void Reset(bool profile,int original) {
     driverConfig=Config{};
     driverConfig.galaxyXr.vrlinkHeadsetProfile=profile;
+    // Fixture baseline: most cases exercise explicit OFF transitions. The
+    // shipped ON default has its own case in main().
+    driverConfig.galaxyXr.sdr10Baseline=false;
     driverConfig.galaxyXr.profileSupports10bit=false;
     settings=Json::object();
     journal={{"schema",1},{"driver","GalaxyXRNative"},{"entries",Json::object()}};
@@ -138,6 +141,9 @@ void GeometryRequests() {
         CheckInt(tuning,"recommendedBandwidthMbit",2500,"requested bandwidth recommendation stays identical");
         // Baseline owns profile enable; the route still follows the saved
         // profile switch. These profile keys describe a request, not GPU caps.
+        // Geometry is independent of the codec; use HEVC so the H.264 gate
+        // cannot suppress the baseline this block is exercising.
+        driverConfig.streamFrame.nvencCodec=0;
         driverConfig.galaxyXr.sdr10Baseline=true;
         ApplyHeadsetProfileSetting("",ResolveSdr10PolicyLocked());
         for(const char* key:bounds)
@@ -198,6 +204,26 @@ int main() {
         GalaxyXR_EarlyApplyVrlinkSettings();
         CheckValue(gxr::VrlinkCapabilitySections(profile, ""), true,
             "explicit 10-bit compatibility request remains effective with baseline OFF");
+    }
+    // 2026-10-23 (owner directive): the shipped default is ON. The startup
+    // writer must request supports10bit without a stored key, and an H.264
+    // selection must suppress it so the disabled GUI switch agrees.
+    for(bool profile : {false, true}) {
+        Reset(profile, -1);
+        driverConfig = Config{};
+        driverConfig.galaxyXr.vrlinkHeadsetProfile = profile;
+        Check(driverConfig.galaxyXr.sdr10Baseline, "default config has the SDR10 baseline ON");
+        GalaxyXR_EarlyApplyVrlinkSettings();
+        CheckValue(gxr::VrlinkCapabilitySections(profile, ""), true,
+            "default baseline requests supports10bit at startup");
+        driverConfig.streamFrame.nvencCodec = 1;
+        GalaxyXR_EarlyApplyVrlinkSettings();
+        CheckValue(gxr::VrlinkCapabilitySections(profile, ""), false,
+            "H.264 suppresses the default supports10bit request");
+        driverConfig.galaxyXr.profileSupports10bit = true;
+        GalaxyXR_EarlyApplyVrlinkSettings();
+        CheckValue(gxr::VrlinkCapabilitySections(profile, ""), true,
+            "H.264 keeps an explicit advanced capability request user-owned");
     }
     GeometryRequests();
     for(bool profile:{false,true}) {

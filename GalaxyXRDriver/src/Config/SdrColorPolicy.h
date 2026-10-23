@@ -21,6 +21,10 @@
 //   (Galaxy XR lands in that bucket) owns the compositor color path;
 //   the baseline yields to it (active=false, conflict=true) instead of
 //   silently overriding it. the GUI shows a not-baseline status.
+// - CODEC: H.264 (streamFrame.nvencCodec == 1) is 8-bit only. a stored
+//   baseline is suppressed (codecBlocked=true) so the visible switch and
+//   the baseline's real request agree. an explicitly stored advanced
+//   profileSupports10bit request remains user-owned. 2026-10-23.
 // - SCOPE: only the controls listed in plan section 4.2. FXAA, pre-encode
 //   CAS, the black-floor ramp bar (user debug overlay), bitrate/preset/QP/
 //   split, tracking, geometry/distortion, blackout/dimming safety and the
@@ -52,6 +56,10 @@ struct Sdr10BaselinePolicy{
 	bool requested = false;
 	bool conflict = false;
 	bool active = false;
+	// stored baseline is On, but the selected H.264 codec carries 8-bit
+	// only; the startup writer logs this and suppresses the baseline request.
+	// an explicit advanced profileSupports10bit request stays user-owned.
+	bool codecBlocked = false;
 	// effective vrlink headset profile request (startup writer)
 	bool profileEnabled = true;
 	bool profileSupports10bit = true;
@@ -95,7 +103,11 @@ inline bool ImageEnhancementsEnabled(const StreamFrameConfig &config, const Sdr1
 // see the header comment for the capability and conflict rules.
 inline Sdr10BaselinePolicy ResolveSdr10Policy(const Config &config){
 	Sdr10BaselinePolicy p;
-	p.requested = config.galaxyXr.sdr10Baseline;
+	// 2026-10-23 (owner directive): an H.264 session cannot carry 10-bit.
+	// suppress the baseline request so the disabled GUI switch and the
+	// baseline's real vrlink capability request cannot disagree.
+	p.codecBlocked = config.galaxyXr.sdr10Baseline && config.streamFrame.nvencCodec == 1;
+	p.requested = config.galaxyXr.sdr10Baseline && !p.codecBlocked;
 	p.conflict = p.requested && config.customShader.enable && config.customShader.enableForOther;
 	p.active = p.requested && !p.conflict;
 	if(p.active && !ImageEnhancementsEnabled(config.streamFrame, p)){

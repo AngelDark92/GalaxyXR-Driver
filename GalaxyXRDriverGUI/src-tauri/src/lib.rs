@@ -4,6 +4,7 @@ mod driver_installation;
 mod ofxr;
 mod webview_zoom;
 mod curve_preview;
+mod bitrate_monitor;
 mod tray;
 mod webview_resources;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,6 +23,7 @@ pub fn run() {
             }
         }))
         .manage(curve_preview::Preview::default())
+        .manage(bitrate_monitor::Monitor::default())
         .manage(tray::Lifecycle::default())
         .manage(webview_resources::Resources::default())
         .plugin(tauri_plugin_opener::init())
@@ -62,12 +64,25 @@ pub fn run() {
             ofxr::ofxr_disarm,
             ofxr::ofxr_apply,
             ofxr::ofxr_reinstall,
+            ofxr::ofxr_import,
             ofxr::ofxr_remove,
             webview_zoom::set_webview_zoom,
             curve_preview::open_curve_preview,
             curve_preview::curve_preview_state,
+            curve_preview::submit_curve_preview_edit,
+            curve_preview::submit_curve_preview_reset,
             curve_preview::close_curve_preview,
             curve_preview::publish_curve_preview,
+            bitrate_monitor::open_bitrate_monitor,
+            bitrate_monitor::close_bitrate_monitor,
+            bitrate_monitor::close_bitrate_monitor_window,
+            bitrate_monitor::publish_bitrate_monitor_theme,
+            bitrate_monitor::bitrate_monitor_environment,
+            bitrate_monitor::start_bitrate_monitor,
+            bitrate_monitor::stop_bitrate_monitor,
+            bitrate_monitor::bitrate_monitor_preferences,
+            bitrate_monitor::save_bitrate_monitor_preferences,
+            bitrate_monitor::write_bitrate_csv,
             tray::sync_companion_lifecycle,
             tray::complete_companion_quit,
             tray::request_companion_quit,
@@ -76,14 +91,20 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
-            tauri::RunEvent::Exit => ofxr::shutdown_on_exit(),
+            tauri::RunEvent::Exit => {
+                bitrate_monitor::shutdown_on_exit(app);
+                ofxr::shutdown_on_exit();
+            }
             // A genuine main-window destruction is still an exit fallback;
             // CloseRequested is routed through tray/settings-flush policy below.
             tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
                 ..
-            } if label == "main" => app.exit(0),
+            } if label == "main" => {
+                bitrate_monitor::shutdown_on_exit(app);
+                app.exit(0);
+            }
             tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
@@ -91,6 +112,14 @@ pub fn run() {
             } if label == curve_preview::PREVIEW_LABEL => {
                 tray::window_event(app, &label, &tauri::WindowEvent::Destroyed);
                 curve_preview::destroyed(app);
+            }
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } if label == bitrate_monitor::WINDOW_LABEL => {
+                tray::window_event(app, &label, &tauri::WindowEvent::Destroyed);
+                bitrate_monitor::destroyed(app);
             }
             tauri::RunEvent::WindowEvent { label, event, .. } => tray::window_event(app, &label, &event),
             _ => {}

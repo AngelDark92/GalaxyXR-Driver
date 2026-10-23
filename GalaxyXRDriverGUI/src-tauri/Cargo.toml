@@ -1,6 +1,6 @@
 [package]
 name = "galaxyxrdriver-gui"
-version = "1.14.0"
+version = "1.15.0-dev.3"
 description = "Galaxy XR Companion"
 authors = ["hsin-yu chen"]
 license = ""
@@ -22,6 +22,7 @@ serde_json = "1.0"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
+sha2 = "0.10"
 tauri = { version = "2.12", features = ["devtools", "tray-icon"] }
 tauri-plugin-log = "2"
 # Single instance (2026-10-20): a second launch signals the running Companion
@@ -37,3 +38,10 @@ sysinfo = "0.35.1"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39.1"
 windows-core = "0.62.2"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }

@@ -80,10 +80,11 @@ inside the checkout. A vendored source directory named `build` is not an
 artifact. Preserve `node_modules` and offline dependency/toolchain caches during
 routine cleanup. Do not create an in-checkout junction to the external root.
 
-Full builds are GitHub-first. Run a full local build only when the user requests
-it or a build issue requires it. Do not claim a GitHub run passed without reading
-its actual result. At the end of artifact-producing work, follow
-`Docs/PortableBuildCleanup.md`: retain one verified complete package, preview
+Every completed implementation plan must run the full local portable build
+(`tools/Build-Portable.ps1`) before it is reported complete; focused checks remain
+required. Do not claim a GitHub run passed without reading its actual result. At the
+end of artifact-producing work, follow `Docs/PortableBuildCleanup.md`: retain the
+built verified complete package, preview
 `tools/Clean-Workspace.ps1 -KeepPackage output/<verified-package>`, inspect the
 plan, then apply its allowlist. The package argument is relative to the external
 artifact root. Report removed bytes and protected/skipped paths.

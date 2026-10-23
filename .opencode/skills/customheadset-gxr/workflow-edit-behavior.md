@@ -28,5 +28,5 @@
    after checks finish. Keep one verified full package; never evict it for a
    partial/failing build. Report precisely what passed and what remains untested.
 
-GitHub-first builds and external-action authorization remain governed by
+End-of-plan full local build and external-action authorization remain governed by
 `AGENTS.md`; this workflow does not add a deployment or publishing gate.

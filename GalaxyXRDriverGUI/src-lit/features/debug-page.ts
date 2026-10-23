@@ -2,9 +2,10 @@
 // Advanced Mode. Debug Mode gates diagnostics at the driver boundary (2026-10-01).
 import { html, css, type TemplateResult } from 'lit';
 import { customElement } from 'lit/decorators.js';
-import { BasePage, settingFieldRow, fieldRow, sectionRow, sectionGroup, fieldStyles } from './page-base';
+import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionGroup, fieldStyles } from './page-base';
 import { t } from '../locale/i18n';
 import { pageIntro } from '../ui/presentation';
+import { open_bitrate_monitor } from '../platform/tauri';
 import '../ui/controls';
 import './system-ready';
 
@@ -12,7 +13,23 @@ import './system-ready';
 export class DebugPage extends BasePage {
   static styles = [fieldStyles, css`
     :host { display: block; padding: 0 1rem 2rem 1rem; }
+    .window-error { color: var(--colorPaletteRedForeground1, #a4262c); }
   `];
+
+  private bitrateWindowError?: string;
+
+  private async openBitrateWindow(): Promise<void> {
+    const locale = window.location.pathname.split('/').filter(Boolean)[0] ?? 'en-US';
+    const colorScheme = this.ctx.appSetting.values().colorScheme ?? 'system';
+    try {
+      await open_bitrate_monitor(locale, t('Bitrate Monitor'), colorScheme, this.ctx.galaxy.debugMode, this.ctx.paths.infoPath);
+      this.bitrateWindowError = undefined;
+    } catch (error) {
+      this.bitrateWindowError = String(error);
+      console.error('Bitrate monitor window failed to open', error);
+    }
+    this.requestUpdate();
+  }
 
   render() {
     const galaxy = this.ctx.galaxy;
@@ -23,6 +40,17 @@ export class DebugPage extends BasePage {
     const sections = galaxy.sections();
     const save = () => { galaxy.save(); this.requestUpdate(); };
     const parts: TemplateResult[] = [pageIntro(t('Debug'), t('Diagnostic overlays, logging, and encoder tuning.'))];
+    parts.push(sectionGroup(t('Monitoring'), 0, 'source'));
+    parts.push(sectionRow(t('Bitrate monitor'), sections['debugMonitoring'], 1, () => this.toggleSection('debugMonitoring')));
+    if (sections.debugMonitoring) {
+      parts.push(fieldRow(t('Window'), html`
+        <fluent-button id="open-bitrate-monitor" appearance="outline" @click=${() => { void this.openBitrateWindow(); }}>${t('Open monitor window')}</fluent-button>
+      `, {
+        tip: t("Read exact NVENC output and USB headset counters in a separate window. Nothing is sampled before the window opens, sampling stops when it closes or hides, and no stream setting is changed.\n\nNVENC bytes come from the installed driver's read-only telemetry; the headset uses USB ADB and labels WLAN RX as all-traffic when decoder telemetry is unavailable. The window keeps its own pause, reset and CSV export state.\n\nValue: none (diagnostic only). Native side — read-only process telemetry and ADB."),
+      }));
+      parts.push(noteRow(t('The monitor samples only while its window is open. Closing or hiding the window stops every sampler.')));
+      if (this.bitrateWindowError) parts.push(noteRow(html`<span class="window-error">${this.bitrateWindowError}</span>`));
+    }
     parts.push(sectionGroup(t('Image Processing'), 0, 'source'));
     parts.push(sectionRow(t('Diagnostics'), sections['debugImage'], 1, () => this.toggleSection('debugImage')));
     if (sections.debugImage) {

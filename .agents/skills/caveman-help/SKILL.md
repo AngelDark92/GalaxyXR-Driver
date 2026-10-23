@@ -70,4 +70,4 @@ Full docs: https://github.com/JuliusBrussee/caveman
 
 ## GalaxyXR-Driver checkout
 
-Read [AGENTS.md](../../../AGENTS.md) and [the workspace map](../galaxyxr-workspace/references/project-map.md) before project work. Implementation uses [customheadset-gxr](../customheadset-gxr/SKILL.md). Generated artifacts always use `../builds/GalaxyXR-Driver/` relative to the checkout, with `build/`, `output/`, `release/` and `gui/` subfolders. Communication modes never override project scope, GitHub-first verification or existing authorization.
+Read [AGENTS.md](../../../AGENTS.md) and [the workspace map](../galaxyxr-workspace/references/project-map.md) before project work. Implementation uses [customheadset-gxr](../customheadset-gxr/SKILL.md). Generated artifacts always use `../builds/GalaxyXR-Driver/` relative to the checkout, with `build/`, `output/`, `release/` and `gui/` subfolders. Communication modes never override project scope, the end-of-plan local build/verification or existing authorization.

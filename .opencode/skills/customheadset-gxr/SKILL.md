@@ -43,7 +43,7 @@ Applied values always match their editable fields. Codec switching updates
 Advanced settings even while Advanced Mode is off; opening it shows the
 current values. Do not reveal Advanced Mode automatically.
 Per-codec rows carry that codec's negotiated-carryable class (H.264 = the
-1024x4096 tile the Steam Link client negotiates; proven live 2026-10-16). Force CBR is ON in every codec row by default (owner directive 2026-10-17, revised same day) — codec switches and reset arrows apply On; turning it off stays the user's choice. Multi-Engine Encoding is ON (forced, driver-chosen strips) in every codec row by default (owner directive 2026-10-17 evening; portable across NVENC engine counts); any allowed value stays the user's choice. The Lifted-Blacks Fix (streamFrame.postPack.limitedRange) is OFF in every codec by default (owner directive 2026-10-17); its toggle and reset arrow read and restore Off, and turning it on stays the user's own choice. Selecting H.264 cannot carry 10-bit: it turns the SDR 10-bit baseline off (writing sdr10Baseline false only; the explicit profileSupports10bit request is never touched) and the switch reads Off and stays disabled until another codec is selected. Image Enhancements and the SDR 10-bit baseline are independent (owner directive 2026-10-17): the master defaults On and never disables the baseline switch.
+1024x4096 tile the Steam Link client negotiates; proven live 2026-10-16). Force CBR is OFF in every codec row by default (owner directive 2026-10-23) - codec switches and reset arrows apply Off; turning it on stays the user's choice. Multi-Engine Encoding is ON (forced, driver-chosen strips) in every codec row by default (owner directive 2026-10-17 evening; portable across NVENC engine counts); any allowed value stays the user's choice. The Lifted-Blacks Fix (streamFrame.postPack.limitedRange) is OFF in every codec by default (owner directive 2026-10-17); its toggle and reset arrow read and restore Off, and turning it on stays the user's own choice. Selecting H.264 cannot carry 10-bit: it turns the SDR 10-bit baseline off (writing sdr10Baseline false only; the explicit profileSupports10bit request is never touched) and the switch reads Off and stays disabled until another codec is selected. Image Enhancements and the SDR 10-bit baseline are independent (owner directive 2026-10-17): the master defaults On and never disables the baseline switch. The SDR 10-bit baseline defaults On (owner directive 2026-10-23); a saved Off stays Off, and H.264 suppresses the baseline request in the driver as well as disabling the switch.
 Selected codecs are running codecs: no codec-to-codec fallback ever; a failed
 selection fails loudly with its NVENC status and request in the log plus the
 evidence row. When
@@ -54,10 +54,10 @@ the only permitted silent rewrites and cover never-set values only. Any new
 override path needs its visibility story (log + UI surface) as part of the
 same change.
 
-Use focused local checks. Full builds run on GitHub unless the user explicitly
-requests a local full build or a concrete build issue requires one. Report static,
-fixture, compilation, CI and runtime evidence separately. A runtime claim needs
-fresh matching process/module evidence, not an old package or report.
+Use focused local checks for the changed behavior, and run the full local portable
+build at the end of every completed implementation plan before reporting complete.
+Report static, fixture, compilation, CI and runtime evidence separately. A runtime
+claim needs fresh matching process/module evidence, not an old package or report.
 
 Implementation/validation permission does not authorize deploying, installing,
 ADB, restarting SteamVR, committing, pushing, dispatching workflows or publishing.
@@ -66,4 +66,4 @@ allowlist described in [PortableBuildCleanup](../../../Docs/PortableBuildCleanup
 
 When cavecrew is requested, delegate bounded investigation, independent file
 ownership or diff review through [cavecrew](../cavecrew/SKILL.md). Its invocation
-never requires a full build or changes runtime authorization.
+never removes the end-of-plan full local build or changes runtime authorization.

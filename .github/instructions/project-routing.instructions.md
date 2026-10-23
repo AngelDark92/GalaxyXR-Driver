@@ -23,7 +23,7 @@ For implementation choose the matching workflow in [.agents/skills/customheadset
 
 All generated artifacts belong to **`../builds/GalaxyXR-Driver/`**, using `build/`, `output/`, `gui/` and `release/` subfolders. Build scripts, caches, test output, packaging and CI paths must agree. Runtime identities/AppData folders and vendored source names are separate contracts. Never move source because a folder is named `build`.
 
-Use focused local checks and GitHub for full builds. Preserve unrelated source edits, vendored dependencies, runtime data, diagnostic captures and offline tools. Migration/cleanup follows the documented preview/guards/allowlist. Repository edits do not authorize deployment, SteamVR/ADB actions, commit/push, dispatch or publication.
+Use focused local checks and run the full local portable build at the end of every completed plan. Preserve unrelated source edits, vendored dependencies, runtime data, diagnostic captures and offline tools. Migration/cleanup follows the documented preview/guards/allowlist. Repository edits do not authorize deployment, SteamVR/ADB actions, commit/push, dispatch or publication.
 
 ## Settings authority (2026-10-17)
 

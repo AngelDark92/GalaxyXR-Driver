@@ -53,7 +53,7 @@
    (what TUs it actually compiles) before calling a receipt an all-clear.
 5. Keep compiler output, logs, test fixtures, screenshots and generated frontend
    assets under `../builds/GalaxyXR-Driver/`. Run relevant focused checks and
-   `git diff --check`. A full local build requires user request or a build issue.
+   `git diff --check`. The full local portable build is required at plan completion.
 6. Re-read the changed execution path, run the final appropriate check once,
    update help/docs if behavior changes, and clean task-owned successful fixtures.
    Preserve unresolved failure evidence and the last verified complete package.

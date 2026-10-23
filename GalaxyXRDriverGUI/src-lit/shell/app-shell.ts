@@ -8,6 +8,7 @@ import { applyUiScale } from '../ui/ui-scale';
 import { interactiveStyles } from '../ui/shared-styles';
 import { driverAvailable, parseRoute, parseSettingTarget, permittedRoute, visibleRoutes, settingHref, ROUTE_LABELS, type Route } from '../domain/navigation';
 import { settingPresentation } from '../domain/settings-presentation';
+import { close_bitrate_monitor, publish_bitrate_monitor_theme } from '../platform/tauri';
 import type { BasePage } from '../features/page-base';
 
 @customElement('app-shell')
@@ -17,6 +18,7 @@ export class AppShell extends LitElement {
   @property({ attribute: false }) private settingMessage = '';
   private targetGeneration = 0;
   private debugAllowed = false;
+  private monitorAllowed = false;
 
   static styles = [interactiveStyles, css`
     :host { display: flex; flex-direction: column; height: 100%; width: 100%; background: var(--colorNeutralBackground2); }
@@ -41,18 +43,26 @@ export class AppShell extends LitElement {
     // 2026-10-17: a mid-session install must keep the user on Setup; the
     // empty-hash re-default to Driver Settings serves fresh opens only and
     // must not fire while an install is running.
+    const allowed = this.driverAvailable && this.ctx.galaxy.debugMode;
+    if (this.monitorAllowed && !allowed) void close_bitrate_monitor().catch(() => undefined);
+    this.monitorAllowed = allowed;
     if (!(this.ctx.sds.installingDriver() && this.route === 'setup')) this.syncRoute();
     this.requestUpdate();
   };
   private readonly onDriverSettings = () => {
     // Saved selections/default emissions must not erase a guarded-link message.
-    if (this.debugAllowed !== (this.driverAvailable && this.ctx.galaxy.debugMode)) this.syncRoute();
+    const allowed = this.driverAvailable && this.ctx.galaxy.debugMode;
+    // The monitor is a Debug Mode tool: losing the gate closes its window too.
+    if (this.monitorAllowed && !allowed) void close_bitrate_monitor().catch(() => undefined);
+    this.monitorAllowed = allowed;
+    if (this.debugAllowed !== allowed) this.syncRoute();
     this.requestUpdate();
   };
 
   connectedCallback(): void {
     super.connectedCallback();
     this.syncRoute();
+    this.monitorAllowed = this.driverAvailable && this.ctx.galaxy.debugMode;
     window.addEventListener('hashchange', this.onHash);
     this.systemTheme.addEventListener('change', this.onSystemTheme);
     const notify = () => this.requestUpdate();
@@ -68,7 +78,12 @@ export class AppShell extends LitElement {
       this.ctx.lifecycle.error.subscribe(notify), this.ctx.lifecycle.quitting.subscribe(notify),
       subscribeLocale(notify),
     );
-    this.themeDispose = effect(() => applyTheme(this.ctx.appSetting.values().colorScheme));
+    this.themeDispose = effect(() => {
+      const preference = this.ctx.appSetting.values().colorScheme;
+      applyTheme(preference);
+      // Only the main window can publish; the command is a no-op when closed.
+      void publish_bitrate_monitor_theme(preference).catch(() => undefined);
+    });
     // 2026-10-19: also covers a gui-settings.json edit picked up by the file
     // watcher, so the window scale always matches the saved value.
     this.scaleDispose = effect(() => { void applyUiScale(this.ctx.appSetting.values().uiScale); });

@@ -121,10 +121,11 @@ export function get_galaxyxr_runtime_status(steamvrPath: string | undefined, exp
     return invoke('get_galaxyxr_runtime_status', { steamvrPath: steamvrPath ?? null, expectedVersion });
 }
 
-// OFXR Bridge managed component (2026-10-17). Pinned IPC contract (brief W4A):
+// OFXR Bridge managed component (2026-10-17; 2026-10-23). Pinned IPC contract:
 // ofxr_status() -> OfxrStatus, ofxr_arm(prefs) -> OfxrStatus,
-// ofxr_disarm() -> OfxrStatus, ofxr_apply(prefs) -> void. The Rust side owns
-// the layer registration, the version gate and the INI write-through.
+// ofxr_disarm() -> OfxrStatus, ofxr_apply(prefs) -> void,
+// ofxr_import(folder) -> version. The Rust side owns the layer registration
+// and the INI write-through; imported builds are copied without a version gate.
 export function ofxr_status(selected: string): Promise<OfxrStatus> {
     return invoke('ofxr_status', { selected: selected || null });
 }
@@ -136,6 +137,10 @@ export function ofxr_disarm(): Promise<OfxrStatus> {
 }
 export function ofxr_apply(prefs: OfxrPreferences): Promise<void> {
     return invoke('ofxr_apply', { prefs });
+}
+
+export function ofxr_import(source: string): Promise<string> {
+    return invoke('ofxr_import', { source });
 }
 
 export function ofxr_reinstall(prefs: OfxrPreferences): Promise<OfxrStatus> {
@@ -154,15 +159,23 @@ export function set_webview_zoom(scale: number): Promise<void> {
     return invoke('set_webview_zoom', { scale });
 }
 
-// 2026-10-19 bitrate curve preview window (src-tauri/src/curve_preview.rs).
-// The window receives a read-only snapshot of the Companion's current values.
+// 2026-10-19 bitrate curve editor window (src-tauri/src/curve_preview.rs).
+// The window receives a snapshot of the Companion's current values and relays
+// committed point edits back to the main window, which owns the settings write.
+export interface CurvePreviewPoint {
+    x: number;
+    y: number;
+}
 export interface CurvePreviewState {
     curve: number;
     constancyPct: number;
     ceilingMbit: number;
-    clampMbit: number;
-    /** 'No fallback' on: the streamer request is fixed at the clamp. */
+    /** 'No fallback' on: the streamer request is fixed at Max Bitrate. */
     fallbackDisabled: boolean;
+    /** Seven displayed handles: derived for presets, saved shape for Custom. */
+    points: CurvePreviewPoint[];
+    /** SteamVR is running; curve changes are disabled. */
+    locked: boolean;
 }
 export async function open_curve_preview(locale: string, snapshot: CurvePreviewState): Promise<void> {
     return invoke('open_curve_preview', { locale, snapshot });
@@ -173,6 +186,92 @@ export async function publish_curve_preview(snapshot: CurvePreviewState): Promis
 export async function curve_preview_state(): Promise<CurvePreviewState> {
     return invoke('curve_preview_state');
 }
+export async function submit_curve_preview_edit(points: CurvePreviewPoint[]): Promise<void> {
+    return invoke('submit_curve_preview_edit', { points });
+}
+export async function submit_curve_preview_reset(): Promise<void> {
+    return invoke('submit_curve_preview_reset');
+}
 export async function close_curve_preview(): Promise<void> {
     return invoke('close_curve_preview');
+}
+
+// 2026-10-23 on-demand bitrate monitor window
+// (src-tauri/src/bitrate_monitor). Sampling starts only after the window asks;
+// every worker stops on close or hide.
+export type BitrateSampleKind = 'nvenc' | 'decoderInput' | 'networkRxAllTraffic';
+export interface BitrateCodecDetection {
+    codec: string | null;
+    label: string;
+    evidence: string;
+    ageSeconds: number;
+    frameSha256?: string | null;
+    frameIndex?: number | null;
+    captureId?: number | null;
+    generation?: number | null;
+    capturedTickMs?: number | null;
+    frameBytes?: number | null;
+    sampledAt?: number | null;
+}
+export interface BitrateSample {
+    sourceId: string;
+    monotonicTime: number;
+    totalBytes: number;
+    frames?: number | null;
+    kind: BitrateSampleKind;
+    pid?: number | null;
+    moduleSha256?: string | null;
+    serial?: string | null;
+    interface?: string | null;
+    codec?: BitrateCodecDetection | null;
+}
+export interface BitrateSampleError { code: string; detail: string; }
+export interface BitrateSampleEvent {
+    generation: number;
+    source: 'nvenc' | 'headset';
+    sample?: BitrateSample | null;
+    error?: BitrateSampleError | null;
+}
+export interface BitrateMonitorConfig {
+    infoPath?: string | null;
+    adbPath: string;
+    serial: string;
+    codecInterval: number;
+}
+export interface BitrateMonitorPreferences {
+    adbPath: string;
+    serial: string;
+    codecInterval: number;
+    defaultAdb: string;
+    invalidInterval: boolean;
+}
+export async function open_bitrate_monitor(
+    locale: string, title: string, colorScheme: string, debugMode: boolean, infoPath: string,
+): Promise<void> {
+    return invoke('open_bitrate_monitor', { locale, title, colorScheme, debugMode, infoPath });
+}
+export async function close_bitrate_monitor(): Promise<void> {
+    return invoke('close_bitrate_monitor');
+}
+export async function publish_bitrate_monitor_theme(colorScheme: string): Promise<void> {
+    return invoke('publish_bitrate_monitor_theme', { colorScheme });
+}
+export interface BitrateMonitorEnvironment { theme: string; infoPath?: string | null; }
+export async function bitrate_monitor_environment(): Promise<BitrateMonitorEnvironment> {
+    return invoke('bitrate_monitor_environment') as Promise<BitrateMonitorEnvironment>;
+}
+export async function start_bitrate_monitor(config: BitrateMonitorConfig): Promise<number> {
+    return invoke('start_bitrate_monitor', { config }) as Promise<number>;
+}
+export async function stop_bitrate_monitor(): Promise<void> {
+    return invoke('stop_bitrate_monitor');
+}
+export async function bitrate_monitor_preferences(): Promise<BitrateMonitorPreferences> {
+    return invoke('bitrate_monitor_preferences') as Promise<BitrateMonitorPreferences>;
+}
+export async function save_bitrate_monitor_preferences(preferences: BitrateMonitorPreferences): Promise<void> {
+    return invoke('save_bitrate_monitor_preferences', { preferences });
+}
+export async function write_bitrate_csv(path: string, content: string): Promise<void> {
+    return invoke('write_bitrate_csv', { path, content });
 }

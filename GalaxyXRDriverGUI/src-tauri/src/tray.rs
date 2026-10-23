@@ -17,7 +17,7 @@ const QUIT_TIMEOUT: Duration = Duration::from_secs(15);
 const CLOSE_PROMPT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
-struct HiddenPreview {
+struct HiddenSecondary {
     window: WebviewWindow,
     minimized: bool,
 }
@@ -34,8 +34,8 @@ struct Policy {
     transitioning: bool,
     // A Close (X) prompt the Companion has not answered yet.
     pending_close_prompt: Option<u64>,
-    // Retain the exact native handle, never just a reusable window label.
-    hidden_preview: Option<HiddenPreview>,
+    // Retain the exact native handles, never just reusable window labels.
+    hidden_secondary: Vec<HiddenSecondary>,
     next_token: u64,
     pending_quit: Option<u64>,
 }
@@ -155,25 +155,25 @@ fn report(app: &AppHandle, error: String) {
 
 fn restore(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<Lifecycle>();
-    let hidden_preview = {
+    let hidden_secondary = {
         let mut policy = state.policy.lock().map_err(|e| e.to_string())?;
         if policy.transitioning { return Ok(()); }
         policy.transitioning = true;
-        policy.hidden_preview.take()
+        std::mem::take(&mut policy.hidden_secondary)
     };
     // Never hold a policy lock across window APIs: these can dispatch events.
     let result = (|| {
-        // Restore the access path first, even when the secondary window fails.
+        // Restore the access path first, even when a secondary window fails.
         let main = app.get_webview_window("main").ok_or("Companion window is unavailable")?;
         main.show().map_err(|e| e.to_string())?;
         main.unminimize().map_err(|e| e.to_string())?;
         crate::webview_resources::set_background(&main, false)?;
         main.set_focus().map_err(|e| e.to_string())?;
-        if let Some(preview) = hidden_preview.as_ref() {
-            if app.get_webview_window(crate::curve_preview::PREVIEW_LABEL).is_some() {
-                crate::webview_resources::set_background(&preview.window, preview.minimized)?;
-                preview.window.show().map_err(|e| e.to_string())?;
-                if preview.minimized { preview.window.minimize() } else { preview.window.unminimize() }.map_err(|e| e.to_string())?;
+        for hidden in &hidden_secondary {
+            if app.get_webview_window(hidden.window.label()).is_some() {
+                crate::webview_resources::set_background(&hidden.window, hidden.minimized)?;
+                hidden.window.show().map_err(|e| e.to_string())?;
+                if hidden.minimized { hidden.window.minimize() } else { hidden.window.unminimize() }.map_err(|e| e.to_string())?;
             }
         }
         main.set_focus().map_err(|e| e.to_string())
@@ -181,7 +181,7 @@ fn restore(app: &AppHandle) -> Result<(), String> {
     let mut policy = state.policy.lock().map_err(|e| e.to_string())?;
     policy.hidden = false;
     policy.transitioning = false;
-    if result.is_err() { policy.hidden_preview = hidden_preview; }
+    if result.is_err() { policy.hidden_secondary = hidden_secondary; }
     result
 }
 
@@ -189,23 +189,28 @@ fn hide(app: &AppHandle) {
     let state = app.state::<Lifecycle>();
     let should_hide = state.policy.lock().map(|mut p| p.begin_hide()).unwrap_or(false);
     if !should_hide { return; }
-    let mut hidden_preview = None;
+    let mut hidden_secondary = Vec::new();
     let result: Result<(), String> = (|| {
-        if let Some(preview) = app.get_webview_window(crate::curve_preview::PREVIEW_LABEL) {
-            if preview.is_visible().map_err(|e| e.to_string())? {
-                let minimized = preview.is_minimized().map_err(|e| e.to_string())?;
-                hidden_preview = Some(HiddenPreview { window: preview.clone(), minimized });
-                crate::webview_resources::set_background(&preview, true)?;
-                preview.hide().map_err(|e| e.to_string())?;
+        for label in [crate::curve_preview::PREVIEW_LABEL, crate::bitrate_monitor::WINDOW_LABEL] {
+            if let Some(window) = app.get_webview_window(label) {
+                if window.is_visible().map_err(|e| e.to_string())? {
+                    let minimized = window.is_minimized().map_err(|e| e.to_string())?;
+                    hidden_secondary.push(HiddenSecondary { window: window.clone(), minimized });
+                    crate::webview_resources::set_background(&window, true)?;
+                    window.hide().map_err(|e| e.to_string())?;
+                }
             }
         }
+        // Hiding the Companion must also stop the monitor's telemetry and ADB
+        // server; do not rely on a WebView visibility event alone.
+        crate::bitrate_monitor::suspend(app);
         let main = app.get_webview_window("main").ok_or("Companion window is unavailable")?;
         crate::webview_resources::set_background(&main, true)?;
         main.hide().map_err(|e| e.to_string())
     })();
     if let Ok(mut policy) = state.policy.lock() {
         policy.hidden = result.is_ok();
-        policy.hidden_preview = hidden_preview;
+        policy.hidden_secondary = hidden_secondary;
         policy.transitioning = false;
     }
     if let Err(error) = result {
@@ -359,10 +364,12 @@ pub fn window_event(app: &AppHandle, label: &str, event: &WindowEvent) {
     // hide/restore transaction before interpreting another visibility change.
     if matches!(event, WindowEvent::Resized(_))
         && app.state::<Lifecycle>().policy.lock().map(|p| p.transitioning).unwrap_or(false) { return; }
-    if label == crate::curve_preview::PREVIEW_LABEL {
+    if label == crate::curve_preview::PREVIEW_LABEL || label == crate::bitrate_monitor::WINDOW_LABEL {
         if matches!(event, WindowEvent::Destroyed) {
-            // A subsequent preview using this label is not the window we hid.
-            if let Ok(mut policy) = app.state::<Lifecycle>().policy.lock() { policy.hidden_preview = None; }
+            // A subsequent window using this label is not the one we hid.
+            if let Ok(mut policy) = app.state::<Lifecycle>().policy.lock() {
+                policy.hidden_secondary.retain(|hidden| hidden.window.label() != label);
+            }
         }
         if matches!(event, WindowEvent::Resized(_)) {
             if let Some(window) = app.get_webview_window(label) {

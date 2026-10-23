@@ -1734,7 +1734,11 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	tc.forceFps = settings.config.nvencForceFps;
 	tc.bitrateCurve = settings.config.nvencBitrateCurve;
 	tc.bitrateConstancyPct = settings.config.nvencBitrateConstancyPct;
-	tc.vrlinkClampMbit = settings.config.nvencVrlinkClampMbit;
+	tc.bitrateCurvePoints.clear();
+	tc.bitrateCurvePoints.reserve(settings.config.nvencBitrateCurvePoints.size());
+	for(const auto &point : settings.config.nvencBitrateCurvePoints){
+		tc.bitrateCurvePoints.push_back({point.x, point.y});
+	}
 	tc.requestError = settings.config.nvencValidationError;
 	if(tc.bitrateMbit <= 0){ tc.requestError = "Requested streaming bandwidth must be a positive integer."; }
 	tc.h264GopFrames = settings.config.nvencH264GopFrames;

@@ -34,7 +34,7 @@ export const fieldStyles = css`
      focus highlight paints only for keyboard/deep-link focus (:focus-visible),
      so a mouse click on the row neither selects text nor looks "selected". */
   .field { user-select: none; }
-  .field :is(input, textarea) { user-select: text; }
+  .field :is(input, textarea, select, [contenteditable]) { -webkit-user-select: text; user-select: text; }
   .field[data-setting-id]:focus-visible, .field[data-setting-id].revealed { outline: 2px solid var(--colorBrandStroke1); outline-offset: 3px; border-radius: 4px; background: var(--colorNeutralBackground3); }
   .field .title {
     display: flex;

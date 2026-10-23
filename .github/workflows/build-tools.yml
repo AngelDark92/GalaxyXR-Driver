@@ -89,7 +89,7 @@ jobs:
         working-directory: GalaxyXRDriverGUI
         run: npm run build:ui
 
-      - name: Check packaged graph in WebView browser engine
+      - name: Check packaged graph and bitrate monitor in WebView browser engine
         if: ${{ !cancelled() }}
         run: |
           # Keep QA dependencies outside source, like all other build tools.
@@ -98,6 +98,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:NODE_PATH = Join-Path $browserTools 'node_modules'
           node .\tools\Test-CurvePreviewBrowser.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .\tools\Test-BitrateMonitorBrowser.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .\tools\Test-CompanionBrowser.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -222,10 +222,11 @@ function fixture() {
     await openRoute('debug');
     const debug = page.locator('app-debug-page');
     assert.deepEqual(await debug.locator('.section-group.source > .section-group-label').allTextContents(),
-      ['Image Processing', 'Controllers', 'Encoder']);
+      ['Monitoring', 'Image Processing', 'Controllers', 'Encoder']);
+    await debug.locator('#open-bitrate-monitor').waitFor();
     assert.equal(await debug.locator('.section-group.source > .section-group-label').evaluateAll(labels =>
       labels.every(label => label.tagName === 'DIV' && !label.hasAttribute('aria-expanded'))), true);
-    const imageDiagnostics = debug.locator('.section-card .section-title').first();
+    const imageDiagnostics = debug.locator('.section-title').filter({ hasText: 'Diagnostics' }).first();
     await imageDiagnostics.click();
     await debug.locator('[data-setting-id="streamFrame.hitchDiag"]').waitFor({ state: 'detached' });
     await imageDiagnostics.click();
@@ -476,6 +477,13 @@ function fixture() {
     results.push('Update checks expose loading, current, failure, recovery and new-release states without installing or writing');
     await openRoute('distortion-profile');
     await page.evaluate(() => appContext.galaxy.sections.set({ ...appContext.galaxy.sections(), share: true }));
+    // 2026-10-23 (owner directive): desktop-style non-selectable UI.
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).userSelect), 'none');
+    const profileLabel = page.locator('app-distortion-profile-page .field .title').first();
+    assert.equal(await profileLabel.evaluate(node => getComputedStyle(node).userSelect), 'none');
+    const profileText = page.locator('app-distortion-profile-page textarea').first();
+    assert.equal(await profileText.evaluate(node => getComputedStyle(node).userSelect), 'text');
+    results.push('Desktop UI text is non-selectable while editable fields keep selection');
     const beforeImport = await mutations();
     const chooserPromise = page.waitForEvent('filechooser');
     await page.locator('app-distortion-profile-page').getByText('Import .json', { exact: true }).click();

@@ -27,8 +27,8 @@ function localeDevServer(): Plugin {
         const loc = m[1];
         const rest = m[2];
 
-        if (rest === '' || rest === 'index.html' || rest === 'curve.html') {
-          let html = fs.readFileSync(path.join(__dirname, rest === 'curve.html' ? 'curve.html' : 'index.html'), 'utf8');
+        if (rest === '' || rest === 'index.html' || rest === 'curve.html' || rest === 'bitrate.html') {
+          let html = fs.readFileSync(path.join(__dirname, rest === 'curve.html' ? 'curve.html' : rest === 'bitrate.html' ? 'bitrate.html' : 'index.html'), 'utf8');
           // Inject the Vite client so HMR works even though we serve the
           // locale-path HTML directly rather than via Vite's root transform.
           if (!html.includes('/@vite/client')) {
@@ -78,7 +78,7 @@ export default defineConfig({
     emptyOutDir: true,
     target: 'es2022',
     rollupOptions: {
-      input: { companion: path.join(__dirname, 'index.html'), curve: path.join(__dirname, 'curve.html') },
+      input: { companion: path.join(__dirname, 'index.html'), curve: path.join(__dirname, 'curve.html'), bitrate: path.join(__dirname, 'bitrate.html') },
       // Our page/shell/controls modules and the Fluent element-definition modules
       // only "do" something via custom-element registration (Lit's @customElement
       // and FAST's `Element.define`). Those registrations are side effects that

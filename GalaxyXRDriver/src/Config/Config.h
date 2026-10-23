@@ -61,6 +61,16 @@ struct StreamFrameDistortionPoint{
 	double scale = 1;
 };
 
+// one control point of the seven-point Custom bitrate curve. Both axes are
+// normalized to [0,1]: x is the streamer request over Max Bitrate, y is the
+// applied target over Max Bitrate. Points must be fan-curve ordered (x strictly
+// increasing, y non-decreasing). P1 x=0 with a free y floor; P6 y=1 with a free
+// x plateau start; P7 is fixed at (1,1).
+struct StreamFrameBitratePoint{
+	double x = 0.0;
+	double y = 0.0;
+};
+
 // diagnostic band that limits the distortion correction to a radius range so
 // one region of the curve can be tuned against untouched surroundings
 struct StreamFrameAnnulusConfig{
@@ -507,8 +517,10 @@ struct GalaxyXrConfig{
 	double skeletonOffsetYCm = 0.0;
 	double skeletonOffsetZCm = 0.0;
 	bool skeletonOffsetMirror = true;
-	// 2026-09-19 SDR10 baseline: opt-in VD-like neutral baseline (see
-	// SdrColorPolicy.h). effective (not stored): while on AND the Image
+	// 2026-09-19 SDR10 baseline: VD-like neutral baseline (see
+	// SdrColorPolicy.h). 2026-10-23 (owner directive): ON by default; an
+	// explicitly stored Off stays user-authoritative. effective (not stored):
+	// while on AND the Image
 	// Enhancements master (streamFrame.enable) is off, the vrlink headset
 	// profile is requested with supports10bit and the host color pipeline
 	// runs neutral (saturation 50 / vibrance 0 / contrast 50 / gamma
@@ -518,7 +530,7 @@ struct GalaxyXrConfig{
 	// bypasses enhancements: stored picture controls pass through and the
 	// combination is supported. stored controls are untouched either way;
 	// with this off the 10-bit request is disabled. force10bit stays retired.
-	bool sdr10Baseline = false;
+	bool sdr10Baseline = true;
 	// Keep the pre-migration sentinel so schema 2 survives default-diff saves.
 	int sdr10SettingsVersion = 1;
 	// 2026-09-25 legacy enhancement consent. 2026-10-17 (owner directive):
@@ -817,15 +829,15 @@ struct StreamFrameConfig{
 	// level=AUTOSELECT / tier=HIGH: cures "NVENC: Invalid Level" (every
 	// bitrate reconfigure rejected at >=3072-wide frames)
 	bool nvencFixLevel = true;
-	// 0 = leave. else replaces the encoder's average bitrate (Mbit/s) and
-	// sets max = 1.15x; lifts vrlink's internal 350 Mbit/s clamp
+	// 0 = leave. else sets the curve's Max Bitrate reference and replaces the
+	// encoder target; max = 1.15x (headroom), capped at this value by the curve
 	int nvencBitrateMbit = 0; // v3: DEBUG "encoder bitrate (separate)": 0 = same as the pacer bandwidth
 	// v3 Advanced: 0 = the tier's (or custom) bandwidth drives both the pacer
 	// and the encoder; nonzero overrides both at once
 	int nvencBandwidthOverrideMbit = 0;
 	// v3 settings-schema version. < 3 in a loaded file = pre-v3 encoder
 	// settings: the loader stamps the version and logs it; absent keys use
-	// the native defaults (AQ off; Force CBR off since 2026-10-17). The GUI
+	// the native defaults (AQ off; Force CBR off since 2026-10-23). The GUI
 	// writes 3.
 	int nvencSettingsVersion = 0;
 	// 0 = leave. else QP ceiling (1..51): blocks cannot be quantized coarser
@@ -836,22 +848,21 @@ struct StreamFrameConfig{
 	// 0 = leave. else QP floor: stops reset-IDR frames ballooning past
 	// vrlink's ~2 MB send limit (G2: 3.5-5.4 MB at QP 8). try 14-18.
 	int nvencMinQp = 0;
-	// 0 = same as nvencMinQp. else intra-frame floor (vrlink send limit is
-	// exactly 2 MB/frame; IDR at QP 16 = 2.3 MB, at QP 24 = 1.45 MB)
+	// 0 = same as nvencMinQp. Otherwise an intra-frame floor. Historical
+	// HEVC QP/size observations do not establish an AV1 or transport limit.
 	int nvencMinQpIntra = 0;
-	// CBR + low-delay key-frame scale: VBV honoured on key frames
-	bool nvencForceCbr = true; // 2026-10-17 (owner directive, revised): ON default for every codec; the GUI codec rows + reset arrows apply On; turning it off stays user tuning (v3 default was true, X2 runs)
-	// with Force CBR: reset-IDR budget as a multiple of a P frame (1..4).
-	// 1 = one frame budget (soft IDR, QP 34-48 in the R runs); 2 = two,
-	// still under vbvFrames=2. see NvencTapConfig::lowDelayKfScale
+	// Request CBR + low-delay key-frame ratio; not a hard output-size cap.
+	bool nvencForceCbr = false; // 2026-10-23 (owner directive): OFF default for every codec; the GUI codec rows + reset arrows apply Off. An existing saved true is explicit user tuning and stays untouched (no load-time migration).
+	// NVIDIA documents this I/P bit-budget ratio for single-frame VBV
+	// with CBR; it does not guarantee a maximum encoded-buffer size.
 	int nvencLowDelayKfScale = 2;
 	// peak/avg headroom percent (vrlink: 15). 0 flattens frames; the
 	// 500 Mbit run died on "Packet too big" (one IDR frame over vrlink's
 	// send limit)
 	int nvencMaxBitrateHeadroomPct = 0; // inert under CBR (max = avg); 0 measured safe under VBR
-	// 0 = leave. else vbv = avg/fps * N frames (bounds single-frame size);
+	// 0 = preserve caller VBV. Otherwise request avg/fps * N bits;
 	// fps = nvencForceFps or the nominal 90, never vrlink's per-call value
-	int nvencVbvFrames = 2; // v3 default: caps vegetation peaks and reset IDRs at ~2 frame budgets
+	int nvencVbvFrames = 2; // requested VBV budget in nominal frames, not a hard encoded-output cap
 	// 2026-09-03 runs 1/2: vrlink reconfigures before every frame with an
 	// instantaneous frameRateNum (90..15) that collapses while hitching;
 	// CBR budget and fps-derived VBV are avg/fps, so a hitch ballooned the
@@ -861,13 +872,19 @@ struct StreamFrameConfig{
 	int nvencForceFps = 90;
 	// 2026-10-19 bitrate curve (owner request): how vrlink's request maps onto
 	// the configured bandwidth. 0 = linear (the pre-curve mapping), 1 = power
-	// knee, 2 = soft knee (CurveMath.h). Constancy 0..100 lifts the selected
-	// curve toward the ceiling: 0 = the curve itself, 100 = constant ceiling
-	// (the retired nvencBitrateScale=false). Migrated from that bool on load.
+	// knee, 2 = soft knee, 3 = Custom (the seven points below, CurveMath.h).
+	// Constancy 0..100 lifts the selected curve toward the ceiling: 0 = the
+	// curve itself, 100 = constant ceiling (the retired
+	// nvencBitrateScale=false). Migrated from that bool on load.
 	int nvencBitrateCurve = 0;
 	int nvencBitrateConstancyPct = 0;
-	// vrlink's own encoder ceiling (reference for the scaling), settings.json only
-	int nvencVrlinkClampMbit = 350;
+	// 2026-10-23 (owner request): Custom curve control points. Seven points:
+	// P1 is fixed at x=0 (its y is the request-zero floor). P2..P5 are free.
+	// P6 has y fixed at Max Bitrate and its x is the plateau start; P7 is fixed
+	// at (1,1). x strictly increases, y never decreases.
+	std::vector<StreamFrameBitratePoint> nvencBitrateCurvePoints = {
+		{0.0, 0.0}, {0.2, 0.2}, {0.4, 0.4}, {0.6, 0.6}, {0.8, 0.8}, {1.0, 1.0}, {1.0, 1.0}
+	};
 	std::string nvencValidationError; // Transient parse error, never persisted as a setting.
 	// 2026-10-16: explicit H.264 compatibility controls. Defaults retain the
 	// tested recipe; entered values are never replaced with that recipe.
