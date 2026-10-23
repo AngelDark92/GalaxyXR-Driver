@@ -277,13 +277,13 @@ Do not edit `ThirdParty/`. Preserve Galaxy XR/neutral builds and legacy headsets
 
 - Extend `GalaxyXRDriver/tests/SpacewarpToggleTest.cpp` and add an external-output focused runner if still absent. Cover readiness generations, expired lease, malformed/old protocol, original/null `PostPresent` forwarding, actual local throttle arguments and failure restore. A mock proving throttle=1 was passed does not prove SteamVR honored it.
 - Run relevant GUI Vitest suites: `domain/spacewarp-status.test.ts`, `services/ofxr-session.test.ts`, `domain/ofxr.test.ts`, `state/galaxy-settings.test.ts`, plus frontend compilation if UI/types change. Cover saved request versus actual activity, unsupported FP16 profile, lease loss, quit/disable and no extra Off service.
-- Run matching native migration/NVENC/service checks only for affected consumers. Use `cargo test --locked --lib` if implementation reaches the Rust crate; do not run a full local build for a documentation-only change.
+- Run matching native migration/NVENC/service checks only for affected consumers. Use `cargo test --locked --lib` if implementation reaches the Rust crate; documentation-only changes do not require the full build unless the plan also changes code.
 - Extend sibling `swp_dispatch_tests`, `swp_vts_tests`, `swp_hooks_tests` with observable GL/XR lifetime and allocation spies. Cover source IDs independent of texture handles, both components/eyes, duplicate/reordered PTS, layout changes, private output runtime N=2/N=3/N>3, every partial allocation/copy/acquire/wait/release failure, context loss and teardown ordering.
 - Assert no use of original images after release, no history overwrite while in flight, no mixed composite, no synthetic-history feedback, bounded storage, and no leaked acquire on fallback. Run at least 100 mocked enable/disable cycles and failure-at-each-step unwinding.
 - Exercise real estimator shaders with actual GLES compilation/linking and deterministic motion/alpha fixtures; syntax/math scripts alone do not establish successful programs or correct pixels. Retain `swp_shader_syntax.py` and `swp_est_math_test.py` as supplementary checks.
 - Tests with a fake estimator prove dispatch only. They cannot establish the estimator's memory, timing, precision or actual shader output. Do not duplicate these limitations as a "GPU passed" receipt.
 
-Use the check commands/runners discovered in each checkout; inspect native runners for toolchain download behavior before invocation. All generated artifacts/logs/fixtures stay under `../builds/GalaxyXR-Driver/` or `../builds/steamlink-patches/`, resolved from the owning project root. Keep CI-first full builds and authorized-action boundaries intact.
+Use the check commands/runners discovered in each checkout; inspect native runners for toolchain download behavior before invocation. All generated artifacts/logs/fixtures stay under `../builds/GalaxyXR-Driver/` or `../builds/steamlink-patches/`, resolved from the owning project root. Keep the end-of-plan full local build and authorized-action boundaries intact.
 
 ### 6.2 Device/package acceptance matrix
 

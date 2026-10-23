@@ -3109,15 +3109,15 @@ Interactive tuning of the distortion CENTER offsets. While on: the image gently 
 Value: streamFrame.distortion.centerTune.enable (settings.json). Driver side — the in-headset center-offset tuner.</source>
       </trans-unit>
       <trans-unit id="379854560" datatype="html">
-        <source>Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.
+        <source>Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it. Requires a SteamVR restart.
 
-Value: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes.</source>
+Value: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes.</source>
       </trans-unit>
       <trans-unit id="2062785449" datatype="html">
         <source>Force FPS</source>
       </trans-unit>
       <trans-unit id="4009830004" datatype="html">
-        <source>Frame Size Cap</source>
+        <source>VBV Encoder Buffer Budget</source>
       </trans-unit>
       <trans-unit id="1726393207" datatype="html">
         <source>Frame Sync Timeout (ms)</source>
@@ -3309,9 +3309,9 @@ Value: streamFrame.nvencBitrateMbit (settings.json). Encoder side — encoder-on
       <trans-unit id="1392487683" datatype="html">
         <source>Override the normal stream bandwidth budget. 0 follows the Bitrate row above instead of forcing a separate value.
 
-0 uses the Tile Width and Bandwidth settings. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the Bandwidth row's value.
+Nonzero supplies the network pacing budget and highest requested encoder target instead of the Bitrate row. It does not guarantee actual encoded output or constant sent bits. Requires a SteamVR restart.
 
-Value: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — nonzero writes the network pacer and the encoder bitrate, replacing the Bitrate row.</source>
+Value: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — pacing budget and requested encoder target.</source>
       </trans-unit>
       <trans-unit id="4190754806" datatype="html">
         <source>Present the controllers the way Samsung's own PC driver (Game Link) does. An add-on to the selected Controller Motion Filter: the motion stays the mode's.
@@ -3448,11 +3448,11 @@ Seconds of stillness before dimming starts, and seconds to fade fully to black.
 Value: streamFrame.stationaryDimming.movementTime + dimSeconds (settings.json). Driver side — stillness threshold and fade duration, in seconds.</source>
       </trans-unit>
       <trans-unit id="3000084157" datatype="html">
-        <source>Set how much video the encoder may buffer. A smaller buffer can reduce delay but makes sudden complex scenes harder to encode cleanly.
+        <source>Request an NVENC VBV buffer budget in nominal frame units. A smaller budget can reduce buffering but makes complex scenes harder to encode cleanly.
 
-VBV = average bitrate per frame times this, which bounds how large any single frame can be. 2 caps vegetation peaks and reset key frames at about two frame budgets, far below the streamer's 2 MB send limit. 0 leaves the streamer's value.
+For N &gt; 0, requested VBV = (target bits/s / nominal fps) × N, in bits. 0 preserves the caller's VBV value. This is a rate-control buffer request, not a guaranteed maximum encoded frame size or a transport limit. Requires a SteamVR restart.
 
-Value: streamFrame.nvencVbvFrames (settings.json). Encoder side — VBV buffer sized as frame budgets; caps single-frame size.</source>
+Value: streamFrame.nvencVbvFrames (settings.json). Encoder side — requested VBV buffer size in bits.</source>
       </trans-unit>
       <trans-unit id="34752632" datatype="html">
         <source>Set how quickly the correction changes when you move the thumbstick. A lower speed makes small final adjustments easier.
@@ -3574,11 +3574,11 @@ Value: streamFrame.nvencQpFovea + nvencQpPeriphery (settings.json). Encoder side
 Value: streamFrame.distortion.tune.segments (settings.json). Driver side — angular segment count per tuning band.</source>
       </trans-unit>
       <trans-unit id="93620499" datatype="html">
-        <source>Streaming bandwidth budget, written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally.
+        <source>Set the stream bandwidth budget and highest requested encoder target. The budget is written to targetBandwidth and recommendedBandwidthMbit for pacing. The streamer's request is limited by the VRLink request clamp; the driver maps that request to the configured encoder target.
 
-HEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.
+A target is not a guarantee of actual encoded output or constant sent bits. Actual encoded and wire rates depend on content and encoder behavior. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.
 
-Value: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; used as the encoder bitrate.</source>
+Value: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; encoder side — requested bitrate target.</source>
       </trans-unit>
       <trans-unit id="2731911702" datatype="html">
         <source>The 10-bit request is not applied to the H.264 codec. AV1 and HEVC honor it.</source>
@@ -3650,9 +3650,9 @@ The streamer stamps every hand pose with WHEN it was actually true (poseTimeOffs
 Value: streamFrame.kalmanDeviceTime (settings.json). Driver side — uses the streamer's poseTimeOffset timestamps for filter time steps.</source>
       </trans-unit>
       <trans-unit id="2099847124" datatype="html">
-        <source>With Force CBR, set the key-frame to P-frame budget ratio (0–255, NVENC byte field). The optimized recommendation is 2. Unsupported requests fail without rewriting the value.
+        <source>With Force CBR, request the keyframe-to-P-frame size ratio (0–255, NVENC byte field). NVENC documents this ratio for CBR with a single-frame VBV buffer. It is not a hard keyframe size limit or a transport limit. The optimized recommendation is 2. Unsupported requests fail without rewriting the value. Requires a SteamVR restart.
 
-Value: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — keyframe budget in P-frame units under CBR.</source>
+Value: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — requested low-delay keyframe ratio under CBR.</source>
       </trans-unit>
       <trans-unit id="2463326475" datatype="html">
         <source>Write detailed NVIDIA encoder diagnostics to the log. Use this for troubleshooting; extra logging can add overhead and large files.
@@ -3694,23 +3694,23 @@ Value: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset mer
         <source>Steady-state map. Except for Linear at 0%, the driver median-filters the streamer request over five frames; that filter is not shown.</source>
       </trans-unit>
       <trans-unit id="469935408" datatype="html">
-        <source>Choose how the streamer's per-frame request becomes the encoder target. Changing this needs SteamVR closed; the saved value applies to the next session.
+        <source>Choose how the streamer's per-frame request becomes the requested encoder target. Close SteamVR to change this; the saved value applies to the next session. Requires a SteamVR restart.
 
-Linear maps the request straight onto the ceiling, so a 350 Mbit/s request means your bandwidth. The knees hold more of your ceiling until the request falls further: power knee raises the middle of the range and keeps a proportional tail below 60% of the clamp, while soft knee holds the ceiling until 60%. A constancy of 100% overrides the family and always sends the ceiling, which is the retired bitrate-follows-backoff switch turned off.
+The ceiling is the highest requested encoder target, not a guaranteed actual output limit. Linear maps a request at the VRLink clamp to that ceiling. Power knee raises targets in the middle of the range and keeps a proportional tail below 60% of the clamp; soft knee requests the ceiling from 60% upward. At 100% constancy, every positive request selects the ceiling regardless of curve family. None of these settings guarantees constant encoded output or constant sent bits.
 
-Value: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the NVENC average bitrate target.</source>
+Value: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the requested NVENC average bitrate target.</source>
       </trans-unit>
       <trans-unit id="1939510974" datatype="html">
-        <source>Lift the selected curve toward your ceiling. 0 leaves the curve as selected; 100 sends the ceiling whatever the streamer asks. Changing this needs SteamVR closed.
+        <source>Lift the selected curve toward the highest requested encoder target. 0 leaves the selected curve unchanged; 100 requests the ceiling for any positive streamer request. Close SteamVR to change this. Requires a SteamVR restart.
 
-At a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the power knee at 0%, 402 with Linear at 50%, 414 with the power knee at 50% and 450 at 100%. High constancy overrides the streamer's congestion response; the measured cost is stream resets and stalled pacing, so raise it deliberately.
+With a 450 Mbit/s ceiling and 350 Mbit/s clamp, a 280 Mbit/s request maps to targets of 360 with Linear at 0%, about 381 with power knee at 0%, about 402 with Linear at 50%, about 414 with power knee at 50%, and 450 at 100%. These are requested targets, not guaranteed encoded or wire rates. Higher constancy reduces the encoder target's response to congestion and can increase stream resets or stalled pacing.
 
 Value: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve.</source>
       </trans-unit>
       <trans-unit id="628060530" datatype="html">
         <source>Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.
 
-Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.
+Solid line: the selected curve and percentage. Dashed line: the linear reference mapping. The graph shows requested encoder targets, not measured encoded output or wire rates; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.
 
 Value: none (preview only). Client side — no driver call.</source>
       </trans-unit>
@@ -3843,7 +3843,7 @@ Value: minimizeToTray (gui-settings.json). Companion-only window preference; On 
         <source>Disarm Optical Flow from its current manager before enabling Async Spacewarp.</source>
       </trans-unit>
       <trans-unit id="bitrate-overdrive-20261021-1" datatype="html">
-        <source>Encoder ceiling {ceiling} Mbit is above the VRLink request clamp of {clamp} Mbit: the streamer paces for less than the encoder sends.</source>
+        <source>Highest requested encoder target {ceiling} Mbit/s is above the VRLink request clamp of {clamp} Mbit/s. Pacing and encoder targets may differ; actual encoded and wire rates vary.</source>
       </trans-unit>
       <trans-unit id="bitrate-overdrive-20261021-2" datatype="html">
         <source>Align bitrate to {clamp} Mbit</source>
@@ -3905,7 +3905,7 @@ Value: closeButtonAction (gui-settings.json). Companion-only window preference; 
         <source>Average</source>
       </trans-unit>
       <trans-unit id="bitrate-monitor-20261021-5" datatype="html">
-        <source>BITRATE MONITOR</source>
+        <source>Bitrate Monitor</source>
       </trans-unit>
       <trans-unit id="bitrate-monitor-20261021-6" datatype="html">
         <source>Browse…</source>
@@ -3920,7 +3920,7 @@ Value: closeButtonAction (gui-settings.json). Companion-only window preference; 
         <source>Counter is stale; waiting for a fresh measurement.</source>
       </trans-unit>
       <trans-unit id="bitrate-monitor-20261021-10" datatype="html">
-        <source>Export CSV</source>
+        <source>Export CSV…</source>
       </trans-unit>
       <trans-unit id="bitrate-monitor-20261021-11" datatype="html">
         <source>Export CSV…</source>
@@ -4047,6 +4047,128 @@ Value: closeButtonAction (gui-settings.json). Companion-only window preference; 
       </trans-unit>
       <trans-unit id="bitrate-monitor-20261021-52" datatype="html">
         <source>Saved frame interval is invalid; inspection uses 5 seconds until a valid interval is applied.</source>
+      </trans-unit>
+      <trans-unit id="nvenc-budget-help-retired-0" datatype="html">
+        <source>Set the encoder's quantization constraint. This is an advanced quality/bandwidth constraint, not a simple quality slider.
+
+A quality floor can fight CBR and increase encoded frame sizes in complex scenes. VBV and keyframe ratios do not guarantee a hard encoded frame size limit.</source>
+      </trans-unit>
+      <trans-unit id="nvenc-budget-help-retired-1" datatype="html">
+        <source>Request a lower quantizer bound for P/B pictures and, separately, intra pictures. A higher bound can reduce quality and encoded size where supported by the selected codec and rate-control mode.
+
+This request is not a hard encoded-output size limit. Validate its actual effect on the running encoder.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-output-rate-unit" datatype="html">
+        <source>buffers/s</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-decoder-input-rate-unit" datatype="html">
+        <source>decoder input frames/s</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-1" datatype="html">
+        <source>The bitrate monitor window could not be opened: {reason}</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-2" datatype="html">
+        <source>Sampling is paused while the window is hidden.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-3" datatype="html">
+        <source>Choose an existing adb executable.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-4" datatype="html">
+        <source>ADB is unavailable or rejected the command.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-5" datatype="html">
+        <source>No single authorized USB headset; connect USB and authorize ADB.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-6" datatype="html">
+        <source>The connected USB device is not a supported Galaxy XR headset (SM-I610).</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-7" datatype="html">
+        <source>The selected USB headset changed or disconnected.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-8" datatype="html">
+        <source>Headset boot identity is unavailable.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-9" datatype="html">
+        <source>Cannot identify one WLAN RX interface.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-10" datatype="html">
+        <source>Current driver telemetry is missing or incomplete.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-11" datatype="html">
+        <source>Driver telemetry is stale; start a current stream.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-12" datatype="html">
+        <source>SteamVR is not running with the driver initialized.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-13" datatype="html">
+        <source>The installed NVENC output counter is not active.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-14" datatype="html">
+        <source>NVENC has not accepted a live stream yet.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-15" datatype="html">
+        <source>Cannot read the current SteamVR process (closed or access denied).</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-16" datatype="html">
+        <source>The telemetry driver DLL does not match a module in current SteamVR.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-17" datatype="html">
+        <source>This driver build has no audited counter profile.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-18" datatype="html">
+        <source>The NVENC frame probe is unavailable.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-19" datatype="html">
+        <source>The NVENC counter changed during sampling.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-20" datatype="html">
+        <source>The NVENC counters moved backwards; waiting for a new baseline.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-21" datatype="html">
+        <source>The SteamVR process changed; waiting for a new baseline.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-22" datatype="html">
+        <source>The NVENC counter is no longer readable.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-23" datatype="html">
+        <source>The received counter sample was invalid.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-24" datatype="html">
+        <source>Exact counter · PID {pid} · SHA-256 {sha}</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-25" datatype="html">
+        <source>USB {serial}; existing fresh decoder telemetry. Not display/presentation proof.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-26" datatype="html">
+        <source>USB {serial}; decoder byte telemetry unavailable. Includes audio, FEC, retransmits and other traffic; NOT video-only bitrate.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-27" datatype="html">
+        <source>Waiting for a captured frame…</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-28" datatype="html">
+        <source>Connection</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-29" datatype="html">
+        <source>Measured bitrate history</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-30" datatype="html">
+        <source>Monitoring</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-31" datatype="html">
+        <source>Bitrate monitor</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-32" datatype="html">
+        <source>Open monitor window</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-33" datatype="html">
+        <source>The monitor samples only while its window is open. Closing or hiding the window stops every sampler.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-34" datatype="html">
+        <source>Read exact NVENC output and USB headset counters in a separate window. Nothing is sampled before the window opens, sampling stops when it closes or hides, and no stream setting is changed.
+
+NVENC bytes come from the installed driver's read-only telemetry; the headset uses USB ADB and labels WLAN RX as all-traffic when decoder telemetry is unavailable. The window keeps its own pause, reset and CSV export state.
+
+Value: none (diagnostic only). Native side — read-only process telemetry and ADB.</source>
       </trans-unit>
     </body>
   </file>

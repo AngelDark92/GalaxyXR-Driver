@@ -27,7 +27,7 @@ for (const loc of LOCALES) {
   console.log(`\n${loc}:`);
   if (!fs.existsSync(dir)) { fail('directory missing'); continue; }
 
-  for (const page of ['index.html', 'curve.html']) {
+  for (const page of ['index.html', 'curve.html', 'bitrate.html']) {
     const indexHtml = path.join(dir, page);
     if (!fs.existsSync(indexHtml)) {
       fail(`${page} missing`);

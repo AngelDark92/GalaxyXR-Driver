@@ -176,3 +176,83 @@ export async function curve_preview_state(): Promise<CurvePreviewState> {
 export async function close_curve_preview(): Promise<void> {
     return invoke('close_curve_preview');
 }
+
+// 2026-10-23 on-demand bitrate monitor window
+// (src-tauri/src/bitrate_monitor). Sampling starts only after the window asks;
+// every worker stops on close or hide.
+export type BitrateSampleKind = 'nvenc' | 'decoderInput' | 'networkRxAllTraffic';
+export interface BitrateCodecDetection {
+    codec: string | null;
+    label: string;
+    evidence: string;
+    ageSeconds: number;
+    frameSha256?: string | null;
+    frameIndex?: number | null;
+    captureId?: number | null;
+    generation?: number | null;
+    capturedTickMs?: number | null;
+    frameBytes?: number | null;
+    sampledAt?: number | null;
+}
+export interface BitrateSample {
+    sourceId: string;
+    monotonicTime: number;
+    totalBytes: number;
+    frames?: number | null;
+    kind: BitrateSampleKind;
+    pid?: number | null;
+    moduleSha256?: string | null;
+    serial?: string | null;
+    interface?: string | null;
+    codec?: BitrateCodecDetection | null;
+}
+export interface BitrateSampleError { code: string; detail: string; }
+export interface BitrateSampleEvent {
+    generation: number;
+    source: 'nvenc' | 'headset';
+    sample?: BitrateSample | null;
+    error?: BitrateSampleError | null;
+}
+export interface BitrateMonitorConfig {
+    infoPath?: string | null;
+    adbPath: string;
+    serial: string;
+    codecInterval: number;
+}
+export interface BitrateMonitorPreferences {
+    adbPath: string;
+    serial: string;
+    codecInterval: number;
+    defaultAdb: string;
+    invalidInterval: boolean;
+}
+export async function open_bitrate_monitor(
+    locale: string, title: string, colorScheme: string, debugMode: boolean, infoPath: string,
+): Promise<void> {
+    return invoke('open_bitrate_monitor', { locale, title, colorScheme, debugMode, infoPath });
+}
+export async function close_bitrate_monitor(): Promise<void> {
+    return invoke('close_bitrate_monitor');
+}
+export async function publish_bitrate_monitor_theme(colorScheme: string): Promise<void> {
+    return invoke('publish_bitrate_monitor_theme', { colorScheme });
+}
+export interface BitrateMonitorEnvironment { theme: string; infoPath?: string | null; }
+export async function bitrate_monitor_environment(): Promise<BitrateMonitorEnvironment> {
+    return invoke('bitrate_monitor_environment') as Promise<BitrateMonitorEnvironment>;
+}
+export async function start_bitrate_monitor(config: BitrateMonitorConfig): Promise<number> {
+    return invoke('start_bitrate_monitor', { config }) as Promise<number>;
+}
+export async function stop_bitrate_monitor(): Promise<void> {
+    return invoke('stop_bitrate_monitor');
+}
+export async function bitrate_monitor_preferences(): Promise<BitrateMonitorPreferences> {
+    return invoke('bitrate_monitor_preferences') as Promise<BitrateMonitorPreferences>;
+}
+export async function save_bitrate_monitor_preferences(preferences: BitrateMonitorPreferences): Promise<void> {
+    return invoke('save_bitrate_monitor_preferences', { preferences });
+}
+export async function write_bitrate_csv(path: string, content: string): Promise<void> {
+    return invoke('write_bitrate_csv', { path, content });
+}

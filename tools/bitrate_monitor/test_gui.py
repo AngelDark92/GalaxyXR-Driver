@@ -1,4 +1,5 @@
 """Tk integration checks with fixture samplers, never a real device."""
+import csv
 import queue
 import json
 import tempfile
@@ -45,11 +46,29 @@ class GuiTests(unittest.TestCase):
         if hasattr(self, "app"):
             self.app.close()
 
-    def push(self, time, count, generation=0):
-        self.app.results.put(("nvenc", generation, dict(source_id="fixture", monotonic_time=time,
-            total_bytes=count, frames=int(time) * 30, label="fixture exact bytes", status="read-only"), None))
+    def push(self, time, count, generation=0, key="nvenc", measurement_kind="encoded_output"):
+        self.app.results.put((key, generation, dict(source_id="fixture", monotonic_time=time,
+            total_bytes=count, frames=int(time) * 30, measurement_kind=measurement_kind,
+            label="fixture exact bytes", status="read-only"), None))
         self.app.drain()
         self.root.after_cancel(self.app.after_id)
+
+    def test_nvenc_rate_shows_buffers_per_second_and_retains_legacy_csv_key(self):
+        self.push(100, 0)
+        self.push(101, 1_000_000)
+        note = self.app.cards["nvenc"]["note"].get()
+        self.assertIn("30.0 buffers/s", note)
+        self.assertNotIn("FPS", note)
+        self.assertNotIn("frames/s", note)
+        self.assertEqual(self.app.records[-1]["fps"], 30.0)
+
+    def test_headset_rate_identifies_accepted_decoder_input_frames(self):
+        self.push(100, 0, key="headset", measurement_kind="decoder_input")
+        self.push(101, 1_000_000, key="headset", measurement_kind="decoder_input")
+        note = self.app.cards["headset"]["note"].get()
+        self.assertIn("30.0 decoder input frames/s", note)
+        self.assertNotIn("buffers/s", note)
+        self.assertNotIn("FPS", note)
 
     def test_current_average_min_max_and_csv_counter_evidence(self):
         self.push(100, 9_000_000)
@@ -65,6 +84,8 @@ class GuiTests(unittest.TestCase):
             self.assertIn("monotonic_seconds", text)
             self.assertIn("total_bytes", text)
             self.assertIn("16000000", text)
+            rows = list(csv.DictReader(text.splitlines()))
+            self.assertEqual(float(rows[-1]["fps"]), 30.0)
 
     def test_worker_generations_and_unavailable_never_display_zero(self):
         self.push(100, 0)

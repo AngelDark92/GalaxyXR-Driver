@@ -222,10 +222,11 @@ function fixture() {
     await openRoute('debug');
     const debug = page.locator('app-debug-page');
     assert.deepEqual(await debug.locator('.section-group.source > .section-group-label').allTextContents(),
-      ['Image Processing', 'Controllers', 'Encoder']);
+      ['Monitoring', 'Image Processing', 'Controllers', 'Encoder']);
+    await debug.locator('#open-bitrate-monitor').waitFor();
     assert.equal(await debug.locator('.section-group.source > .section-group-label').evaluateAll(labels =>
       labels.every(label => label.tagName === 'DIV' && !label.hasAttribute('aria-expanded'))), true);
-    const imageDiagnostics = debug.locator('.section-card .section-title').first();
+    const imageDiagnostics = debug.locator('.section-title').filter({ hasText: 'Diagnostics' }).first();
     await imageDiagnostics.click();
     await debug.locator('[data-setting-id="streamFrame.hitchDiag"]').waitFor({ state: 'detached' });
     await imageDiagnostics.click();

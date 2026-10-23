@@ -121,8 +121,9 @@ test('graph CI builds real assets and tests them, while release stays build-only
   assert.match(developer, /run: npm run build:ui/);
   assert.match(developer, /builds\/GalaxyXR-Driver\/build\/browser-qa-tools/);
   assert.match(developer, /Test-CurvePreviewBrowser\.cjs/);
+  assert.match(developer, /Test-BitrateMonitorBrowser\.cjs/);
   assert.match(developer, /Test-CompanionBrowser\.cjs/);
-  assert.doesNotMatch(release, /Test-CurvePreviewBrowser|Test-CompanionBrowser/);
+  assert.doesNotMatch(release, /Test-CurvePreviewBrowser|Test-BitrateMonitorBrowser|Test-CompanionBrowser/);
 });
 
 test('PR creation and release sync can use the same automation identity without claiming skip bypasses approval', () => {

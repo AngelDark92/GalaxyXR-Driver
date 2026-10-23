@@ -33,10 +33,11 @@ with a frontend-only build. Other projects' unrecognized artifacts are preserved
 The sections below record the historical 2026-09-26 audit; their paths and byte
 counts describe that audit, before external relocation.
 
-User policy, 2026-09-26: full builds run on GitHub. Keep only the latest verified
+User policy, 2026-10-23: every completed implementation plan runs the full local
+portable build before it is reported complete. Keep only the latest verified
 complete local package and clean generated artifacts at the end of tasks. This
-replaces the previous policy of keeping every output package and historical cache.
-`AGENTS.md` makes this a standing instruction for future agents.
+keeps the previous one-package retention rule; `AGENTS.md` makes the full local
+build gate and this cleanup a standing instruction for future agents.
 
 ## Can output be deleted?
 
@@ -88,9 +89,10 @@ the cleanup scope.
 
 ## End-of-task procedure
 
-1. Finish focused checks. Do not start a full local build just to satisfy the old
-   cavecrew gate; `AGENTS.md` now uses the user's GitHub-first policy. Report
-   exactly which checks ran and whether an actual CI build was verified.
+1. Finish focused checks and run the end-of-plan full local portable build
+   (`tools/Build-Portable.ps1`); do not substitute focused checks for this gate.
+   Report exactly which checks ran, the package path, and whether an actual CI
+   build was verified.
 2. Choose the latest successfully staged full package. Check its driver manifest,
    native DLL and Companion EXE. Never promote a failed or partial build solely
    because its folder is newer. Preserve the previous complete package until a

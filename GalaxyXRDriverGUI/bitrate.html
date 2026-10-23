@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bitrate Monitor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="icons/favicon.ico">
+  <link rel="stylesheet" href="/src-lit/styles/app.css">
+  <style>
+    :root { font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+    html { height: 100%; }
+    html body { margin: 0; padding: 0; width: 100%; height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+    .native-bar {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 10px 18px; border-bottom: 1px solid var(--colorNeutralStroke2, #e0e0e0);
+      background: var(--colorNeutralBackground1, #fff); position: sticky; top: 0; z-index: 2;
+    }
+    .native-bar h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    .native-bar button {
+      font: inherit; padding: 5px 14px; cursor: pointer; color: var(--colorNeutralForeground1, #242424);
+      background: var(--colorNeutralBackground1, #fff); border: 1px solid var(--colorNeutralStroke1, #d1d1d1);
+      border-radius: 4px;
+    }
+    #loading, #error { padding: 18px; margin: 0; }
+    #error { color: var(--colorPaletteRedForeground1, #a4262c); white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <header class="native-bar"><h1 id="title">Bitrate Monitor</h1><button id="close" type="button">Close</button></header>
+  <p id="loading" role="status">Loading…</p>
+  <p id="error" role="alert" hidden></p>
+  <script>
+    // Keep Close and Escape available even if the monitor module fails to load.
+    function closeMonitor() {
+      window.__TAURI_INTERNALS__.invoke('close_bitrate_monitor_window').catch(function (error) {
+        const message = document.getElementById('error');
+        message.hidden = false; message.textContent = String(error);
+      });
+    }
+    document.getElementById('close').addEventListener('click', closeMonitor);
+    window.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeMonitor(); });
+  </script>
+  <script type="module" src="/src-lit/bitrate-main.ts"></script>
+</body>
+</html>

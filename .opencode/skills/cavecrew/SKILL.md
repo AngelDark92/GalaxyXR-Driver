@@ -107,6 +107,13 @@ totals: N🔴 N🟡 N🔵 N❓
 ```
 Or `No issues.` Findings sorted file → line ascending.
 
+## End-of-plan build gate
+
+Cavecrew delegation never replaces or waives the end-of-plan full local portable
+build. The main thread runs `tools/Build-Portable.ps1` after the implementation
+plan is complete and validates exit 0, `Built test package: ...`, and the driver
+DLL/manifest/Companion EXE.
+
 ## Chaining patterns
 
 **Locate → fix → verify** (most common):

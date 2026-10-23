@@ -255,7 +255,7 @@ if (vendor) {
           parts.push(fieldRow(t('Bitrate (Mbit/s)'), html`
       <app-number .value=${galaxy.streamQualityValues.bandwidth} step="1" min="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxy.setStreamQualityValue('bandwidth', e.detail); } this.noteNumberError('galaxyXr.customBandwidthMbit', e.detail); save(); }}></app-number>
           `, {
-  tip: t("Streaming bandwidth budget, written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally.\n\nHEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; used as the encoder bitrate."),
+  tip: t("Set the stream bandwidth budget and highest requested encoder target. The budget is written to targetBandwidth and recommendedBandwidthMbit for pacing. The streamer's request is limited by the VRLink request clamp; the driver maps that request to the configured encoder target.\n\nA target is not a guarantee of actual encoded output or constant sent bits. Actual encoded and wire rates depend on content and encoder behavior. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; encoder side — requested bitrate target."),
   reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
           }));
           parts.push(this.numberErrorRow('galaxyXr.customBandwidthMbit'));
@@ -265,7 +265,7 @@ if (vendor) {
         const bitratePolicy = this.ctx.dis.values()?.bitratePolicy;
         if (bitratePolicy?.overdrive) {
           const clamp = bitratePolicy.clampMbit;
-          parts.push(noteRow(html`${t('Encoder ceiling {ceiling} Mbit is above the VRLink request clamp of {clamp} Mbit: the streamer paces for less than the encoder sends.', { ceiling: bitratePolicy.ceilingMbit, clamp })}
+          parts.push(noteRow(html`${t('Highest requested encoder target {ceiling} Mbit/s is above the VRLink request clamp of {clamp} Mbit/s. Pacing and encoder targets may differ; actual encoded and wire rates vary.', { ceiling: bitratePolicy.ceilingMbit, clamp })}
             <fluent-button appearance="outline" @click=${() => { if ((settings.nvencBitrateMbit ?? 0) !== 0) { settings.nvencBitrateMbit = clamp; } else { galaxy.setStreamQualityValue('bandwidth', clamp); } save(); }}>${t('Align bitrate to {clamp} Mbit', { clamp })}</fluent-button>`));
         }
         if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
@@ -658,14 +658,14 @@ if (settings.nvencTap) {
                 parts.push(fieldRow(t('Bandwidth Override (Mbit/s)'), html`
       <app-number .value=${settings.nvencBandwidthOverrideMbit} step="25" min="0" max="600" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBandwidthOverrideMbit = e.detail; } this.noteNumberError('streamFrame.nvencBandwidthOverrideMbit', e.detail); save(); }}></app-number>
                 `, {
-  tip: t("Override the normal stream bandwidth budget. 0 follows the Bitrate row above instead of forcing a separate value.\n\n0 uses the Tile Width and Bandwidth settings. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the Bandwidth row's value.\n\nValue: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — nonzero writes the network pacer and the encoder bitrate, replacing the Bitrate row."),
+  tip: t("Override the normal stream bandwidth budget. 0 follows the Bitrate row above instead of forcing a separate value.\n\nNonzero supplies the network pacing budget and highest requested encoder target instead of the Bitrate row. It does not guarantee actual encoded output or constant sent bits. Requires a SteamVR restart.\n\nValue: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — pacing budget and requested encoder target."),
   reset: { can: settings.nvencBandwidthOverrideMbit != defaults.nvencBandwidthOverrideMbit, on: () => { galaxy.reset('nvencBandwidthOverrideMbit'); } }
                 }));
                 parts.push(this.numberErrorRow('streamFrame.nvencBandwidthOverrideMbit'));
-                parts.push(fieldRow(t('Frame Size Cap'), html`
+                parts.push(fieldRow(t('VBV Encoder Buffer Budget'), html`
       <app-number .value=${settings.nvencVbvFrames} step="1" min="0" max="30" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencVbvFrames = e.detail; } this.noteNumberError('streamFrame.nvencVbvFrames', e.detail); save(); }}></app-number>
                 `, {
-  tip: t("Set how much video the encoder may buffer. A smaller buffer can reduce delay but makes sudden complex scenes harder to encode cleanly.\n\nVBV = average bitrate per frame times this, which bounds how large any single frame can be. 2 caps vegetation peaks and reset key frames at about two frame budgets, far below the streamer's 2 MB send limit. 0 leaves the streamer's value.\n\nValue: streamFrame.nvencVbvFrames (settings.json). Encoder side — VBV buffer sized as frame budgets; caps single-frame size."),
+  tip: t("Request an NVENC VBV buffer budget in nominal frame units. A smaller budget can reduce buffering but makes complex scenes harder to encode cleanly.\n\nFor N > 0, requested VBV = (target bits/s / nominal fps) × N, in bits. 0 preserves the caller's VBV value. This is a rate-control buffer request, not a guaranteed maximum encoded frame size or a transport limit. Requires a SteamVR restart.\n\nValue: streamFrame.nvencVbvFrames (settings.json). Encoder side — requested VBV buffer size in bits."),
   reset: { can: settings.nvencVbvFrames != codecDef.vbvFrames, on: () => { settings.nvencVbvFrames = codecDef.vbvFrames; save(); } }
                 }));
                 parts.push(this.numberErrorRow('streamFrame.nvencVbvFrames'));
@@ -682,7 +682,7 @@ if (settings.nvencTap) {
         rc: evidence.effectiveRateControl === 2 ? 'CBR' : evidence.effectiveRateControl === 1 ? 'VBR'
           : evidence.effectiveRateControl === 0 ? t('Constant QP') : t('Unknown') })}</span>` : html``}
                 `, {
-  tip: t("Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes."),
+  tip: t("Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it. Requires a SteamVR restart.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes."),
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
                 {
@@ -697,21 +697,21 @@ if (settings.nvencTap) {
       <app-select ?disabled=${curveDisabled} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { settings.nvencBitrateCurve = Number(e.detail); save(); }}></app-select>
       ${curveNote}
                   `, {
-  tip: t("Choose how the streamer's per-frame request becomes the encoder target. Changing this needs SteamVR closed; the saved value applies to the next session.\n\nLinear maps the request straight onto the ceiling, so a 350 Mbit/s request means your bandwidth. The knees hold more of your ceiling until the request falls further: power knee raises the middle of the range and keeps a proportional tail below 60% of the clamp, while soft knee holds the ceiling until 60%. A constancy of 100% overrides the family and always sends the ceiling, which is the retired bitrate-follows-backoff switch turned off.\n\nValue: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the NVENC average bitrate target."),
+  tip: t("Choose how the streamer's per-frame request becomes the requested encoder target. Close SteamVR to change this; the saved value applies to the next session. Requires a SteamVR restart.\n\nThe ceiling is the highest requested encoder target, not a guaranteed actual output limit. Linear maps a request at the VRLink clamp to that ceiling. Power knee raises targets in the middle of the range and keeps a proportional tail below 60% of the clamp; soft knee requests the ceiling from 60% upward. At 100% constancy, every positive request selects the ceiling regardless of curve family. None of these settings guarantees constant encoded output or constant sent bits.\n\nValue: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the requested NVENC average bitrate target."),
   reset: { can: (settings.nvencBitrateCurve ?? 0) !== defaults.nvencBitrateCurve, on: () => galaxy.reset('nvencBitrateCurve') }
                   }));
                   parts.push(settingFieldRow('streamFrame.nvencBitrateConstancyPct', html`
       <app-number ?disabled=${curveDisabled} .value=${settings.nvencBitrateConstancyPct ?? 0} step="5" min="0" max="100" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencBitrateConstancyPct = e.detail; } this.noteNumberError('streamFrame.nvencBitrateConstancyPct', e.detail); save(); }}></app-number>
       ${curveNote}
                   `, {
-  tip: t("Lift the selected curve toward your ceiling. 0 leaves the curve as selected; 100 sends the ceiling whatever the streamer asks. Changing this needs SteamVR closed.\n\nAt a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the power knee at 0%, 402 with Linear at 50%, 414 with the power knee at 50% and 450 at 100%. High constancy overrides the streamer's congestion response; the measured cost is stream resets and stalled pacing, so raise it deliberately.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve."),
+  tip: t("Lift the selected curve toward the highest requested encoder target. 0 leaves the selected curve unchanged; 100 requests the ceiling for any positive streamer request. Close SteamVR to change this. Requires a SteamVR restart.\n\nWith a 450 Mbit/s ceiling and 350 Mbit/s clamp, a 280 Mbit/s request maps to targets of 360 with Linear at 0%, about 381 with power knee at 0%, about 402 with Linear at 50%, about 414 with power knee at 50%, and 450 at 100%. These are requested targets, not guaranteed encoded or wire rates. Higher constancy reduces the encoder target's response to congestion and can increase stream resets or stalled pacing.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve."),
   reset: { can: (settings.nvencBitrateConstancyPct ?? 0) !== defaults.nvencBitrateConstancyPct, on: () => galaxy.reset('nvencBitrateConstancyPct') }
                   }));
                   parts.push(this.numberErrorRow('streamFrame.nvencBitrateConstancyPct'));
                   parts.push(fieldRow(t('Bitrate Curve Graph'), html`
       <fluent-button appearance="outline" @click=${() => { void this.openCurveWindow(); }}>${t('Open graph window')}</fluent-button>
                   `, {
-  tip: t("Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call.")
+  tip: t("Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.\n\nSolid line: the selected curve and percentage. Dashed line: the linear reference mapping. The graph shows requested encoder targets, not measured encoded output or wire rates; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.\n\nValue: none (preview only). Client side — no driver call.")
                   }));
                   if (this.curveWindowError) {
                     parts.push(noteRow(html`${t('The graph window could not be opened: {reason}', { reason: this.curveWindowError })}`));
@@ -781,7 +781,7 @@ if (settings.nvencTap) {
                 parts.push(fieldRow(t('Keyframe Size Budget'), html`
       <app-number .value=${settings.nvencLowDelayKfScale} step="1" min="0" max="255" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencLowDelayKfScale = e.detail; } this.noteNumberError('streamFrame.nvencLowDelayKfScale', e.detail, { forceCbr: !!settings.nvencForceCbr }); save(); }}></app-number>
                 `, {
-  tip: t("With Force CBR, set the key-frame to P-frame budget ratio (0–255, NVENC byte field). The optimized recommendation is 2. Unsupported requests fail without rewriting the value.\n\nValue: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — keyframe budget in P-frame units under CBR."),
+  tip: t("With Force CBR, request the keyframe-to-P-frame size ratio (0–255, NVENC byte field). NVENC documents this ratio for CBR with a single-frame VBV buffer. It is not a hard keyframe size limit or a transport limit. The optimized recommendation is 2. Unsupported requests fail without rewriting the value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — requested low-delay keyframe ratio under CBR."),
   reset: { can: settings.nvencLowDelayKfScale != codecDef.lowDelayKfScale, on: () => { settings.nvencLowDelayKfScale = codecDef.lowDelayKfScale; save(); } }
                 }));
                 parts.push(this.numberErrorRow('streamFrame.nvencLowDelayKfScale'));
@@ -1029,7 +1029,7 @@ if (vendor) {
             parts.push(fieldRow(t('NVENC (retired): Max QP'), html`
       <app-number .value=${settings.nvencMaxQp} step="1" min="0" max="51" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencMaxQp = e.detail; } this.noteNumberError('streamFrame.nvencMaxQp', e.detail); save(); }}></app-number>
             `, {
-  tip: "Set a lower limit on the encoder's quantization value. This is an advanced quality/bandwidth constraint, not a simple quality slider.\n\nQuality floor per block (0 = off). Fights CBR; can overshoot the 2 MB frame limit in complex scenes.",
+  tip: t("Set the encoder's quantization constraint. This is an advanced quality/bandwidth constraint, not a simple quality slider.\n\nA quality floor can fight CBR and increase encoded frame sizes in complex scenes. VBV and keyframe ratios do not guarantee a hard encoded frame size limit."),
   reset: { can: settings.nvencMaxQp != defaults.nvencMaxQp, on: () => { galaxy.reset('nvencMaxQp'); } }
             }));
             parts.push(this.numberErrorRow('streamFrame.nvencMaxQp'));
@@ -1037,7 +1037,7 @@ if (vendor) {
       <app-number .value=${settings.nvencMinQp} step="1" min="0" max="51" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencMinQp = e.detail; } this.noteNumberError('streamFrame.nvencMinQp', e.detail); save(); }}></app-number>
       <app-number .value=${settings.nvencMinQpIntra} step="1" min="0" max="51" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.nvencMinQpIntra = e.detail; } this.noteNumberError('streamFrame.nvencMinQpIntra', e.detail); save(); }}></app-number>
             `, {
-  tip: "Set an upper limit on quantization where the selected rate-control mode uses it. It has no effect in the documented constant-bitrate path.\n\nInert under CBR (the key-frame budget does the containment). Only meaningful with Force CBR off."
+  tip: t("Request a lower quantizer bound for P/B pictures and, separately, intra pictures. A higher bound can reduce quality and encoded size where supported by the selected codec and rate-control mode.\n\nThis request is not a hard encoded-output size limit. Validate its actual effect on the running encoder.")
             }));
             parts.push(this.numberErrorRow('streamFrame.nvencMinQp'));
             parts.push(this.numberErrorRow('streamFrame.nvencMinQpIntra'));

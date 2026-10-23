@@ -12,12 +12,12 @@ neutral runtime identity; `GalaxyXRNative` is the Galaxy XR build.
 ## Build and test
 
 - Package: `node build.js --vendor galaxyxr` (or `--vendor neutral`).
-- Portable fallback: `tools/Build-Portable.ps1`.
+- Portable build (required at end of plan): `tools/Build-Portable.ps1`.
 - Focused checks: `tools/Test-*.ps1` and `tools/Test-*.cjs`.
 - Rust backend: `cargo test --locked --lib` in `GalaxyXRDriverGUI/src-tauri`.
 - Generated output belongs under `../builds/GalaxyXR-Driver/`; never create
   `build/`, `dist/`, `target/` or caches inside the checkout.
-- Full local staging is CI-first. Do not run it unless the task requires it.
+- Every completed plan runs the full local portable build before reporting complete.
 
 ## Rules
 

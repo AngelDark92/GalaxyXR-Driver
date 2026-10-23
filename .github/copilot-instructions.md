@@ -8,8 +8,8 @@ Use [.agents/skills/galaxyxr-workspace/SKILL.md](../.agents/skills/galaxyxr-work
 
 - Every generated build/test/cache/package/log artifact goes to **`../builds/GalaxyXR-Driver/`** relative to checkout root: `build/`, `output/`, `gui/`, `release/`. The general convention is `../builds/<project-name>/`; never use literal `builds/project` or another project's root.
 - Keep root builders, MSBuild/CMake, GUI npm/Vite/Tauri/Cargo configs, focused test runners, packaging and CI consumers aligned. Resolve from the relevant script/config location; portable instructions must not hardcode this machine's drive.
-- Use focused local checks for the changed behavior. Full builds run on GitHub unless explicitly requested locally or needed for a concrete build issue. Delegating to cavecrew does not impose a full local build. Inspect `.github/workflows/build-tools.yml` and `release.yml` for current CI coverage; verify run/commit results before claiming CI success.
-- `node build.js --vendor galaxyxr` / `--vendor neutral` stage full packages when both components run. `tools/Build-Portable.ps1` is the local fallback; only exit 0 plus `Built test package: ...` and required DLL/manifest/Companion EXE establish a complete package. Frontend-only and driver-only results remain partial.
+- Use focused local checks for the changed behavior. Every completed plan must run the full local portable build (`tools/Build-Portable.ps1`) before it is reported complete. Delegating to cavecrew does not waive this gate. Inspect `.github/workflows/build-tools.yml` and `release.yml` for current CI coverage; verify run/commit results before claiming CI success.
+- `node build.js --vendor galaxyxr` / `--vendor neutral` stage full packages when both components run. `tools/Build-Portable.ps1` is the end-of-plan package gate; only exit 0 plus `Built test package: ...` and required DLL/manifest/Companion EXE establish a complete package. Frontend-only and driver-only results remain partial.
 - Versions change through `node bump-version.js <version>`; it synchronizes native, npm, Cargo and Tauri version inputs and lockfiles. Never hand-edit versions.
 
 ## Change invariants

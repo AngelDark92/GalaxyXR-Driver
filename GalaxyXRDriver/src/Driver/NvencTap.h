@@ -64,9 +64,12 @@ struct NvencTapConfig {
 	// Galaxy XR requires exact four-tile active pictures/reconfiguration;
 	// initial allocation may differ. Neutral/legacy callers remain unchanged.
 	bool enforceTile = false;
-	// 0 = leave vrlink's bitrate alone. otherwise averageBitRate is
-	// replaced by this (Mbit/s), maxBitRate by 1.15x, vbvBufferSize scaled
-	// by the same ratio as the average. lifts the 350 Mbit/s clamp.
+	// 0 = leave vrlink's bitrate alone. Otherwise this is the maximum
+	// requested averageBitRate (decimal Mbit/s), reshaped by the curve.
+	// maxBitRate follows headroom under VBR and equals average under CBR;
+	// NVENC ignores maxBitRate under CBR. Neither is a hard output-byte cap
+	// or proof of a lifted VRLink transport/allocation limit. VBV is owned
+	// independently by vbvFrames; zero preserves the caller's buffer size.
 	int bitrateMbit = 0;
 	// 0 = leave. otherwise enableMaxQP and set maxQP (P/B/I) to this value:
 	// a ceiling on how coarsely any block may be quantized, the lever
@@ -74,34 +77,30 @@ struct NvencTapConfig {
 	int maxQp = 0;
 	// 0 = leave. 1..15 enable spatial AQ with this strength.
 	int aqStrength = 0;
-	// 0 = leave. else enableMinQP with this floor (1..51). run G2: the IDR
+	// 0 = leave. else enableMinQP with this codec-specific floor. Historical HEVC run G2: the IDR
 	// after every encoder reset came out at avgQP 8-9 and 3.5-5.4 MB, over
 	// vrlink's ~2 MB send limit ("Packet too big" death loop). a floor of
 	// ~14-18 stops near-lossless frames from ballooning.
 	int minQp = 0;
 	// 0 = same as minQp. else a separate floor for intra (IDR/I) frames.
-	// vrlink's send limit is exactly 2 MB per frame; a 3200x8192 IDR at
-	// QP 16 is 2.3 MB, at QP 23-24 it is 1.45 MB. so P-frames can keep a
-	// low floor while intra frames get ~24.
+	// Historical HEVC observations at 3200x8192: an IDR at QP 16 was
+	// rejected at 2.3 MB, while QP 23-24 produced 1.45 MB. These do not
+	// establish the current transport threshold or transferable AV1 values.
 	int minQpIntra = 0;
-	// force CBR + lowDelayKeyFrameScale=1: NVENC's low-latency mode, the
-	// one in which VBV is honoured on key frames (VBR ignores it right
-	// after a reinit). the second lever against the reset-IDR fault.
+	// Request CBR and lowDelayKeyFrameScale. This configures rate control;
+	// it does not enforce a maximum output-buffer size after encoding.
 	bool forceCbr = false;
-	// with forceCbr: I-frame bits as a multiple of P-frame bits
-	// (NV_ENC_RC_PARAMS::lowDelayKeyFrameScale). 1 = the reset IDR gets one
-	// frame's budget (Q1/R runs: ~1.0 MB at QP 34-48, visibly soft for a few
-	// frames after every reset; vrlink's watchdog resets 3-5x/s while an app
-	// loads, so that softness is what the user sees during that phase).
-	// 2 = IDR up to two frame budgets, still under the VBV of vbvFrames=2.
+	// I/P bit-budget ratio (NV_ENC_RC_PARAMS::lowDelayKeyFrameScale),
+	// documented by NVIDIA for single-frame VBV with CBR. Larger VBV
+	// configurations do not establish an equivalent hard keyframe bound.
 	int lowDelayKfScale = 1;
 	// peak headroom over the average, percent. vrlink uses 15. run C died
 	// with "FAULT: Packet too big" at 500 Mbit: a single (IDR) frame
-	// exceeded vrlink's send limit. 0 = max == avg (flatter frames).
+	// exceeded vrlink's send limit. 0 = max == avg; max is ignored in CBR.
 	int maxBitrateHeadroomPct = 15;
-	// 0 = leave vbv alone. else vbvBufferSize = avg/fps * N frames, which
-	// bounds the size of any one frame (the other lever against the
-	// packet-too-big fault). vrlink's own value wanders 0.9..33 Mbit.
+	// 0 = preserve the caller's VBV even when bitrate scaling is active.
+	// Otherwise request vbvBufferSize = avg/fps * N (bits). This is a
+	// rate-control buffer budget, not a checked maximum output size.
 	// 2026-09-03: fps here is forceFps when set, else the NOMINAL 90, never
 	// vrlink's per-call frameRateNum (see forceFps).
 	int vbvFrames = 0;

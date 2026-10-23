@@ -119,9 +119,9 @@ The vendor build shares `%APPDATA%/GalaxyXR/CustomHeadset/` between GUI and driv
 
 ## Build and verification
 
-**CI-first (user policy, 2026-09-26):** full builds run on GitHub. Use focused local checks for ordinary edits and cleanup. A cavecrew invocation does not require a full local build. Run a full local build only when explicitly requested or necessary to investigate/verify a build issue. Never claim CI passed without checking the actual run and commit.
+**End-of-plan full local build (user policy, 2026-10-23):** every completed implementation plan must run the full local portable build before the task is reported complete. Use `powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-Portable.ps1`; success requires exit 0, `Built test package: ...`, and a complete driver DLL/manifest/Companion EXE. Focused checks remain required for the changed behavior but do not replace this gate. A cavecrew invocation does not remove it. Never claim CI passed without checking the actual run and commit.
 
-**Build-only release CI (user policy, 2026-10-12):** `release.yml` builds both portable packages, packages the Galaxy XR ZIP and publishes; it runs no unit, Rust, service or NVENC suites. Run the relevant suites from the table below locally at the end of every task before reporting it complete. `build-tools.yml` remains the CI home for the tool/service suites and the GUI unit suite.
+**Build-only release CI (user policy, 2026-10-12):** `release.yml` builds both portable packages, packages the Galaxy XR ZIP and publishes; it runs no unit, Rust, service or NVENC suites. Run the relevant suites from the table below locally at the end of every task, together with the full local portable build gate above, before reporting it complete. `build-tools.yml` remains the CI home for the tool/service suites and the GUI unit suite.
 
 Commands below run from the checkout root unless stated otherwise:
 
@@ -135,13 +135,13 @@ Commands below run from the checkout root unless stated otherwise:
 | Rust library tests | From `GalaxyXRDriverGUI/src-tauri`: `cargo test --locked --lib`; installation, cleanup and runtime-confirmation logic. No longer part of release CI, so run it for any change reaching that crate |
 | Build/migration path regression | `node --test tools/tests/external-build-paths.test.cjs`; choose other affected `tools/tests/*.test.cjs` as needed |
 | Build-source preflight | `node tools/verify-build-sources.cjs` (`--require-tracked` is for committed/fresh-checkout evidence) |
-| Local full portable fallback | `powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-Portable.ps1`; success requires exit 0, `Built test package: ...`, and complete driver DLL/manifest/Companion EXE |
+| Local full portable build gate (required at end of plan) | `powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-Portable.ps1`; success requires exit 0, `Built test package: ...`, and complete driver DLL/manifest/Companion EXE. This is the package-level completion gate, not a fallback |
 | Standard MSBuild + GUI staging | `node build.js --vendor galaxyxr` or `--vendor neutral`; `--no-driver` / `--no-gui` are partial validation only |
 | Version change | `node bump-version.js x.y.z[-tag]`; never hand-edit versions. Synchronizes Config.cpp, manifest, Tauri config, Cargo manifest/lock and npm manifest/lock |
 | Linux CMake | `cmake -S GalaxyXRDriver -B ../builds/GalaxyXR-Driver/build/cmake`, then `cmake --build ../builds/GalaxyXR-Driver/build/cmake`; output is `build/cmake/GalaxyXRDriver/bin/linux64/driver_CustomHeadsetOpenVR.so` under the artifact root |
 | CI | `.github/workflows/build-tools.yml` for tool compatibility, service regressions and GUI unit tests; `.github/workflows/release.yml` is build-only: neutral/vendor builds, packaging and release publication |
 
-Choose meaningful checks matching the changed behavior. Do not write tests that merely duplicate implementation, or repeatedly broaden testing after relevant checks pass. Toolchain bootstrap/download behavior must be understood before invoking a native test script. Manual compiler success is not proof of MSBuild, Cargo or CI success.
+Choose meaningful checks matching the changed behavior. Do not write tests that merely duplicate implementation, or repeatedly broaden testing after relevant checks pass. Toolchain bootstrap/download behavior must be understood before invoking a native test script. Manual compiler success is not proof of MSBuild, Cargo or CI success. The full local portable build is the package-level proof for the completed plan; CI remains additional cross-TU and release verification.
 
 ## Artifact relocation and end-of-task cleanup
 

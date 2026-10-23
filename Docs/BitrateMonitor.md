@@ -1,5 +1,23 @@
 # Live bitrate monitor
 
+## Companion window
+
+Open **Debug → Monitoring → Open monitor window** while Debug Mode is on. The
+window uses the same read-only NVENC and USB ADB measurements as the standalone
+tool, but the Companion owns its lifecycle: no sampler thread, process-memory
+read, ADB command or timer runs before the window opens, and every sampler stops
+when the window closes or hides. The window follows the Companion's color scheme
+and locale, starts in its own WebView2 profile, and keeps Pause, Reset, the last
+300-sample graph and CSV export local to that window.
+
+The integrated window stores its ADB path, optional serial and frame interval in
+`%LOCALAPPDATA%\com.sboys3.custom-headset\bitrate-monitor.json`. It never writes
+`settings.json` or changes a stream setting. Its codec row uses the same
+conservative structural rule as the standalone parser (parameter-set evidence
+from the current or retained same-generation frame); ambiguous, truncated or
+stale samples remain unverified. The standalone Python/Tk utility below remains
+available for source-tree work.
+
 Double-click [`tools/Start-BitrateMonitor.cmd`](../tools/Start-BitrateMonitor.cmd).
 This standalone Windows utility uses **64-bit Python 3.10+ with Tk** and the
 standard library only. There is no pip install, browser engine, server or driver
@@ -50,19 +68,30 @@ packet-loss estimate. Neither establishes displayed-frame delivery. If decoder
 telemetry is unavailable, the GUI says so rather than claiming its network
 counter is a decoder measurement.
 
-## Codec inspection from encoded frames
+## Codec inspection from encoded output buffers
 
 **Frame interval (s)** controls how often the monitor analyzes a fresh NVENC
 frame. The default is **5 seconds**; enter 1–3600 and select **Apply interval**.
 The interval affects this tool only and does not change streaming settings.
 
-The driver copies one actual completed encoded frame at most once per second
+The driver copies one actual completed NVENC output buffer at most once per second
 while its NVENC output buffer is still locked. A second slot retains a keyframe
 for codec parameter sets. Each slot owns up to 2 MiB of data; oversized frames
 are marked truncated and cannot verify a codec. Publication sequences, capture
 IDs, timestamps and stream generations prevent stale or racing reads. No NVENC
 pointer is retained after unlocking, no keyframes are forced, and no picture
 decoding or additional encoder session is required.
+
+NVENC output-buffer length is not necessarily one coded-picture length: AV1
+with picture-type decision enabled can pack a show picture and preceding
+no-show pictures into one buffer. The counter's rate is successful output
+buffer locks per second, displayed as **buffers/s**, not headset display FPS.
+The legacy CSV field `fps` retains that buffer-rate meaning for NVENC; it is
+accepted decoder-input frames/s only for the decoder-input source. Zero-length
+or repeated successful locks are not independently identified as unique pictures.
+The full-size field comes from NVENC, while a snapshot SHA-256 hashes only the
+copied bytes. A truncated copy cannot prove the full buffer's picture count,
+codec or integrity.
 
 The parser distinguishes **H.264 / AVC**, **HEVC / H.265** and **AV1** using
 encoded NAL/OBU syntax and parameter-set references. An ordinary frame may omit
@@ -127,3 +156,14 @@ cover counter math, exact binary/layout admission, stale/torn samples, process
 replacement, USB-only selection and disconnected/unsupported devices.
 Native frame-probe checks verify ABI layout, sampling bounds, generation changes,
 truncation and memory canaries; parser fixtures cover all three codec families.
+
+The integrated Companion window is compiled by `npm run build:ui`; its rate math
+is covered by `src-lit/domain/rate-tracker.test.ts` and its native probe/ADB
+parsers by `cargo test --locked --lib` in `GalaxyXRDriverGUI/src-tauri`. The
+production page is checked by `node tools/Test-BitrateMonitorBrowser.cjs`
+(Playwright via `NODE_PATH`, as configured by `build-tools.yml`).
+
+The staged, not-yet-executed headset investigation is documented in
+[the NVENC bitrate validation plan](NvencBitrateValidationPlan.md). Corrected
+VBV ownership and QP-map lifetimes do not themselves prove that oversized
+output or VRLink resets are resolved.

@@ -51,10 +51,10 @@ the only permitted silent rewrites and cover never-set values only. Any new
 override path needs its visibility story (log + UI surface) as part of the
 same change.
 
-Use focused local checks. Full builds run on GitHub unless the user explicitly
-requests a local full build or a concrete build issue requires one. Report static,
-fixture, compilation, CI and runtime evidence separately. A runtime claim needs
-fresh matching process/module evidence, not an old package or report.
+Use focused local checks for the changed behavior, and run the full local portable
+build at the end of every completed implementation plan before reporting complete.
+Report static, fixture, compilation, CI and runtime evidence separately. A runtime
+claim needs fresh matching process/module evidence, not an old package or report.
 
 Implementation/validation permission does not authorize deploying, installing,
 ADB, restarting SteamVR, committing, pushing, dispatching workflows or publishing.
@@ -63,4 +63,4 @@ allowlist described in [PortableBuildCleanup](../../../Docs/PortableBuildCleanup
 
 When cavecrew is requested, delegate bounded investigation, independent file
 ownership or diff review through [cavecrew](../cavecrew/SKILL.md). Its invocation
-never requires a full build or changes runtime authorization.
+never removes the end-of-plan full local build or changes runtime authorization.

@@ -43,8 +43,9 @@ parent. Preserve unrelated behavior and existing user edits.
    outside scope.
 4. Preserve hash gates, backups, rollback, error propagation and provenance. Never
    rewrite a vendor artifact, supplied APK or `ThirdParty` source in place.
-5. Keep generated output under `builds/<project>/`. Do not run a full build unless
-   the parent requested one.
+5. Keep generated output under `builds/<project>/`. Do not run a full build from
+   this bounded role unless the parent requests it; the parent must run the
+   end-of-plan full portable build before reporting the plan complete.
 6. Run the focused check agreed with the parent. Re-read the edited lines before
    claiming success.
 

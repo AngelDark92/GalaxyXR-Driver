@@ -836,22 +836,21 @@ struct StreamFrameConfig{
 	// 0 = leave. else QP floor: stops reset-IDR frames ballooning past
 	// vrlink's ~2 MB send limit (G2: 3.5-5.4 MB at QP 8). try 14-18.
 	int nvencMinQp = 0;
-	// 0 = same as nvencMinQp. else intra-frame floor (vrlink send limit is
-	// exactly 2 MB/frame; IDR at QP 16 = 2.3 MB, at QP 24 = 1.45 MB)
+	// 0 = same as nvencMinQp. Otherwise an intra-frame floor. Historical
+	// HEVC QP/size observations do not establish an AV1 or transport limit.
 	int nvencMinQpIntra = 0;
-	// CBR + low-delay key-frame scale: VBV honoured on key frames
+	// Request CBR + low-delay key-frame ratio; not a hard output-size cap.
 	bool nvencForceCbr = true; // 2026-10-17 (owner directive, revised): ON default for every codec; the GUI codec rows + reset arrows apply On; turning it off stays user tuning (v3 default was true, X2 runs)
-	// with Force CBR: reset-IDR budget as a multiple of a P frame (1..4).
-	// 1 = one frame budget (soft IDR, QP 34-48 in the R runs); 2 = two,
-	// still under vbvFrames=2. see NvencTapConfig::lowDelayKfScale
+	// NVIDIA documents this I/P bit-budget ratio for single-frame VBV
+	// with CBR; it does not guarantee a maximum encoded-buffer size.
 	int nvencLowDelayKfScale = 2;
 	// peak/avg headroom percent (vrlink: 15). 0 flattens frames; the
 	// 500 Mbit run died on "Packet too big" (one IDR frame over vrlink's
 	// send limit)
 	int nvencMaxBitrateHeadroomPct = 0; // inert under CBR (max = avg); 0 measured safe under VBR
-	// 0 = leave. else vbv = avg/fps * N frames (bounds single-frame size);
+	// 0 = preserve caller VBV. Otherwise request avg/fps * N bits;
 	// fps = nvencForceFps or the nominal 90, never vrlink's per-call value
-	int nvencVbvFrames = 2; // v3 default: caps vegetation peaks and reset IDRs at ~2 frame budgets
+	int nvencVbvFrames = 2; // requested VBV budget in nominal frames, not a hard encoded-output cap
 	// 2026-09-03 runs 1/2: vrlink reconfigures before every frame with an
 	// instantaneous frameRateNum (90..15) that collapses while hitching;
 	// CBR budget and fps-derived VBV are avg/fps, so a hitch ballooned the

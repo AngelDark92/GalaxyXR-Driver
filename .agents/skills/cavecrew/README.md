@@ -27,6 +27,6 @@ Project routing and execution guidance:
 - [Project README](../../../README.md)
 
 Artifacts belong under `../builds/GalaxyXR-Driver/`, with `build/`, `output/`,
-`release/` and `gui/` subfolders. Focused local checks are preferred; full builds
-are GitHub-first. Delegation does not authorize deployment, device actions,
+`release/` and `gui/` subfolders. Focused local checks remain required, and the
+parent runs the end-of-plan full local portable build. Delegation does not authorize deployment, device actions,
 SteamVR restart, commits, pushes or workflow dispatch.

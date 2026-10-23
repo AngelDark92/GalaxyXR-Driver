@@ -109,7 +109,7 @@ a role cannot expand user-authorized scope.
 
 Generated artifacts use `../builds/GalaxyXR-Driver/`, with `build/`, `output/`,
 `release/` and `gui/` subfolders. Read-only roles do not run write-producing tests.
-Full builds remain GitHub-first; cavecrew never adds an unconditional local build.
+Cavecrew never replaces or waives the end-of-plan full local portable build.
 Build-path review includes Vite/Vitest `--configLoader runner` (prevents
 `node_modules/.vite-temp`), external Cargo target output, Tauri scratch in
 `OUT_DIR/tauri-build-context/` through `GalaxyXRDriverGUI/src-tauri/build.rs`,

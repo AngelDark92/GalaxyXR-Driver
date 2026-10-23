@@ -23,8 +23,9 @@ concurrency:
 # Build-only release pipeline (user policy, 2026-10-12): this workflow builds
 # both portable packages, packages the Galaxy XR ZIP and publishes it. Unit,
 # Rust, service and NVENC compile suites are deliberately NOT run here; run
-# them locally at the end of a task (AGENTS.md "Build and verification") and
-# see build-tools.yml for the CI tool/service suites.
+# them locally at the end of a task together with the full local portable
+# build (AGENTS.md "Build and verification") and see build-tools.yml for the
+# CI tool/service suites.
 jobs:
   build-windows-release:
     name: Windows x64 portable release

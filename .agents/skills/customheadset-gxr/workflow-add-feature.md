@@ -20,5 +20,5 @@
    `git diff --check`; finish cleanup after validation. Report files, behavior,
    validation and remaining material limits with path/line evidence.
 
-Full local build, deployment and runtime actions follow `AGENTS.md` and existing
-session authorization, not this checklist alone.
+The full local portable build is required at plan completion. Deployment and runtime
+actions follow `AGENTS.md` and existing session authorization, not this checklist alone.
