@@ -6,6 +6,16 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.15.0-dev.1] - 2026-10-23
+
+### Features
+
+- Add automated tests for the bitrate monitor browser tool (`8481635`)
+
+### Other changes
+
+- docs: rewrite README for onboarding and patched Steam Link pairing (`297b0dd`)
+
 ## [1.14.0] - 2026-10-22
 
 ### Features
