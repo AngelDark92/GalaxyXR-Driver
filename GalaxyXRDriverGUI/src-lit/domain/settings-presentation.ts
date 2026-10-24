@@ -34,6 +34,7 @@ headset('galaxyXr.nativeResolution', 'Native Panel Resolution');
 headset('galaxyXr.vrlinkHeadsetProfile', 'Mirror to Steam Link Aliases', { advanced: true });
 headset('galaxyXr.sdr10Baseline', '10-Bit SDR Mode');
 const controllers = group('driver-settings', ['Controllers'], ['controllers'], false, 'vendor');
+group('driver-settings', ['Controllers'], ['controllers'])('galaxyXr.controllerBypass', 'Disable All Controller Features');
 controllers('galaxyXr.nativeInputProfile', 'Official Controller Layout');
 controllers('galaxyXr.synthesizeGripTouch', 'Grip Touch From Pressure', { gate: 'native-input-profile', vendorOnly: true });
 controllers('galaxyXr.officialComponents', 'Official Pose Components');
@@ -43,7 +44,6 @@ const kalman = group('driver-settings', ['Controllers', 'Controller Fix', 'Kalma
 kalman('streamFrame.kalmanCaExactCov', 'Exact Covariance Model (Experimental)', { gate: 'kalman-ca' });
 kalman('streamFrame.kalmanDeviceTime', 'Use Tracking Timestamps');
 kalman('streamFrame.kalmanPosFreeze3dof', 'Freeze Protection');
-group('driver-settings', ['Controllers', 'Controllers Advanced'], ['controllers'], true, 'vendor')('galaxyXr.controllerBypass', 'Controller Bypass');
 group('driver-settings', ['Controllers', 'Controllers Advanced', 'Controller Offsets'], ['controllers', 'ctrlOffsets'], true, 'controllers')('controllers.mirrorOffsetsForRightHand', 'Same Alignment Both Hands');
 
 group('app-settings', ['Picture'], ['heading:app-picture'])('image-enhancements', 'Image Enhancements', {
@@ -201,6 +201,12 @@ export function settingUnavailable(setting: SettingPresentation, context: Presen
   if (setting.source === 'settings.json' && !context.driverInstalled) return 'Install the driver to show this control.';
   if (setting.route === 'debug' && context.settings?.debugMode !== true) return 'Enable Debug Mode in App Settings to show diagnostic controls.';
   if ((setting.vendorOnly || setting.gate === 'vendor') && !context.vendor) return 'This control is available in the Galaxy XR build.';
+  // 2026-10-24: the master switch hides every other controller control; the
+  // checker keeps its saved values inspectable but explains why they are inert.
+  if (setting.route === 'driver-settings' && setting.containers.includes('Controllers')
+      && setting.id !== 'galaxyXr.controllerBypass' && context.settings?.galaxyXr?.controllerBypass) {
+    return 'Disable All Controller Features is on. Its saved adjustments are kept.';
+  }
   const sf = context.settings?.streamFrame;
   const enhancements = imageEnhancementsEnabled(context.settings);
   if (setting.gate === 'native-input-profile' && !context.settings?.galaxyXr?.nativeInputProfile) return 'Official Controller Layout is off. Its saved adjustments are kept.';

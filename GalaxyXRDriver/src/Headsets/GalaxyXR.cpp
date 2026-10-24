@@ -1167,7 +1167,10 @@ std::string GalaxyXRControllerShim::TargetModelName(){
 }
 
 void GalaxyXRControllerShim::ApplyIdentity(){
-	if(!active){
+	// 2026-10-24: controllerBypass is the master controller disable. A shim
+	// created before the switch went on must not reapply identity/profile
+	// while it is on (a fresh session never creates the shim at all).
+	if(!active || driverConfig.galaxyXr.controllerBypass){
 		return;
 	}
 	// the shim now also exists for input-profile-only setups, so the
@@ -1215,7 +1218,7 @@ void GalaxyXRControllerShim::ApplyIdentity(){
 }
 
 void GalaxyXRControllerShim::RunFrame(){
-	if(!active){
+	if(!active || driverConfig.galaxyXr.controllerBypass){
 		return;
 	}
 	if(!driverConfig.galaxyXr.nativeIdentity){

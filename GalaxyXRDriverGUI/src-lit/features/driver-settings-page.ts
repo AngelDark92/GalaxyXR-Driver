@@ -120,6 +120,18 @@ export class DriverSettingsPage extends BasePage {
     );
     if (this.section('controllers')) {
       const gx = galaxy.galaxyXr;
+      body.push(
+        settingFieldRow('galaxyXr.controllerBypass', html`
+          <app-switch .checked=${!!gx.controllerBypass} @change=${(e: CustomEvent) => { gx.controllerBypass = e.detail; save(); }}></app-switch>
+          <span class="note-inline">restart SteamVR after switching</span>
+        `, {
+          tip: t("Master switch for every controller feature this driver adds. On leaves the streamed controllers exactly as Steam Link presents them.\n\nNo Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, offsets or pose trims, no grip-touch synthesis, no skeleton offsets, no motion filter (all Kalman modes), no Game Link layout and no space velocity fix. The per-feature settings are kept in settings.json and return when this switch is off. Requires a SteamVR restart.\n\nValue: galaxyXr.controllerBypass (settings.json). Driver side — master disable for every controller feature; saved settings are not changed."),
+          reset: { can: !!gx.controllerBypass, on: () => { gx.controllerBypass = false; save(); } },
+        }),
+      );
+      if (gx.controllerBypass) {
+        body.push(noteRow(t('All controller features are off. Steam Link controls the controllers untouched; the saved controller settings return when this switch is off.')));
+      } else {
       if (vendor) {
         body.push(
           settingFieldRow('galaxyXr.nativeInputProfile', html`<app-switch .checked=${!!gx.nativeInputProfile} @change=${(e: CustomEvent) => { gx.nativeInputProfile = e.detail; save(); }}></app-switch>`, {
@@ -158,8 +170,8 @@ export class DriverSettingsPage extends BasePage {
         if (vendor && galaxy.rootSetting?.galaxyXr) {
           body.push(
             settingFieldRow('galaxyXr.gripConvention', html`
-              <app-switch .checked=${!!gx.gripConvention} ?disabled=${!!gx.controllerBypass || !!gx.gameLinkLayout} @change=${(e: CustomEvent) => { gx.gripConvention = e.detail; save(); }}></app-switch>
-              ${gx.gameLinkLayout ? html`<span class="note-inline">Game Link layout is on</span>` : gx.controllerBypass ? html`<span class="note-inline">controller bypass is on</span>` : html``}
+              <app-switch .checked=${!!gx.gripConvention} ?disabled=${!!gx.gameLinkLayout} @change=${(e: CustomEvent) => { gx.gripConvention = e.detail; save(); }}></app-switch>
+              ${gx.gameLinkLayout ? html`<span class="note-inline">Game Link layout is on</span>` : html``}
             `, {
               tip: t("Adjust the grip-pose convention for games whose held objects look tilted or misplaced. Compare with a known-good game before changing other offsets.\n\nShifts the raw streamed controller pose (22° pitch, 5 cm) into SteamVR's grip convention so held objects sit where games expect them and the official pose components land on the right spots. Recommended on. Turn off only if a Steam Link build already reports a grip-convention pose and the controllers sit visibly wrong.\n\nValue: galaxyXr.gripConvention (settings.json). Driver side — shifts Steam Link's raw pose into SteamVR's grip convention."),
               reset: { can: gx.gripConvention === false, on: () => { gx.gripConvention = true; save(); } },
@@ -339,7 +351,7 @@ export class DriverSettingsPage extends BasePage {
               <app-switch .checked=${!!gx.gameLinkLayout} @change=${(e: CustomEvent) => { gx.gameLinkLayout = e.detail; save(); }}></app-switch>
               <span class="note-inline">restart SteamVR after switching</span>
             `, {
-              tip: t("Present the controllers the way Samsung's own PC driver (Game Link) does. An add-on to the selected Controller Motion Filter: the motion stays the mode's.\n\nThe controllers get Samsung's model at its authored size, Samsung's pose points and Samsung's input profile, on Steam Link's raw pose. While it is on, the Grip Convention, the Controller Offsets, the model scale and the aim trim are not applied; the Game Link Layout Offsets are used instead. Everything comes back when it goes off. With Controller Bypass on, the layout still applies, without this driver's other corrections. Requires a SteamVR restart.\n\nValue: galaxyXr.gameLinkLayout (settings.json). Driver side — swaps in Samsung's Game Link model, pose points and input profile; its offsets below replace the shared ones."),
+              tip: t("Present the controllers the way Samsung's own PC driver (Game Link) does. An add-on to the selected Controller Motion Filter: the motion stays the mode's.\n\nThe controllers get Samsung's model at its authored size, Samsung's pose points and Samsung's input profile, on Steam Link's raw pose. While it is on, the Grip Convention, the Controller Offsets, the model scale and the aim trim are not applied; the Game Link Layout Offsets are used instead. Everything comes back when it goes off. The Disable All Controller Features master switch wins: no layout is applied while it is on. Requires a SteamVR restart.\n\nValue: galaxyXr.gameLinkLayout (settings.json). Driver side — swaps in Samsung's Game Link model, pose points and input profile; its offsets below replace the shared ones."),
               reset: { can: !!gx.gameLinkLayout, on: () => { gx.gameLinkLayout = false; save(); } },
             }),
           );
@@ -381,14 +393,6 @@ export class DriverSettingsPage extends BasePage {
         body.push(
           sectionGroup(t('Controllers Advanced'), 1),
         );
-          if (vendor) {
-            body.push(
-              settingFieldRow('galaxyXr.controllerBypass', html`<app-switch .checked=${!!gx.controllerBypass} @change=${(e: CustomEvent) => { gx.controllerBypass = e.detail; save(); }}></app-switch>`, {
-                tip: t("Bypass this driver's controller adjustments while leaving the headset path active. Use this to compare with Steam Link's controller behavior.\n\nLeave the streamed controllers exactly as vrlink presents them: no Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, no offsets. Kalman is not part of the bypass; use Controller Motion Filter to turn it off. For A/B tests against stock, or if you only want the image processing. Identity and input profile changes take effect after a SteamVR restart.\n\nValue: galaxyXr.controllerBypass (settings.json). Driver side — skips pose corrections and controller identity; the motion filter follows Controller Motion Filter."),
-                reset: { can: !!gx.controllerBypass, on: () => { gx.controllerBypass = false; save(); } },
-              }),
-            );
-          }
           if (galaxy.controllerSettings) {
             const cs = galaxy.controllerSettings;
             const cd = galaxy.controllerDefaults;
@@ -481,6 +485,7 @@ export class DriverSettingsPage extends BasePage {
               }
             }
           }
+      }
       }
     }
 

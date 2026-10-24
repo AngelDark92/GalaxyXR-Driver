@@ -970,6 +970,9 @@
       <trans-unit id="fluent-fix-1a221772fc9be711" datatype="html">
         <source>Controller Bypass</source>
       </trans-unit>
+      <trans-unit id="galaxyxr-controller-master-20261024" datatype="html">
+        <source>Disable All Controller Features</source>
+      </trans-unit>
       <trans-unit id="fluent-fix-b31b4434716fd6af" datatype="html">
         <source>Controller Fix</source>
       </trans-unit>
@@ -2948,11 +2951,14 @@ Smart saturation: changes muted colors the most and already vivid colors the lea
 Value: streamFrame.vibrance (settings.json). Driver side — selective saturation boost for muted colors.</source>
       </trans-unit>
       <trans-unit id="512420747" datatype="html">
-        <source>Bypass this driver's controller adjustments while leaving the headset path active. Use this to compare with Steam Link's controller behavior.
+        <source>Master switch for every controller feature this driver adds. On leaves the streamed controllers exactly as Steam Link presents them.
 
-Leave the streamed controllers exactly as vrlink presents them: no Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, no offsets. Kalman is not part of the bypass; use Controller Motion Filter to turn it off. For A/B tests against stock, or if you only want the image processing. Identity and input profile changes take effect after a SteamVR restart.
+No Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, offsets or pose trims, no grip-touch synthesis, no skeleton offsets, no motion filter (all Kalman modes), no Game Link layout and no space velocity fix. The per-feature settings are kept in settings.json and return when this switch is off. Requires a SteamVR restart.
 
-Value: galaxyXr.controllerBypass (settings.json). Driver side — skips pose corrections and controller identity; the motion filter follows Controller Motion Filter.</source>
+Value: galaxyXr.controllerBypass (settings.json). Driver side — master disable for every controller feature; saved settings are not changed.</source>
+      </trans-unit>
+      <trans-unit id="galaxyxr-controller-master-note-20261024" datatype="html">
+        <source>All controller features are off. Steam Link controls the controllers untouched; the saved controller settings return when this switch is off.</source>
       </trans-unit>
       <trans-unit id="3072309701" datatype="html">
         <source>Center Quality Boost (QP)</source>
@@ -3316,7 +3322,7 @@ Value: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder
       <trans-unit id="4190754806" datatype="html">
         <source>Present the controllers the way Samsung's own PC driver (Game Link) does. An add-on to the selected Controller Motion Filter: the motion stays the mode's.
 
-The controllers get Samsung's model at its authored size, Samsung's pose points and Samsung's input profile, on Steam Link's raw pose. While it is on, the Grip Convention, the Controller Offsets, the model scale and the aim trim are not applied; the Game Link Layout Offsets are used instead. Everything comes back when it goes off. With Controller Bypass on, the layout still applies, without this driver's other corrections. Requires a SteamVR restart.
+The controllers get Samsung's model at its authored size, Samsung's pose points and Samsung's input profile, on Steam Link's raw pose. While it is on, the Grip Convention, the Controller Offsets, the model scale and the aim trim are not applied; the Game Link Layout Offsets are used instead. Everything comes back when it goes off. The Disable All Controller Features master switch wins: no layout is applied while it is on. Requires a SteamVR restart.
 
 Value: galaxyXr.gameLinkLayout (settings.json). Driver side — swaps in Samsung's Game Link model, pose points and input profile; its offsets below replace the shared ones.</source>
       </trans-unit>
@@ -4220,6 +4226,15 @@ Value: none (diagnostic only). Native side — read-only process telemetry and A
       </trans-unit>
       <trans-unit id="ofxr-20261023-4" datatype="html">
         <source>Reinstall only replaces the bundled payload. Select the bundled version, or remove the imported build through Uninstall Optical Flow first.</source>
+      </trans-unit>
+      <trans-unit id="nvenc-exp-20261024-1" datatype="html">
+        <source>Experimental NVENC overrides active: tAQ {taq}, intervalP {intervalP}, zeroReorder {zeroReorder}, lookahead {lookahead}. Source: nvenc-experimental.json (test-only; requires a SteamVR restart).</source>
+      </trans-unit>
+      <trans-unit id="nvenc-exp-20261024-2" datatype="html">
+        <source>Experimental NVENC overrides ignored: {error}. Source: nvenc-experimental.json.</source>
+      </trans-unit>
+      <trans-unit id="nvenc-exp-20261024-3" datatype="html">
+        <source>Experimental NVENC overrides file is present but inactive (all values leave the caller unchanged). Source: nvenc-experimental.json.</source>
       </trans-unit>
     </body>
   </file>

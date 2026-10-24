@@ -470,16 +470,18 @@ struct GalaxyXrConfig{
 	bool officialComponents = true;
 	// 2026-08-26: leave the streamed controllers exactly as vrlink presents
 	// them: no identity/models/icons, no input profile, no pose components,
-	// no grip convention, no offsets. the Kalman velocity fix is NOT gated
-	// by this (it has its own mode switch). for A/B against stock and for
-	// people who only want the image processing.
+	// no grip convention, no offsets. 2026-10-24 (owner request): promoted to
+	// the master controller disable. On also turns off every motion-filter
+	// mode, the Game Link layout and the space velocity fix, see
+	// Config/ControllerMasterPolicy.h. the stored per-feature values are kept
+	// and return when this goes off; the key is unchanged for compatibility.
 	bool controllerBypass = false;
 	// 2026-10-04 Game Link layout: place and identify the streamed
 	// controllers the way Samsung's own PC driver does it (vrlink's raw pose,
 	// Samsung's pose components and input profile, see
 	// Config/GameLinkLayoutPolicy.h). an add-on to any Controller Fix Mode:
-	// the motion stays the selected mode's. with controllerBypass it still
-	// applies, without the driver's own corrections. requires a SteamVR
+	// the motion stays the selected mode's. 2026-10-24: the controllerBypass
+	// master wins; while it is on no layout is applied. requires a SteamVR
 	// restart.
 	bool gameLinkLayout = false;
 	// controller identity experiment (2026-08-24): when true the driver
@@ -943,6 +945,27 @@ struct StreamFrameConfig{
 	int nvencQpPeriphery = 0;
 	// log every reconfigure + hex dumps
 	bool nvencVerbose = false;
+	// 2026-10-24 pre-run experiment (nvenc-experimental.json beside
+	// settings.json; no GUI control yet). Test-only values for NVENC
+	// fields the Companion does not expose. The driver reads the separate
+	// file at ParseConfig; -1/0 sentinels leave the caller's bytes alone.
+	//   temporalAq     -1 leave, 0 off, 1 on
+	//   frameIntervalP  0 leave, 1 IPP (no B-frames); applied at init only
+	//                   because NVENC documents GOP-structure changes as
+	//                   unsupported at reconfigure
+	//   zeroReorder    -1 leave, 0 off, 1 on
+	//   lookahead      -1 leave, 0 off, 1 on
+	//   lookaheadDepth  0 leave, 1..31 used only when lookahead = 1
+	// These are never written back to settings.json. A present-but-invalid
+	// file is logged and ignored; it does not fail the stream.
+	int nvencExpTemporalAq = -1;
+	int nvencExpFrameIntervalP = 0;
+	int nvencExpZeroReorderDelay = -1;
+	int nvencExpLookahead = -1;
+	int nvencExpLookaheadDepth = 0;
+	// Transient status for the optional test file; never persisted.
+	bool nvencExperimentalPresent = false;
+	std::string nvencExperimentalError;
 	// 5 = kalmanCAM ("kalmanCAM"): mode 4 with the fast magnitude channel
 	// replaced by a constant-acceleration (Singer) estimator — the
 	// low-risk arm of the CA experiment (calm direction untouched).

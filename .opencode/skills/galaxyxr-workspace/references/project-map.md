@@ -161,7 +161,8 @@ external binary tree under `GalaxyXRDriver/bin/linux64/`.
   `GalaxyXRDriver/tests/`. Inspect input sources/defines first; wrappers configure
   the compiler and external outputs. Journal tests deliberately omit live writes.
   The NVENC (`Test-NvencToggle`, `Test-NvencPostPackOrder`), Game Link layout
-  (`Test-GameLinkLayoutPolicy`) and controller-pose (`Test-ControllerPoseEpoch`,
+  (`Test-GameLinkLayoutPolicy`), controller master disable
+  (`Test-ControllerMasterPolicy`) and controller-pose (`Test-ControllerPoseEpoch`,
   `Test-ControllerPoseVelocity`, `Test-ControllerPoseDispatch`) runners are now
   local end-of-task checks; release CI no longer runs them.
 - Rust logic: from `GalaxyXRDriverGUI/src-tauri`, `cargo test --locked --lib`

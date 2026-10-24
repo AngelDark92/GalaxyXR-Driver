@@ -56,7 +56,9 @@ export type GalaxyXrConfig = {
   meshOffsetYCm?: number,
   meshOffsetZCm?: number,
   officialComponents?: boolean,
-  // leave streamed controllers as vrlink presents them (Kalman excluded)
+  // 2026-10-24: master disable for every controller feature (identity,
+  // profile, pose corrections, motion filter, Game Link layout, space
+  // velocity fix). Stored per-feature values are kept.
   controllerBypass?: boolean,
   // Samsung Game Link placement and identity, Kalman CA motion
   gameLinkLayout?: boolean,
@@ -536,6 +538,20 @@ export type DriverInfo = {
     observedAt?: number;
     lastPictureStatus?: number;
     pictureError?: string;
+    // 2026-10-24 pre-run experiment: nvenc-experimental.json read-only
+    // status. present = file found; active = last successful applied
+    // request has a non-sentinel value; error = malformed/out-of-range
+    // file that was ignored. No editable control yet.
+    experimental?: {
+      present: boolean;
+      active: boolean;
+      temporalAq: number;
+      frameIntervalP: number;
+      zeroReorderDelay: number;
+      lookahead: number;
+      lookaheadDepth: number;
+      error?: string;
+    };
   };
   spacewarp?: {
     enabled: boolean;

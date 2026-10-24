@@ -49,7 +49,7 @@ An incomplete operation shows the remaining work in **Details**; recovery record
 
 Toggle corrections (2026-09-25):
 
-- Grip Touch From Pressure OFF releases any synthesized touch and stops further synthesis. Controller Bypass also stops synthesis and skeleton offsets. Re-enabling synthesis works with an already connected controller.
+- Grip Touch From Pressure OFF releases any synthesized touch and stops further synthesis. Disable All Controller Features also stops synthesis and skeleton offsets. Re-enabling synthesis works with an already connected controller.
 - NVENC Tap OFF stops API upgrades for new encoder sessions. Existing upgraded sessions keep the API compatibility handling they need until closed; reconnect to start a stock session.
 - Zero-Copy v3 OFF, Image Enhancements OFF, or inactive eye processing stops texture redirection. Re-enabling waits for active eye processing.
 - Steam Link Debug Overlay OFF writes both diagnostic flags false, even if they were previously true. Explicit advanced VRLink overrides remain authoritative; uninstall restores unchanged journal-owned values.
@@ -103,15 +103,17 @@ zero derivatives pass through. A repeat run is limited to 50 ms; a longer freeze
 uses upstream timing until data changes. This preserves the first observed time,
 not the unavailable original sensor timestamp. Native hands, HMD, invalid tracking,
 other devices, the neutral build and estimator modes bypass this correction.
-**Controller Bypass** disables it. See [validation and limits](ControllerPoseEpoch-2026-10-12.md).
+**Disable All Controller Features** (the former Controller Bypass) disables it. See [validation and limits](ControllerPoseEpoch-2026-10-12.md).
 
 With the official input profile on, SteamVR sees `galaxy_xr_controller`. Games that ship a native Galaxy XR binding use it, everything else falls back to Index controller bindings through the official remapping, so most titles will show Index controllers in their binding UI. Custom per-game bindings made before enabling the profile (when the controllers were Touch) do not carry over.
 
 Controller Motion Filter drives the pose filter. Kalman CA is the default, the tuning row below it shows the gains for whichever mode is selected, and Kalman Advanced Settings holds the rarely-touched knobs. Since 1.0.0 the reported angular velocity is in controller-local frame, which is what SteamVR's own prediction expects.
 
+**Disable All Controller Features** (2026-10-24; the former Controller Bypass) is the master switch at the top of Controllers. On leaves the streamed controllers exactly as Steam Link presents them: no Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, offsets or pose trims, no grip-touch synthesis, no skeleton offsets, no motion filter (all Kalman modes), no Game Link Layout and no space velocity fix. The per-feature values stay in `settings.json` and return when the switch goes off; the driver applies the off state only to its runtime copy, so a Companion save never rewrites them. Requires a SteamVR restart. It wins over a saved Game Link Layout.
+
 Game Link Layout has its own section under Controllers, next to Controller Fix: the switch and the layout's offsets. It presents the controllers the way Samsung's own PC driver (Game Link / XR Link) does: Steam Link's raw pose with no grip convention shift, Samsung's model at its authored size, Samsung's pose points (grip, aim, tip, base) as authored, and Samsung's input profile with the `samsung_touch` controller type, whose remapping tells Touch-authored games they talk to a Touch. It is an add-on to the selected Controller Motion Filter: the motion stays the mode's. With the mode Off the pose, velocities and accelerations go out as Steam Link delivers them; Samsung's driver zeroes small velocities and all accelerations, this one does not. Steam Link's own velocities sent that way made Half-Life: Alyx throws fly sideways, Kalman CA threw straight. Turning it on or off needs a SteamVR restart.
 
-While it is on, the Grip Convention, the Controller Offsets and per-hand trims, the model scale, the mesh offset, the hand anchor and the aim trim are not applied; they come back when it goes off. The layout has its own offsets instead, in the same section (`controllers.gameLinkLayout` in settings.json): authored for the left controller and mirrored for the right, rotation 2 / -5 / -9 deg and position 0.5 / -1.5 / 0.5 cm by default. With Controller Bypass also on, the controllers get Samsung's identity, model, pose points and input profile on the untouched Steam Link pose, without this driver's other corrections.
+While it is on, the Grip Convention, the Controller Offsets and per-hand trims, the model scale, the mesh offset, the hand anchor and the aim trim are not applied; they come back when it goes off. The layout has its own offsets instead, in the same section (`controllers.gameLinkLayout` in settings.json): authored for the left controller and mirrored for the right, rotation 2 / -5 / -9 deg and position 0.5 / -1.5 / 0.5 cm by default. Disable All Controller Features wins over the layout: no layout is applied while it is on.
 
 Settings files from the builds where the layout was a mode are read as before: `kalmanCAGameLink` and `native` are Kalman CA with the switch on, `nativeGameLink` is Off with the switch on. `velocityOnly`, the removed Kalman CA (Velocity only) mode, is read as Kalman CA.
 

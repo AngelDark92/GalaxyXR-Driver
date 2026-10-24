@@ -31,6 +31,8 @@ describe('human-readable settings inspection', () => {
       .toEqual(['Image Settings', 'Encoder Advanced', 'Force Constant Bitrate']);
     expect(rows.find(row => row.id === 'streamFrame.spacewarpEnable')?.location)
       .toEqual(['Image Settings', 'Stream Quality', 'Async Spacewarp']);
+    expect(rows.find(row => row.id === 'galaxyXr.controllerBypass')?.location)
+      .toEqual(['Driver Settings', 'Controllers', 'Disable All Controller Features']);
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
   });
 
@@ -82,6 +84,17 @@ describe('human-readable settings inspection', () => {
     expect(presentSettings(checks, c).find(row => row.id === 'image-enhancements')?.origin).toBe('mixed');
     expect(presentSettings(checks, c).find(row => row.id === 'streamFrame.nvencTap')?.origin).toBe('default');
     expect(presentSettings([], { ...c, settings: undefined }).find(row => row.id === 'advanceMode')?.state).toBe('Off');
+  });
+
+  it('marks controller controls unavailable while the master switch is on', () => {
+    const c = context();
+    c.settings.galaxyXr!.controllerBypass = true;
+    const before = structuredClone(c);
+    const reason = (id: string) => settingUnavailable(settingPresentation(id)!, c);
+    expect(reason('galaxyXr.controllerBypass')).toBeUndefined();
+    expect(reason('galaxyXr.gripConvention')).toMatch(/Disable All Controller Features is on/);
+    expect(reason('streamFrame.kalmanDeviceTime')).toMatch(/Disable All Controller Features is on/);
+    expect(c).toEqual(before);
   });
 
   it('keeps unavailable modes explanatory and never enables their prerequisites', () => {

@@ -283,9 +283,9 @@
   },
   {
     "source": "features/driver-settings-page.ts",
-    "originalLine": 393,
-    "summary": "Bypass this driver's controller adjustments while leaving the headset path active. Use this to compare with Steam Link's controller behavior.",
-    "details": "Leave the streamed controllers exactly as vrlink presents them: no Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, no offsets. Kalman is not part of the bypass; use Controller Motion Filter to turn it off. For A/B tests against stock, or if you only want the image processing. Identity and input profile changes take effect after a SteamVR restart.\n\nValue: galaxyXr.controllerBypass (settings.json). Driver side — skips pose corrections and controller identity; the motion filter follows Controller Motion Filter."
+    "originalLine": 124,
+    "summary": "Master switch for every controller feature this driver adds. On leaves the streamed controllers exactly as Steam Link presents them.",
+    "details": "No Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, offsets or pose trims, no grip-touch synthesis, no skeleton offsets, no motion filter (all Kalman modes), no Game Link layout and no space velocity fix. The per-feature settings are kept in settings.json and return when this switch is off. Requires a SteamVR restart.\n\nValue: galaxyXr.controllerBypass (settings.json). Driver side — master disable for every controller feature; saved settings are not changed."
   },
   {
     "source": "features/driver-settings-page.ts",

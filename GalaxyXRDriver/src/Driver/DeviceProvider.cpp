@@ -96,7 +96,7 @@ vr::EVRInitError GalaxyXRDeviceProvider::Init(vr::IVRDriverContext *pDriverConte
 	
 	driverConfigLoader.Start();
 #ifdef VENDOR_GALAXYXR
-	DriverLog("ControllerPoseEpoch: exact-repeat timing correction available in Controller Fix Off; 50ms bound; Controller Bypass disables it (2026-10-12).");
+	DriverLog("ControllerPoseEpoch: exact-repeat timing correction available in Controller Fix Off; 50ms bound; Disable All Controller Features disables it (2026-10-12).");
 #endif
 	{
 		// 2026-09-25: publish saved/default encoder options before installing
@@ -1360,8 +1360,9 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 	// convention shift). same serial gate the velocity fix uses; cached
 	// after the first read, false while the property is not readable yet.
 	// property query with no lock held.
-	// galaxyXr.controllerBypass: pose left as vrlink sent it (Kalman is
-	// applied further down and is not part of the bypass).
+	// galaxyXr.controllerBypass: master controller disable; pose left as
+	// vrlink sent it. Config/ControllerMasterPolicy.h also zeroes the
+	// motion-filter mode in the runtime copy, so no estimator runs.
 	const bool streamedController = openVRID != vr::k_unTrackedDeviceIndex_Hmd
 		&& !driverConfig.galaxyXr.controllerBypass
 		&& GetDeviceClass(openVRID) == (int)vr::TrackedDeviceClass_Controller

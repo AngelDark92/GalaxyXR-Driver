@@ -1,6 +1,7 @@
 // Offline checks for the Game Link layout toggle: the runtime preset
 // (Config/GameLinkLayoutPolicy.h). no driver, no SteamVR.
 #include "../src/Config/GameLinkLayoutPolicy.h"
+#include "../src/Config/ControllerMasterPolicy.h"
 #include <cmath>
 #include <iostream>
 #include <string>
@@ -88,7 +89,8 @@ int main() {
         Check(k.mirrorOffsetsForRightHand && k.leftRotationOffsetDeg[1] == 0, "Game Link layout: its trim is mirrored and the per-hand trims stay out");
     }
     {
-        // controller bypass: the layout still applies, without the driver's own corrections
+        // 2026-10-24: controllerBypass is the master controller disable and
+        // wins over the layout. Production order is master, then layout.
         Config c;
         c.galaxyXr.gameLinkLayout = true;
         c.galaxyXr.controllerBypass = true;
@@ -96,16 +98,22 @@ int main() {
         c.galaxyXr.nativeIdentity = false;
         c.galaxyXr.synthesizeGripTouch = true;
         c.galaxyXr.skeletonOffsetZCm = 1.0;
+        c.controllers.rotationOffsetDeg[1] = 5.0;
         c.controllers.gameLinkRotationOffsetDeg[1] = -3.0;
         c.controllers.gameLinkPositionOffsetCm[2] = 1.0;
+        gxr::ApplyControllerMasterPolicy(c);
         gxr::ApplyGameLinkLayoutPolicy(c);
         const auto& g = c.galaxyXr;
-        Check(!g.controllerBypass && g.nativeIdentity && g.nativeInputProfile && !g.gripConvention, "bypass + Game Link layout: the layout is applied");
-        Check(!g.synthesizeGripTouch && g.skeletonOffsetZCm == 0, "bypass + Game Link layout: no grip touch synthesis, no skeleton offset");
-        Check(c.controllers.rotationOffsetDeg[1] == -3.0 && c.controllers.positionOffsetCm[2] == 1.0, "bypass + Game Link layout: the layout trim still applies");
+        Check(!g.gameLinkLayout && g.controllerBypass && !g.nativeIdentity,
+            "master disable wins: no Game Link layout and identity stays as chosen");
+        Check(!g.gripConvention && !g.synthesizeGripTouch && g.skeletonOffsetZCm == 1.0,
+            "master disable wins: no grip convention or grip touch; stored skeleton offset is kept");
+        Check(c.controllers.rotationOffsetDeg[1] == 5.0 && c.controllers.positionOffsetCm[2] == 0.0,
+            "master disable wins: the layout trim is not applied");
     }
     {
-        // bypass alone is left as chosen
+        // bypass alone is left as chosen; the master policy turns it into the
+        // full controller disable in production.
         Config c;
         c.galaxyXr.controllerBypass = true;
         gxr::ApplyGameLinkLayoutPolicy(c);

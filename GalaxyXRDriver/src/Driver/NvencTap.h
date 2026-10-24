@@ -239,6 +239,18 @@ struct NvencTapConfig {
 	bool qpFoveaTop = true;
 	// log every reconfigure (not just the first few) and hex-dump structs.
 	bool verbose = false;
+	// 2026-10-24 pre-run experiment (nvenc-experimental.json beside
+	// settings.json; no GUI control yet). These are test-only values for
+	// fields the Companion does not expose. -1/0 sentinels leave the
+	// caller's bytes untouched. frameIntervalP is init-only because NVENC
+	// documents GOP-structure changes as unsupported at reconfigure.
+	bool expPresent = false;
+	std::string expError;
+	int expTemporalAq = -1;
+	int expFrameIntervalP = 0;
+	int expZeroReorderDelay = -1;
+	int expLookahead = -1;
+	int expLookaheadDepth = 0;
 };
 
 struct NvencTapStats {
@@ -330,6 +342,16 @@ struct NvencTapRuntimeState {
 	std::string pictureError;
 	int effectiveRateControl = -1, effectiveSplit = -1;
 	uint32_t encodeWidth = 0, encodeHeight = 0;
+	// 2026-10-24 pre-run experiment (nvenc-experimental.json). present/error
+	// come from the current config; the five values are the last successful
+	// applied request. info.json publishes them read-only.
+	bool expPresent = false;
+	std::string expError;
+	int expTemporalAq = -1;
+	int expFrameIntervalP = 0;
+	int expZeroReorderDelay = -1;
+	int expLookahead = -1;
+	int expLookaheadDepth = 0;
 };
 
 // 2026-10-23: the observed request, configured Max Bitrate and applied target.

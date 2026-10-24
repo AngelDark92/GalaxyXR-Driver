@@ -1771,6 +1771,16 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	tc.minQpIntra = settings.config.nvencMinQpIntra;
 	tc.forceCbr = settings.config.nvencForceCbr;
 	tc.lowDelayKfScale = settings.config.nvencLowDelayKfScale;
+	// 2026-10-24 pre-run experiment (nvenc-experimental.json). Present/error
+	// are read-only status; the five values use -1/0 sentinels. The tap
+	// applies them after the preset merge and H.264 recipe.
+	tc.expPresent = settings.config.nvencExperimentalPresent;
+	tc.expError = settings.config.nvencExperimentalError;
+	tc.expTemporalAq = settings.config.nvencExpTemporalAq;
+	tc.expFrameIntervalP = settings.config.nvencExpFrameIntervalP;
+	tc.expZeroReorderDelay = settings.config.nvencExpZeroReorderDelay;
+	tc.expLookahead = settings.config.nvencExpLookahead;
+	tc.expLookaheadDepth = settings.config.nvencExpLookaheadDepth;
 	tc.presetAuto = settings.config.nvencPreset == 0; // 0 = by engine count (NvencTap)
 	{
 		const auto &pp = settings.config.postPack;

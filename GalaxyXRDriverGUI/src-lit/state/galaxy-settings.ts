@@ -710,6 +710,8 @@ export class GalaxySettingsBase {
       if (this.rootSetting.galaxyXr.gripConvention === undefined) {
         this.rootSetting.galaxyXr.gripConvention = true;
       }
+      // 2026-10-24: master disable for every controller feature (see the
+      // driver's Config/ControllerMasterPolicy.h). Off by default.
       if (this.rootSetting.galaxyXr.controllerBypass === undefined) {
         this.rootSetting.galaxyXr.controllerBypass = false;
       }

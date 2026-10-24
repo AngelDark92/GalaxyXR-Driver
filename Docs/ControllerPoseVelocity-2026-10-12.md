@@ -17,7 +17,8 @@ omega_adjusted_local = inverse_rotate(q_adjusted, omega_driver)
 
 This preserves the edited position/orientation, time, transforms and flags.
 It runs only for recognized physical streamed controllers in the Galaxy XR
-build, Controller Fix Off, Controller Bypass off and Space Velocity Fix off.
+build, Controller Fix Off, Disable All Controller Features off (formerly
+Controller Bypass) and Space Velocity Fix off.
 Raw source tracking must be connected, valid and Running_OK, even if Force
 Tracking later overrides those flags. Native hands return before this code.
 Other estimator modes and the neutral vendor build retain their old behavior.

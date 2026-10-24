@@ -53,7 +53,7 @@ Older copies of this fork that were installed into `SteamVR\drivers\CustomHeadse
 In **Driver Settings** and **Image Settings**:
 
 - **Headset:** Galaxy XR Recognition on, Native Panel Resolution on (default), Stream Quality: Tile Width 1536, Bandwidth 350 Mbit/s (defaults).
-- **Controllers:** Official Controller Layout on. Controller Motion Filter: Kalman CA (recommended). Leave the offsets alone unless the controllers visibly sit wrong in your hand; the shipped values were measured against the official models.
+- **Controllers:** Disable All Controller Features off (default). Official Controller Layout on. Controller Motion Filter: Kalman CA (recommended). Leave the offsets alone unless the controllers visibly sit wrong in your hand; the shipped values were measured against the official models. The master switch turns off identity, pose corrections, the motion filter, Game Link Layout and everything else the driver does to the controllers; saved per-feature values return when it is off, and a SteamVR restart is required.
 - **Picture mode:** **SDR 10-bit baseline** sends a 10-bit SDR stream (on by default; a saved Off stays Off; HEVC/AV1 only - selecting H.264 turns it off and keeps the switch disabled, and the driver suppresses the baseline request). It is independent of **Image Enhancements** (on by default): enable either in any order, no warning, and picture adjustments are not reset.
 
 Then restart SteamVR once.
