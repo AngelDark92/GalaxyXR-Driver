@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.15.0-dev.4] - 2026-10-24
+
+### Features
+
+- Add controller master policy and associated tests (`05f2412`)
+
 ## [1.15.0-dev.3] - 2026-10-23
 
 ### Features
