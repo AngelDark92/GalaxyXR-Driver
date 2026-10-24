@@ -1,139 +1,74 @@
 ---
 name: cavecrew
-description: >
-  Decision guide for delegating to caveman-style subagents. Tells the main
-  thread WHEN to spawn `cavecrew-investigator` (locate code), `cavecrew-builder`
-  (1-2 file edit), or `cavecrew-reviewer` (diff review) instead of doing the
-  work inline or using the general/explore agent. Subagent output is caveman-compressed
-  so the tool-result injected back into main context is ~60% smaller — main
-  context lasts longer across long sessions.
-  Trigger: "delegate to subagent", "use cavecrew", "spawn investigator/builder/reviewer",
-  "save context", "compressed agent output".
+description: Delegate bounded Galaxy XR investigation, one- or two-file edits, or diff review to compressed-output subagents. Use when delegation is requested; the main thread keeps build and authorization authority.
 ---
 
-Cavecrew = three subagent presets that emit caveman output. Same job as OpenCode's built-in `explore`/`general` subagents and a normal edit pass; the difference is that the returned tool result is compressed, so main context shrinks per delegation.
+# Cavecrew
 
-## Under OpenCode (named subagents)
+Cavecrew has three roles. OpenCode discovers them as `cavecrew-investigator`, `cavecrew-builder` and `cavecrew-reviewer` from the nearest `.opencode/agents/`. Codex uses `.codex/agents/*.toml`. Hermes runs the same contracts through `delegate_task` with the role text pasted into each child's `context`.
 
-OpenCode discovers `cavecrew-*` from the nearest `.opencode/agents/`. This workspace
-defines them once at the root, and every project that carries a local `.opencode/`
-copy carries the same three files, so the skill works from either location.
+## Call contract
 
-Ask the main agent to use `cavecrew-investigator`, `cavecrew-builder` or
-`cavecrew-reviewer`. Subagents get fresh context: pass the goal, the bound, the
-expected receipt and whether writes are authorized. The investigator and reviewer
-permissions keep them read-only.
+Every call states all five lines. A missing line returns `ambiguous. ask: <missing line>`.
 
-## Call contract (what cavecrew needs before it starts)
-
-Every call must state all five lines. If one is missing, the role returns
-`ambiguous. ask: <the missing line>` instead of guessing.
-
-1. **Role** — `investigator`, `builder` or `reviewer`.
+1. **Role** — investigator, builder or reviewer.
 2. **Goal** — one answerable question or one stated change.
 3. **Bound** — exact files or directories; nothing outside them.
-4. **Evidence** — the symptom, log line, failing check or diff the role starts from.
-5. **Write authorization** — `read-only`, or the exact files the builder may edit.
+4. **Evidence** — symptom, log line, failing check or diff to start from.
+5. **Write authorization** — `read-only`, or the exact files a builder may edit.
 
-When called, each role does this in order:
+Children start with fresh context and cannot ask questions. Paste every path and the full role contract; a preset name alone loads nothing.
 
-- **Investigator** — reads `AGENTS.md`, loads the project skill, traces symbols and
-  callers, and returns `path:line` evidence plus what it ruled out.
-- **Builder** — reads the assigned files and their direct callers, makes only the
-  stated change, re-reads the edited lines, runs the agreed focused check, and
-  returns the changed range plus the verification outcome.
-- **Reviewer** — reads the changed path and every directly affected consumer,
-  reports only concrete defects with a fix, and finishes with severity totals.
+## Roles
 
-If the task exceeds the role's contract — more than two files for a builder, writes
-for an investigator or reviewer, a missing authorization, or a guessed
-binary/device fact — the role stops with its terminal refusal token.
+- **Investigator** — read-only symbol and execution-path tracing. Returns `path:line` evidence and what it ruled out.
+- **Builder** — one or two assigned files. Reads direct callers, makes only the stated change, re-reads the edited lines and runs the agreed focused check. More than two files or a cross-owner change returns `too-big.`
+- **Reviewer** — read-only review of the changed path and every directly affected consumer. Reports concrete defects with a fix; no general commentary.
 
-## Per-project use
-
-Every project with a local `.opencode/` carries its own relevant skill subset and
-the three agent files. Use those IDs from that checkout; do not assume the
-workspace-root definitions are visible when OpenCode starts inside a subproject.
-
-## Under Hermes (delegate_task, not presets)
-
-Hermes has no named agent presets and reads no `.github/agents/` or `.codex/` files. Run the roles as
-`delegate_task` children: paste the matching contract from [references/hermes-roles.md](references/hermes-roles.md)
-into each child's `context`, with the goal and every path. Children inherit the parent's tools and model and
-cannot call `clarify` — keep the `ambiguous. ask:` terminal line. Their summaries are self-reports: the main
-thread re-reads the cited lines and reruns the checks.
-
-## When to use cavecrew vs alternatives
-
-| Task | Use |
-|---|---|
-| "Where is X defined / what calls Y / list uses of Z" | `cavecrew-investigator` |
-| Same but you also want suggestions/architecture commentary | Built-in `explore` agent (more prose) |
-| Surgical edit, ≤2 files, scope obvious | `cavecrew-builder` |
-| New feature / 3+ files / cross-cutting refactor | Main thread or built-in `general` agent |
-| Review diff, branch, or file for bugs | `cavecrew-reviewer` |
-| Deep code review with rationale + alternatives | Built-in `general` agent or main thread |
-| One-line answer you already know | Main thread, no subagent |
-
-Rule of thumb: **if you'd want the subagent's output in 1/3 the tokens, pick cavecrew. If you'd want prose, pick vanilla.**
-
-## Why this exists (the real win)
-
-Subagent tool results get injected into main context verbatim. A built-in `explore` agent that returns 2k tokens of prose costs 2k tokens of main-context budget every time. The same finding from `cavecrew-investigator` returns ~700 tokens. Across 20 delegations in one session that's the difference between context exhaustion and finishing the task.
+Terminal refusals: `too-big.` / `needs-confirm.` / `ambiguous.` / `regressed.` The role stops rather than guessing a binary, device or missing authorization fact.
 
 ## Output contracts
 
-What main thread can rely on per agent:
+Investigator:
 
-**`cavecrew-investigator`**
-```
+```text
 <Header>:
 - path:line — `symbol` — short note
 totals: <counts>.
 ```
-Or `No match.` Always file-path-first, line-number-attached, backticked symbols. Safe to grep with `path:\d+`.
 
-**`cavecrew-builder`**
+Or `No match.`
+
+Builder:
+
+```text
+<path:line-range> — <change, <=10 words>.
+verified: <re-read OK | mismatch @ path:line | limitation>.
 ```
-<path:line-range> — <change ≤10 words>.
-verified: <re-read OK | mismatch @ path:line>.
+
+Reviewer:
+
+```text
+path:line: <severity>: <problem>. <fix>.
+totals: N bug, N risk, N nit, N question.
 ```
-Or one of: `too-big.` / `needs-confirm.` / `ambiguous.` / `regressed.` (terminal first token).
 
-**`cavecrew-reviewer`**
-```
-path:line: <emoji> <severity>: <problem>. <fix>.
-totals: N🔴 N🟡 N🔵 N❓
-```
-Or `No issues.` Findings sorted file → line ascending.
+Or `No issues.` Sort findings file then line ascending. Use clear prose for security or irreversible-action warnings.
 
-## End-of-plan build gate
+## Selection
 
-Cavecrew delegation never replaces or waives the end-of-plan full local portable
-build. The main thread runs `tools/Build-Portable.ps1` after the implementation
-plan is complete and validates exit 0, `Built test package: ...`, and the driver
-DLL/manifest/Companion EXE.
+| Task | Use |
+| --- | --- |
+| Locate a definition, caller or use | investigator |
+| Same, plus architecture commentary | built-in explore/general |
+| Surgical edit in <=2 files | builder |
+| New feature or 3+ file refactor | main thread or general |
+| Review a concrete diff | reviewer |
 
-## Chaining patterns
+Do not use a builder before the file is known. Do not chain investigator to builder for a multi-file refactor. A delegation adds no device, installer, SteamVR, Git, release or workflow authorization.
 
-**Locate → fix → verify** (most common):
-1. `cavecrew-investigator` returns site list.
-2. Main thread picks 1-2 sites, hands paths to `cavecrew-builder`.
-3. `cavecrew-reviewer` audits the diff.
+## End-of-plan gate
 
-**Parallel scout** (when investigation is broad):
-Spawn 2-3 `cavecrew-investigator` calls in one message (different angles: defs vs callers vs tests). Aggregate in main thread.
+Delegation never replaces the main thread's full local portable build. For GalaxyXR-Driver, run `tools/Build-Portable.ps1` and validate exit 0, `Built test package: ...`, and the driver DLL/manifest/Companion EXE.
 
-**Single-shot edit** (when site is already known):
-Skip investigator. Hand exact path:line to `cavecrew-builder` directly.
-
-## What NOT to do
-
-- Don't use `cavecrew-builder` when you don't already know the file. Spawn investigator first or main thread will eat tokens passing context.
-- Don't chain `cavecrew-investigator → cavecrew-builder` for a 5-file refactor. Builder will return `too-big.` and you'll have wasted a turn.
-- Don't ask `cavecrew-reviewer` for "general feedback" — it returns findings only, no architecture opinions. Use the built-in `general` agent for that.
-- Don't expect prose. Cavecrew output is structured, sometimes terse to the point of cryptic. If a human will read it directly, paraphrase.
-
-## Auto-clarity (inherited)
-
-Subagents drop caveman → normal English for security warnings, irreversible-action confirmations, and any output where fragment ambiguity could be misread. Resume caveman after.
+Hermes users load [the role contracts](references/hermes-roles.md) and run the parent's re-read/check step after every child summary.

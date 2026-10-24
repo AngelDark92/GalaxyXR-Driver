@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 if ([bool]$CaptureDirectory -ne [bool]$ReplayOutput) { throw 'Specify both capture directory and replay output.' }
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $UseCurrentEnvironment) { . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1') }
-$outputDirectory = Join-Path $repoRoot 'build/controller-pose-velocity-test'
+$outputDirectory = Join-Path $repoRoot '../builds/GalaxyXR-Driver/build/controller-pose-velocity-test'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $provider = Get-Content -Raw (Join-Path $repoRoot 'GalaxyXRDriver/src/Driver/DeviceProvider.cpp')
 $qStart = $provider.IndexOf('static vr::HmdQuaternion_t QuatMultiply(')

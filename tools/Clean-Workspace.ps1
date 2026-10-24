@@ -120,16 +120,11 @@ function Get-CargoFiles([string]$Path) {
             if ($p -match '^(debug|release)(/(\.fingerprint|build|deps|examples|incremental)(/.*)?)?$') { continue }
         } else {
             if ($p -match '^(CACHEDIR\.TAG|\.rustc_info\.json)$') { continue }
-            if ($p -match '^(debug|release)/(\.cargo(-artifact|-build)?-lock|galaxyxrdriver[-_]gui\.(exe|pdb|d))$') { continue }
-            if ($p -match '^(debug|release)/(deps|examples)/[^/]+\.(d|dll|exe|exp|lib|pdb|rlib|rmeta)$') { continue }
-            if ($p -match '^(debug|release)/\.fingerprint/[^/]+-[0-9a-f]{16}/(invoked\.timestamp|(?:dep-|output-)?(?:lib|bin|test-lib|test-bin|run-build-script|build-script)-[\w-]+(?:\.json)?)$') { continue }
-            if ($p -match '^(debug|release)/build/[^/]+-[0-9a-f]{16}/(invoked\.timestamp|output|root-output|stderr|build[-_]script[-_]build(?:-[0-9a-f]{16})?\.(d|exe|pdb))$') { continue }
-            if ($p -match '^(debug|release)/build/[^/]+-[0-9a-f]{16}/out/.+\.(a|css|dll|gif|html|ico|js|json|lib|ll|md|o|png|rc|rs|svg|timestamp|toml)$') { continue }
-            if ($p -match '^(debug|release)/build/[^/]+-[0-9a-f]{16}/out/(?:.*/)?([0-9a-f]{64}|checked_features|__app__-permission-files|tauri-(core|plugin)(-[\w-]+)?-permission-files)$') { continue }
-            if ($p -match '^(debug|release)/incremental/[^/]+/[\w-]+/metadata\.rmeta$' -or
-                $p -match '^(debug|release)/incremental/[^/]+/[\w-]+/(dep-graph|query-cache|work-products)\.bin$' -or
-                $p -match '^(debug|release)/incremental/[^/]+/[\w-]+/[^/]+\.(o|obj|pre-lto\.bc)$' -or
-                $p -match '^(debug|release)/incremental/[^/]+/[\w-]+\.lock$') { continue }
+            if ($p -match '^(debug|release)/(\.cargo(-artifact|-build)?-lock|[^/]+\.(d|dll|exe|pdb|lib|exp|rlib|rmeta)|[^/]+\.dll\.(exp|lib))$') { continue }
+            # Cargo owns everything below these generated subdirectories. The
+            # marker checks above distinguish a real target from an arbitrary
+            # directory; top-level unknown files are still rejected.
+            if ($p -match '^(debug|release)/(deps|examples|\.fingerprint|build|incremental)/.+$') { continue }
         }
         throw "Unknown Cargo cache entry: $p"
     }
@@ -161,13 +156,22 @@ function Assert-Idle($Candidates) {
     foreach ($process in $processes) {
         if ($process.ProcessId -eq $PID) { continue }
         if ($process.Name -match '^(cl|link|msbuild|rustc|cargo|cmake|ninja)\.exe$') { throw "Build process active: $($process.Name) ($($process.ProcessId))" }
-        if ($process.Name -match '^(node|powershell|pwsh)\.exe$' -and -not $process.CommandLine) { throw "Cannot inspect build-capable process $($process.ProcessId)." }
-        if ($process.CommandLine -match '(?i)(?:node(?:\.exe)?["'']?\s+["'']?(?:[^\s"'']*[\\/])?(?:build\.js|vite(?:\.js)?)(?:[\s"'']|$)|-File\s+["'']?(?:[^\s"'']*[\\/])?Build-Portable\.ps1(?:[\s"'']|$))') {
+        if ($process.Name -match '^(node|powershell|pwsh)\.exe$' -and -not $process.CommandLine) {
+            # A process can exit between the snapshot and inspection. Re-query
+            # once and ignore it only when it is gone; a live uninspectable
+            # process still fails closed.
+            $live = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$($process.ProcessId)" -ErrorAction SilentlyContinue
+            if (-not $live) { continue }
+            $process = $live
+            if (-not $process.CommandLine) { throw "Cannot inspect build-capable process $($process.ProcessId)." }
+        }
+        $commandLine = $process.CommandLine
+        if ($commandLine -match '(?i)(?:node(?:\.exe)?["'']?\s+["'']?(?:[^\s"'']*[\\/])?(?:build\.js|vite(?:\.js)?)(?:[\s"'']|$)|-File\s+["'']?(?:[^\s"'']*[\\/])?Build-Portable\.ps1(?:[\s"'']|$))') {
             throw "Build command active: process $($process.ProcessId)"
         }
         foreach ($candidate in $Candidates) {
             if (($process.ExecutablePath -and (Test-Within $process.ExecutablePath $candidate.path)) -or
-                ($process.CommandLine -and $process.CommandLine.IndexOf($candidate.path, $comparison) -ge 0)) { throw "Candidate is in use by process $($process.ProcessId)." }
+                ($commandLine -and $commandLine.IndexOf($candidate.path, $comparison) -ge 0)) { throw "Candidate is in use by process $($process.ProcessId)." }
         }
     }
     if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA unavailable; cannot inspect SteamVR registration.' }
@@ -210,7 +214,8 @@ foreach ($parent in @('output','build')) {
         if ($item.FullName.Equals($keep, $comparison)) { continue }
         $kind = $null
         if ($parent -eq 'output' -and $item.Name -match $packagePattern) { $kind = 'package' }
-        if ($parent -eq 'output' -and $item.Name -eq 'GalaxyXRDriverGUI') { $kind = 'cargo' }
+        if ($parent -eq 'output' -and $item.Name -like 'GalaxyXRDriverGUI*' -and $item.PSIsContainer) { $kind = 'cargo' }
+        if ($parent -eq 'build' -and $item.Name -eq 'cargo-target' -and $item.PSIsContainer) { $kind = 'cargo' }
         if ($parent -eq 'build' -and $item.Name -match '^portable-objects-\d{8}-\d{6}$') { $kind = 'objects' }
         if ($kind) { $possible.Add([pscustomobject]@{path=$item.FullName; kind=$kind}) }
         elseif ($parent -eq 'output') { $skipped.Add([pscustomobject]@{path=(Get-Relative $item.FullName); reason='Unrecognized output; preserved.'}) }

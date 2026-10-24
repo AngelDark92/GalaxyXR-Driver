@@ -5,34 +5,11 @@ alwaysApply: true
 
 # GalaxyXR-Driver
 
-Read `AGENTS.md` first. Source roots are `GalaxyXRDriver/` (C++17) and
-`GalaxyXRDriverGUI/` (TypeScript/Lit + Tauri). `CustomHeadsetOpenVR` is the
-neutral runtime identity; `GalaxyXRNative` is the Galaxy XR build.
+Read `AGENTS.md` first; it is the canonical project contract. This file only supplies Cursor mechanics.
 
-## Build and test
-
-- Package: `node build.js --vendor galaxyxr` (or `--vendor neutral`).
-- Portable build (required at end of plan): `tools/Build-Portable.ps1`.
-- Focused checks: `tools/Test-*.ps1` and `tools/Test-*.cjs`.
-- Rust backend: `cargo test --locked --lib` in `GalaxyXRDriverGUI/src-tauri`.
-- Generated output belongs under `../builds/GalaxyXR-Driver/`; never create
-  `build/`, `dist/`, `target/` or caches inside the checkout.
-- Every completed plan runs the full local portable build before reporting complete.
-
-## Rules
-
-- Preserve setting schemas, migrations, defaults and the driver/Companion
-  contract. Reject invalid values visibly; do not silently clamp them.
-- Preserve installer backup, rollback, ownership-journal and refusal behavior.
-- Never rewrite `ThirdParty/`, vendor binaries or supplied artifacts in place.
-- Keep PowerShell 5.1 compatibility in `.ps1` files used by `.cmd` launchers.
-- Do not deploy drivers, mutate SteamVR or touch a headset without explicit
-  authorization.
-- State separately what was statically checked, compiled, CI-verified or proven
-  on hardware.
-
-## Skills
-
-`@customheadset-gxr` for implementation workflows, `@galaxyxr-workspace` for the
-source map, `@cavecrew` for delegation. Project skill copies live in
-`.opencode/skills/`; read `AGENTS.md` for the full contract.
+- Source roots: `GalaxyXRDriver/` (C++17) and `GalaxyXRDriverGUI/` (TypeScript/Lit + Tauri). `GalaxyXRNative` is the vendor runtime identity; `CustomHeadsetOpenVR` is neutral.
+- Generated output: `../builds/GalaxyXR-Driver/` only.
+- End-of-plan gate: `tools/Build-Portable.ps1`. Focused checks: `npm test`, `npm run build:ui`, `tools/Test-*.ps1`, `tools/Test-*.cjs`, `cargo test --locked --lib`.
+- Preserve settings schemas, migrations, defaults, installer rollback, SteamVR journal ownership and both vendor/legacy paths. Never edit `ThirdParty/`.
+- Commit, push, deploy, SteamVR/ADB actions, release and workflow dispatch need explicit authorization.
+- Skills: `@galaxyxr-workspace` for the map, `@customheadset-gxr` for implementation, `@cavecrew` for delegation. Canonical copies live under `.opencode/skills/`.
