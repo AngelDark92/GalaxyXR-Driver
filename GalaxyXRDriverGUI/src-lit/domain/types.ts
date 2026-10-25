@@ -538,20 +538,6 @@ export type DriverInfo = {
     observedAt?: number;
     lastPictureStatus?: number;
     pictureError?: string;
-    // 2026-10-24 pre-run experiment: nvenc-experimental.json read-only
-    // status. present = file found; active = last successful applied
-    // request has a non-sentinel value; error = malformed/out-of-range
-    // file that was ignored. No editable control yet.
-    experimental?: {
-      present: boolean;
-      active: boolean;
-      temporalAq: number;
-      frameIntervalP: number;
-      zeroReorderDelay: number;
-      lookahead: number;
-      lookaheadDepth: number;
-      error?: string;
-    };
   };
   spacewarp?: {
     enabled: boolean;

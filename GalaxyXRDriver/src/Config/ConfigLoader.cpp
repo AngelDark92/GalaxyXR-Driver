@@ -1720,62 +1720,6 @@ void ConfigLoader::ParseConfig(){
 		if(newConfig.streamFrame.streamFrameSchema < 5){
 			newConfig.streamFrame.streamFrameSchema = 5;
 		}
-		// 2026-10-24: optional pre-run NVENC experiment file, read beside
-		// settings.json. It is deliberately separate from the GUI-managed
-		// document so no Companion save can rewrite or drop it. It is read
-		// here (driver start / settings reload), never per frame. An absent
-		// file means all sentinels; a malformed or out-of-range file is
-		// logged, ignored, and surfaced in info.json instead of failing the
-		// stream. Values are applied by NvencTap after the preset merge and
-		// H.264 recipe, and every caller byte is restored after each call.
-		{
-			const std::string experimentalPath = GetConfigFolder() + "nvenc-experimental.json";
-			std::ifstream experimentalFile(experimentalPath);
-			if(experimentalFile.is_open()){
-				newConfig.streamFrame.nvencExperimentalPresent = true;
-				std::string experimentalError;
-				try{
-					json exp = json::parse(experimentalFile, nullptr, true, true);
-					if(!exp.is_object()){ experimentalError = "root must be an object"; }
-					auto readInt = [&](const char* key, int &target, int lo, int hi){
-						if(!experimentalError.empty() || !exp.contains(key)){ return; }
-						const json &value = exp[key];
-						if(!value.is_number_integer() || value.get<double>() < lo || value.get<double>() > hi){
-							experimentalError = std::string(key) + " must be an integer in "
-								+ std::to_string(lo) + ".." + std::to_string(hi) + "; requested " + value.dump();
-							return;
-						}
-						target = value.get<int>();
-					};
-					readInt("temporalAq", newConfig.streamFrame.nvencExpTemporalAq, -1, 1);
-					readInt("frameIntervalP", newConfig.streamFrame.nvencExpFrameIntervalP, 0, 1);
-					readInt("zeroReorderDelay", newConfig.streamFrame.nvencExpZeroReorderDelay, -1, 1);
-					readInt("lookahead", newConfig.streamFrame.nvencExpLookahead, -1, 1);
-					readInt("lookaheadDepth", newConfig.streamFrame.nvencExpLookaheadDepth, 0, 31);
-					if(experimentalError.empty() && newConfig.streamFrame.nvencExpLookahead == 1
-						&& newConfig.streamFrame.nvencExpLookaheadDepth <= 0){
-						experimentalError = "lookahead=1 requires lookaheadDepth 1..31";
-					}
-					if(experimentalError.empty()){
-						DriverLog("Config: nvenc-experimental.json loaded: temporalAq=%d frameIntervalP=%d zeroReorderDelay=%d lookahead=%d lookaheadDepth=%d (test-only; no GUI control)",
-							newConfig.streamFrame.nvencExpTemporalAq, newConfig.streamFrame.nvencExpFrameIntervalP,
-							newConfig.streamFrame.nvencExpZeroReorderDelay, newConfig.streamFrame.nvencExpLookahead,
-							newConfig.streamFrame.nvencExpLookaheadDepth);
-					}
-				}catch(const std::exception &e){
-					experimentalError = e.what();
-				}
-				if(!experimentalError.empty()){
-					newConfig.streamFrame.nvencExpTemporalAq = -1;
-					newConfig.streamFrame.nvencExpFrameIntervalP = 0;
-					newConfig.streamFrame.nvencExpZeroReorderDelay = -1;
-					newConfig.streamFrame.nvencExpLookahead = -1;
-					newConfig.streamFrame.nvencExpLookaheadDepth = 0;
-					newConfig.streamFrame.nvencExperimentalError = "nvenc-experimental.json ignored: " + experimentalError;
-					DriverLog("Config: %s", newConfig.streamFrame.nvencExperimentalError.c_str());
-				}
-			}
-		}
 		gxr::ApplyDebugModePolicy(newConfig);
 		// 2026-10-24: controllerBypass is the master controller disable and
 		// must win over a saved Game Link layout. Runtime copy only; the
@@ -2313,23 +2257,7 @@ void ConfigLoader::WriteInfo(){
 		{"effectiveRateControl", tap.effectiveRateControl},
 		{"effectiveSplit", tap.effectiveSplit},
 		{"encodeWidth", tap.encodeWidth},
-		{"encodeHeight", tap.encodeHeight},
-		// 2026-10-24 pre-run experiment file (read-only evidence). present
-		// says the file was found; active reflects the last successful
-		// applied request; error names a malformed/out-of-range file that
-		// was ignored. The Stream Frame page shows this note; there is no
-		// editable control until the field graduates.
-		{"experimental", {
-			{"present", tap.expPresent},
-			{"active", tap.expTemporalAq >= 0 || tap.expFrameIntervalP > 0
-				|| tap.expZeroReorderDelay >= 0 || tap.expLookahead >= 0},
-			{"temporalAq", tap.expTemporalAq},
-			{"frameIntervalP", tap.expFrameIntervalP},
-			{"zeroReorderDelay", tap.expZeroReorderDelay},
-			{"lookahead", tap.expLookahead},
-			{"lookaheadDepth", tap.expLookaheadDepth},
-			{"error", tap.expError}
-		}}};
+		{"encodeHeight", tap.encodeHeight}};
 	// 2026-10-17 add-feature (brief 11-W2B): pinned cross-child seam — the
 	// Companion (brief 12-W2C) reads these keys and the status enum verbatim:
 	// status is EXACTLY one of "off" (disabled) / "on" (enabled and published)

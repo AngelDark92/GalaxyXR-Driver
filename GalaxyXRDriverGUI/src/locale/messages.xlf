@@ -4227,15 +4227,6 @@ Value: none (diagnostic only). Native side — read-only process telemetry and A
       <trans-unit id="ofxr-20261023-4" datatype="html">
         <source>Reinstall only replaces the bundled payload. Select the bundled version, or remove the imported build through Uninstall Optical Flow first.</source>
       </trans-unit>
-      <trans-unit id="nvenc-exp-20261024-1" datatype="html">
-        <source>Experimental NVENC overrides active: tAQ {taq}, intervalP {intervalP}, zeroReorder {zeroReorder}, lookahead {lookahead}. Source: nvenc-experimental.json (test-only; requires a SteamVR restart).</source>
-      </trans-unit>
-      <trans-unit id="nvenc-exp-20261024-2" datatype="html">
-        <source>Experimental NVENC overrides ignored: {error}. Source: nvenc-experimental.json.</source>
-      </trans-unit>
-      <trans-unit id="nvenc-exp-20261024-3" datatype="html">
-        <source>Experimental NVENC overrides file is present but inactive (all values leave the caller unchanged). Source: nvenc-experimental.json.</source>
-      </trans-unit>
     </body>
   </file>
 </xliff>

@@ -168,10 +168,6 @@ int main(int argc, char** argv) {
         sf["nvencBitrateCurve"] = 2;
         sf["nvencBitrateConstancyPct"] = 35;
         sf["nvencVrlinkFallbackMode"] = 1;
-    } else if (scenario == 29 || scenario == 30) {
-        // 2026-10-24: optional pre-run NVENC experiment file beside settings.json.
-        sf["nvencSettingsVersion"] = 4;
-        sf["nvencBitrateCurve"] = 2;
     } else if (scenario == 31) {
         // 2026-10-24: the former Controller Bypass is the master controller
         // disable. It must win over a saved Game Link layout and every filter.
@@ -191,13 +187,6 @@ int main(int argc, char** argv) {
     } else return 2;
     const auto path = testFolder + "settings.json";
     { std::ofstream out(path); out << input.dump(); }
-    if (scenario == 29) {
-        std::ofstream out(testFolder + "nvenc-experimental.json");
-        out << "{\"temporalAq\":0,\"frameIntervalP\":1,\"zeroReorderDelay\":1,\"lookahead\":0,\"lookaheadDepth\":0}";
-    } else if (scenario == 30) {
-        std::ofstream out(testFolder + "nvenc-experimental.json");
-        out << "{\"frameIntervalP\":2}";
-    }
     ParseConfig();
     auto checkExpected = [&] {
         const auto &s = driverConfig.streamFrame;
@@ -331,18 +320,6 @@ int main(int argc, char** argv) {
             json stored; { std::ifstream in(path); in >> stored; }
             Check(stored == input, "recipe and invalid raw requests remain unchanged on disk");
             Check(!stored["streamFrame"].contains("nvencValidationError"), "transient validation error is never persisted");
-        }
-        if (scenario == 29) {
-            Check(s.nvencExperimentalPresent && s.nvencExpTemporalAq == 0
-                && s.nvencExpFrameIntervalP == 1 && s.nvencExpZeroReorderDelay == 1
-                && s.nvencExpLookahead == 0 && s.nvencExpLookaheadDepth == 0
-                && s.nvencExperimentalError.empty(),
-                "experimental NVENC file: valid values load");
-        }
-        if (scenario == 30) {
-            Check(s.nvencExperimentalPresent && s.nvencExpFrameIntervalP == 0
-                && !s.nvencExperimentalError.empty(),
-                "experimental NVENC file: invalid value ignored with a visible error");
         }
         if (scenario == 31) {
             Check(driverConfig.galaxyXr.controllerBypass, "controller master disable stays on");

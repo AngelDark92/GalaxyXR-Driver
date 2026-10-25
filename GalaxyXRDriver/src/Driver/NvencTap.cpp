@@ -293,8 +293,6 @@ std::string RequestDescription(const NvencTapConfig& c){
 		<< " split=" << c.splitMode << " multipass=" << c.multiPass << " fps=" << c.forceFps
 		<< " bitrate=" << c.bitrateMbit << '/' << c.bitrateCurve << '/' << c.bitrateConstancyPct << '/' << c.maxBitrateHeadroomPct
 		<< " cbr=" << c.forceCbr << " vbv=" << c.vbvFrames << " kf=" << c.lowDelayKfScale
-		<< " exp=" << c.expTemporalAq << '/' << c.expFrameIntervalP << '/' << c.expZeroReorderDelay
-		<< '/' << c.expLookahead << '/' << c.expLookaheadDepth
 		<< " qp=" << c.minQp << '/' << c.minQpIntra << '/' << c.maxQp << " aq=" << c.aqStrength
 		<< " qpMap=" << c.qpFovea << '/' << c.qpPeriphery << '/' << c.qpEdgeFalloff << '/' << c.qpFoveaTop << " fixLevel=" << c.fixLevel
 		<< " tile=" << c.effectiveTileWidth << '/' << c.enforceTile
@@ -402,22 +400,6 @@ void PublishFailure(void* encoder, const NvencTapConfig& cfg, NVENCSTATUS status
 	runtime.lastStatus = NV_ENC_SUCCESS; runtime.error.clear();
 	runtime.effectiveRateControl = rc; runtime.encodeWidth = p->encodeWidth; runtime.encodeHeight = p->encodeHeight;
 	runtime.effectiveSplit = codec == 1 ? -1 : ((p->version & 0xFFFFu) >= 12 ? (int)p->splitEncodeMode : -1);
-	// Publish what was actually handed to NVENC (before Restore), not only
-	// the requested values. A reconfigure that leaves frameIntervalP alone
-	// therefore reports the caller's value honestly.
-	if(p->encodeConfig){
-		runtime.expTemporalAq = (int)p->encodeConfig->rcParams.enableTemporalAQ;
-		runtime.expFrameIntervalP = p->encodeConfig->frameIntervalP;
-		runtime.expZeroReorderDelay = (int)p->encodeConfig->rcParams.zeroReorderDelay;
-		runtime.expLookahead = (int)p->encodeConfig->rcParams.enableLookahead;
-		runtime.expLookaheadDepth = (int)p->encodeConfig->rcParams.lookaheadDepth;
-	}else{
-		runtime.expTemporalAq = cfg.expTemporalAq;
-		runtime.expFrameIntervalP = cfg.expFrameIntervalP;
-		runtime.expZeroReorderDelay = cfg.expZeroReorderDelay;
-		runtime.expLookahead = cfg.expLookahead;
-		runtime.expLookaheadDepth = cfg.expLookaheadDepth;
-	}
 }
 // ---- session upgrade state ----
 std::mutex upgradedLock;
@@ -426,11 +408,6 @@ std::atomic<bool> sessionUpgradeRejected{false};
 std::atomic<int> sessionNoteLogged{0};
 // fresh-connect split deferral (2026-10-18): one-shot explanation per process
 std::atomic<int> splitInitDeferLogged{0};
-// 2026-10-24 pre-run experiment: one summary line, plus one explanation if a
-// reconfigure carries a different frameIntervalP (NVENC documents GOP-structure
-// changes as unsupported there).
-std::atomic<int> expLogged{0};
-std::atomic<int> expFramePReconfLogged{0};
 constexpr uint32_t kApi111 = 11u | (1u << 24);
 // sizes of the two structs that grew 11.1 -> 12.1 (x64, both compilers use
 // natural alignment for these; verified by compiling both headers)
@@ -713,9 +690,6 @@ struct Snapshot {
 	uint32_t maxEncodeWidth = 0, maxEncodeHeight = 0;
 	bool h264GopCaptured = false;
 	uint32_t h264GopLength = 0;
-	// 2026-10-24 pre-run experiment: frameIntervalP lives outside rcParams
-	// and the 256-byte codec window, so it needs its own snapshot/restore.
-	int32_t frameIntervalP = 0;
 	bool h264IdrCaptured = false;
 	uint32_t h264IdrPeriod = 0;
 	uint32_t callerIdrPeriod = 0;
@@ -944,17 +918,6 @@ bool ApplyCodecOverride(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencT
 	return true;
 }
 
-// 2026-10-24 pre-run experiment: one visible summary per process. The actual
-// per-call write is also named in the normal "override:" line.
-void LogExperimentalOnce(const NvencTapConfig &cfg){
-	const bool active = cfg.expTemporalAq >= 0 || cfg.expFrameIntervalP > 0
-		|| cfg.expZeroReorderDelay >= 0 || cfg.expLookahead >= 0;
-	if(!active || expLogged.fetch_add(1) >= 1){ return; }
-	DriverLog("NvencTap: experimental pre-run overrides: temporalAq=%d frameIntervalP=%d zeroReorderDelay=%d lookahead=%d lookaheadDepth=%d (source nvenc-experimental.json; -1/0 leave; test-only, no GUI control)",
-		cfg.expTemporalAq, cfg.expFrameIntervalP, cfg.expZeroReorderDelay,
-		cfg.expLookahead, cfg.expLookaheadDepth);
-}
-
 // returns true if anything was changed
 bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapConfig &cfg, Snapshot &snap, char* what, size_t whatLen, bool initializing){
 	snap = Snapshot{};
@@ -973,7 +936,6 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	snap.codecGuid = p->encodeGUID; snap.codecProfile = c->profileGUID;
 	memcpy(snap.codecWindow, &c->encodeCodecConfig, sizeof(snap.codecWindow));
 	snap.h264GopLength = c->gopLength;
-	snap.frameIntervalP = c->frameIntervalP;
 	snap.callerIdrPeriod = IsHevc(p->encodeGUID) ? c->encodeCodecConfig.hevcConfig.idrPeriod
 		: IsH264(p->encodeGUID) ? c->encodeCodecConfig.h264Config.idrPeriod : 0;
 	if(snap.hevc){
@@ -1282,39 +1244,6 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		if(h.enableFillerDataInsertion != 0){ w += snprintf(w, WhatRem(w, what, whatLen), "filler %u->0 [h264]; ", h.enableFillerDataInsertion); h.enableFillerDataInsertion = 0; changed = true; }
 		if(c->rcParams.vbvInitialDelay != (uint32_t)cfg.h264VbvInitialDelay){ w += snprintf(w, WhatRem(w, what, whatLen), "vbvInitDelay %u->%d [h264]; ", c->rcParams.vbvInitialDelay, cfg.h264VbvInitialDelay); c->rcParams.vbvInitialDelay = (uint32_t)cfg.h264VbvInitialDelay; changed = true; }
 	}
-	// 2026-10-24 pre-run experiment (nvenc-experimental.json). Placed after
-	// the preset merge and H.264 recipe so a test value wins, and before the
-	// explicit bitrate/VBV blocks, which touch different fields. Every write
-	// here is covered by Snapshot/Restore: tAQ, zeroReorder, lookahead and
-	// lookaheadDepth ride snap.rc; frameIntervalP has its own member.
-	{
-		NV_ENC_RC_PARAMS &rc = c->rcParams;
-		if(cfg.expTemporalAq >= 0 && rc.enableTemporalAQ != (uint32_t)cfg.expTemporalAq){
-			w += snprintf(w, WhatRem(w, what, whatLen), "tAQ(exp) %u->%d; ", rc.enableTemporalAQ, cfg.expTemporalAq);
-			rc.enableTemporalAQ = (uint32_t)cfg.expTemporalAq; changed = true;
-		}
-		if(cfg.expZeroReorderDelay >= 0 && rc.zeroReorderDelay != (uint32_t)cfg.expZeroReorderDelay){
-			w += snprintf(w, WhatRem(w, what, whatLen), "zeroReorder(exp) %u->%d; ", rc.zeroReorderDelay, cfg.expZeroReorderDelay);
-			rc.zeroReorderDelay = (uint32_t)cfg.expZeroReorderDelay; changed = true;
-		}
-		if(cfg.expLookahead >= 0 && rc.enableLookahead != (uint32_t)cfg.expLookahead){
-			w += snprintf(w, WhatRem(w, what, whatLen), "lookahead(exp) %u->%d; ", rc.enableLookahead, cfg.expLookahead);
-			rc.enableLookahead = (uint32_t)cfg.expLookahead; changed = true;
-		}
-		if(cfg.expLookahead > 0 && cfg.expLookaheadDepth > 0 && rc.lookaheadDepth != (uint16_t)cfg.expLookaheadDepth){
-			w += snprintf(w, WhatRem(w, what, whatLen), "lookaheadDepth(exp) %u->%d; ", rc.lookaheadDepth, cfg.expLookaheadDepth);
-			rc.lookaheadDepth = (uint16_t)cfg.expLookaheadDepth; changed = true;
-		}
-		if(cfg.expFrameIntervalP > 0 && c->frameIntervalP != cfg.expFrameIntervalP){
-			if(initializing){
-				w += snprintf(w, WhatRem(w, what, whatLen), "intervalP(exp) %d->%d; ", c->frameIntervalP, cfg.expFrameIntervalP);
-				c->frameIntervalP = cfg.expFrameIntervalP; changed = true;
-			}else if(expFramePReconfLogged.fetch_add(1) < 1){
-				DriverLog("NvencTap: experimental frameIntervalP=%d requested, but the reconfigure carries %d; NVENC documents GOP-structure changes as unsupported at reconfigure, so the caller value is left unchanged. Reconnect to apply it at init.",
-					cfg.expFrameIntervalP, c->frameIntervalP);
-			}
-		}
-	}
 	if(cfg.multiPass >= 0 && c->rcParams.multiPass != (NV_ENC_MULTI_PASS)cfg.multiPass){
 		w += snprintf(w, WhatRem(w, what, whatLen), "multipass %u->%d [explicit]; ", (unsigned)c->rcParams.multiPass, cfg.multiPass);
 		c->rcParams.multiPass = (NV_ENC_MULTI_PASS)cfg.multiPass; changed = true;
@@ -1442,7 +1371,6 @@ void Restore(const Snapshot &snap){
 	snap.cfgPtr->profileGUID = snap.codecProfile;
 	memcpy(&snap.cfgPtr->encodeCodecConfig, snap.codecWindow, sizeof(snap.codecWindow));
 	snap.cfgPtr->gopLength = snap.h264GopLength;
-	snap.cfgPtr->frameIntervalP = snap.frameIntervalP;
 	snap.initPtr->presetGUID = snap.preset;
 	snap.initPtr->frameRateNum = snap.fpsNum; snap.initPtr->frameRateDen = snap.fpsDen;
 	snap.initPtr->maxEncodeWidth = snap.maxEncodeWidth; snap.initPtr->maxEncodeHeight = snap.maxEncodeHeight;
@@ -1561,16 +1489,6 @@ std::string ValidateRequest(const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_P
 	if(cfg.aqStrength < 0 || cfg.aqStrength > 15 || (cfg.forceCbr && (cfg.lowDelayKfScale < 0 || cfg.lowDelayKfScale > 255))){ return "streamFrame.nvencAqStrength must fit 4 bits (0..15) and streamFrame.nvencLowDelayKfScale a byte (0..255) while streamFrame.nvencForceCbr is on."; }
 	if(cfg.vuiFullRange < -1 || cfg.vuiFullRange > 1 || cfg.vuiMatrix < -1 || cfg.vuiMatrix > 255 || cfg.vuiPrimaries < -1 || cfg.vuiPrimaries > 255 || cfg.vuiTransfer < -1 || cfg.vuiTransfer > 255){ return "Invalid streamFrame.nvencVuiFullRange/nvencVuiMatrix/nvencVuiPrimaries/nvencVuiTransfer value."; }
 	if(cfg.postPackEnabled && cfg.vuiFullRange >= 0 && cfg.vuiFullRange != (cfg.postPackLimitedRange ? 0 : 1)){ return "streamFrame.nvencVuiFullRange conflicts with streamFrame.postPack.limitedRange; change the range request or the post-pack output."; }
-	if(cfg.expTemporalAq < -1 || cfg.expTemporalAq > 1
-		|| cfg.expFrameIntervalP < 0 || cfg.expFrameIntervalP > 1
-		|| cfg.expZeroReorderDelay < -1 || cfg.expZeroReorderDelay > 1
-		|| cfg.expLookahead < -1 || cfg.expLookahead > 1
-		|| cfg.expLookaheadDepth < 0 || cfg.expLookaheadDepth > 31){
-		return "nvenc-experimental.json: temporalAq/zeroReorderDelay/lookahead must be -1..1, frameIntervalP 0..1 and lookaheadDepth 0..31.";
-	}
-	if(cfg.expLookahead == 1 && cfg.expLookaheadDepth <= 0){
-		return "nvenc-experimental.json: lookahead=1 requires lookaheadDepth 1..31.";
-	}
 	if(cfg.codec == 1){
 		if(cfg.h264GopFrames < -1 || cfg.h264IdrFrames < -1 || cfg.h264RefFrames < 0 || cfg.h264RefFrames > 16
 			|| cfg.h264Entropy < 0 || cfg.h264Entropy > 2 || cfg.h264SliceMode < 0 || cfg.h264SliceMode > 3
@@ -1688,7 +1606,6 @@ NVENCSTATUS NVENCAPI NvencTapShims::InitializeEncoder(void* encoder, NV_ENC_INIT
 		}
 		return status;
 	}
-	LogExperimentalOnce(initConfig);
 	// one-shot: how many NVENC engines does this session see (NV_ENC_CAPS_
 	// NUM_ENCODER_ENGINES is a 12.0 enum value; NV_ENC_CAPS_PARAM itself is
 	// unchanged since 11.1, so we ask with the caller's own struct version)
@@ -1739,7 +1656,6 @@ NVENCSTATUS NVENCAPI NvencTapShims::ReconfigureEncoder(void* encoder, NV_ENC_REC
 		if(status == NV_ENC_SUCCESS){ SetSessionCodec(encoder, CodecOfGuid(params->reInitEncodeParams.encodeGUID)); PublishSuccess(encoder, cfg, &params->reInitEncodeParams); }
 		return status;
 	}
-	LogExperimentalOnce(cfg);
 	bool logThis = reconfLogged.fetch_add(1) < 4 || cfg.verbose;
 	NVENCSTATUS st = Guarded("nvEncReconfigureEncoder", encoder, &params->reInitEncodeParams,
 		[&]{ return origReconfigureEncoder(encoder, params); }, logThis,
@@ -2345,8 +2261,6 @@ NvencTapRuntimeState NvencTap::GetRuntimeState(){
 	NvencTapRuntimeState state = runtime;
 	state.enabled = config.enabled; state.hookInstalled = hookInstalled; state.upgradedSessionsRemain = remain;
 	state.requestedCodec = config.codec;
-	state.expPresent = config.expPresent;
-	state.expError = config.expError;
 	return state;
 }
 BitratePolicyState NvencTap::GetBitratePolicyState(){

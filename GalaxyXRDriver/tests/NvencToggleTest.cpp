@@ -78,8 +78,6 @@ int ordinaryCalls = 0;
 NVENCSTATUS encodeDriverStatus = NV_ENC_ERR_GENERIC;
 uint32_t seenMultiPass = 0;
 uint32_t seenVbvDelay = 0;
-int32_t seenFrameIntervalP = 0;
-uint32_t seenTemporalAq = 0, seenZeroReorder = 0, seenLookahead = 0, seenLookaheadDepth = 0;
 NV_ENC_CONFIG_H264 seenH264Recipe{};
 NV_ENC_CONFIG_HEVC_VUI_PARAMETERS seenHevcVui{};
 NV_ENC_CONFIG_AV1 seenAv1Config{};
@@ -1138,7 +1136,6 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 	seenConfigVersion = 0; seenRcVersion = 0; seenLevel = 0; seenBitrate = 0;
 	seenRcMode = 0; seenKfScale = 0; seenMaxBitrate = 0; seenVbvSize = 0; seenVbvDelay = 0;
 	seenMultiPass = 0; seenProfileGuid = GUID{};
-	seenFrameIntervalP = 0; seenTemporalAq = 0; seenZeroReorder = 0; seenLookahead = 0; seenLookaheadDepth = 0;
 	seenH264Level = 0xdeadbeefu; seenAv1Level = 0xdeadbeefu;
 	if(!params->encodeConfig){
 		seenH264Recipe = NV_ENC_CONFIG_H264{}; seenAv1Config = NV_ENC_CONFIG_AV1{}; seenHevcVui = NV_ENC_CONFIG_HEVC_VUI_PARAMETERS{};
@@ -1146,11 +1143,6 @@ NVENCSTATUS NVENCAPI CaptureInit(void*, NV_ENC_INITIALIZE_PARAMS* params){
 	}
 	seenConfigVersion = params->encodeConfig->version;
 	seenRcVersion = params->encodeConfig->rcParams.version;
-	seenFrameIntervalP = params->encodeConfig->frameIntervalP;
-	seenTemporalAq = params->encodeConfig->rcParams.enableTemporalAQ;
-	seenZeroReorder = params->encodeConfig->rcParams.zeroReorderDelay;
-	seenLookahead = params->encodeConfig->rcParams.enableLookahead;
-	seenLookaheadDepth = params->encodeConfig->rcParams.lookaheadDepth;
 	seenLevel = params->encodeConfig->encodeCodecConfig.hevcConfig.level;
 	seenBitrate = params->encodeConfig->rcParams.averageBitRate;
 	seenRcMode = (uint32_t)params->encodeConfig->rcParams.rateControlMode;
@@ -1414,85 +1406,6 @@ void CheckOpenProbeParity(){
 // 2026-10-16 restore (pre-0cf0cf7 behavior): initialization without an
 // explicit encodeConfig is valid NVENC usage — the call passes through and
 // the success is recorded; it never refuses and no override runs.
-// 2026-10-24 pre-run experiment (nvenc-experimental.json): the tap applies
-// the five test values after the preset merge/H.264 recipe, restores every
-// caller byte including frameIntervalP, and treats frameIntervalP as
-// init-only because NVENC documents GOP-structure changes as unsupported at
-// reconfigure.
-void CheckExperimentalOverrides(){
-	ConfigureCodec(true, 0);
-	void* encoder = OpenSession();
-	NV_ENC_CONFIG config = {}; config.version = Tag111(7, true); config.rcParams.version = Tag111(1);
-	config.frameIntervalP = 3;
-	config.rcParams.enableTemporalAQ = 1;
-	config.rcParams.zeroReorderDelay = 0;
-	config.rcParams.enableLookahead = 1;
-	config.rcParams.lookaheadDepth = 8;
-	NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag111(5, true);
-	init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init.encodeConfig = &config;
-	init.frameRateNum = 90; init.frameRateDen = 1;
-	const auto savedInit = init; const auto savedConfig = config;
-
-	NvencTapConfig cfg; cfg.enabled = true; cfg.codec = 0; cfg.expPresent = true;
-	cfg.expTemporalAq = 0; cfg.expFrameIntervalP = 1; cfg.expZeroReorderDelay = 1;
-	cfg.expLookahead = 0; cfg.expLookaheadDepth = 0;
-	NvencTap::Get().SetConfig(cfg);
-	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS,
-		"experimental overrides: valid init accepted");
-	Check(seenTemporalAq == 0 && seenFrameIntervalP == 1 && seenZeroReorder == 1
-		&& seenLookahead == 0 && seenLookaheadDepth == 8,
-		"experimental overrides: tAQ/frameIntervalP/zeroReorder/lookahead applied; depth left when lookahead is off");
-	Check(memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&config, &savedConfig, sizeof(config)) == 0,
-		"experimental overrides: caller bytes restored, including frameIntervalP");
-	const auto applied = NvencTap::Get().GetRuntimeState();
-	Check(applied.expTemporalAq == 0 && applied.expFrameIntervalP == 1
-		&& applied.expZeroReorderDelay == 1 && applied.expLookahead == 0,
-		"experimental overrides: applied values published");
-	Check(applied.expPresent && applied.expError.empty(),
-		"experimental overrides: present/error status published");
-
-	cfg.expTemporalAq = -1; cfg.expFrameIntervalP = 0; cfg.expZeroReorderDelay = -1;
-	cfg.expLookahead = 1; cfg.expLookaheadDepth = 6;
-	NvencTap::Get().SetConfig(cfg);
-	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS
-		&& seenLookahead == 1 && seenLookaheadDepth == 6,
-		"experimental overrides: lookahead on uses the explicit depth");
-	Check(memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&config, &savedConfig, sizeof(config)) == 0,
-		"experimental overrides: lookahead/depth caller bytes restored");
-
-	cfg = NvencTapConfig{}; cfg.enabled = true; cfg.codec = 0; cfg.expPresent = true;
-	cfg.expFrameIntervalP = 2;
-	NvencTap::Get().SetConfig(cfg);
-	const int beforeInvalid = initDriverCalls;
-	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == beforeInvalid,
-		"experimental overrides: frameIntervalP 2 refused before NVENC");
-	Check(NvencTap::Get().GetRuntimeState().error.find("nvenc-experimental.json") != std::string::npos,
-		"experimental overrides: refusal names the experimental file");
-
-	cfg = NvencTapConfig{}; cfg.enabled = true; cfg.codec = 0; cfg.expPresent = true;
-	NvencTap::Get().SetConfig(cfg);
-	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS
-		&& seenTemporalAq == 1 && seenFrameIntervalP == 3 && seenZeroReorder == 0
-		&& seenLookahead == 1 && seenLookaheadDepth == 8,
-		"experimental overrides: -1/0 sentinels leave every caller value untouched");
-
-	cfg.expTemporalAq = 0; cfg.expFrameIntervalP = 1;
-	NvencTap::Get().SetConfig(cfg);
-	reconfigureDriverStatus = NV_ENC_SUCCESS;
-	NV_ENC_RECONFIGURE_PARAMS reconfigure = {}; reconfigure.version = Tag111(1, true);
-	reconfigure.reInitEncodeParams = init;
-	const auto savedReconfigure = reconfigure;
-	Check(NvencTapShims::ReconfigureEncoder(encoder, &reconfigure) == NV_ENC_SUCCESS,
-		"experimental overrides: reconfigure accepted");
-	Check(seenTemporalAq == 0 && seenFrameIntervalP == 3,
-		"experimental overrides: frameIntervalP is init-only at reconfigure; tAQ still applies");
-	Check(memcmp(&reconfigure, &savedReconfigure, sizeof(reconfigure)) == 0,
-		"experimental overrides: reconfigure caller bytes restored");
-	reconfigureDriverStatus = NV_ENC_ERR_GENERIC;
-	Check(NvencTapShims::DestroyEncoder(encoder) == NV_ENC_SUCCESS, "experimental overrides: session destroyed");
-	ConfigureCodec(true, 0);
-}
-
 void CheckObserveOnlyInit(){
 	NvencTapConfig cfg; cfg.enabled = true; cfg.splitMode = 1;
 	NvencTap::Get().SetConfig(cfg);
@@ -1843,7 +1756,6 @@ int main(){
 	Check(seenCapsVersion == Tag111(1), "new OFF session continues with stock ABI");
 	CheckCodecOverride(stock);
 	CheckExplicitSettings();
-	CheckExperimentalOverrides();
 	CheckOutputBufferLog();
 	CheckDeltaMapConversion();
 	CheckMapSubmissionLifetime();

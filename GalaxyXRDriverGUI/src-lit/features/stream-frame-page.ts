@@ -284,20 +284,6 @@ if (vendor) {
               rc: evidence.effectiveRateControl === 2 ? 'CBR' : evidence.effectiveRateControl === 1 ? 'VBR' : t('Unknown'),
               split: evidence.effectiveSplit === -1 ? t('Not applicable') : evidence.effectiveSplit ?? t('Unknown') })}`));
             else parts.push(noteRow(t('No encoder configuration has been accepted in this session.')));
-            // 2026-10-24 pre-run experiment (nvenc-experimental.json): read-only
-            // status so a test value is never silent. There is no editable
-            // control until the field graduates to a normal setting.
-            if (evidence.experimental?.present) {
-              const exp = evidence.experimental;
-              if (exp.error) {
-                parts.push(noteRow(t('Experimental NVENC overrides ignored: {error}. Source: nvenc-experimental.json.', { error: exp.error })));
-              } else if (exp.active) {
-                parts.push(noteRow(t('Experimental NVENC overrides active: tAQ {taq}, intervalP {intervalP}, zeroReorder {zeroReorder}, lookahead {lookahead}. Source: nvenc-experimental.json (test-only; requires a SteamVR restart).', {
-                  taq: exp.temporalAq, intervalP: exp.frameIntervalP, zeroReorder: exp.zeroReorderDelay, lookahead: exp.lookahead })));
-              } else {
-                parts.push(noteRow(t('Experimental NVENC overrides file is present but inactive (all values leave the caller unchanged). Source: nvenc-experimental.json.')));
-              }
-            }
           } else {
             // Expiry (2026-10-16): the last rejection of the verified process
             // stays visible with its age; it must never appear as merely

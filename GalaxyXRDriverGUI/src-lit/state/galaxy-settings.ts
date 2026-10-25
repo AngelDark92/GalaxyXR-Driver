@@ -48,7 +48,7 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // codec's values; afterwards every row is user-editable until the next
 // switch, and the reset arrows keep applying the row manually. 2026-10-17:
 // the dependent set also carries each codec's default Tile Width and
-// Bandwidth (owner-set: HEVC 1536/350, H.264 1024/500, AV1 1536/400);
+// Bandwidth (owner-set: HEVC 1536/350, H.264 1024/500, AV1 1536/230);
 // H.264's 1024-tile is the class the Steam Link client actually negotiates
 // for H.264 (4x1024 = 4096) — proven live on 2026-10-16: with 1536 stored
 // the client negotiated 1024x4096 and the tap refused the mismatch. Every
@@ -78,7 +78,7 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number, streamFormatWidth: number, bandwidthMbit: number }> = {
   0: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
   1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1024, bandwidthMbit: 500 },
-  2: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 400 },
+  2: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 230 },
 };
 
 // 2026-10-16 (owner directive): inline per-key validation for the Stream

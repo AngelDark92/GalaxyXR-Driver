@@ -17,7 +17,8 @@ $exe = Join-Path $build 'ToggleMigrationTest.exe'
 if ($LASTEXITCODE -ne 0) { throw 'Toggle migration test compilation failed.' }
 # Unique test-owned fixtures make the persisted migration marker repeatable.
 $fixtures = Join-Path $build ([Guid]::NewGuid().ToString('N'))
-foreach ($scenario in 0..32) {
+# Scenarios 29/30 covered the removed nvenc-experimental.json file; 31/32 remain.
+foreach ($scenario in (@(0..28) + @(31,32))) {
     & $exe (Join-Path $fixtures $scenario) $scenario
     if ($LASTEXITCODE -ne 0) { throw "Toggle migration scenario $scenario failed." }
 }

@@ -945,27 +945,6 @@ struct StreamFrameConfig{
 	int nvencQpPeriphery = 0;
 	// log every reconfigure + hex dumps
 	bool nvencVerbose = false;
-	// 2026-10-24 pre-run experiment (nvenc-experimental.json beside
-	// settings.json; no GUI control yet). Test-only values for NVENC
-	// fields the Companion does not expose. The driver reads the separate
-	// file at ParseConfig; -1/0 sentinels leave the caller's bytes alone.
-	//   temporalAq     -1 leave, 0 off, 1 on
-	//   frameIntervalP  0 leave, 1 IPP (no B-frames); applied at init only
-	//                   because NVENC documents GOP-structure changes as
-	//                   unsupported at reconfigure
-	//   zeroReorder    -1 leave, 0 off, 1 on
-	//   lookahead      -1 leave, 0 off, 1 on
-	//   lookaheadDepth  0 leave, 1..31 used only when lookahead = 1
-	// These are never written back to settings.json. A present-but-invalid
-	// file is logged and ignored; it does not fail the stream.
-	int nvencExpTemporalAq = -1;
-	int nvencExpFrameIntervalP = 0;
-	int nvencExpZeroReorderDelay = -1;
-	int nvencExpLookahead = -1;
-	int nvencExpLookaheadDepth = 0;
-	// Transient status for the optional test file; never persisted.
-	bool nvencExperimentalPresent = false;
-	std::string nvencExperimentalError;
 	// 5 = kalmanCAM ("kalmanCAM"): mode 4 with the fast magnitude channel
 	// replaced by a constant-acceleration (Singer) estimator — the
 	// low-risk arm of the CA experiment (calm direction untouched).
