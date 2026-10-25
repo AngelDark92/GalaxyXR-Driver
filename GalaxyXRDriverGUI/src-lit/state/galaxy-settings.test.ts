@@ -1039,7 +1039,7 @@ describe('per-codec encoder defaults', () => {
     // rows carry splitMode 1 (2026-10-17 evening — AV1's row applies the
     // portable forced split, so the switch changes no split value).
     before.streamFrame.nvencCodec = 2;
-    before.galaxyXr.customBandwidthMbit = 230;
+    before.galaxyXr.customBandwidthMbit = 280;
     expect(after).toEqual(before);
   });
 
@@ -1153,7 +1153,7 @@ describe('per-codec encoder defaults', () => {
     const { bandwidthMbit: av1Bandwidth, splitMode: av1Split, ...av1Rest } = codecEncoderDefaults[2];
     const { bandwidthMbit: hevcBandwidth, splitMode: hevcSplit, ...hevcRest } = codecEncoderDefaults[0];
     expect(av1Rest).toEqual(hevcRest);
-    expect(av1Bandwidth).toBe(230);
+    expect(av1Bandwidth).toBe(280);
     expect(av1Split).toBe(1);
     expect(hevcSplit).toBe(1);
     expect(hevcBandwidth).toBe(350);
