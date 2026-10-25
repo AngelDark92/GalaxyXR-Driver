@@ -2267,7 +2267,12 @@ void ConfigLoader::WriteInfo(){
 	data["spacewarp"] = {
 		{"enabled", spacewarpTap.enabled}, {"hookInstalled", spacewarpTap.hookInstalled},
 		{"published", spacewarpTap.published}, {"publishedValue", spacewarpTap.publishedValue},
-		{"status", spacewarpTap.status}};
+		{"status", spacewarpTap.status}, {"reason", spacewarpTap.reason},
+		{"observedAt", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
+		{"implRva", spacewarpTap.implRva}, {"workerRva", spacewarpTap.workerRva},
+		{"callerCount", spacewarpTap.callerCount},
+		{"moduleImageSize", spacewarpTap.moduleImageSize},
+		{"moduleTimestamp", spacewarpTap.moduleTimestamp}};
 	// 2026-10-23: observed streamer request, Max Bitrate and applied target.
 	// The old 350 Mbit clamp/overdrive pair is retired; this is diagnostics only.
 	const auto bitratePolicy = NvencTap::Get().GetBitratePolicyState();

@@ -18,11 +18,13 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
-// the real tap header first (pins + class; no implementation)
+// the real tap header first (locator constants + class; no implementation)
 #include "../src/Driver/VrlinkTap.h"
+#include "../src/Driver/VrlinkSignature.h"
 
 // the loader macros must precede the tap implementation so its
 // GetModuleHandleA resolves to the fake; the tap itself never LoadLibrary's
@@ -58,33 +60,88 @@ void DriverLog(const char* format, ...){
 // the real NvencTap.cpp is NOT compiled here — only the WriteInfo call surface.
 NvencTap& NvencTap::Get(){ static NvencTap stub; return stub; }
 NvencTapRuntimeState NvencTap::GetRuntimeState(){ return {}; }
+BitratePolicyState NvencTap::GetBitratePolicyState(){ return {}; }
 // Distortion globals are only read by WriteInfo's profile listing (empty here).
 std::unordered_map<std::string, DistortionProfileConfig> builtInDistortionProfiles;
 
 // --- fake module loader: the tap's only runtime dependency ------------------
 namespace {
-std::vector<uint8_t> gValidModule;   // bytes match both pinned excerpts
-std::vector<uint8_t> gPinBroken;     // one byte differs at the impl pin
-uint8_t* gServedModule = nullptr; // what GetModuleHandleA returns
+struct FakeModule {
+	std::vector<uint8_t> bytes; // loaded-image layout, not a file image
+	uint32_t implRva = 0;
+	uint32_t workerRva = 0;
+	uint32_t textRva = 0;
+	uint32_t textSize = 0;
+};
 
-void BuildFakeModules(){
-	const size_t moduleSize = VrlinkTapPin::kImplRva + sizeof(VrlinkTapPin::kImplPin) + 16;
-	gValidModule.assign(moduleSize, 0);
-	// 2026-10-20: the tap's fail-closed gate parses the module's PE headers and
-	// bounds-checks both pinned RVAs against SizeOfImage BEFORE any memcmp. The
-	// fake image must therefore carry a readable DOS + NT header, not just the
-	// two pinned windows (a zero-filled buffer would fail the gate and the
-	// scenarios below would stop exercising the hook).
-	auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(static_cast<void*>(gValidModule.data()));
+FakeModule gValidModule;     // authentic current layout (unshifted)
+FakeModule gShiftedModule;   // same code at a different RVA (SteamVR update)
+FakeModule gInvalidModule;   // worker prologue broken -> refuse
+FakeModule gAmbiguousModule; // two impl prefixes -> refuse
+uint8_t* gServedModule = nullptr; // what GetModuleHandleA returns
+uint32_t gExpectedImplRva = 0;
+uint32_t gExpectedWorkerRva = 0;
+
+FakeModule MakeFakeModule(uint32_t textImplOffset, uint32_t textWorkerOffset, bool breakWorker, bool duplicateImpl){
+	constexpr uint32_t kImageSize = 0x4000;
+	constexpr uint32_t kTextRva = 0x1000;
+	constexpr uint32_t kTextSize = 0x2000;
+	FakeModule module;
+	module.textRva = kTextRva;
+	module.textSize = kTextSize;
+	module.bytes.assign(kTextRva + kTextSize, 0);
+	auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(static_cast<void*>(module.bytes.data()));
 	dos->e_magic = IMAGE_DOS_SIGNATURE;
 	dos->e_lfanew = 0x80;
-	auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(static_cast<void*>(gValidModule.data() + dos->e_lfanew));
+	auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(static_cast<void*>(module.bytes.data() + dos->e_lfanew));
 	nt->Signature = IMAGE_NT_SIGNATURE;
-	nt->OptionalHeader.SizeOfImage = static_cast<DWORD>(moduleSize);
-	memcpy(gValidModule.data() + VrlinkTapPin::kImplRva, VrlinkTapPin::kImplPin, sizeof(VrlinkTapPin::kImplPin));
-	memcpy(gValidModule.data() + VrlinkTapPin::kWorkerRva, VrlinkTapPin::kWorkerPin, sizeof(VrlinkTapPin::kWorkerPin));
-	gPinBroken = gValidModule;
-	gPinBroken[VrlinkTapPin::kImplRva + 5] = static_cast<uint8_t>(gPinBroken[VrlinkTapPin::kImplRva + 5] ^ 0x01);
+	nt->FileHeader.Machine = IMAGE_FILE_MACHINE_AMD64;
+	nt->FileHeader.NumberOfSections = 1;
+	nt->FileHeader.SizeOfOptionalHeader = sizeof(IMAGE_OPTIONAL_HEADER64);
+	nt->FileHeader.TimeDateStamp = 0x5A5A5A5A;
+	nt->OptionalHeader.Magic = IMAGE_NT_OPTIONAL_HDR64_MAGIC;
+	nt->OptionalHeader.ImageBase = 0x180000000;
+	nt->OptionalHeader.SectionAlignment = 0x1000;
+	nt->OptionalHeader.FileAlignment = 0x200;
+	nt->OptionalHeader.SizeOfImage = kImageSize;
+	nt->OptionalHeader.SizeOfHeaders = 0x400;
+	auto* section = IMAGE_FIRST_SECTION(nt);
+	memcpy(section->Name, ".text", 5);
+	section->Misc.VirtualSize = kTextSize;
+	section->VirtualAddress = kTextRva;
+	section->SizeOfRawData = kTextSize;
+	section->PointerToRawData = 0x400;
+	section->Characteristics = IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
+	uint8_t* text = module.bytes.data() + kTextRva;
+	module.implRva = kTextRva + textImplOffset;
+	module.workerRva = kTextRva + textWorkerOffset;
+	memcpy(text + textWorkerOffset, VrlinkSignature::kWorkerPrologue, sizeof(VrlinkSignature::kWorkerPrologue));
+	if(breakWorker){ text[textWorkerOffset + 5] ^= 0xFF; }
+	text[textWorkerOffset + 0x21] = 0x83;
+	text[textWorkerOffset + 0x22] = 0xFA;
+	text[textWorkerOffset + 0x23] = 0x74;
+	const uint8_t sizeGuard[7] = {0x41, 0x81, 0xFF, 0x00, 0x00, 0x80, 0x00};
+	memcpy(text + textWorkerOffset + 0x2A, sizeGuard, sizeof(sizeGuard));
+	memcpy(text + textImplOffset, VrlinkSignature::kImplPrefix, sizeof(VrlinkSignature::kImplPrefix));
+	const int32_t relative = static_cast<int32_t>(module.workerRva)
+		- static_cast<int32_t>(module.implRva + 16);
+	memcpy(text + textImplOffset + 12, &relative, sizeof(relative));
+	if(duplicateImpl){
+		const uint32_t second = textImplOffset + 0x100;
+		memcpy(text + second, VrlinkSignature::kImplPrefix, sizeof(VrlinkSignature::kImplPrefix));
+		memcpy(text + second + 12, &relative, sizeof(relative));
+	}
+	return module;
+}
+
+void BuildFakeModules(){
+	gValidModule = MakeFakeModule(0x180, 0x100, false, false);
+	// same code, moved by +0x1000: proves no fixed RVA is required
+	gShiftedModule = MakeFakeModule(0x1180, 0x1100, false, false);
+	gInvalidModule = MakeFakeModule(0x180, 0x100, true, false);
+	gAmbiguousModule = MakeFakeModule(0x180, 0x100, false, true);
+	gExpectedImplRva = gValidModule.implRva;
+	gExpectedWorkerRva = gValidModule.workerRva;
 }
 }
 HMODULE WINAPI FakeLoader::Module(LPCSTR){ return reinterpret_cast<HMODULE>(gServedModule); }
@@ -158,7 +215,8 @@ void ResetTapState(){
 	// fresh process per scenario: assert the pretest state to keep the
 	// sequences below independent of run order
 	const auto pre = VrlinkTap::Get().GetRuntimeState();
-	Check(!pre.enabled && !pre.hookInstalled && !pre.published && std::string(pre.status) == "off", "tap starts disabled/off");
+	Check(!pre.enabled && !pre.hookInstalled && !pre.published && std::string(pre.status) == "off"
+		&& std::string(pre.reason) == "off", "tap starts disabled/off");
 	gImplCalls.clear(); gHookTarget = nullptr;
 	gMhInitializeCalls = 0; gMhCreateCalls = 0;
 	logCalls = 0; logHistory.clear();
@@ -173,13 +231,13 @@ void CheckPublished(unsigned int id, unsigned int size, unsigned char flag, unsi
 	Check(found, label);
 }
 
-// optional gate cross-check: the pins in code must equal the pinned gate JSON
+// optional gate cross-check: the signature schema and the code constants agree
 void CheckGateAgreement(){
 	const std::string gatePath = (std::filesystem::path(TestRoot()) / ".." / "asw" / "vrlinktap-gate.json")
 		.lexically_normal().string();
 	std::ifstream gateFile(gatePath.c_str());
 	if(!gateFile.is_open()){
-		std::cout << "note: vrlinktap-gate.json not present -> byte cross-check skipped\n";
+		std::cout << "note: vrlinktap-gate.json not present -> evidence cross-check skipped\n";
 		return;
 	}
 	try{
@@ -190,14 +248,19 @@ void CheckGateAgreement(){
 			for(size_t i = 0; i < n; ++i){ out += digits[bytes[i] >> 4]; out += digits[bytes[i] & 0xF]; }
 			return out;
 		};
-		Check(gate["pin"]["impl_rva"].get<unsigned int>() == (unsigned)VrlinkTapPin::kImplRva
-			&& gate["pin"]["worker_rva"].get<unsigned int>() == (unsigned)VrlinkTapPin::kWorkerRva,
-			"gate: pinned RVAs agree with the code pin");
-		Check(gate["pin"]["impl_bytes"].get<std::string>().rfind(hexOf(VrlinkTapPin::kImplPin, sizeof(VrlinkTapPin::kImplPin)), 0) == 0,
-			"gate: impl pin bytes agree with vrlinktap-gate.json");
-		Check(gate["pin"]["worker_bytes"].get<std::string>().rfind(hexOf(VrlinkTapPin::kWorkerPin, sizeof(VrlinkTapPin::kWorkerPin)), 0) == 0,
-			"gate: worker pin bytes agree with vrlinktap-gate.json");
-		Check(gate["pin"]["notify_rva"].get<unsigned int>() == 0x9E8450, "gate: notify impl rva recorded");
+		Check(gate["schema"].get<int>() == 2, "gate: schema 2");
+		Check(gate["candidates"].get<int>() == 1, "gate: exactly one validated candidate");
+		Check(gate["resolved"]["implRva"].get<unsigned int>() > 0
+			&& gate["resolved"]["workerRva"].get<unsigned int>() > 0,
+			"gate: resolved thunk/worker RVAs recorded");
+		Check(gate["dll"]["sha256"].get<std::string>().size() == 64,
+			"gate: module hash recorded as evidence");
+		Check(gate["signature"]["impl_prefix"].get<std::string>().rfind(
+			hexOf(VrlinkSignature::kImplPrefix, sizeof(VrlinkSignature::kImplPrefix)), 0) == 0,
+			"gate: impl prefix agrees with VrlinkSignature.h");
+		Check(gate["signature"]["worker_prologue"].get<std::string>().rfind(
+			hexOf(VrlinkSignature::kWorkerPrologue, sizeof(VrlinkSignature::kWorkerPrologue)), 0) == 0,
+			"gate: worker prologue agrees with VrlinkSignature.h");
 	}catch(const std::exception &error){
 		Check(false, (std::string("gate: json unreadable (") + error.what() + ")").c_str());
 	}
@@ -213,7 +276,9 @@ int ScenarioConfig(){
 	Check(VrlinkTapPin::kSpacewarpValueTransportId == 0x48, "pin: carrier ValueTransportID 0x48");
 	Check(VrlinkTapPin::kPublishPayloadBytes == 4, "pin: 4-byte u32 payload");
 	Check(VrlinkTapPin::kPublishFlagClass == 0, "pin: flag class 0 (audited fixed-size publish form)");
-	Check(VrlinkTapPin::kImplRva == 0xA51D80, "pin: impl rva 0xa51d80");
+	Check(VrlinkTapPin::kAuditedImplRva != VrlinkTapPin::kInstalledImplRva
+		&& VrlinkTapPin::kAuditedWorkerRva != VrlinkTapPin::kInstalledWorkerRva,
+		"locator: audited and installed RVAs are evidence, not a gate");
 	// pure tri-state classifier (deliverable 3 seam enum)
 	Check(std::string(VrlinkTap::StatusString(false, false)) == "off", "status: disabled -> off");
 	Check(std::string(VrlinkTap::StatusString(false, true)) == "off", "status: disabled stays off");
@@ -248,7 +313,7 @@ int ScenarioConfig(){
 
 	// the real WriteInfo -> info.json seam (pinned cross-child shape)
 	BuildFakeModules();
-	gServedModule = gValidModule.data();
+	gServedModule = gValidModule.bytes.data();
 	const std::string seamBase = TestRoot() + "/fixtures/seam";
 	std::filesystem::create_directories(seamBase + "/CustomHeadset");
 	auto readSeam = [&](const char* label, bool expectEnabled, const char* expectStatus, bool expectPublished){
@@ -264,8 +329,17 @@ int ScenarioConfig(){
 			Check(info["spacewarp"].contains("enabled")
 				&& info["spacewarp"].contains("hookInstalled")
 				&& info["spacewarp"].contains("published")
-				&& info["spacewarp"].contains("status"),
-				(std::string(label) + ": seam carries exactly the pinned keys").c_str());
+				&& info["spacewarp"].contains("status")
+				&& info["spacewarp"].contains("reason")
+				&& info["spacewarp"].contains("observedAt")
+				&& info["spacewarp"].contains("implRva")
+				&& info["spacewarp"].contains("workerRva")
+				&& info["spacewarp"].contains("callerCount")
+				&& info["spacewarp"].contains("moduleImageSize")
+				&& info["spacewarp"].contains("moduleTimestamp"),
+				(std::string(label) + ": seam carries the status keys plus additive diagnostics").c_str());
+			Check(info["spacewarp"]["observedAt"].is_number(),
+				(std::string(label) + ": observedAt is a number").c_str());
 			Check(info["spacewarp"]["status"].get<std::string>() == expectStatus,
 				(std::string(label) + ": status == ").append(expectStatus).c_str());
 			Check(info["spacewarp"]["enabled"].get<bool>() == expectEnabled,
@@ -289,6 +363,18 @@ int ScenarioConfig(){
 	VrlinkTapShims::UpdateValueTap(gServedModule, 11, &width, 4, 0);
 	VrlinkTap::Get().SetConfig(true);
 	readSeam("seam on", true, "on", true);
+	{
+		std::ifstream infoFile((seamBase + "/CustomHeadset/info.json").c_str());
+		if(infoFile.is_open()){
+			const nlohmann::json info = nlohmann::json::parse(infoFile);
+			Check(info["spacewarp"]["reason"].get<std::string>() == "published",
+				"seam on: reason published");
+			Check(info["spacewarp"]["implRva"].get<unsigned int>() == gExpectedImplRva,
+				"seam on: resolved impl RVA recorded");
+			Check(info["spacewarp"]["workerRva"].get<unsigned int>() == gExpectedWorkerRva,
+				"seam on: resolved worker RVA recorded");
+		}
+	}
 	// explicit user off published once, then off
 	VrlinkTap::Get().SetConfig(false);
 	readSeam("seam off again", false, "off", false);
@@ -300,19 +386,26 @@ int ScenarioConfig(){
 // ---------------------------------------------------------------------------
 int ScenarioTap(){
 	BuildFakeModules();
-	gServedModule = gValidModule.data();
+	// deliberately use the shifted copy: the tap must resolve the signature,
+	// not the audited 0xA51D80 RVA.
+	gServedModule = gShiftedModule.bytes.data();
+	gExpectedImplRva = gShiftedModule.implRva;
+	gExpectedWorkerRva = gShiftedModule.workerRva;
 	ResetTapState();
 	// disabled tap: zero hooks, zero publishes, zero logs (NvencTap stays byte-identical)
 	VrlinkTap::Get().SetConfig(false);
 	Check(gMhCreateCalls == 0 && gHookTarget == nullptr && gImplCalls.empty() && logCalls == 0,
 		"disabled tap: no hook, no publishes, no log lines");
-	// enable on a build whose pins match: hook installed at the pinned impl
+	// enable on a moved build: the resolver must find the thunk/worker anyway
 	VrlinkTap::Get().SetConfig(true);
 	const auto waiting = VrlinkTap::Get().GetRuntimeState();
 	Check(waiting.enabled && waiting.hookInstalled && !waiting.published && std::string(waiting.status) == "waiting",
 		"enable: hooked but nothing captured -> status waiting");
-	Check(gMhCreateCalls == 1 && gHookTarget == gValidModule.data() + VrlinkTapPin::kImplRva,
-		"enable: exactly one hook at module base + 0xa51d80");
+	Check(std::string(waiting.reason) == "no-capture", "enable: resolver installed, no transport captured yet");
+	Check(waiting.implRva == gExpectedImplRva && waiting.workerRva == gExpectedWorkerRva,
+		"enable: resolved thunk/worker RVAs recorded");
+	Check(gMhCreateCalls == 1 && gHookTarget == gServedModule + gExpectedImplRva,
+		"enable: exactly one hook at the resolved impl RVA");
 	Check(gMhInitializeCalls == 1, "enable: MinHook initialised once");
 	// no publish attempt may have happened before the first vrlink publish
 	Check(gImplCalls.empty(), "waiting: no publish before a captured value-transport call");
@@ -327,7 +420,7 @@ int ScenarioTap(){
 		"passthrough: pending publish rides the capture hook, then vrlink's publish forwards byte-identically");
 	const auto on = VrlinkTap::Get().GetRuntimeState();
 	Check(on.published && std::string(on.status) == "on", "publish: enabled + published -> status on");
-	CheckPublished(0x48, 4, 0, 1, "publish: UpdateValue(0x48, &one, 4) through the pinned impl");
+	CheckPublished(0x48, 4, 0, 1, "publish: UpdateValue(0x48, &one, 4) through the resolved impl");
 	const int before = (int)gImplCalls.size();
 	// idempotence: hot reloads without a value change never re-publish
 	VrlinkTap::Get().SetConfig(true);
@@ -391,42 +484,95 @@ int ScenarioTap(){
 }
 
 // ---------------------------------------------------------------------------
-int ScenarioPinFail(){
+int ScenarioResolveFail(){
 	BuildFakeModules();
+	gServedModule = gInvalidModule.bytes.data();
 	ResetTapState();
-	// absent module: never LoadLibrary'ed; throttled one-line log; observe-only
+	VrlinkTap::Get().SetConfig(true);
+	auto state = VrlinkTap::Get().GetRuntimeState();
+	Check(state.enabled && !state.hookInstalled && !state.published && std::string(state.status) == "waiting",
+		"invalid worker: fail-closed observe-only, status waiting");
+	Check(std::string(state.reason) == "worker-not-found", "invalid worker: reason worker-not-found");
+	Check(gMhCreateCalls == 0, "invalid worker: no hook is created");
+	bool refusedLogged = false;
+	for(const auto &line : logHistory){
+		if(line.find("no validated UpdateValue signature") != std::string::npos){ refusedLogged = true; }
+	}
+	Check(refusedLogged, "invalid worker: the fail-closed reason is in the driver log");
+	VrlinkTap::Get().SetConfig(false);
+	const auto off = VrlinkTap::Get().GetRuntimeState();
+	Check(gImplCalls.empty() && std::string(off.status) == "off" && std::string(off.reason) == "off",
+		"invalid worker: off flips nothing and does not touch the stream");
+	std::cout << "spacewarp resolve fail: " << checks << " checks, " << failures << " failures\n";
+	return failures == 0 ? 0 : 1;
+}
+
+// ---------------------------------------------------------------------------
+int ScenarioRetry(){
+	BuildFakeModules();
 	gServedModule = nullptr;
+	ResetTapState();
 	VrlinkTap::Get().SetConfig(true);
 	auto state = VrlinkTap::Get().GetRuntimeState();
 	Check(state.enabled && !state.hookInstalled && std::string(state.status) == "waiting",
 		"module absent: enabled -> waiting, nothing hooked");
+	Check(std::string(state.reason) == "module-absent", "module absent: reason module-absent");
 	Check(gMhCreateCalls == 0, "module absent: no hook attempt");
-	// pin mismatch: the audited-build bytes differ -> fail CLOSED
-	std::this_thread::sleep_for(std::chrono::milliseconds(1100)); // past the 1/s install throttle
-	gServedModule = gPinBroken.data();
+	// the old ten-miss latch would have permanently disabled this; the tap must
+	// retry when vrlink appears later in the same process.
+	std::this_thread::sleep_for(std::chrono::milliseconds(1100)); // past the 1/s throttle
+	gServedModule = gValidModule.bytes.data();
+	gExpectedImplRva = gValidModule.implRva;
+	gExpectedWorkerRva = gValidModule.workerRva;
 	logCalls = 0;
 	VrlinkTap::Get().SetConfig(true);
 	state = VrlinkTap::Get().GetRuntimeState();
-	Check(!state.hookInstalled && state.enabled && !state.published && std::string(state.status) == "waiting",
-		"pin mismatch: fail-closed observe-only, status waiting");
-	Check(gMhCreateCalls == 0, "pin mismatch: no hook is created on unpinned bytes");
-	bool mismatchLogged = false;
-	for(const auto &line : logHistory){ if(line.find("pin mismatch") != std::string::npos){ mismatchLogged = true; } }
-	Check(mismatchLogged, "pin mismatch: the fail-closed reason is in the driver log");
-	// the off path also stays inert and crash-free (the publisher never existed:
-	// no hook, no capture, so there is nothing to publish or retract)
-	std::this_thread::sleep_for(std::chrono::milliseconds(1100));
-	VrlinkTap::Get().SetConfig(false);
-	Check(gImplCalls.empty() && std::string(VrlinkTap::Get().GetRuntimeState().status) == "off",
-		"pin mismatch: off flips nothing and does not touch the stream");
-	std::cout << "spacewarp pin fail: " << checks << " checks, " << failures << " failures\n";
+	Check(state.hookInstalled && state.implRva == gExpectedImplRva
+		&& state.workerRva == gExpectedWorkerRva,
+		"module appears later: retry resolves the thunk/worker");
+	Check(gMhCreateCalls == 1, "module appears later: exactly one hook");
+	Check(std::string(state.reason) == "no-capture",
+		"module appears later: waits for a transport capture");
+	std::cout << "spacewarp retry: " << checks << " checks, " << failures << " failures\n";
+	return failures == 0 ? 0 : 1;
+}
+
+// ---------------------------------------------------------------------------
+int ScenarioSignature(){
+	BuildFakeModules();
+	auto resolve = [](const FakeModule& module){
+		return VrlinkSignature::Resolve(module.bytes.data() + module.textRva,
+			module.textSize, module.textRva, 0x4000);
+	};
+	const auto valid = resolve(gValidModule);
+	Check(valid.ok && valid.implRva == gValidModule.implRva
+		&& valid.workerRva == gValidModule.workerRva,
+		"signature: valid module resolves the thunk/worker");
+	Check(valid.callerCount == 0, "signature: caller count is diagnostic (fake has no calls)");
+	const auto shifted = resolve(gShiftedModule);
+	Check(shifted.ok && shifted.implRva == gShiftedModule.implRva
+		&& shifted.workerRva == gShiftedModule.workerRva,
+		"signature: shifted copy resolves the moved RVAs");
+	const auto invalid = resolve(gInvalidModule);
+	Check(!invalid.ok && std::string(invalid.reason) == "worker-not-found",
+		"signature: broken worker prologue refuses");
+	const auto ambiguous = resolve(gAmbiguousModule);
+	Check(!ambiguous.ok && std::string(ambiguous.reason) == "impl-ambiguous",
+		"signature: duplicate impl prefixes refuse");
+	const auto outside = VrlinkSignature::Resolve(gValidModule.bytes.data() + gValidModule.textRva,
+		gValidModule.textSize, 0x3000, 0x4000);
+	Check(!outside.ok && std::string(outside.reason) == "section-out-of-image",
+		"signature: out-of-image section refuses");
+	std::cout << "spacewarp signature: " << checks << " checks, " << failures << " failures\n";
 	return failures == 0 ? 0 : 1;
 }
 
 int RunScenario(const char* name){
 	if(std::string(name) == "config"){ return ScenarioConfig(); }
 	if(std::string(name) == "tap"){ return ScenarioTap(); }
-	if(std::string(name) == "pinfail"){ return ScenarioPinFail(); }
+	if(std::string(name) == "resolvefail"){ return ScenarioResolveFail(); }
+	if(std::string(name) == "retry"){ return ScenarioRetry(); }
+	if(std::string(name) == "signature"){ return ScenarioSignature(); }
 	return 2;
 }
 }
@@ -435,7 +581,7 @@ int main(int argc, char** argv){
 	// child mode: run exactly one scenario (fresh tap singleton, latches reset)
 	if(argc == 2){ return RunScenario(argv[1]); }
 	// parent mode: self-spawn each scenario and aggregate
-	static const char* scenarios[] = { "config", "tap", "pinfail" };
+	static const char* scenarios[] = { "config", "tap", "resolvefail", "retry", "signature" };
 	int failed = 0;
 	for(const char* scenario : scenarios){
 		char quoted[1024];
@@ -446,6 +592,6 @@ int main(int argc, char** argv){
 			std::cerr << "scenario " << scenario << " failed with " << code << '\n';
 		}
 	}
-	std::cout << "spacewarp toggle: " << (3 - failed) << "/3 scenarios ok\n";
+	std::cout << "spacewarp toggle: " << (5 - failed) << "/5 scenarios ok\n";
 	return failed == 0 ? 0 : 1;
 }

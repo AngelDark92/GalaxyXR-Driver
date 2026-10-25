@@ -31,6 +31,24 @@ describe('Async Spacewarp honest status (2026-10-17 seam)', () => {
       expect(spacewarpStatus(true, info(block), { ...runtime, ...change }, 12000)).toBe('waiting');
     }
   });
+  it('trusts a fresh driver report even when installation/version verification is mismatched', () => {
+    const fresh = { ...block, observedAt: 11900 };
+    const mismatch = { ...runtime, state: 'version-mismatch' as const, driverInitialized: false };
+    expect(spacewarpStatus(true, info(fresh), mismatch, 12000)).toBe('on');
+    // the driver block alone is sufficient for a new driver; it is written by
+    // the running vrserver and its observedAt is the freshness proof.
+    expect(spacewarpStatus(true, info(fresh), undefined, 12000)).toBe('on');
+    // stale driver timestamp is still waiting when the legacy runtime proof is
+    // also unavailable (version mismatch), but the legacy proof still counts
+    // when the info watcher merely missed an update.
+    expect(spacewarpStatus(true, info({ ...fresh, observedAt: 6999 }), mismatch, 12000)).toBe('waiting');
+    expect(spacewarpStatus(true, info({ ...fresh, observedAt: 6999 }), runtime, 12000)).toBe('on');
+    expect(spacewarpStatus(true, info({ ...fresh, observedAt: 14001 }), mismatch, 12000)).toBe('waiting');
+    expect(spacewarpStatus(true, info({ ...fresh, status: 'waiting', published: false }), runtime, 12000)).toBe('waiting');
+    // 'on' implies enabled+published; a contradictory block is not Active.
+    expect(spacewarpStatus(true, info({ ...fresh, status: 'on', published: false }), runtime, 12000)).toBe('waiting');
+    expect(spacewarpStatus(true, info({ ...fresh, status: 'on', enabled: false }), runtime, 12000)).toBe('waiting');
+  });
   it('keeps the encoder-style freshness windows: 5 s age cap, 2 s future tolerance', () => {
     expect(spacewarpStatus(true, info(block), { ...runtime, checkedAt: 7000 }, 12000)).toBe('on');
     expect(spacewarpStatus(true, info(block), { ...runtime, checkedAt: 6999 }, 12000)).toBe('waiting');

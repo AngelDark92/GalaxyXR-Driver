@@ -546,6 +546,10 @@ export type DriverInfo = {
     // Pinned cross-child seam (brief 11, 2026-10-17): the keys and the status
     // enum are read verbatim from info.json — exactly 'off' | 'on' | 'waiting'.
     status: 'off' | 'on' | 'waiting';
+    // 2026-10-25: driver write time (ms since epoch). Lets the row trust a
+    // fresh host report even when the separate installation/version check is
+    // in a mismatch or polling failure. Optional for older drivers.
+    observedAt?: number;
   };
   // 2026-10-21 (S1): encoder ceiling vs the request clamp VRLink honours.
   // Observed request, Max Bitrate and applied target.
