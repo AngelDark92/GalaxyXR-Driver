@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.15.0-dev.6] - 2026-10-25
+
+### Fixes
+
+- Update AV1 bandwidth setting from 230 to 280 Mbit (`ce2909b`)
+
 ## [1.15.0-dev.5] - 2026-10-25
 
 ### Fixes
