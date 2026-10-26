@@ -6,6 +6,16 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.15.0-dev.11] - 2026-10-26
+
+### Fixes
+
+- Harden manual render resolution after review (`e0cb17d`)
+
+### Other changes
+
+- Add manual per-eye render resolution and preserve non-square recommendations \[skip ci\] (`82b313d`)
+
 ## [1.15.0-dev.10] - 2026-10-26
 
 ### Fixes
