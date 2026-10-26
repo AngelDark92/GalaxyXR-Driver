@@ -665,9 +665,13 @@ export class GalaxySettingsBase {
   }
 
   renderResolutionError = signal<string | undefined>(undefined);
+  // Distinguish a stored-value problem from a rejected edit so a settings
+  // reload can clear only the former (2026-10-26).
+  private renderResolutionErrorSource?: 'stored' | 'edit';
 
   setRenderDimension(key: 'renderWidth' | 'renderHeight', value: number | undefined): void {
     if (value === undefined || !Number.isInteger(value) || value < 1 || value > 16384) {
+      this.renderResolutionErrorSource = 'edit';
       this.renderResolutionError.set(t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
       return;
     }
@@ -675,7 +679,13 @@ export class GalaxySettingsBase {
     config[key] = value;
     const valid = [config.renderWidth, config.renderHeight].every(v =>
       typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 16384);
-    this.renderResolutionError.set(valid ? undefined : t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
+    if (valid) {
+      this.renderResolutionErrorSource = undefined;
+      this.renderResolutionError.set(undefined);
+    } else {
+      this.renderResolutionErrorSource = 'edit';
+      this.renderResolutionError.set(t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
+    }
     this.save();
   }
 
@@ -688,14 +698,24 @@ export class GalaxySettingsBase {
         this.rootSetting.galaxyXr.nativeResolution = true;
       }
       // 2026-10-14: additive fields keep legacy ON/OFF choices unchanged.
+      let storedInvalid = false;
       for (const key of ['renderWidth', 'renderHeight'] as const) {
         const value = this.rootSetting.galaxyXr[key];
         if (value === undefined) {
           this.rootSetting.galaxyXr[key] = key === 'renderWidth' ? 3552 : 3840;
         } else if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 16384) {
           // Preserve explicitly stored invalid input and surface it for correction.
-          this.renderResolutionError.set(t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
+          storedInvalid = true;
         }
+      }
+      if (storedInvalid) {
+        this.renderResolutionErrorSource = 'stored';
+        this.renderResolutionError.set(t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
+      } else if (this.renderResolutionErrorSource === 'stored') {
+        // A reload replaced the invalid stored values; clear the stale error
+        // but keep a rejected edit visible until the user corrects it.
+        this.renderResolutionErrorSource = undefined;
+        this.renderResolutionError.set(undefined);
       }
       if (this.rootSetting.galaxyXr.streamQuality === undefined) {
         this.rootSetting.galaxyXr.streamQuality = 'custom'; // 2026-10-16: preset selector removed; tile/bandwidth rows are the setting

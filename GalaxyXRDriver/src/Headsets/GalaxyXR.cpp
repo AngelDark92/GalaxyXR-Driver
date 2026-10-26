@@ -480,25 +480,31 @@ static void ApplyNativeResolutionSetting(){
 
 // Identify the component by its implementation module, not the spoofable headset
 // identity. Leave other headsets and their display components untouched.
-static bool IsVrlinkDisplayComponent(vr::IVRDisplayComponent* component){
 #ifdef _WIN32
-	if(!component) return false;
-	const HMODULE vrlink = GetModuleHandleW(L"driver_vrlink.dll");
-	HMODULE owner = nullptr;
+static bool IsComponentOwnedByModule(vr::IVRDisplayComponent* component, HMODULE module){
+	if(!component || !module) return false;
 	const auto methods = *reinterpret_cast<void***>(component);
-	return vrlink && methods && GetModuleHandleExW(
+	HMODULE owner = nullptr;
+	return methods && GetModuleHandleExW(
 		GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-		reinterpret_cast<LPCWSTR>(methods[0]), &owner) && owner == vrlink;
-#else
-	return false;
-#endif
+		reinterpret_cast<LPCWSTR>(methods[0]), &owner) && owner == module;
 }
+
+static bool IsVrlinkDisplayComponent(vr::IVRDisplayComponent* component){
+	return IsComponentOwnedByModule(component, GetModuleHandleW(L"driver_vrlink.dll"));
+}
+#else
+static bool IsVrlinkDisplayComponent(vr::IVRDisplayComponent*){ return false; }
+#endif
 
 void GalaxyXRHmdShim::PosTrackedDeviceGetComponent(const char *&pchComponentNameAndVersion, void *&returnComponent){
 	if(!returnComponent || std::strcmp(pchComponentNameAndVersion, vr::IVRDisplayComponent_Version) != 0) return;
 	auto* original = static_cast<vr::IVRDisplayComponent*>(returnComponent);
 	if(IsVrlinkDisplayComponent(original)){
 		returnComponent = new ShimDisplayComponent(this, original);
+	}else if(!displayComponentUnrecognizedLogged){
+		displayComponentUnrecognizedLogged = true;
+		DriverLog("GalaxyXR: IVRDisplayComponent is not implemented by driver_vrlink.dll; manual render resolution is not applied");
 	}
 }
 

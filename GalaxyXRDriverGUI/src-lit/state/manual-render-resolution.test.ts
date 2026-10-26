@@ -49,6 +49,24 @@ describe('manual render resolution', () => {
     expect(gs.galaxyXr.renderWidth).toBe(5376);
     expect(gs.galaxyXr.renderHeight).toBe(4973);
   });
+  it('clears a stored-value error when a reload supplies valid dimensions', () => {
+    const gs = state({ nativeIdentity: true, renderWidth: 0, renderHeight: -1 });
+    expect(gs.galaxyXr.renderWidth).toBe(0);
+    expect(gs.renderResolutionError()).toBeTruthy();
+    gs.galaxyXr.renderWidth = 3552;
+    gs.galaxyXr.renderHeight = 3840;
+    expect(gs.galaxyXr.renderWidth).toBe(3552);
+    expect(gs.renderResolutionError()).toBeUndefined();
+  });
+  it('keeps a rejected edit error across getter reads until corrected', () => {
+    const gs = state({ nativeIdentity: true, renderWidth: 2880, renderHeight: 3200 });
+    gs.setRenderDimension('renderWidth', 0);
+    expect(gs.renderResolutionError()).toBeTruthy();
+    expect(gs.galaxyXr.renderWidth).toBe(2880);
+    expect(gs.renderResolutionError()).toBeTruthy();
+    gs.setRenderDimension('renderWidth', 2880);
+    expect(gs.renderResolutionError()).toBeUndefined();
+  });
   it('accepts both range boundaries independently', () => {
     const gs = state({ nativeIdentity: true });
     gs.setRenderDimension('renderWidth', 1);

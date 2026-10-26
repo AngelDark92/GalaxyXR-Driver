@@ -80,12 +80,12 @@ export class DriverSettingsPage extends BasePage {
           tip: t('Choose the render target size in pixels per eye at SteamVR 100% resolution. The native default is 3552 × 3840. Higher values increase GPU load. Requires a SteamVR restart. SteamVR Auto, global resolution and per-game scaling still apply; use Custom 100% to compare the requested size. Turning this off restores the previous resolution while keeping your manual values. Refresh rate and stream encoding size are separate settings. Advanced VRLink resolution overrides take priority.'),
         }),
         settingFieldRow('galaxyXr.renderWidth', html`<app-number .value=${gx.renderWidth ?? 3552} min="1" max="16384" step="1" .disabled=${!gx.nativeResolution}
-          @change=${(e: CustomEvent<number | undefined>) => { galaxy.setRenderDimension('renderWidth', e.detail); this.requestUpdate(); }}></app-number>`, {
+          @focusout=${(e: FocusEvent) => { const value = (e.currentTarget as HTMLElement & { value: number }).value; galaxy.setRenderDimension('renderWidth', value); this.requestUpdate(); }}></app-number>`, {
           tip: t('Enter a whole number from 1 to 16384 pixels per eye. Requires a SteamVR restart.'),
           reset: { can: gx.renderWidth !== 3552, on: () => { galaxy.setRenderDimension('renderWidth', 3552); this.requestUpdate(); } },
         }),
         settingFieldRow('galaxyXr.renderHeight', html`<app-number .value=${gx.renderHeight ?? 3840} min="1" max="16384" step="1" .disabled=${!gx.nativeResolution}
-          @change=${(e: CustomEvent<number | undefined>) => { galaxy.setRenderDimension('renderHeight', e.detail); this.requestUpdate(); }}></app-number>`, {
+          @focusout=${(e: FocusEvent) => { const value = (e.currentTarget as HTMLElement & { value: number }).value; galaxy.setRenderDimension('renderHeight', value); this.requestUpdate(); }}></app-number>`, {
           tip: t('Enter a whole number from 1 to 16384 pixels per eye. Requires a SteamVR restart.'),
           reset: { can: gx.renderHeight !== 3840, on: () => { galaxy.setRenderDimension('renderHeight', 3840); this.requestUpdate(); } },
         }),

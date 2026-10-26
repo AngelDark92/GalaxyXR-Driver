@@ -79,6 +79,7 @@ private:
 	vr::PropertyContainerHandle_t container = vr::k_ulInvalidPropertyContainer;
 	bool active = false;
 	bool haveBackup = false;
+	bool displayComponentUnrecognizedLogged = false;
 	std::string origModelNumber;
 	std::string origManufacturer;
 	std::string origHmdInputProfile;

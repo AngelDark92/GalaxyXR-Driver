@@ -38,6 +38,12 @@ describe('human-readable settings inspection', () => {
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
   });
 
+  it('keeps numeric render-resolution rows out of the boolean check report', () => {
+    const rows = presentSettings([], context());
+    expect(rows.some(row => row.id === 'galaxyXr.renderWidth')).toBe(false);
+    expect(rows.some(row => row.id === 'galaxyXr.renderHeight')).toBe(false);
+  });
+
   it('presents the Optical Flow card as vendor-gated gui-settings.json controls', () => {
     const c = context();
     const row = presentSettings([], c).find(entry => entry.id === 'ofxr.enabled')!;

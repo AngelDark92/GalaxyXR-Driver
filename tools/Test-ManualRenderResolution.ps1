@@ -51,9 +51,10 @@ $calls = @($shimSource -split '\r?\n' | Where-Object { $_ -match '^SHIM_CALL_\w+
 if ($calls.Count -ne 8) { throw 'Display callback dispatch table changed.' }
 $call = $calls -join "`n"
 $constructor = Get-ProductionFunction $shimSource 'ShimDisplayComponent::ShimDisplayComponent('
+$owner = Get-ProductionFunction $source 'static bool IsComponentOwnedByModule('
 $wrap = (Get-ProductionFunction $source 'void GalaxyXRHmdShim::PosTrackedDeviceGetComponent(').Replace('GalaxyXRHmdShim::', 'RenderTargetTestShim::')
 $recommend = (Get-ProductionFunction $source 'void GalaxyXRHmdShim::PosDisplayComponentGetRecommendedRenderTargetSize(').Replace('GalaxyXRHmdShim::', 'RenderTargetTestShim::')
-$generated = "$constructor`n#define COMMA ,`n$macro`n$call`n$wrap`n$recommend`n"
+$generated = "$constructor`n#define COMMA ,`n$macro`n$call`n$owner`n$wrap`n$recommend`n"
 [IO.File]::WriteAllText((Join-Path $build 'RenderRecommendation.generated.h'), $generated, [Text.UTF8Encoding]::new($false))
 $exe = Join-Path $build 'RenderRecommendationTest.exe'
 & cl.exe /nologo /EHsc /std:c++17 /O2 /MT "/I$repo/GalaxyXRDriver/src" "/I$repo/ThirdParty/openvr/headers" "/I$build" (Join-Path $repo 'GalaxyXRDriver/tests/RenderRecommendationTest.cpp') "/Fo$build/RenderRecommendationTest.obj" "/Fe$exe"

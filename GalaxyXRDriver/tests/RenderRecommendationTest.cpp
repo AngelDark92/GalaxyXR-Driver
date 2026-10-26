@@ -1,17 +1,20 @@
 // Production component wrapping and recommendation callback with a fake VRLink
 // display that reproduces the inspected binary's independent 100..4096 clamps.
+#define NOMINMAX
 #include "Driver/DeviceShim.h"
 #include "Config/Config.h"
 #include <algorithm>
 #include <iostream>
 #include <mutex>
 #include <cstring>
+#include <Windows.h>
 Config driverConfig;
 std::mutex driverConfigLock;
 void DriverLog(const char*, ...) {}
 class RenderTargetTestShim : public ShimDefinition {
 public:
     bool active = true;
+    bool displayComponentUnrecognizedLogged = false;
     uint32_t loggedRenderWidth = 0, loggedRenderHeight = 0;
     void PosTrackedDeviceGetComponent(const char*&, void*&) override;
     void PosDisplayComponentGetRecommendedRenderTargetSize(uint32_t*&, uint32_t*&) override;
@@ -35,6 +38,7 @@ struct ClampingDisplay : vr::IVRDisplayComponent {
     vr::DistortionCoordinates_t ComputeDistortion(vr::EVREye, float, float) override { return {}; }
     bool ComputeInverseDistortion(vr::HmdVector2_t*, vr::EVREye, uint32_t, float, float) override { return false; }
 };
+struct TestOwnedDisplay { virtual void First() {} };
 int checks = 0, failures = 0;
 void Check(bool ok, const char* label) {
     ++checks;
@@ -106,6 +110,19 @@ int main() {
     uint32_t* heightPointer = &h;
     shim.PosDisplayComponentGetRecommendedRenderTargetSize(nullWidth, heightPointer);
     Check(!nullWidth, "null output pointers remain safe");
+    {
+        TestOwnedDisplay owned;
+        const HMODULE self = GetModuleHandleW(nullptr);
+        Check(IsComponentOwnedByModule(reinterpret_cast<vr::IVRDisplayComponent*>(&owned), self),
+            "module-owner helper accepts this module");
+        Check(!IsComponentOwnedByModule(reinterpret_cast<vr::IVRDisplayComponent*>(&owned), nullptr),
+            "module-owner helper rejects a null module");
+        Check(!IsComponentOwnedByModule(nullptr, self),
+            "module-owner helper rejects a null component");
+        const HMODULE other = GetModuleHandleW(L"kernel32.dll");
+        if(other) Check(!IsComponentOwnedByModule(reinterpret_cast<vr::IVRDisplayComponent*>(&owned), other),
+            "module-owner helper rejects a different module");
+    }
     delete wrapper;
     std::cout << "Render recommendation: " << checks << " checks, " << failures << " failures\n";
     return failures ? 1 : 0;
