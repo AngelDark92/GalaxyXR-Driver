@@ -11,6 +11,7 @@
 // directory and its catalog is the sibling ./locale.json.
 import { createAppContext } from './app-context';
 import { PathsService } from './services/paths';
+import { FileReadErrorReason } from './services/settings-base';
 import { setLocale } from './locale/i18n';
 import { appCustomElements } from './register';
 import { applyTheme } from './ui/theme';
@@ -71,8 +72,12 @@ async function boot(): Promise<void> {
   (window as unknown as Record<string, unknown>).appContext = ctx;
   (window as unknown as Record<string, unknown>).appCustomElements = appCustomElements;
   await restore;
+  // Before first install (or after Uninstall), settings.json may not exist.
+  // Its absence is not a tray failure. Saved OFXR restoration independently
+  // requires loaded driver settings and reports its failure through ofxr.error.
+  const driverReadError = ctx.dss.readFileError();
   const startupError = ctx.lifecycle.error() || ctx.ofxr.error()
-    || (ctx.appSetting.readFileError() || ctx.dss.readFileError()
+    || (ctx.appSetting.readFileError() || (driverReadError && driverReadError.reason !== FileReadErrorReason.NotExists)
       ? t('Saved settings could not be read. Check Settings on Setup before restoring Optical Flow.') : undefined);
   // Native recovery reports the same failure through the lifecycle banner;
   // keep the mounted shell usable instead of treating recovery as boot death.
