@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.15.0-dev.8] - 2026-10-26
+
+### Features
+
+- Implement per-user Windows startup registration for Galaxy XR Companion (`3375160`)
+
 ## [1.15.0-dev.7] - 2026-10-25
 
 ### Features
