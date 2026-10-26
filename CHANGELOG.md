@@ -6,6 +6,31 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.15.0] - 2026-10-26
+
+### Features
+
+- Add automated tests for the bitrate monitor browser tool (`8481635`)
+- Update SDR 10-bit baseline settings and improve documentation (`1f4b4e7`)
+- Add controller master policy and associated tests (`05f2412`)
+- Spacewarp Check fix and Update Driver Version (`17e37b1`)
+- Implement per-user Windows startup registration for Galaxy XR Companion (`3375160`)
+- Enhance driver installation process with custom root directory support (`7faa9b2`)
+
+### Fixes
+
+- Bitrate Monitor and ADB Management (`6b467c7`)
+- Remove experimental NVENC configuration support (`c03e96c`)
+- Update AV1 bandwidth setting from 230 to 280 Mbit (`ce2909b`)
+- Refactor Async Spacewarp implementation and introduce new semantics (`a653f05`)
+- Harden manual render resolution after review (`e0cb17d`)
+
+### Other changes
+
+- docs: rewrite README for onboarding and patched Steam Link pairing (`297b0dd`)
+- chore: consolidate agent guidance and cleanup tooling (`20f1dc1`)
+- Add manual per-eye render resolution and preserve non-square recommendations \[skip ci\] (`82b313d`)
+
 ## [1.15.0-dev.11] - 2026-10-26
 
 ### Fixes
