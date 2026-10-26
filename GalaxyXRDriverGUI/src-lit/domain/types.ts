@@ -28,6 +28,8 @@ export type GalaxyXrConfig = {
   synthesizeGripTouch?: boolean,
   gripTouchThreshold?: number,
   nativeResolution?: boolean,
+  renderWidth?: number,
+  renderHeight?: number,
   streamQuality?: string,
   customEncodeWidth?: number,
   customStreamFormatWidth?: number, // foveated tile width; independent of legacy customEncodeWidth

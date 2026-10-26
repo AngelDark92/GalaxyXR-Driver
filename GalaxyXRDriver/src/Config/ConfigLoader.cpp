@@ -414,6 +414,16 @@ void ConfigLoader::ParseConfig(){
 			if(galaxyXrData["nativeResolution"].is_boolean()){
 				newConfig.galaxyXr.nativeResolution = galaxyXrData["nativeResolution"].get<bool>();
 			}
+			// 2026-10-14: validate before converting, including oversized JSON integers.
+			for(const char* key : {"renderWidth", "renderHeight"}){
+				const auto& value = galaxyXrData[key];
+				if(value.is_number_integer() && value >= 1 && value <= 16384){
+					(key == std::string("renderWidth") ? newConfig.galaxyXr.renderWidth
+						: newConfig.galaxyXr.renderHeight) = value.get<int>();
+				}else if(!value.is_null()){
+					DriverLog("Config: rejected galaxyXr.%s; expected a whole number from 1 to 16384 pixels. The request was not applied; correct it in Driver Settings.", key);
+				}
+			}
 			if(galaxyXrData["streamQuality"].is_string()){
 				newConfig.galaxyXr.streamQuality = galaxyXrData["streamQuality"].get<std::string>();
 			}

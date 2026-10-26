@@ -664,6 +664,21 @@ export class GalaxySettingsBase {
       ?? { width: g.customStreamFormatWidth ?? 1536, bandwidth: g.customBandwidthMbit ?? 350 };
   }
 
+  renderResolutionError = signal<string | undefined>(undefined);
+
+  setRenderDimension(key: 'renderWidth' | 'renderHeight', value: number | undefined): void {
+    if (value === undefined || !Number.isInteger(value) || value < 1 || value > 16384) {
+      this.renderResolutionError.set(t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
+      return;
+    }
+    const config = this.galaxyXr;
+    config[key] = value;
+    const valid = [config.renderWidth, config.renderHeight].every(v =>
+      typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 16384);
+    this.renderResolutionError.set(valid ? undefined : t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
+    this.save();
+  }
+
   get galaxyXr(): GalaxyXrConfig {
     if (this.rootSetting) {
       if (!this.rootSetting.galaxyXr) {
@@ -671,6 +686,16 @@ export class GalaxySettingsBase {
       }
       if (this.rootSetting.galaxyXr.nativeResolution === undefined) {
         this.rootSetting.galaxyXr.nativeResolution = true;
+      }
+      // 2026-10-14: additive fields keep legacy ON/OFF choices unchanged.
+      for (const key of ['renderWidth', 'renderHeight'] as const) {
+        const value = this.rootSetting.galaxyXr[key];
+        if (value === undefined) {
+          this.rootSetting.galaxyXr[key] = key === 'renderWidth' ? 3552 : 3840;
+        } else if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 16384) {
+          // Preserve explicitly stored invalid input and surface it for correction.
+          this.renderResolutionError.set(t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
+        }
       }
       if (this.rootSetting.galaxyXr.streamQuality === undefined) {
         this.rootSetting.galaxyXr.streamQuality = 'custom'; // 2026-10-16: preset selector removed; tile/bandwidth rows are the setting

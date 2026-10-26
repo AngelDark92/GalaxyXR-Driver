@@ -15,6 +15,8 @@ const nativeDefaults = {
     "synthesizeGripTouch": true,
     "gripTouchThreshold": 0.03,
     "nativeResolution": true,
+    "renderWidth": 3552,
+    "renderHeight": 3840,
     "streamQuality": "custom",
     "customEncodeWidth": 3072,
     "customStreamFormatWidth": 1536,

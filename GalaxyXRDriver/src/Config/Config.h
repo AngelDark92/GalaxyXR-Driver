@@ -318,8 +318,8 @@ struct GalaxyXrConfig{
 	// send a grip capacitive state for these controllers). native profile only.
 	bool synthesizeGripTouch = true;
 	double gripTouchThreshold = 0.03; // grip value that counts as "touched" (release at half of it)
-	// write driver_vrlink.overrideRenderWidth/Height = 3552x3840 (the Galaxy
-	// XR native per-eye panel geometry) into steamvr.vrsettings. the APK's
+	// write the selected per-eye render dimensions (default 3552x3840,
+	// the native panel geometry) into steamvr.vrsettings. the APK's
 	// spoofed identity makes vrlink cap the render target at the spoofed
 	// model's geometry (e.g. 2160x2160); the global override replaces the
 	// capped value after model matching (validated by the community
@@ -328,6 +328,9 @@ struct GalaxyXrConfig{
 	// (only if they hold our value), returning vrlink to its own defaults.
 	// takes effect at SteamVR start.
 	bool nativeResolution = true;
+	// 2026-10-14: editable per-eye render target; absent values retain native geometry.
+	int renderWidth = 3552;
+	int renderHeight = 3840;
 	// stream quality preset. "default" leaves vrlink's built-in encode/
 	// bandwidth defaults (and removes any tier keys we previously wrote).
 	// the other tiers write encodeWidth AND streamFormatWidth to the same

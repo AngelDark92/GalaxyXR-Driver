@@ -76,7 +76,7 @@ Settings live in `%APPDATA%\GalaxyXR\CustomHeadset\settings.json`, separate from
 
 Galaxy XR page:
 
-- **Headset**: Native Identity on, Native Panel Resolution on (default), Stream Quality: Tile Width 1536, Bandwidth 350 Mbit/s (defaults).
+- **Headset**: Native Identity on, Override Render Resolution on, 3552×3840 per eye (defaults), Stream Quality: Tile Width 1536, Bandwidth 350 Mbit/s (defaults).
 - **Controllers**: Official Controller Layout on. Controller Motion Filter: Kalman CA (default). Leave the offsets alone unless the controllers visibly sit wrong in your hand, the shipped values were measured against the official models.
 - **Image Processing**: Enable on.
 
@@ -204,7 +204,7 @@ Panel Blackout (Testing) (Advanced section) turns both panels black while tracki
 Check `Steam\logs\vrserver.txt`:
 
 - `FrameComponentShim: wrapping IVRDriverDirectModeComponent`: the frame path is hooked. Missing: the headset driver is not direct mode, or the driver did not load (check for duplicate registrations).
-- Native resolution requests 3552x3840 per eye without forcing a refresh rate. Your selected rate (for example, 75 Hz) is preserved. Earlier refresh-rate overrides are restored only with journal ownership and an unchanged value. Resolution changes take effect on the next SteamVR start.
+- Manual render resolution uses the per-eye width and height entered in Driver Settings (3552x3840 by default), without forcing a refresh rate. The VRLink display callback preserves these values above 4096 per axis, so 5376x4973 no longer becomes a square. These are the base dimensions at SteamVR Custom 100%; Auto/global/per-game scaling still applies. Reset arrows restore native defaults, and turning the override off retains the manual values. Your selected rate (for example, 75 Hz) is preserved. Earlier refresh-rate overrides are restored only with journal ownership and an unchanged value. Resolution changes take effect on the next SteamVR start.
 - `GalaxyXR: stream quality '<preset>'`: the preset was applied. Takes effect at the next headset connect.
 - `GalaxyXR: SDR10 baseline: profile + supports10bit forced on ... REQUESTED ONLY`: the SDR 10-bit baseline forced the profile request; the device confirms at connect. Check `driver_vrlink.txt` for `Using 10bit mode: 1` after the next SteamVR start.
 - `FrameProcessor: matched hmd adapter <gpu>`: processing runs on the GPU SteamVR renders on. `no adapter matched` / `failed to create D3D11 device`: report with your GPU setup.

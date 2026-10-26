@@ -38,6 +38,8 @@ public:
 	GalaxyXRDeviceProvider* deviceProvider = nullptr;
 
 	virtual void PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue) override;
+	virtual void PosTrackedDeviceGetComponent(const char *&pchComponentNameAndVersion, void *&returnComponent) override;
+	virtual void PosDisplayComponentGetRecommendedRenderTargetSize(uint32_t *&pnWidth, uint32_t *&pnHeight) override;
 	virtual bool PreTrackedDeviceDeactivate() override;
 	virtual void HandleEvent(const vr::VREvent_t &event) override;
 	// config hot-reload for the native resolution override
@@ -60,6 +62,8 @@ private:
 	bool appliedProfileRoute = true;
 	int iconPollFrames = 0;
 	bool appliedNativeResolution = false;
+	int appliedRenderWidth = 0, appliedRenderHeight = 0;
+	uint32_t loggedRenderWidth = 0, loggedRenderHeight = 0;
 	bool appliedHeadsetProfile = false;
 	int appliedProfileMaxSfw = 0;
 	bool appliedProfile10bit = false;
