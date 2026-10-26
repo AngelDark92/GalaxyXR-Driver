@@ -6,6 +6,16 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.15.1] - 2026-10-26
+
+### Fixes
+
+- companion: accept missing first-run settings (`039607c`)
+
+### Other changes
+
+- Revise Steam Link version requirements in README (`af7dce4`)
+
 ## [1.15.1-dev.1] - 2026-10-26
 
 ### Fixes

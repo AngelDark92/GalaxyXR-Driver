@@ -1197,7 +1197,7 @@ dependencies = [
 
 [[package]]
 name = "galaxyxrdriver-gui"
-version = "1.15.1-dev.1"
+version = "1.15.1"
 dependencies = [
  "locale_config",
  "log",
