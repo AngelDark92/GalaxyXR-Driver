@@ -40,6 +40,13 @@ export class SystemDiagnosticService {
   public readonly steamVRinstalled = this._steamVRinstalled.asReadonly();
   private _driverInstalled = signal<string | undefined>(undefined);
   public readonly driverInstalled = this._driverInstalled.asReadonly();
+  // Current registered package path and the default managed root. The default
+  // is shown before the first install; the registered path is authoritative
+  // after install and may be a user-selected custom root.
+  private _driverRegisteredPath = signal<string | undefined>(undefined);
+  public readonly driverRegisteredPath = this._driverRegisteredPath.asReadonly();
+  private _defaultDriverRoot = signal<string | undefined>(undefined);
+  public readonly defaultDriverRoot = this._defaultDriverRoot.asReadonly();
   public readonly settingFileInited = computed(() => !!this.dss.values() && !this.dss.readFileError());
   public readonly systemReady = computed(() => !!this.steamVRinstalled() && !!this.driverInstalled() && this.settingFileInited());
   private readonly neutralDriverInstalled = signal(false);
@@ -73,9 +80,20 @@ export class SystemDiagnosticService {
   constructor(public dss: DriverSettingService, public dis: DriverInfoService, private dialog: DialogService, private paths: PathsService, private app?: AppSettingService) {
     this._initTask = (async () => {
       await Promise.all([dss.initTask, dis.initTask]);
+      await this.loadDefaultDriverRoot();
       await this.checkDriverInstalled();
       await this.watchSteamVRSettings();
     })();
+  }
+  private async loadDefaultDriverRoot(): Promise<void> {
+    if (this._defaultDriverRoot()) return;
+    // Unit tests construct the service graph without the Tauri IPC bridge.
+    if (!(globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return;
+    try {
+      this._defaultDriverRoot.set(await join(await localDataDir(), 'GalaxyXR', 'Drivers'));
+    } catch (error) {
+      console.warn('Cannot resolve the default driver install root', error);
+    }
   }
   private watchedSteamVRConfig?: string;
   private unwatchSteamVRConfig?: () => void;
@@ -180,7 +198,8 @@ export class SystemDiagnosticService {
     if (steamVrPath) {
       const copied = await join(steamVrPath, 'drivers', galaxyXRDriverName);
       const registered = await this.checkDriverRegisteredPath();
-      const version = await this.inspectDriverPackage(copied) ?? await this.inspectDriverPackage(registered);
+      const copiedVersion = await this.inspectDriverPackage(copied);
+      const version = copiedVersion ?? await this.inspectDriverPackage(registered);
       const neutral = await this.inspectDriverPackage(await join(steamVrPath, 'drivers', 'CustomHeadsetOpenVR'), 'CustomHeadsetOpenVR')
         ?? await this.inspectDriverPackage(await this.checkDriverRegisteredPath('CustomHeadsetOpenVR'), 'CustomHeadsetOpenVR');
       if (!current()) return false;
@@ -193,11 +212,13 @@ export class SystemDiagnosticService {
         if (!current()) return false;
         this.neutralDriverInstalled.set(!!neutral);
         this._driverInstalled.set(version);
+        this._driverRegisteredPath.set(copiedVersion ? copied : registered || copied || undefined);
         return true;
       }
     }
     if (!current()) return false;
     this._driverInstalled.set(undefined);
+    this._driverRegisteredPath.set(undefined);
     this.neutralDriverInstalled.set(false);
     return false;
   }
@@ -346,7 +367,8 @@ export class SystemDiagnosticService {
           // package; a fresh install keeps its settings file sparse.
           const settingsExisted = await exists(this.dss.filePath);
           await suspendFileWrites();
-          await register_galaxyxr_driver(steamVrPath, driverDir);
+          const report = await register_galaxyxr_driver(steamVrPath, driverDir, this.app?.values().driverInstallRoot?.trim() || undefined);
+          if (report?.registeredPath) this._driverRegisteredPath.set(report.registeredPath);
           nativeCompleted = true;
           this.driverDataRemoved = false;
           this.completedRemoval = false;
@@ -574,6 +596,7 @@ export class SystemDiagnosticService {
         this.driverDataRemoved = true;
         this.completedRemoval = this.lastUninstallReport.outcome !== 'incomplete';
         this._driverInstalled.set(undefined);
+        this._driverRegisteredPath.set(undefined);
         this._driverState.set(this.lastUninstallReport.outcome === 'incomplete' ? 'unknown' : 'not-installed');
         this._driverCheckError.set(this.lastUninstallReport.outcome === 'incomplete'
           ? this.lastUninstallReport.unresolvedItems.join('\n') : undefined);

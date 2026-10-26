@@ -4,7 +4,7 @@ pub mod settings_cleanup;
 pub mod runtime_status;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, fs, io::Write, path::{Path, PathBuf}, process::Command, time::{SystemTime, UNIX_EPOCH}};
+use std::{collections::BTreeSet, fs, io::Write, path::{Component, Path, PathBuf}, process::Command, time::{SystemTime, UNIX_EPOCH}};
 use sysinfo::{ProcessesToUpdate, System};
 
 const DRIVER: &str = "GalaxyXRNative";
@@ -41,7 +41,12 @@ pub struct UninstallReport {
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct InstallReport { registered_path: String, legacy_detected: bool }
+pub struct InstallReport {
+    registered_path: String,
+    managed_root: String,
+    used_default_root: bool,
+    legacy_detected: bool,
+}
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +68,7 @@ mod platform {
         fn ReleaseMutex(handle: *mut c_void) -> i32;
         fn CloseHandle(handle: *mut c_void) -> i32;
         fn MoveFileExW(old: *const u16, new: *const u16, flags: u32) -> i32;
+        fn GetDriveTypeW(root: *const u16) -> u32;
     }
     pub struct Lock(*mut c_void);
     impl Lock {
@@ -84,6 +90,21 @@ mod platform {
         if unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), 1 | 8) } == 0 { Err(format!("Replace {}: {}", to.display(), std::io::Error::last_os_error())) } else { Ok(()) }
     }
     pub fn reparse(meta: &fs::Metadata) -> bool { meta.file_attributes() & 0x400 != 0 }
+    // 2026-10-26: custom driver roots must be on a local fixed drive. A mapped
+    // network drive, removable drive or RAM disk can disappear between the
+    // install and the next SteamVR start, producing the same class of
+    // "Skipping external driver ... because it is not a directory" failure.
+    pub fn fixed_drive(path: &Path) -> bool {
+        let letter = match path.components().next() {
+            Some(Component::Prefix(prefix)) => match prefix.kind() {
+                std::path::Prefix::Disk(letter) | std::path::Prefix::VerbatimDisk(letter) => letter,
+                _ => return false,
+            },
+            _ => return false,
+        };
+        let root = [letter as u16, b':' as u16, b'\\' as u16, 0];
+        unsafe { GetDriveTypeW(root.as_ptr()) == 3 }
+    }
     pub fn hidden(command: &mut Command) { command.creation_flags(0x08000000); }
 }
 #[cfg(not(windows))]
@@ -93,6 +114,7 @@ mod platform {
     impl Lock { pub fn acquire() -> Result<Self> { Ok(Self) } }
     pub fn replace(from: &Path, to: &Path) -> Result<()> { fs::rename(from, to).map_err(|e| e.to_string()) }
     pub fn reparse(meta: &fs::Metadata) -> bool { meta.file_type().is_symlink() }
+    pub fn fixed_drive(_: &Path) -> bool { true }
     pub fn hidden(_: &mut Command) {}
 }
 
@@ -112,6 +134,154 @@ fn normalized(path: &Path) -> String {
 }
 fn same_path(a: &Path, b: &Path) -> bool { normalized(a) == normalized(b) }
 fn error(path: &Path, e: impl std::fmt::Display) -> String { format!("{}: {}", path.display(), e) }
+fn strip_verbatim(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix("\\\\?\\") { return PathBuf::from(rest); }
+    }
+    path
+}
+fn resolved_path(path: &Path) -> PathBuf {
+    strip_verbatim(path.ancestors().find_map(|ancestor| fs::canonicalize(ancestor).ok().and_then(|canonical|
+        path.strip_prefix(ancestor).ok().map(|suffix| canonical.join(suffix)))).unwrap_or_else(|| path.to_path_buf()))
+}
+fn env_path(key: &str) -> Option<PathBuf> {
+    std::env::var_os(key).filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+fn path_units(path: &Path) -> usize {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        path.as_os_str().encode_wide().count()
+    }
+    #[cfg(not(windows))]
+    {
+        path.as_os_str().len()
+    }
+}
+// Returns the directories that would have to be created for `root`, in
+// top-down order. It also rejects a file or reparse point anywhere on the
+// chain before any mutation. A non-existent chain is common on a new drive.
+fn plan_created_dirs(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut missing = vec![];
+    for part in root.ancestors() {
+        match fs::symlink_metadata(part) {
+            Ok(meta) if platform::reparse(&meta) || meta.file_type().is_symlink() => return Err(error(part, "Refusing reparse point / symbolic link")),
+            Ok(meta) if meta.is_dir() => break,
+            Ok(_) => return Err(error(part, "Install root is not a directory")),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => missing.push(part.to_path_buf()),
+            Err(e) => return Err(error(part, e)),
+        }
+    }
+    missing.reverse();
+    Ok(missing)
+}
+// 2026-10-26: the default root stays byte-for-byte the existing contract. A
+// custom root is explicit opt-in and must be a local fixed drive, a dedicated
+// folder, and outside every path this app already owns or preserves.
+fn validate_managed_root(ctx: &Context, root: &Path, source: &Path) -> Result<PathBuf> {
+    let text = root.to_string_lossy();
+    if text.trim().is_empty() { return Err("Choose an install folder".into()); }
+    if !root.is_absolute() { return Err(error(root, "Install folder must be an absolute path")); }
+    if text.starts_with("\\\\") { return Err(error(root, "Network/UNC install folders are not supported")); }
+    if root.components().any(|component| component == Component::ParentDir) { return Err(error(root, "Install folder must not contain ..")); }
+    if root.parent().is_none() { return Err(error(root, "Choose a dedicated folder, not a drive root")); }
+    let resolved = resolved_path(root);
+    if !platform::fixed_drive(&resolved) {
+        return Err(error(root, "Choose a folder on a local fixed drive; network, removable and RAM-disk folders are not supported"));
+    }
+    for key in ["USERPROFILE", "LOCALAPPDATA", "APPDATA"] {
+        if env_path(key).map(|path| same_path(&resolved, &path)).unwrap_or(false) {
+            return Err(error(root, "Choose a dedicated folder, not a Windows profile or system folder"));
+        }
+    }
+    for key in ["ProgramFiles", "ProgramFiles(x86)", "ProgramData", "SystemRoot"] {
+        if let Some(base) = env_path(key) {
+            if same_path(&resolved, &base) || contains_directory(&base, &resolved) {
+                return Err(error(root, "Choose a dedicated folder, not a Windows system folder"));
+            }
+        }
+    }
+    if let Some(app_data) = env_path("USERPROFILE").map(|path| path.join("AppData")) {
+        if same_path(&resolved, &app_data) { return Err(error(root, "Choose a dedicated folder, not the AppData root")); }
+    }
+    if let Some(users) = env_path("SystemDrive").map(|drive| drive.join("Users")) {
+        if same_path(&resolved, &users) { return Err(error(root, "Choose a dedicated folder, not the Users root")); }
+    }
+    #[cfg(not(test))]
+    if let Some(temp) = env_path("TEMP").or_else(|| env_path("TMP")) {
+        if contains_directory(&temp, &resolved) { return Err(error(root, "Temporary install folders are not supported")); }
+    }
+    for ancestor in resolved.ancestors() {
+        if ancestor.join(".git").exists() || ancestor.join("GalaxyXRDriver").exists()
+            || ancestor.join("GalaxyXRDriverGUI").exists() || ancestor.join("CustomHeadsetOpenVR").exists() {
+            return Err(error(root, "Refusing a source/workspace install folder"));
+        }
+    }
+    let other_owned = [
+        ("driver configuration", ctx.data.clone()),
+        ("default managed driver folder", ctx.managed.clone()),
+        ("SteamVR", ctx.steamvr.clone()),
+        ("driver source bundle", source.to_path_buf()),
+    ];
+    for (label, other) in other_owned {
+        if same_path(&resolved, &other) {
+            if label == "default managed driver folder" { return Ok(resolved); }
+            return Err(error(root, format!("Install folder overlaps the {label}")));
+        }
+        if contains_directory(&other, &resolved) || contains_directory(&resolved, &other) {
+            return Err(error(root, format!("Install folder overlaps the {label}")));
+        }
+    }
+    let sample = resolved.join(format!("GalaxyXRNative-{}", "0".repeat(19))).join("bin/win64/driver_GalaxyXRNative.dll");
+    if path_units(&sample) > 240 { return Err(error(root, "Install path is too long; choose a shorter folder")); }
+    let _ = plan_created_dirs(&resolved)?;
+    if resolved.exists() && !resolved.is_dir() { return Err(error(root, "Install folder is not a directory")); }
+    safe_chain(&resolved)?;
+    Ok(resolved)
+}
+fn receipt_managed_roots(ctx: &Context, receipt: Option<&Value>) -> Vec<PathBuf> {
+    let mut roots = vec![];
+    if let Some(receipt) = receipt.filter(|receipt| receipt["schema"] == 3) {
+        if let Some(list) = receipt["managedRoots"].as_array() {
+            for path in list.iter().filter_map(Value::as_str).map(PathBuf::from) { push_path(&mut roots, path); }
+        }
+    }
+    // A schema 1/2 receipt owns packages under the historical default root.
+    // A pristine custom install has no default package to record.
+    if roots.is_empty() && receipt.is_some() { roots.push(ctx.managed.clone()); }
+    roots
+}
+fn receipt_created_roots(receipt: Option<&Value>) -> Vec<PathBuf> {
+    receipt.filter(|receipt| receipt["schema"] == 3).and_then(|receipt| receipt["createdRoots"].as_array())
+        .map(|list| list.iter().filter_map(Value::as_str).map(PathBuf::from).collect()).unwrap_or_default()
+}
+fn managed_location_for(ctx: &Context, receipt: Option<&Value>, path: &Path) -> bool {
+    let leaf = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+    if !leaf.starts_with("GalaxyXRNative-") && !leaf.starts_with(".galaxyxr-uninstall-") { return false; }
+    if receipt.map(|receipt| receipt["schema"] == 3).unwrap_or(false) {
+        let Some(parent) = path.parent() else { return false };
+        return receipt_managed_roots(ctx, receipt).iter().any(|root| same_path(parent, root));
+    }
+    managed_location(ctx, path)
+}
+// A custom root can live on a drive that is currently disconnected. Fail
+// before registrations or files are changed so the receipt remains recoverable.
+fn ensure_managed_roots_available(ctx: &Context, receipt: Option<&Value>) -> Result<()> {
+    let Some(receipt) = receipt.filter(|receipt| receipt["schema"] == 3) else { return Ok(()) };
+    for path in receipt_paths(Some(receipt), "packages") {
+        if path.exists() { continue; }
+        if !owned_package(ctx, Some(receipt), &path) || !managed_location_for(ctx, Some(receipt), &path) { continue; }
+        let Some(parent) = path.parent() else { continue };
+        if !parent.exists() {
+            return Err(error(&parent, "The recorded custom driver folder is unavailable. Reconnect the drive and retry; the installation record was preserved."));
+        }
+        if !parent.is_dir() { return Err(error(parent, "The recorded custom driver folder is not a directory")); }
+        safe_chain(parent)?;
+    }
+    Ok(())
+}
 fn read_json(path: &Path) -> Result<Value> {
     let data = fs::read(path).map_err(|e| error(path, e))?;
     parse_json_bytes(path, &data)
@@ -219,9 +389,18 @@ impl Context {
     fn receipt_value(&self) -> Result<Option<Value>> {
         if !self.receipt().exists() { return Ok(None); }
         let v = read_json(&self.receipt())?;
-        if ![json!(1),json!(2)].contains(&v["schema"]) || v["driver"] != DRIVER || !v["packages"].is_array() { return Err("Invalid Galaxy XR installation receipt; preserve for recovery".into()); }
+        if ![json!(1),json!(2),json!(3)].contains(&v["schema"]) || v["driver"] != DRIVER || !v["packages"].is_array() { return Err("Invalid Galaxy XR installation receipt; preserve for recovery".into()); }
         if !v["packages"].as_array().unwrap().iter().all(Value::is_string) {return Err("Invalid installation package path".into());}
-        if v["schema"] == 2 && !v["sourcePaths"].as_array().map(|a|a.iter().all(Value::is_string)).unwrap_or(false) { return Err("Invalid installation source paths".into()); }
+        if v["schema"].as_u64().unwrap_or(0) >= 2 && !v["sourcePaths"].as_array().map(|a|a.iter().all(Value::is_string)).unwrap_or(false) { return Err("Invalid installation source paths".into()); }
+        if v["schema"] == 3 {
+            let roots=v["managedRoots"].as_array().filter(|a|!a.is_empty() && a.iter().all(Value::is_string))
+                .ok_or("Invalid custom installation roots")?;
+            if !roots.iter().filter_map(Value::as_str).all(|path|Path::new(path).is_absolute()) { return Err("Invalid custom installation root path".into()); }
+            let active=v["activeRoot"].as_str().ok_or("Invalid active installation root")?;
+            if !roots.iter().filter_map(Value::as_str).any(|path|same_path(Path::new(path),Path::new(active))) { return Err("Active installation root is not recorded".into()); }
+            let created=v["createdRoots"].as_array().filter(|a|a.iter().all(Value::is_string)).ok_or("Invalid created installation roots")?;
+            if !created.iter().filter_map(Value::as_str).all(|path|Path::new(path).is_absolute()) { return Err("Invalid created installation root path".into()); }
+        }
         if let Some(pending)=v.get("cleanupPending") {
             if !pending.as_array().map(|a|a.iter().all(|p|p.is_string() && v["packages"].as_array().unwrap().contains(p))).unwrap_or(false) {return Err("Invalid pending cleanup receipt".into());}
         }
@@ -483,13 +662,21 @@ fn contains_directory(parent:&Path,path:&Path)->bool {
     path==parent || path.starts_with(&(parent+"\\"))
 }
 fn validate_source_boundaries(ctx:&Context,source:&Path)->Result<()> {
+    validate_source_boundaries_for(ctx,source,&ctx.managed)
+}
+fn validate_source_boundaries_for(ctx:&Context,source:&Path,managed:&Path)->Result<()> {
     // Config is removed during uninstall; an unpacked bundle must never live
     // inside it (or contain it). Copy destinations also cannot be inside source.
     if contains_directory(&ctx.data,source) || contains_directory(source,&ctx.data) {
         return Err(error(source,"Bundle overlaps the driver configuration directory. Move the bundle outside that directory before installing or uninstalling."));
     }
-    if contains_directory(source,&ctx.managed) {
+    if contains_directory(source,managed) {
         return Err(error(source,"Bundle contains the managed installation directory. Move the bundle outside that directory."));
+    }
+    // A custom destination must not contain the selected source either. The
+    // historical default keeps accepting a previously managed copy as source.
+    if !same_path(managed,&ctx.managed) && contains_directory(managed,source) {
+        return Err(error(source,"Bundle overlaps the managed installation directory. Move the bundle outside that directory."));
     }
     Ok(())
 }
@@ -514,6 +701,8 @@ fn owned_package(ctx: &Context, receipt: Option<&Value>, path: &Path) -> bool {
         || contains_path(&receipt_paths(receipt,"packages"),path)))
         || (receipt.map(|r|r["schema"]==2).unwrap_or(false)
             && managed_location(ctx,path) && contains_path(&receipt_paths(receipt,"packages"),path))
+        || (receipt.map(|r|r["schema"]==3).unwrap_or(false)
+            && managed_location_for(ctx,receipt,path) && contains_path(&receipt_paths(receipt,"packages"),path))
 }
 fn source_paths(ctx: &Context, receipt: Option<&Value>, candidates: &[PathBuf]) -> Vec<PathBuf> {
     let mut sources=receipt_paths(receipt,"sourcePaths");
@@ -613,15 +802,22 @@ fn seed_vrlink_defaults(ctx: &Context) -> Result<()> {
 }
 
 #[tauri::command]
-pub fn register_galaxyxr_driver(steamvr_path: String, driver_path: String) -> Result<InstallReport> {
+pub fn register_galaxyxr_driver(steamvr_path: String, driver_path: String, install_root: Option<String>) -> Result<InstallReport> {
     let _guard = platform::Lock::acquire()?;
     require_stopped()?;
     let ctx = Context::live(steamvr_path)?;
-    install_driver(&ctx,Path::new(&driver_path),&std::env::current_exe().map_err(|e|e.to_string())?,|path,add|run_registration(&ctx,path,add))
+    let install_root = install_root.as_deref().map(str::trim).filter(|root| !root.is_empty()).map(PathBuf::from);
+    install_driver_to(&ctx,Path::new(&driver_path),&std::env::current_exe().map_err(|e|e.to_string())?,install_root.as_deref(),|path,add|run_registration(&ctx,path,add))
 }
-fn install_driver(ctx:&Context,source:&Path,exe:&Path,mut register:impl FnMut(&Path,bool)->Result<()>)->Result<InstallReport> {
+#[cfg(test)]
+fn install_driver(ctx:&Context,source:&Path,exe:&Path,register:impl FnMut(&Path,bool)->Result<()>)->Result<InstallReport> {
+    install_driver_to(ctx,source,exe,None,register)
+}
+fn install_driver_to(ctx:&Context,source:&Path,exe:&Path,install_root:Option<&Path>,mut register:impl FnMut(&Path,bool)->Result<()>)->Result<InstallReport> {
     let source=validate_package(source,exe)?;
-    validate_source_boundaries(ctx,&source)?;
+    let managed=match install_root { Some(root)=>validate_managed_root(ctx,root,&source)?, None=>ctx.managed.clone() };
+    let custom=!same_path(&managed,&ctx.managed);
+    validate_source_boundaries_for(ctx,&source,&managed)?;
     if fork_kind(&source)? != Some(false) { return Err("Install the GalaxyXRNative package, not the legacy fork".into()); }
     let receipt=ctx.receipt_value()?;
     if !receipt_paths(receipt.as_ref(),"cleanupPending").is_empty() {
@@ -656,10 +852,16 @@ fn install_driver(ctx:&Context,source:&Path,exe:&Path,mut register:impl FnMut(&P
     let snapshots=[ctx.settings.clone(),ctx.journal(),config_path.clone(),ctx.receipt()].into_iter()
         .map(|path|snapshot_file(&path).map(|bytes|(path,bytes))).collect::<Result<Vec<_>>>()?;
     let stamp=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
-    let path=ctx.managed.join(format!("GalaxyXRNative-{stamp}"));
-    let staging=ctx.managed.join(format!("GalaxyXRNative-{stamp}.stage"));
+    let path=managed.join(format!("GalaxyXRNative-{stamp}"));
+    let staging=managed.join(format!("GalaxyXRNative-{stamp}.stage"));
     safe_chain(&path)?; safe_chain(&staging)?;
     if path.exists() || staging.exists() { return Err("Installation destination already exists".into()); }
+    let created_dirs=plan_created_dirs(&managed)?;
+    let schema3=custom || receipt.as_ref().map(|r|r["schema"]==3).unwrap_or(false);
+    let mut managed_roots=receipt_managed_roots(ctx,receipt.as_ref());
+    push_path(&mut managed_roots,managed.clone());
+    let mut created_roots=receipt_created_roots(receipt.as_ref());
+    for dir in &created_dirs { push_path(&mut created_roots,dir.clone()); }
     let mut retirements=vec![];
     for old in &packages {
         if old.exists() && old.parent().map(|p|same_path(p,&ctx.steamvr.join("drivers"))).unwrap_or(false) {
@@ -676,11 +878,23 @@ fn install_driver(ctx:&Context,source:&Path,exe:&Path,mut register:impl FnMut(&P
     for p in receipt_paths(receipt.as_ref(),"packages").into_iter().chain(sources.iter().cloned()) { push_path(&mut registration_paths,p); }
     let mut moved=vec![]; let mut removed=vec![]; let mut registration_attempted=false;
     let mut attempt_packages=packages.clone(); attempt_packages.push(staging.clone());
-    let attempt_receipt=json!({"schema":2,"driver":DRIVER,"packages":attempt_packages,"sourcePaths":sources,"legacyDetected":legacy,"retirements":retirements,"cleanupPending":[path,staging]});
+    let make_receipt=|receipt_packages:&[PathBuf],cleanup:Option<&[PathBuf]>| {
+        let mut receipt=json!({"schema":if schema3 {3} else {2},"driver":DRIVER,"packages":receipt_packages,
+            "sourcePaths":sources,"legacyDetected":legacy,"retirements":retirements});
+        if schema3 {
+            receipt["managedRoots"]=json!(managed_roots);
+            receipt["activeRoot"]=json!(managed);
+            receipt["createdRoots"]=json!(created_roots);
+        }
+        if let Some(cleanup)=cleanup { receipt["cleanupPending"]=json!(cleanup); }
+        receipt
+    };
+    let attempt_receipt=make_receipt(&attempt_packages,Some(&[path.clone(),staging.clone()]));
     // Write ownership before copying; interrupted copies remain safely recoverable.
     atomic_json(&ctx.receipt(),&attempt_receipt)?;
     let install=(|| {
         atomic_json(&ctx.journal(),&journal)?;
+        fs::create_dir_all(&managed).map_err(|e|error(&managed,e))?;
         copy_package(&source,&staging)?;
         validate_package(&staging,exe)?;
         fs::rename(&staging,&path).map_err(|e|error(&path,e))?;
@@ -703,7 +917,7 @@ fn install_driver(ctx:&Context,source:&Path,exe:&Path,mut register:impl FnMut(&P
         // (see seed_vrlink_defaults); a failure here aborts and rolls back
         // the whole install transaction.
         if fresh_install { seed_vrlink_defaults(ctx)?; }
-        atomic_json(&ctx.receipt(),&json!({"schema":2,"driver":DRIVER,"packages":packages,"sourcePaths":sources,"legacyDetected":legacy,"retirements":retirements}))
+        atomic_json(&ctx.receipt(),&make_receipt(&packages,None))
     })();
     if let Err(e)=install {
         let mut errors=vec![e];
@@ -719,6 +933,15 @@ fn install_driver(ctx:&Context,source:&Path,exe:&Path,mut register:impl FnMut(&P
                 if let Err(e)=safe_tree(created).and_then(|_|fs::remove_dir_all(created).map_err(|e|error(created,e))) { errors.push(format!("ROLLBACK {e}")); }
             }
         }
+        if custom {
+            // A failed custom install must not strand empty directories that
+            // the user did not have before. Non-empty directories are kept.
+            for dir in created_dirs.iter().rev() {
+                if dir.exists() && fs::read_dir(dir).map(|mut entries|entries.next().is_none()).unwrap_or(false) {
+                    let _ = fs::remove_dir(dir);
+                }
+            }
+        }
         if errors.len()==1 {
             let (_,bytes)=snapshots.last().unwrap();
             if let Err(e)=restore_file(&ctx.receipt(),bytes) { errors.push(format!("ROLLBACK receipt: {e}")); }
@@ -726,7 +949,7 @@ fn install_driver(ctx:&Context,source:&Path,exe:&Path,mut register:impl FnMut(&P
         cleanup_retirement_parents(ctx,&packages,&mut errors);
         return Err(errors.join("; "));
     }
-    Ok(InstallReport { registered_path:path.to_string_lossy().into_owned(),legacy_detected:legacy })
+    Ok(InstallReport { registered_path:path.to_string_lossy().into_owned(),managed_root:managed.to_string_lossy().into_owned(),used_default_root:!custom,legacy_detected:legacy })
 }
 
 fn cleanup_retirement_parents(ctx:&Context,packages:&[PathBuf],warnings:&mut Vec<String>) {
@@ -861,7 +1084,13 @@ fn prepare_uninstall_receipt(ctx:&Context,packages:&[PathBuf],legacy:bool)->Resu
         }
         recovery_paths.push(tombstone.clone());planned.push((path.clone(),tombstone));
     }
-    let recovery=json!({"schema":2,"driver":DRIVER,"packages":recovery_paths,"sourcePaths":sources,"legacyDetected":legacy,"cleanupPending":recovery_paths,"staged":planned});
+    let mut recovery=previous.unwrap_or_else(||json!({"schema":2,"driver":DRIVER}));
+    if recovery["schema"] != 3 { recovery=json!({"schema":2,"driver":DRIVER}); }
+    recovery["packages"]=json!(recovery_paths);
+    recovery["sourcePaths"]=json!(sources);
+    recovery["legacyDetected"]=json!(legacy);
+    recovery["cleanupPending"]=json!(recovery_paths);
+    recovery["staged"]=json!(planned);
     // Write ahead of registration, rename, and settings operations. Even a
     // pre-commit rollback failure or process interruption remains discoverable.
     atomic_json(&ctx.receipt(),&recovery)?;
@@ -1057,6 +1286,7 @@ fn uninstall_local_settings(data: &Path, managed: &Path) -> Result<UninstallRepo
 
 fn uninstall_driver(ctx:&Context,exe:&Path,mut register:impl FnMut(&Path,bool)->Result<()>)->Result<UninstallReport> {
     let receipt = ctx.receipt_value()?;
+    ensure_managed_roots_available(ctx,receipt.as_ref())?;
     let journal_existed = ctx.journal().exists();
     if journal_existed && !ctx.settings.is_file() { return Err("The recorded SteamVR settings file is missing. Restore or locate it before uninstalling; recovery records were preserved.".into()); }
     let mut journal = load_journal(&ctx)?; // Corruption never becomes legacy cleanup.
@@ -1167,6 +1397,11 @@ fn uninstall_driver(ctx:&Context,exe:&Path,mut register:impl FnMut(&Path,bool)->
         }
         remove_driver_data(&ctx.data, &mut report.removed_paths)?;
         report.removed_paths.extend(cleanup_uninstall_residue(&ctx)?);
+        // Remove only empty roots the installer created for a custom location.
+        // A folder the user selected and already owned is never removed.
+        for root in receipt_created_roots(receipt.as_ref()).iter().rev() {
+            remove_empty_directory(Some(root), &mut report.removed_paths)?;
+        }
         Ok(())
     })();
     if let Err(e) = cleanup {
@@ -2018,5 +2253,106 @@ mod tests {
         assert_eq!(report.outcome,"complete");assert!(!Path::new(&installed.registered_path).exists());
         assert!(f.ctx.registrations().unwrap().is_empty());assert_eq!(read_settings(&f.ctx.settings).unwrap(),baseline);
         assert!(source.join("bin/win64/driver_GalaxyXRNative.dll").exists());assert!(!f.ctx.data.exists());
+    }
+    #[test]
+    fn custom_root_install_uses_receipt_and_preserves_pre_existing_root() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        let custom=f.root.join("custom-drivers");fs::create_dir_all(&custom).unwrap();fs::write(custom.join("keep.txt"),b"keep").unwrap();
+        let installed=install_driver_to(&f.ctx,&source,&exe,Some(&custom),|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let path=PathBuf::from(&installed.registered_path);
+        assert!(!installed.used_default_root);
+        assert_eq!(path.parent(),Some(custom.as_path()));
+        assert!(same_path(Path::new(&installed.managed_root),&custom));
+        let receipt=f.ctx.receipt_value().unwrap().unwrap();
+        assert_eq!(receipt["schema"],3);
+        assert!(same_path(Path::new(receipt["activeRoot"].as_str().unwrap()),&custom));
+        assert!(contains_path(&receipt_paths(Some(&receipt),"packages"),&path));
+        assert!(receipt["managedRoots"].as_array().unwrap().iter().filter_map(Value::as_str).any(|p|same_path(Path::new(p),&custom)));
+        assert!(receipt["createdRoots"].as_array().unwrap().is_empty());
+        assert_eq!(f.ctx.registrations().unwrap(),vec![path.clone()]);
+        let report=uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert_eq!(report.outcome,"complete");
+        assert!(!path.exists());assert!(custom.exists());assert!(custom.join("keep.txt").exists());
+        assert!(f.ctx.registrations().unwrap().is_empty());assert!(!f.ctx.receipt().exists());
+    }
+    #[test]
+    fn custom_root_creation_is_tracked_and_removed_only_when_empty() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        let custom=f.root.join("created/custom-drivers");
+        let installed=install_driver_to(&f.ctx,&source,&exe,Some(&custom),|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let path=PathBuf::from(&installed.registered_path);
+        let receipt=f.ctx.receipt_value().unwrap().unwrap();
+        assert!(receipt["createdRoots"].as_array().unwrap().iter().filter_map(Value::as_str).any(|p|same_path(Path::new(p),&custom)));
+        assert!(custom.exists());
+        uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert!(!path.exists());assert!(!custom.exists());assert!(!f.root.join("created").exists());
+    }
+    #[test]
+    fn default_install_keeps_schema_2_and_no_custom_fields() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        let installed=install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let receipt=f.ctx.receipt_value().unwrap().unwrap();
+        assert!(installed.used_default_root);
+        assert!(same_path(Path::new(&installed.managed_root),&f.ctx.managed));
+        assert_eq!(receipt["schema"],2);
+        assert!(receipt.get("managedRoots").is_none());
+        assert!(receipt.get("activeRoot").is_none());
+        assert!(receipt.get("createdRoots").is_none());
+    }
+    #[test]
+    fn custom_then_default_reinstall_retains_both_copies_and_settings() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        let custom=f.root.join("custom-drivers");fs::create_dir_all(&custom).unwrap();
+        let custom_install=install_driver_to(&f.ctx,&source,&exe,Some(&custom),|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let custom_path=PathBuf::from(&custom_install.registered_path);
+        let settings=json!({"galaxyXr":{"nativeIdentity":false}});atomic_json(&f.ctx.data.join("settings.json"),&settings).unwrap();
+        let default_install=install_driver_to(&f.ctx,&source,&exe,None,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let default_path=PathBuf::from(&default_install.registered_path);
+        assert!(default_install.used_default_root);assert!(default_path.starts_with(&f.ctx.managed));assert!(custom_path.exists());
+        let receipt=f.ctx.receipt_value().unwrap().unwrap();
+        assert_eq!(receipt["schema"],3);
+        assert!(same_path(Path::new(receipt["activeRoot"].as_str().unwrap()),&f.ctx.managed));
+        assert!(contains_path(&receipt_paths(Some(&receipt),"packages"),&custom_path));
+        assert!(contains_path(&receipt_paths(Some(&receipt),"packages"),&default_path));
+        assert_eq!(f.ctx.registrations().unwrap(),vec![default_path.clone()]);
+        assert_eq!(read_json(&f.ctx.data.join("settings.json")).unwrap(),settings);
+        uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert!(!custom_path.exists());assert!(!default_path.exists());assert!(custom.exists());
+    }
+    #[test]
+    fn unavailable_custom_root_blocks_uninstall_and_preserves_receipt() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        let custom=f.root.join("custom-drivers");fs::create_dir_all(&custom).unwrap();
+        let installed=install_driver_to(&f.ctx,&source,&exe,Some(&custom),|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        fs::remove_dir_all(&custom).unwrap();
+        let before=fs::read(f.ctx.receipt()).unwrap();
+        let result=uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a));
+        assert!(matches!(result,Err(e) if e.contains("unavailable")));
+        assert_eq!(fs::read(f.ctx.receipt()).unwrap(),before);
+        assert_eq!(f.ctx.registrations().unwrap(),vec![PathBuf::from(installed.registered_path)]);
+    }
+    #[test]
+    fn custom_root_validation_rejects_relative_broad_overlap_and_file_paths() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");
+        for path in [PathBuf::from("relative"),PathBuf::from("C:\\"),PathBuf::from("\\\\server\\share")] {
+            assert!(validate_managed_root(&f.ctx,&path,&source).is_err(),"{path:?}");
+        }
+        assert!(validate_managed_root(&f.ctx,&f.ctx.data.join("custom"),&source).is_err());
+        assert!(validate_managed_root(&f.ctx,&f.ctx.managed.join("custom"),&source).is_err());
+        assert!(validate_managed_root(&f.ctx,&source.join("custom"),&source).is_err());
+        let file=f.root.join("not-a-folder");fs::write(&file,b"x").unwrap();
+        assert!(validate_managed_root(&f.ctx,&file,&source).is_err());
+    }
+    #[test]
+    fn manually_registered_package_under_custom_root_is_preserved() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        let custom=f.root.join("custom-drivers");fs::create_dir_all(&custom).unwrap();
+        install_driver_to(&f.ctx,&source,&exe,Some(&custom),|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let manual=f.package("custom-drivers/GalaxyXRNative-manual");fake_registration(&f.ctx,&manual,true).unwrap();
+        let receipt=f.ctx.receipt_value().unwrap().unwrap();
+        assert!(!owned_package(&f.ctx,Some(&receipt),&manual));
+        uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert!(manual.exists());
+        assert!(!f.ctx.registrations().unwrap().iter().any(|p|same_path(p,&manual)));
     }
 }

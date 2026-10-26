@@ -500,6 +500,11 @@ export type AppSetting = {
   // passed the live SteamVR initialization check it stays verified until the
   // next install or uninstall clears it. GUI state, not a user-facing toggle.
   driverVerified: boolean;
+  // Driver install root (2026-10-26): empty means the default
+  // %LOCALAPPDATA%/GalaxyXR/Drivers. A non-empty absolute local fixed-drive
+  // path is used only by the next explicit install or reinstall. The
+  // installation receipt, not this preference, owns the active package.
+  driverInstallRoot: string;
 }
 
 export const HeadsetType = {

@@ -66,8 +66,14 @@ export interface IdentityCleanupReport {
 export async function clean_legacy_galaxyxr_identity(steamvrPath: string): Promise<IdentityCleanupReport> {
     return invoke('clean_legacy_galaxyxr_identity', { steamvrPath });
 }
-export async function register_galaxyxr_driver(steamvrPath: string, driverPath: string) {
-    return invoke('register_galaxyxr_driver', { steamvrPath, driverPath });
+export interface InstallReport {
+    registeredPath: string;
+    managedRoot: string;
+    usedDefaultRoot: boolean;
+    legacyDetected: boolean;
+}
+export async function register_galaxyxr_driver(steamvrPath: string, driverPath: string, installRoot?: string): Promise<InstallReport> {
+    return invoke('register_galaxyxr_driver', { steamvrPath, driverPath, installRoot: installRoot ?? null });
 }
 export async function update_galaxyxr_steamvr_settings(steamvrPath: string, changes: SteamVRSettingChange[]) {
     return invoke('update_galaxyxr_steamvr_settings', { steamvrPath, changes });

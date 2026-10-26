@@ -62,6 +62,7 @@ function load(relative) {
     if (id.endsWith('/ui/theme')) return { applyTheme() {} };
     if (id.endsWith('/environment')) return { galaxyXRDriverName: 'GalaxyXRNative', vendor: 'galaxyxr' };
     if (id === '@tauri-apps/plugin-opener') return { openUrl: async () => {} };
+    if (id === '@tauri-apps/plugin-dialog') return { open: async () => null };
     // Platform bridge modules reached through ui-scale/ui-scale pages: the
     // markup harness never performs IPC, so inert stubs are enough.
     if (id === '@tauri-apps/api/core') return { invoke: async () => undefined };

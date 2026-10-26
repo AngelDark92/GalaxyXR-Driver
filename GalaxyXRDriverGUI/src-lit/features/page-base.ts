@@ -207,6 +207,8 @@ export class BasePage extends LitElement {
       c.sds.steamVrConfig.subscribe(notify),
       c.sds.installingDriver.subscribe(notify),
       c.sds.driverInstalled.subscribe(notify),
+      c.sds.driverRegisteredPath.subscribe(notify),
+      c.sds.defaultDriverRoot.subscribe(notify),
       c.sds.steamVRinstalled.subscribe(notify),
       c.sds.driverVersionMismatch.subscribe(notify),
       c.aus.updateInfo.subscribe(notify),

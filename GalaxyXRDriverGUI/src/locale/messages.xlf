@@ -4242,6 +4242,17 @@ Value: none (diagnostic only). Native side — read-only process telemetry and A
       <trans-unit id="windows-startup-20261026-13" datatype="html"><source>Optical Flow needs attention</source></trans-unit>
       <trans-unit id="windows-startup-20261026-14" datatype="html"><source>Open Optical Flow</source></trans-unit>
       <trans-unit id="windows-startup-20261026-15" datatype="html"><source>Saved settings could not be read. Check Settings on Setup before restoring Optical Flow.</source></trans-unit>
+      <trans-unit id="driver-install-20261026-1" datatype="html"><source>Driver install location</source></trans-unit>
+      <trans-unit id="driver-install-20261026-2" datatype="html"><source>Custom: {path}</source></trans-unit>
+      <trans-unit id="driver-install-20261026-3" datatype="html"><source>Default: {path}</source></trans-unit>
+      <trans-unit id="driver-install-20261026-4" datatype="html"><source>Change…</source></trans-unit>
+      <trans-unit id="driver-install-20261026-5" datatype="html"><source>Current installation: {path}</source></trans-unit>
+      <trans-unit id="driver-install-20261026-6" datatype="html"><source>Install location saved for the next reinstall</source></trans-unit>
+      <trans-unit id="driver-install-20261026-7" datatype="html"><source>The current installation stays at {path}. Use Reinstall driver to apply the new location.</source></trans-unit>
+      <trans-unit id="driver-install-20261026-8" datatype="html"><source>Driver installed at {path}. Start SteamVR and connect your headset through Steam Link to verify the driver.</source></trans-unit>
+      <trans-unit id="driver-install-20261026-9" datatype="html"><source>Install location not saved</source></trans-unit>
+      <trans-unit id="driver-install-20261026-10" datatype="html"><source>The install location preference could not be saved. Check the app settings file permissions and try again.</source></trans-unit>
+      <trans-unit id="driver-install-20261026-11" datatype="html"><source>Choose the parent folder for versioned driver packages. The default is recommended. The driver is installed in a GalaxyXRNative versioned subfolder. A custom location must be an absolute folder on a local fixed drive; network, removable, cloud-synced, temporary and reparse-point folders are not supported. The saved location applies only after you install or reinstall the driver. Changing it does not move the current installation. Value: driverInstallRoot (gui-settings.json). GUI-only install preference; empty means the default.</source></trans-unit>
     </body>
   </file>
 </xliff>

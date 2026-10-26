@@ -65,7 +65,9 @@ Toggle corrections (2026-09-25):
 
 1. Unpack the entire release zip. The GUI folder and the `GalaxyXRNative` folder must stay next to each other.
 2. Run `Galaxy XR Companion.exe`, open **Setup**, and press **Install Driver**.
-3. Older copies of this fork are removed automatically on the first install. If the stock CustomHeadsetOpenVR driver is also enabled, the GUI shows a notice and a "Switch to this driver" button, press it, two drivers must not claim the headset at once.
+3. Optional: use **Setup > Advanced > Driver install location** before installing. The default remains `%LOCALAPPDATA%\GalaxyXR\Drivers`. A custom location must be an absolute folder on a local fixed drive; network, removable, cloud-synced, temporary and reparse-point folders are not supported. The saved choice applies only to the next install or reinstall; it does not move the current installation. The old copy is retained for rollback until uninstall.
+4. Older copies of this fork are removed automatically on the first install. If the stock CustomHeadsetOpenVR driver is also enabled, the GUI shows a notice and a "Switch to this driver" button, press it, two drivers must not claim the headset at once.
+5. Use **Start SteamVR** on Setup and connect through Steam Link. Wait for driver initialization to be verified, then check the picture and controller tracking in the headset.
 4. Use **Start SteamVR** on Setup and connect through Steam Link. Wait for driver initialization to be verified, then check the picture and controller tracking in the headset.
 
 Settings live in `%APPDATA%\GalaxyXR\CustomHeadset\settings.json`, separate from the stock driver's `%APPDATA%\CustomHeadset\` so the two never share state.
