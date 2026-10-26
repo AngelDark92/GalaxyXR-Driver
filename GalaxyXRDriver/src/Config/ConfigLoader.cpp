@@ -10,12 +10,14 @@
 #include "StreamTiers.h"
 #include "SdrColorPolicy.h"
 #include "DebugModePolicy.h"
+#include "ControllerMasterPolicy.h"
 #include "GameLinkLayoutPolicy.h"
 #include "../Distortion/DistortionProfileConstructor.h"
 #ifdef _WIN32
 #include "Windows.h"
 #include "../Driver/NvencTap.h"
 #include "../Driver/VrlinkTap.h"
+#include "../Driver/AswAutoMode.h"
 #else
 #include <unistd.h>
 #endif
@@ -273,7 +275,7 @@ void ConfigLoader::ParseConfig(){
 				DriverLog("Config: %s", newConfig.streamFrame.nvencValidationError.c_str());
 			}
 		};
-		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencBitrateCurve", "nvencBitrateConstancyPct", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencVrlinkClampMbit", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
+		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencBitrateCurve", "nvencBitrateConstancyPct", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
 		for(const char* key : {"customStreamFormatWidth", "customBandwidthMbit", "customEncodeWidth", "customStreamFormatWidthOverride"}){ validateInteger("galaxyXr", key); }
 		if(data["debugMode"].is_boolean()){
 			newConfig.debugMode = data["debugMode"].get<bool>();
@@ -411,6 +413,16 @@ void ConfigLoader::ParseConfig(){
 			}
 			if(galaxyXrData["nativeResolution"].is_boolean()){
 				newConfig.galaxyXr.nativeResolution = galaxyXrData["nativeResolution"].get<bool>();
+			}
+			// 2026-10-14: validate before converting, including oversized JSON integers.
+			for(const char* key : {"renderWidth", "renderHeight"}){
+				const auto& value = galaxyXrData[key];
+				if(value.is_number_integer() && value >= 1 && value <= 16384){
+					(key == std::string("renderWidth") ? newConfig.galaxyXr.renderWidth
+						: newConfig.galaxyXr.renderHeight) = value.get<int>();
+				}else if(!value.is_null()){
+					DriverLog("Config: rejected galaxyXr.%s; expected a whole number from 1 to 16384 pixels. The request was not applied; correct it in Driver Settings.", key);
+				}
 			}
 			if(galaxyXrData["streamQuality"].is_string()){
 				newConfig.galaxyXr.streamQuality = galaxyXrData["streamQuality"].get<std::string>();
@@ -953,6 +965,54 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["nvencBitrateConstancyPct"].is_number()){
 				newConfig.streamFrame.nvencBitrateConstancyPct = streamFrameData["nvencBitrateConstancyPct"].get<int>();
 			}
+			// 2026-10-23 (owner request): seven normalized control points for the
+			// Custom curve. P1 is fixed at x=0 with a free y floor; P6 has y=1
+			// with a movable x plateau start; P7 is fixed at (1,1). Files from
+			// the preceding five- or six-point shapes are upgraded in memory:
+			// keep P1..P5, then add the plateau start and the fixed endpoint.
+			if(streamFrameData.contains("nvencBitrateCurvePoints")){
+				const auto &pointsData = streamFrameData["nvencBitrateCurvePoints"];
+				bool pointsOk = pointsData.is_array() && (pointsData.size() == 5 || pointsData.size() == 6 || pointsData.size() == 7);
+				std::vector<StreamFrameBitratePoint> parsed;
+				if(pointsOk){
+					for(const auto &pointData : pointsData){
+						if(!pointData.is_object() || !pointData["x"].is_number() || !pointData["y"].is_number()){
+							pointsOk = false;
+							break;
+						}
+						parsed.push_back({pointData["x"].get<double>(), pointData["y"].get<double>()});
+					}
+				}
+				if(pointsOk && parsed.size() == 5){
+					// Five-point shape -> six points (P1 on the y axis, P6 at 1).
+					parsed.front().x = 0.0;
+					if(parsed.back().x >= 1.0 - 1e-9){
+						const auto &left = parsed[parsed.size() - 2];
+						const auto &right = parsed.back();
+						parsed.insert(parsed.begin() + (std::ptrdiff_t)(parsed.size() - 1),
+							{(left.x + right.x) * 0.5, (left.y + right.y) * 0.5});
+					} else {
+						parsed.push_back({1.0, 1.0});
+					}
+				}
+				if(pointsOk && parsed.size() == 6){
+					// Six-point shape -> seven points. P6 starts at the fixed
+					// endpoint, overlapping hidden P7; dragging it left is what
+					// starts the plateau. A P5 too close to the edge is nudged
+					// left so the final ordering gap remains valid.
+					const double gap = 0.001;
+					if(parsed[4].x > 1.0 - gap){ parsed[4].x = 1.0 - gap; }
+					parsed.resize(5);
+					parsed.push_back({1.0, 1.0});
+					parsed.push_back({1.0, 1.0});
+				}
+				if(pointsOk && parsed.size() == 7){
+					newConfig.streamFrame.nvencBitrateCurvePoints = parsed;
+				} else {
+					newConfig.streamFrame.nvencValidationError = "streamFrame.nvencBitrateCurvePoints must be an array of five, six or seven {x,y} numbers; seven-point curves anchor P1 at x=0, P6 at Max Bitrate with a movable x, and P7 at (1,1).";
+					DriverLog("Config: %s", newConfig.streamFrame.nvencValidationError.c_str());
+				}
+			}
 			// 2026-10-19 schema migration: the retired nvencBitrateScale bool
 			// becomes the constancy percentage. Only an absent new key is
 			// translated; an explicit curve/pct choice always wins. Runs on
@@ -964,9 +1024,8 @@ void ConfigLoader::ParseConfig(){
 				DriverLog("Config: streamFrame.nvencBitrateScale %s -> nvencBitrateConstancyPct %d (retired key)",
 					scale ? "true" : "false", newConfig.streamFrame.nvencBitrateConstancyPct);
 			}
-			if(streamFrameData["nvencVrlinkClampMbit"].is_number()){
-				newConfig.streamFrame.nvencVrlinkClampMbit = streamFrameData["nvencVrlinkClampMbit"].get<int>();
-			}
+			// 2026-10-23: nvencVrlinkClampMbit is retired and ignored. The curve
+			// and target normalize against Max Bitrate; old files keep the key.
 			// 2026-10-21 retirement (owner decision): streamFrame.nvencVrlinkFallbackMode
 			// is gone. It pinned two instructions inside driver_vrlink.dll, which cannot
 			// survive Valve's updates (one image change made it inert, another needed a
@@ -1040,6 +1099,9 @@ void ConfigLoader::ParseConfig(){
 			}
 			if(streamFrameData["spacewarpMode"].is_number()){
 				newConfig.streamFrame.spacewarpMode = streamFrameData["spacewarpMode"].get<int>();
+			}
+			if(streamFrameData["spacewarpSettingsVersion"].is_number()){
+				newConfig.streamFrame.spacewarpSettingsVersion = streamFrameData["spacewarpSettingsVersion"].get<int>();
 			}
 			if(streamFrameData["nvencLowDelayKfScale"].is_number()){
 				newConfig.streamFrame.nvencLowDelayKfScale = streamFrameData["nvencLowDelayKfScale"].get<int>();
@@ -1672,7 +1734,22 @@ void ConfigLoader::ParseConfig(){
 		if(newConfig.streamFrame.streamFrameSchema < 5){
 			newConfig.streamFrame.streamFrameSchema = 5;
 		}
+		// Async Spacewarp semantics v2 (2026-10-26): mode 0 becomes Automatic
+		// (late-frame recovery until the measured cadence drops, then half rate)
+		// and mode 1 becomes Forced half rate. The stored 0/1 values keep their
+		// meaning, so only the dated semantics stamp advances; no enable/mode
+		// selection and no tuning is rewritten. Mirrors GalaxySettingsBase.
+		if(newConfig.streamFrame.spacewarpSettingsVersion < 2){
+			newConfig.streamFrame.spacewarpSettingsVersion = 2;
+		}
 		gxr::ApplyDebugModePolicy(newConfig);
+		// 2026-10-24: controllerBypass is the master controller disable and
+		// must win over a saved Game Link layout. Runtime copy only; the
+		// stored per-feature values are never rewritten.
+		gxr::ApplyControllerMasterPolicy(newConfig);
+		if(gxr::ControllerMasterDisabled(newConfig)){
+			DriverLog("Config: controller master disable ON (galaxyXr.controllerBypass): identity, pose corrections, Game Link layout, motion filter and space velocity fix are off for this runtime; saved controller settings stay unchanged.");
+		}
 		gxr::ApplyGameLinkLayoutPolicy(newConfig);
 		// write to global config
 		{
@@ -2032,7 +2109,13 @@ void ConfigLoader::WriteInfo(){
 				{"nvencForceFps", defaultSettings.streamFrame.nvencForceFps},
 				{"nvencBitrateCurve", defaultSettings.streamFrame.nvencBitrateCurve},
 				{"nvencBitrateConstancyPct", defaultSettings.streamFrame.nvencBitrateConstancyPct},
-				{"nvencVrlinkClampMbit", defaultSettings.streamFrame.nvencVrlinkClampMbit},
+				{"nvencBitrateCurvePoints", [&]{
+					json points = json::array();
+					for(const auto &point : defaultSettings.streamFrame.nvencBitrateCurvePoints){
+						points.push_back({{"x", point.x}, {"y", point.y}});
+					}
+					return points;
+				}()},
 				{"nvencH264GopFrames", defaultSettings.streamFrame.nvencH264GopFrames},
 				{"nvencH264IdrFrames", defaultSettings.streamFrame.nvencH264IdrFrames},
 				{"nvencH264RefFrames", defaultSettings.streamFrame.nvencH264RefFrames},
@@ -2053,6 +2136,7 @@ void ConfigLoader::WriteInfo(){
 				{"nvencForceCbr", defaultSettings.streamFrame.nvencForceCbr},
 				{"spacewarpEnable", defaultSettings.streamFrame.spacewarpEnable},
 				{"spacewarpMode", defaultSettings.streamFrame.spacewarpMode},
+				{"spacewarpSettingsVersion", defaultSettings.streamFrame.spacewarpSettingsVersion},
 				{"nvencLowDelayKfScale", defaultSettings.streamFrame.nvencLowDelayKfScale},
 				{"nvencVuiMatrix", defaultSettings.streamFrame.nvencVuiMatrix},
 				{"nvencVuiPrimaries", defaultSettings.streamFrame.nvencVuiPrimaries},
@@ -2203,18 +2287,35 @@ void ConfigLoader::WriteInfo(){
 	// / "waiting" (enabled but the value-transport publish has not happened
 	// yet). Do not deviate from the shape.
 	const auto spacewarpTap = VrlinkTap::Get().GetRuntimeState();
+	const auto aswAuto = gxr::AswAutoMode::Get().Snapshot();
 	data["spacewarp"] = {
 		{"enabled", spacewarpTap.enabled}, {"hookInstalled", spacewarpTap.hookInstalled},
 		{"published", spacewarpTap.published}, {"publishedValue", spacewarpTap.publishedValue},
-		{"status", spacewarpTap.status}};
-	// 2026-10-21 (S1): the encoder ceiling vs the request clamp VRLink honours.
-	// overdrive = the ceiling is above the clamp while the request sits at the
-	// clamp; the Companion shows it and offers an explicit align action, and the
-	// driver never rewrites the user's value.
+		{"status", spacewarpTap.status}, {"reason", spacewarpTap.reason},
+		{"requestedMode", spacewarpTap.requestedMode},
+		{"effectiveMode", spacewarpTap.effectiveMode},
+		{"transportGeneration", spacewarpTap.transportGeneration},
+		{"auto", {{"enabled", aswAuto.enabled},
+			{"requestedMode", aswAuto.requestedMode},
+			{"effectiveMode", aswAuto.effectiveMode},
+			{"measuredFps", aswAuto.measuredFps},
+			{"refreshHz", aswAuto.refreshHz},
+			{"historySpanSeconds", aswAuto.historySpanSeconds},
+			{"historyValid", aswAuto.historyValid},
+			{"reason", aswAuto.reason},
+			{"generation", aswAuto.generation},
+			{"enterCount", aswAuto.enterCount},
+			{"exitCount", aswAuto.exitCount}}},
+		{"observedAt", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
+		{"implRva", spacewarpTap.implRva}, {"workerRva", spacewarpTap.workerRva},
+		{"callerCount", spacewarpTap.callerCount},
+		{"moduleImageSize", spacewarpTap.moduleImageSize},
+		{"moduleTimestamp", spacewarpTap.moduleTimestamp}};
+	// 2026-10-23: observed streamer request, Max Bitrate and applied target.
+	// The old 350 Mbit clamp/overdrive pair is retired; this is diagnostics only.
 	const auto bitratePolicy = NvencTap::Get().GetBitratePolicyState();
 	data["bitratePolicy"] = {
-		{"overdrive", bitratePolicy.overdrive}, {"ceilingMbit", bitratePolicy.ceilingMbit},
-		{"clampMbit", bitratePolicy.clampMbit}, {"requestMbit", bitratePolicy.requestMbit},
+		{"ceilingMbit", bitratePolicy.ceilingMbit}, {"requestMbit", bitratePolicy.requestMbit},
 		{"targetMbit", bitratePolicy.targetMbit}};
 #endif
 	ordered_json& distortionProfilesJson = data["builtInDistortionProfiles"];

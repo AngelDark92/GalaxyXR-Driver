@@ -1,24 +1,10 @@
 # Add a feature
 
-1. Read `AGENTS.md`, inspect the ownership map, and record the concrete user
-   behavior and affected vendor/headset modes. Use existing shared controls and
-   state rather than duplicating behavior in a page.
-2. For a setting, trace the complete chain: C++ `Config.h`,
-   `ConfigLoader.cpp` parse/default serialization, TS `domain/types.ts`,
-   `driver-defaults.ts`, shared `GalaxySettingsBase`, page binding and runtime
-   consumption. Defaults must match. Decide whether hot reload or SteamVR restart
-   applies; restart-only controls say “Requires a SteamVR restart.” in their tip.
-3. Keep defaults conservative, retain custom tuning, and use the dated-campaign
-   comments explaining why. Add migrations in both languages when existing key
-   semantics change. Do not edit `ThirdParty` or translated XLIFF catalogs.
-4. Add source XLIFF entries and `t(...)`, help/reset controls following adjacent
-   patterns, and user documentation where the behavior becomes visible.
-5. Select meaningful checks from the actual changed path: GUI `npm test`,
-   `npm run build:ui`, relevant tool suite or standalone native test. Put generated
-   output in `../builds/GalaxyXR-Driver/`. A GUI-only build is not full-package proof.
-6. Review the full chain, both vendors and affected legacy paths. Run
-   `git diff --check`; finish cleanup after validation. Report files, behavior,
-   validation and remaining material limits with path/line evidence.
+1. Read `AGENTS.md` and the affected section of `../galaxyxr-workspace/references/project-map.md`. Record the user-visible behavior, vendor/headset modes and exact files.
+2. For a setting, trace the full chain in `AGENTS.md`. Reuse shared controls and `GalaxySettingsBase`; pages stay thin views. Match native and TypeScript defaults.
+3. Decide whether the control hot-reloads or needs a restart. A restart-only tip says **"Requires a SteamVR restart."**
+4. If existing key semantics change, add matching dated migrations in `ConfigLoader.cpp` and `galaxy-settings.ts`. Upgrade exact old defaults only; preserve custom tuning.
+5. Add source XLIFF entries and `t(...)`, help/reset behavior following adjacent patterns, and user documentation where behavior becomes visible.
+6. Select focused checks for the changed path, then run the end-of-plan full portable build. Review both vendors and affected legacy paths, run `git diff --check`, clean task-owned residue and report evidence limits.
 
-Full local build, deployment and runtime actions follow `AGENTS.md` and existing
-session authorization, not this checklist alone.
+Artifacts belong under `../builds/GalaxyXR-Driver/`. Deployment, runtime, commit, push, dispatch and release actions follow `AGENTS.md` and existing session authorization.

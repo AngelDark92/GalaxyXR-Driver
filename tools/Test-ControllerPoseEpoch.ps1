@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 if ([bool]$CaptureDirectory -ne [bool]$ReplayOutput) { throw 'Specify both capture directory and replay output.' }
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $UseCurrentEnvironment) { . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1') }
-$outputDirectory = Join-Path $repoRoot 'build/controller-pose-epoch-test'
+$outputDirectory = Join-Path $repoRoot '../builds/GalaxyXR-Driver/build/controller-pose-epoch-test'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $source = Join-Path $repoRoot 'GalaxyXRDriver/tests/ControllerPoseEpochTest.cpp'
 $headers = Join-Path $repoRoot 'ThirdParty/openvr/headers'

@@ -4,21 +4,21 @@
 
 1. Extract the complete test ZIP. Keep `GalaxyXRDriverGUI` beside `GalaxyXRNative`.
 2. Close SteamVR completely, then open `GalaxyXRDriverGUI/Galaxy XR Companion.exe`.
-3. Use **Install** to copy the bundled driver into its managed installation directory. Native Identity is enabled by the same transaction. Use **Uninstall** to remove that installation, then **Install** again from the same bundle to test reinstalling.
+3. Use **Install** to copy the bundled driver into its managed installation directory. The default is `%LOCALAPPDATA%/GalaxyXR/Drivers`; an optional **Setup > Advanced > Driver install location** choice is used only by the next install or reinstall. Native Identity is enabled by the same transaction. Use **Uninstall** to remove that installation, then **Install** again from the same bundle to test reinstalling.
 4. After installing this build, run SteamVR and change the desired driver settings. Close SteamVR before testing **Uninstall** again.
 
 ## What uninstall removes
 
-- Exact GalaxyXRNative registrations and installed copies under `%LOCALAPPDATA%/GalaxyXR/Drivers/GalaxyXRNative-<id>` or SteamVR's driver directory.
+- Exact GalaxyXRNative registrations and installed copies under `%LOCALAPPDATA%/GalaxyXR/Drivers/GalaxyXRNative-<id>`, the custom install root recorded in the receipt, or SteamVR's driver directory. The user-selected root itself is preserved; only receipt-owned packages and empty roots created by the installer are removed.
 - Recognized older installed copies of this Galaxy XR fork using the `CustomHeadsetOpenVR` name. Identity requires the fork's shader files and matching driver DLL; the ordinary vendor-neutral driver is separate.
 - Packages retained by an upgrade, including copied packages retired outside SteamVR's driver scan directory.
-- `%APPDATA%/GalaxyXR/CustomHeadset`, including driver and GUI settings, saved distortion profiles, diagnostics, status, installation receipt, and recovery journal after successful cleanup.
+- `%APPDATA%/GalaxyXR/CustomHeadset`, including driver and GUI settings, saved distortion profiles, diagnostics, status, installation receipt, and recovery journal after successful cleanup. This also clears the saved custom install-location preference; the next installation starts at the default location unless the user chooses another one.
 - `%APPDATA%/GalaxyXR/Backups` (recovery backups, including those written by Restore defaults) and the temporary debug AU dump `%TEMP%/gxr_au_dump.bin`.
 - `steamvr.vrsettings.galaxyxr-identity-backup-*.json` files beside SteamVR settings.
-- Companion-owned OpenXR implicit-layer registrations, manifests and `ofxr_bridge.ini`; the OFXR runtime install itself is kept.
+- Companion-owned OpenXR implicit-layer registrations and manifests; `ofxr_bridge.ini` is removed only from Companion-created runtime directories. External OFXR tray installs and imported fork builds are kept; imported builds are retained across driver uninstall.
 - Persistent SteamVR overrides written by this driver and this GUI, restored using the journal described below.
 
-**The bundle's `GalaxyXRNative` directory is preserved.** Installation copies its files before registration; uninstall only removes owned installation locations. Receipt schema 2 distinguishes installed `packages` from preserved `sourcePaths`. Previous schema 1 external bundle registrations are unregistered and preserved, including sources installed with the 2026-09-15 test build. The portable GUI, source bundle, and ZIP remain available for reinstalling. Shared SteamVR files and shared configuration directories are preserved.
+**The bundle's `GalaxyXRNative` directory is preserved.** Installation copies its files before registration; uninstall only removes owned installation locations. Receipt schema 2 distinguishes installed `packages` from preserved `sourcePaths`; schema 3 adds `managedRoots`, `activeRoot` and `createdRoots` when a custom location is used. Previous schema 1 external bundle registrations are unregistered and preserved, including sources installed with the 2026-09-15 test build. A package that is merely registered under a custom root but is not receipt-owned is preserved as a source. The portable GUI, source bundle, and ZIP remain available for reinstalling. Shared SteamVR files and shared configuration directories are preserved.
 
 ## Reinstall
 
@@ -36,7 +36,7 @@ Hand, eye-sharing, and OSC preferences are preserved unless explicitly changed t
 
 ## Failure behavior
 
-Installation/uninstallation require SteamVR to be closed. Registration changes use `vrpathreg` with the exact path, check its exit code, and read registrations back. Cleanup validates package ownership, rejects source trees and reparse points, and stages package removal with same-volume renames. Pre-commit failures restore staged paths and registrations; rollback failures are reported with recovery paths. A failed removal never reports success. Recovery records are retained while the driver data tree still exists; after it is gone, retry finishes the remaining cleanup.
+Installation/uninstallation require SteamVR to be closed. Registration changes use `vrpathreg` with the exact path, check its exit code, and read registrations back. Cleanup validates package ownership, rejects source trees and reparse points, and stages package removal with same-volume renames. Pre-commit failures restore staged paths and registrations; rollback failures are reported with recovery paths. A failed removal never reports success. If a recorded custom root is unavailable, uninstall stops before changing registrations or files and preserves the receipt for a retry after the drive is reconnected. Recovery records are retained while the driver data tree still exists; after it is gone, retry finishes the remaining cleanup.
 
 The GUI drains and invalidates queued settings writes and readiness checks during uninstall, preventing them from recreating deleted driver configuration or marking an uninstalled driver ready. Launch, restart, and concurrent installation actions are disabled during the operation. Source bundles overlapping the configuration/deletion locations are rejected before changes.
 

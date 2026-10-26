@@ -22,6 +22,10 @@ const appDefaults: AppSetting = {
   devUpdates: false,
   // A new installation or explicit reset requires fresh runtime verification.
   driverVerified: false,
+  // Empty keeps the historical default install root. A custom root is only
+  // applied by an explicit install/reinstall and is never inferred from the
+  // current installation.
+  driverInstallRoot: '',
   // OFXR Bridge (2026-10-17): disabled until the managed component reports
   // ready; every value is written through appSetting.save and ofxr_apply.
   // JsonSettingServiceBase deep-merges these nested defaults over older
@@ -30,7 +34,6 @@ const appDefaults: AppSetting = {
     enabled: false,
     version: '',
     mode: 'fidelityfx',
-    scale: 50,
     bidirectional: false,
     logging: false,
     maxLogMb: 32,
@@ -70,6 +73,7 @@ export class AppSettingService extends JsonSettingServiceBase<AppSetting> {
   protected override migrateLoadedValues(values: AppSetting): AppSetting {
     const clean = { ...values } as AppSetting & Record<string, unknown>;
     for (const key of ['defaultSettingsTab', 'showIncompatibleProfiles']) delete clean[key];
+    if (typeof clean.driverInstallRoot !== 'string') clean.driverInstallRoot = '';
     return clean;
   }
   constructor(paths: PathsService) {

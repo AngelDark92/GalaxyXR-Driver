@@ -10,7 +10,6 @@ export const ofxrDefaults: OfxrPreferences = {
   enabled: false,
   version: '',
   mode: 'fidelityfx',
-  scale: 50,
   bidirectional: false,
   logging: false,
   maxLogMb: 32,
@@ -19,7 +18,6 @@ export const ofxrDefaults: OfxrPreferences = {
 };
 
 const MODES: readonly OfxrPreferences['mode'][] = ['fidelityfx', 'nvidia-fast', 'nvidia-medium', 'nvidia-slow'];
-const SCALES: readonly OfxrPreferences['scale'][] = [50, 75, 100];
 const OVERLAYS: readonly OfxrPreferences['overlay'][] = ['off', 'upper-left', 'upper-right', 'lower-left', 'lower-right'];
 
 /** A managed layer can arm from these states. `armed_external` keeps the
@@ -51,7 +49,6 @@ export function normalizeOfxrPreferences(value: Partial<OfxrPreferences> | null 
     enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : ofxrDefaults.enabled,
     version: typeof candidate.version === 'string' ? candidate.version : ofxrDefaults.version,
     mode: MODES.includes(candidate.mode as OfxrPreferences['mode']) ? candidate.mode! : ofxrDefaults.mode,
-    scale: SCALES.includes(candidate.scale as OfxrPreferences['scale']) ? candidate.scale! : ofxrDefaults.scale,
     bidirectional: typeof candidate.bidirectional === 'boolean' ? candidate.bidirectional : ofxrDefaults.bidirectional,
     logging: typeof candidate.logging === 'boolean' ? candidate.logging : ofxrDefaults.logging,
     maxLogMb: typeof candidate.maxLogMb === 'number' && Number.isFinite(candidate.maxLogMb)

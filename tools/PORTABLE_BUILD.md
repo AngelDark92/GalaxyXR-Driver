@@ -98,7 +98,7 @@ A user-selected output directory must remain inside the project `output` directo
 .\tools\Build-Portable.ps1 -OutputDirectory "$PWD\..\builds\GalaxyXR-Driver\output\GalaxyXRDriver-local-check"
 ```
 
-Do not combine `-DriverOnly` and `-GuiOnly`. Use a full build when deploying application/driver changes together.
+Do not combine `-DriverOnly` and `-GuiOnly`. A full build is required at plan completion; `-DriverOnly` and `-GuiOnly` remain partial validation.
 
 ## Output remains portable
 
@@ -130,10 +130,13 @@ This local helper produces a portable folder; it does not deploy, register, laun
 
 ## Sources and implementation references
 
-The separate Bitrate Curve page is included in every locale's frontend bundle
-and in the native Companion executable. See [graph window maintenance](../Docs/CompanionGraphWindow.md)
-for production-asset checks, explicit native packaged QA and GitHub bot-PR
-approval configuration. A frontend-only check is not a full driver build.
+The separate Bitrate Curve and Bitrate Monitor pages are included in every
+locale's frontend bundle and in the native Companion executable. See
+[graph window maintenance](../Docs/CompanionGraphWindow.md) for production-asset
+checks, explicit native packaged QA and GitHub bot-PR approval configuration;
+see [the bitrate monitor guide](../Docs/BitrateMonitor.md) for the Debug Mode
+window and its read-only NVENC/USB ADB samplers. A frontend-only check is not a
+full driver build.
 
 - Microsoft command-line C++ build tools: https://learn.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-170
 - Microsoft administrative MSI images: https://learn.microsoft.com/en-us/windows/win32/msi/administrative-installation

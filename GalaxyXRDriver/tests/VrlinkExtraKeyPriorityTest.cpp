@@ -29,7 +29,8 @@ int GalaxyXR_EffectiveTileWidth() { return driverConfig.galaxyXr.customStreamFor
 gxr::Sdr10BaselinePolicy ResolveSdr10PolicyLocked() { return gxr::ResolveSdr10Policy(driverConfig); }
 void ApplyNativeResolutionSetting() {
     calls += 'N';
-    values["renderWidth"] = driverConfig.galaxyXr.nativeResolution ? 3552 : 0;
+    values["renderWidth"] = driverConfig.galaxyXr.nativeResolution ? driverConfig.galaxyXr.renderWidth : 0;
+    values["renderHeight"] = driverConfig.galaxyXr.nativeResolution ? driverConfig.galaxyXr.renderHeight : 0;
 }
 void ApplyStreamQualitySetting() {
     calls += 'S';
@@ -59,6 +60,7 @@ struct PriorityShim {
     std::string origModelNumber = "xrvst2ue";
     bool appliedProfileRoute = true;
     bool appliedNativeResolution = false;
+    int appliedRenderWidth = 0, appliedRenderHeight = 0;
     bool appliedHeadsetProfile = false;
     int appliedProfileMaxSfw = 0;
     bool appliedProfile10bit = false;
@@ -125,6 +127,17 @@ int main() {
     CheckOverlay(false, false, "activation overlay OFF");
     calls.clear(); shim.RunFrameSettings();
     Check(calls.empty(), "unchanged active frame does not rewrite settings");
+
+    config.renderWidth = 2880;
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "NE", "width-only edit reapplies resolution before expert overrides");
+    CheckOverrides("manual width reload");
+    config.renderHeight = 3200;
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls == "NE", "height-only edit reapplies resolution before expert overrides");
+    Check(values["renderHeight"] == 3200, "manual height reaches the resolution writer");
+    calls.clear(); shim.RunFrameSettings();
+    Check(calls.empty(), "unchanged manual dimensions do not rewrite settings");
 
     config.nativeResolution = false;
     calls.clear(); shim.RunFrameSettings();

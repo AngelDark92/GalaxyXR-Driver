@@ -103,6 +103,7 @@ const writes = h => h.fixture.calls.filter(x => x.kind === 'write' && x.path ===
     assert.equal(nav.permittedRoute('debug', true, c.galaxy.debugMode), 'app-settings');
   }));
   await test('Baseline enable is a single immutable write that preserves every picture value and unrelated settings', async () => scenario(s => {
+    s.galaxyXr.sdr10Baseline = false; // start from Off: the shipped default is now On
     s.streamFrame.enable = false;
     s.streamFrame.brightness = 0.42; s.streamFrame.gamma = 1.8; s.streamFrame.saturation = 12;
     s.streamFrame.cas.enable = true; s.streamFrame.fxaa = 'quality';
@@ -229,7 +230,10 @@ const writes = h => h.fixture.calls.filter(x => x.kind === 'write' && x.path ===
     assert.equal(c.dss.values().streamFrame.gamma, 1.4);
     assert.equal(c.dss.values().galaxyXr.sdr10Baseline, false);
   }));
-  await test('Failed baseline save restores confirmed values and reports the error', async () => scenario(s => { s.streamFrame.gamma = 1.5; }, async (h, c) => {
+  await test('Failed baseline save restores confirmed values and reports the error', async () => scenario(s => {
+    s.galaxyXr.sdr10Baseline = false; // the failed action must be an enable from Off
+    s.streamFrame.gamma = 1.5;
+  }, async (h, c) => {
     h.fixture.denied.add(h.fixture.data + '/settings.json');
     assert.equal(await c.galaxy.setSdr10Baseline(true), false);
     assert.equal(c.galaxy.baselineRequested, false); assert.equal(c.dss.values().streamFrame.gamma, 1.5);

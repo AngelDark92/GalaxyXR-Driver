@@ -34,7 +34,7 @@ export const fieldStyles = css`
      focus highlight paints only for keyboard/deep-link focus (:focus-visible),
      so a mouse click on the row neither selects text nor looks "selected". */
   .field { user-select: none; }
-  .field :is(input, textarea) { user-select: text; }
+  .field :is(input, textarea, select, [contenteditable]) { -webkit-user-select: text; user-select: text; }
   .field[data-setting-id]:focus-visible, .field[data-setting-id].revealed { outline: 2px solid var(--colorBrandStroke1); outline-offset: 3px; border-radius: 4px; background: var(--colorNeutralBackground3); }
   .field .title {
     display: flex;
@@ -200,10 +200,15 @@ export class BasePage extends LitElement {
       c.dis.values.subscribe(notify),
       c.appSetting.values.subscribe(notify),
       c.lifecycle.changing.subscribe(notify),
+      c.windowsStartup.status.subscribe(notify),
+      c.windowsStartup.error.subscribe(notify),
+      c.windowsStartup.changing.subscribe(notify),
       c.sds.systemReady.subscribe(notify),
       c.sds.steamVrConfig.subscribe(notify),
       c.sds.installingDriver.subscribe(notify),
       c.sds.driverInstalled.subscribe(notify),
+      c.sds.driverRegisteredPath.subscribe(notify),
+      c.sds.defaultDriverRoot.subscribe(notify),
       c.sds.steamVRinstalled.subscribe(notify),
       c.sds.driverVersionMismatch.subscribe(notify),
       c.aus.updateInfo.subscribe(notify),

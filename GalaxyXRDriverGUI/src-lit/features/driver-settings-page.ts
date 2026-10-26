@@ -77,12 +77,25 @@ export class DriverSettingsPage extends BasePage {
           tip: t("Keep this on so SteamVR identifies the headset as Galaxy XR and uses its device icons. Turning it off can show Unknown or the identity provided by a patched Steam Link app instead. Restart SteamVR after changing it.\n\nEnabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link; a patched APK may report a different headset. The vrlink Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity.\n\nValue: galaxyXr.nativeIdentity (settings.json). Driver side — sets OpenVR model/manufacturer and device-icon properties; identity changes need a SteamVR restart."),
         })] : []),
         settingFieldRow('galaxyXr.nativeResolution', html`<app-switch .checked=${!!gx.nativeResolution} @change=${(e: CustomEvent) => { gx.nativeResolution = e.detail; save(); }}></app-switch>`, {
-          tip: t("Ask SteamVR to render at the Galaxy XR's native per-eye size. This improves the requested resolution but can increase GPU load. Restart SteamVR to apply it.\n\nRequests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With vrlink Headset Profile On, the same values are also copied to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.\n\nValue: galaxyXr.nativeResolution (settings.json). SteamVR side — writes renderWidth, renderHeight, overrideRenderWidth and overrideRenderHeight into the vrlink section of steamvr.vrsettings."),
+          tip: t('Choose the render target size in pixels per eye at SteamVR 100% resolution. The native default is 3552 × 3840. Higher values increase GPU load. Requires a SteamVR restart. SteamVR Auto, global resolution and per-game scaling still apply; use Custom 100% to compare the requested size. Turning this off restores the previous resolution while keeping your manual values. Refresh rate and stream encoding size are separate settings. Advanced VRLink resolution overrides take priority.'),
+        }),
+        settingFieldRow('galaxyXr.renderWidth', html`<app-number .value=${gx.renderWidth ?? 3552} min="1" max="16384" step="1" .disabled=${!gx.nativeResolution}
+          @focusout=${(e: FocusEvent) => { const value = (e.currentTarget as HTMLElement & { value: number }).value; galaxy.setRenderDimension('renderWidth', value); this.requestUpdate(); }}></app-number>`, {
+          tip: t('Enter a whole number from 1 to 16384 pixels per eye. Requires a SteamVR restart.'),
+          reset: { can: gx.renderWidth !== 3552, on: () => { galaxy.setRenderDimension('renderWidth', 3552); this.requestUpdate(); } },
+        }),
+        settingFieldRow('galaxyXr.renderHeight', html`<app-number .value=${gx.renderHeight ?? 3840} min="1" max="16384" step="1" .disabled=${!gx.nativeResolution}
+          @focusout=${(e: FocusEvent) => { const value = (e.currentTarget as HTMLElement & { value: number }).value; galaxy.setRenderDimension('renderHeight', value); this.requestUpdate(); }}></app-number>`, {
+          tip: t('Enter a whole number from 1 to 16384 pixels per eye. Requires a SteamVR restart.'),
+          reset: { can: gx.renderHeight !== 3840, on: () => { galaxy.setRenderDimension('renderHeight', 3840); this.requestUpdate(); } },
         }),
         ...(advanced ? [settingFieldRow('galaxyXr.vrlinkHeadsetProfile', html`<app-switch .checked=${!!gx.vrlinkHeadsetProfile} @change=${(e: CustomEvent) => { void this.changeIdentitySetting('vrlinkHeadsetProfile', e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>`, {
           tip: t("Keep this on to keep settings copies under the supported Steam Link headset identities. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.\n\nEnabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also mirrors those settings and capability requests to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection. Recognized Quest Pro and PICO 4 Pro identities select VRLink's built-in capabilities; this SteamVR build bypasses their per-model capability sections. Profile copies alone therefore do not prove that capability requests were consumed. Off releases journal-owned tuning copies and preserves the original-model capability destination (xrvst2ue fallback); an active SDR 10-bit baseline can still request capabilities there. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.\n\nValue: galaxyXr.vrlinkHeadsetProfile (settings.json). SteamVR side — journal-mirrors the vrlink tuning sections in steamvr.vrsettings."),
         })] : []),
       );
+      if (galaxy.renderResolutionError()) {
+        body.push(statusMessage('error', t('Invalid render resolution'), galaxy.renderResolutionError()!));
+      }
       if (advanced || !gx.nativeIdentity || !gx.vrlinkHeadsetProfile) {
         body.push(statusMessage('warning', t('Keep Galaxy XR recognition enabled'), t('Turning off either identity option can make SteamVR show another headset or Unknown. Restart SteamVR after a change.')));
       }
@@ -97,7 +110,7 @@ export class DriverSettingsPage extends BasePage {
           .checked=${galaxy.baselineRequested && settings.nvencCodec !== 1}
           .disabled=${galaxy.imageModeChanging() || settings.nvencCodec === 1}
           @change=${(e: CustomEvent<boolean>) => { void this.changeBaseline(e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>`, {
-          tip: t("Send the stream as 10-bit SDR. Off by default; works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.\n\nTurning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit)."),
+          tip: t("Send the stream as 10-bit SDR. On by default; a saved Off stays Off. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.\n\nTurning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit)."),
         }),
       );
       if (settings.nvencCodec === 1) {
@@ -120,6 +133,18 @@ export class DriverSettingsPage extends BasePage {
     );
     if (this.section('controllers')) {
       const gx = galaxy.galaxyXr;
+      body.push(
+        settingFieldRow('galaxyXr.controllerBypass', html`
+          <app-switch .checked=${!!gx.controllerBypass} @change=${(e: CustomEvent) => { gx.controllerBypass = e.detail; save(); }}></app-switch>
+          <span class="note-inline">restart SteamVR after switching</span>
+        `, {
+          tip: t("Master switch for every controller feature this driver adds. On leaves the streamed controllers exactly as Steam Link presents them.\n\nNo Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, offsets or pose trims, no grip-touch synthesis, no skeleton offsets, no motion filter (all Kalman modes), no Game Link layout and no space velocity fix. The per-feature settings are kept in settings.json and return when this switch is off. Requires a SteamVR restart.\n\nValue: galaxyXr.controllerBypass (settings.json). Driver side — master disable for every controller feature; saved settings are not changed."),
+          reset: { can: !!gx.controllerBypass, on: () => { gx.controllerBypass = false; save(); } },
+        }),
+      );
+      if (gx.controllerBypass) {
+        body.push(noteRow(t('All controller features are off. Steam Link controls the controllers untouched; the saved controller settings return when this switch is off.')));
+      } else {
       if (vendor) {
         body.push(
           settingFieldRow('galaxyXr.nativeInputProfile', html`<app-switch .checked=${!!gx.nativeInputProfile} @change=${(e: CustomEvent) => { gx.nativeInputProfile = e.detail; save(); }}></app-switch>`, {
@@ -158,8 +183,8 @@ export class DriverSettingsPage extends BasePage {
         if (vendor && galaxy.rootSetting?.galaxyXr) {
           body.push(
             settingFieldRow('galaxyXr.gripConvention', html`
-              <app-switch .checked=${!!gx.gripConvention} ?disabled=${!!gx.controllerBypass || !!gx.gameLinkLayout} @change=${(e: CustomEvent) => { gx.gripConvention = e.detail; save(); }}></app-switch>
-              ${gx.gameLinkLayout ? html`<span class="note-inline">Game Link layout is on</span>` : gx.controllerBypass ? html`<span class="note-inline">controller bypass is on</span>` : html``}
+              <app-switch .checked=${!!gx.gripConvention} ?disabled=${!!gx.gameLinkLayout} @change=${(e: CustomEvent) => { gx.gripConvention = e.detail; save(); }}></app-switch>
+              ${gx.gameLinkLayout ? html`<span class="note-inline">Game Link layout is on</span>` : html``}
             `, {
               tip: t("Adjust the grip-pose convention for games whose held objects look tilted or misplaced. Compare with a known-good game before changing other offsets.\n\nShifts the raw streamed controller pose (22° pitch, 5 cm) into SteamVR's grip convention so held objects sit where games expect them and the official pose components land on the right spots. Recommended on. Turn off only if a Steam Link build already reports a grip-convention pose and the controllers sit visibly wrong.\n\nValue: galaxyXr.gripConvention (settings.json). Driver side — shifts Steam Link's raw pose into SteamVR's grip convention."),
               reset: { can: gx.gripConvention === false, on: () => { gx.gripConvention = true; save(); } },
@@ -339,7 +364,7 @@ export class DriverSettingsPage extends BasePage {
               <app-switch .checked=${!!gx.gameLinkLayout} @change=${(e: CustomEvent) => { gx.gameLinkLayout = e.detail; save(); }}></app-switch>
               <span class="note-inline">restart SteamVR after switching</span>
             `, {
-              tip: t("Present the controllers the way Samsung's own PC driver (Game Link) does. An add-on to the selected Controller Motion Filter: the motion stays the mode's.\n\nThe controllers get Samsung's model at its authored size, Samsung's pose points and Samsung's input profile, on Steam Link's raw pose. While it is on, the Grip Convention, the Controller Offsets, the model scale and the aim trim are not applied; the Game Link Layout Offsets are used instead. Everything comes back when it goes off. With Controller Bypass on, the layout still applies, without this driver's other corrections. Requires a SteamVR restart.\n\nValue: galaxyXr.gameLinkLayout (settings.json). Driver side — swaps in Samsung's Game Link model, pose points and input profile; its offsets below replace the shared ones."),
+              tip: t("Present the controllers the way Samsung's own PC driver (Game Link) does. An add-on to the selected Controller Motion Filter: the motion stays the mode's.\n\nThe controllers get Samsung's model at its authored size, Samsung's pose points and Samsung's input profile, on Steam Link's raw pose. While it is on, the Grip Convention, the Controller Offsets, the model scale and the aim trim are not applied; the Game Link Layout Offsets are used instead. Everything comes back when it goes off. The Disable All Controller Features master switch wins: no layout is applied while it is on. Requires a SteamVR restart.\n\nValue: galaxyXr.gameLinkLayout (settings.json). Driver side — swaps in Samsung's Game Link model, pose points and input profile; its offsets below replace the shared ones."),
               reset: { can: !!gx.gameLinkLayout, on: () => { gx.gameLinkLayout = false; save(); } },
             }),
           );
@@ -381,14 +406,6 @@ export class DriverSettingsPage extends BasePage {
         body.push(
           sectionGroup(t('Controllers Advanced'), 1),
         );
-          if (vendor) {
-            body.push(
-              settingFieldRow('galaxyXr.controllerBypass', html`<app-switch .checked=${!!gx.controllerBypass} @change=${(e: CustomEvent) => { gx.controllerBypass = e.detail; save(); }}></app-switch>`, {
-                tip: t("Bypass this driver's controller adjustments while leaving the headset path active. Use this to compare with Steam Link's controller behavior.\n\nLeave the streamed controllers exactly as vrlink presents them: no Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, no offsets. Kalman is not part of the bypass; use Controller Motion Filter to turn it off. For A/B tests against stock, or if you only want the image processing. Identity and input profile changes take effect after a SteamVR restart.\n\nValue: galaxyXr.controllerBypass (settings.json). Driver side — skips pose corrections and controller identity; the motion filter follows Controller Motion Filter."),
-                reset: { can: !!gx.controllerBypass, on: () => { gx.controllerBypass = false; save(); } },
-              }),
-            );
-          }
           if (galaxy.controllerSettings) {
             const cs = galaxy.controllerSettings;
             const cd = galaxy.controllerDefaults;
@@ -481,6 +498,7 @@ export class DriverSettingsPage extends BasePage {
               }
             }
           }
+      }
       }
     }
 

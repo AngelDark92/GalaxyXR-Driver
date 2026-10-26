@@ -8,6 +8,7 @@ import { applyUiScale } from '../ui/ui-scale';
 import { interactiveStyles } from '../ui/shared-styles';
 import { driverAvailable, parseRoute, parseSettingTarget, permittedRoute, visibleRoutes, settingHref, ROUTE_LABELS, type Route } from '../domain/navigation';
 import { settingPresentation } from '../domain/settings-presentation';
+import { close_bitrate_monitor, publish_bitrate_monitor_theme } from '../platform/tauri';
 import type { BasePage } from '../features/page-base';
 
 @customElement('app-shell')
@@ -17,6 +18,7 @@ export class AppShell extends LitElement {
   @property({ attribute: false }) private settingMessage = '';
   private targetGeneration = 0;
   private debugAllowed = false;
+  private monitorAllowed = false;
 
   static styles = [interactiveStyles, css`
     :host { display: flex; flex-direction: column; height: 100%; width: 100%; background: var(--colorNeutralBackground2); }
@@ -41,18 +43,26 @@ export class AppShell extends LitElement {
     // 2026-10-17: a mid-session install must keep the user on Setup; the
     // empty-hash re-default to Driver Settings serves fresh opens only and
     // must not fire while an install is running.
+    const allowed = this.driverAvailable && this.ctx.galaxy.debugMode;
+    if (this.monitorAllowed && !allowed) void close_bitrate_monitor().catch(() => undefined);
+    this.monitorAllowed = allowed;
     if (!(this.ctx.sds.installingDriver() && this.route === 'setup')) this.syncRoute();
     this.requestUpdate();
   };
   private readonly onDriverSettings = () => {
     // Saved selections/default emissions must not erase a guarded-link message.
-    if (this.debugAllowed !== (this.driverAvailable && this.ctx.galaxy.debugMode)) this.syncRoute();
+    const allowed = this.driverAvailable && this.ctx.galaxy.debugMode;
+    // The monitor is a Debug Mode tool: losing the gate closes its window too.
+    if (this.monitorAllowed && !allowed) void close_bitrate_monitor().catch(() => undefined);
+    this.monitorAllowed = allowed;
+    if (this.debugAllowed !== allowed) this.syncRoute();
     this.requestUpdate();
   };
 
   connectedCallback(): void {
     super.connectedCallback();
     this.syncRoute();
+    this.monitorAllowed = this.driverAvailable && this.ctx.galaxy.debugMode;
     window.addEventListener('hashchange', this.onHash);
     this.systemTheme.addEventListener('change', this.onSystemTheme);
     const notify = () => this.requestUpdate();
@@ -66,9 +76,15 @@ export class AppShell extends LitElement {
       this.ctx.checks.checking.subscribe(notify), this.ctx.checks.report.subscribe(notify),
       this.ctx.dss.writeFileError.subscribe(notify), this.ctx.appSetting.writeFileError.subscribe(notify),
       this.ctx.lifecycle.error.subscribe(notify), this.ctx.lifecycle.quitting.subscribe(notify),
+      this.ctx.ofxr.error.subscribe(notify),
       subscribeLocale(notify),
     );
-    this.themeDispose = effect(() => applyTheme(this.ctx.appSetting.values().colorScheme));
+    this.themeDispose = effect(() => {
+      const preference = this.ctx.appSetting.values().colorScheme;
+      applyTheme(preference);
+      // Only the main window can publish; the command is a no-op when closed.
+      void publish_bitrate_monitor_theme(preference).catch(() => undefined);
+    });
     // 2026-10-19: also covers a gui-settings.json edit picked up by the file
     // watcher, so the window scale always matches the saved value.
     this.scaleDispose = effect(() => { void applyUiScale(this.ctx.appSetting.values().uiScale); });
@@ -178,6 +194,7 @@ export class AppShell extends LitElement {
     const busy = this.ctx.checks.checking() || this.ctx.sds.installingDriver() || this.ctx.lifecycle.quitting();
     const writeError = this.ctx.dss.writeFileError() || this.ctx.appSetting.writeFileError();
     const lifecycleError = this.ctx.lifecycle.error();
+    const ofxrError = this.ctx.ofxr.error();
     return html`
       <header class="header" aria-label="Galaxy XR Companion">
         <img class="brand-icon" src="icons/headset_galaxy_xr_ready_2x.png" alt="Galaxy XR Companion" title="Galaxy XR Companion">
@@ -190,6 +207,7 @@ export class AppShell extends LitElement {
       ${busy ? html`<fluent-message-bar class="status" intent="info" role="status"><fluent-spinner slot="icon" size="tiny" aria-hidden="true"></fluent-spinner>${this.ctx.lifecycle.quitting() ? t('Saving settings before quitting…') : this.ctx.sds.installingDriver() ? t('Updating driver or settings. Please wait…') : t('Checking installation and saved settings…')}</fluent-message-bar>` : nothing}
       ${writeError ? html`<fluent-message-bar class="status" intent="error" role="alert"><span slot="icon" aria-hidden="true">!</span><strong>${t('Settings could not be saved.')}</strong> ${t('The controls have been restored to the last verified values.')}<details><summary>${t('Technical details')}</summary>${writeError}</details></fluent-message-bar>` : nothing}
       ${lifecycleError ? html`<fluent-message-bar class="status" intent="error" role="alert"><span slot="icon" aria-hidden="true">!</span><strong>${t('Companion tray behavior could not be applied')}</strong> ${lifecycleError}</fluent-message-bar>` : nothing}
+      ${ofxrError ? html`<fluent-message-bar class="status" intent="error" role="alert"><span slot="icon" aria-hidden="true">!</span><strong>${t('Optical Flow needs attention')}</strong> ${ofxrError} <a href="#/stream-frame">${t('Open Optical Flow')}</a></fluent-message-bar>` : nothing}
       ${this.settingMessage ? html`<fluent-message-bar class="status" intent="info" role="status"><span slot="icon" aria-hidden="true">ⓘ</span>${t(this.settingMessage)}</fluent-message-bar>` : nothing}
       <main class="content" aria-busy=${String(busy)} .inert=${busy}>
         ${routes.map(route => html`<section class="panel" role="tabpanel" id=${`panel-${route}`}

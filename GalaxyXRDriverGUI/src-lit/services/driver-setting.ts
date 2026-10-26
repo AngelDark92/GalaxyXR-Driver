@@ -23,6 +23,12 @@ export class DriverSettingService extends JsonSettingServiceBase<Settings> {
         Object.assign(defaults.streamFrame, Object.fromEntries(Object.entries(bundled.streamFrame ?? {})
           .filter(([key]) => key.startsWith('nvenc') || key === 'postPack')));
       }
+      // 2026-10-23 (owner directive): 10-bit SDR defaults On in this build.
+      // A stale info.json from an older installed driver must not show the
+      // switch Off before the new driver republishes its defaults. Stored
+      // values still win in the merge; only a missing key follows this pin.
+      // Shared native default: apply it to both vendor builds.
+      if (defaults.galaxyXr) defaults.galaxyXr.sdr10Baseline = true;
       if (vendor === 'galaxyxr' && defaults.galaxyXr) {
         defaults.galaxyXr.nativeIdentity = true;
         defaults.galaxyXr.vrlinkHeadsetProfile = true;

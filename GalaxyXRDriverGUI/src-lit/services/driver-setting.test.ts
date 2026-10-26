@@ -28,14 +28,14 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 const filePath = '/settings/settings.json';
 const services: DriverSettingService[] = [];
 // Config.h in the user-selected CustomHeadsetOpenVrGxR reference, 2026-09-26;
-// Force CBR ON per the 2026-10-17 owner directive (revised same day).
+// Force CBR OFF per the 2026-10-23 owner directive.
 // Literal expectations pin parity independently of generated GUI defaults.
 const referenceEncoderDefaults = {
   nvencTap: true, nvencFixLevel: true, nvencBitrateMbit: 0, nvencBandwidthOverrideMbit: 0,
   nvencSettingsVersion: 0, nvencMaxQp: 0, nvencAqStrength: 0, nvencMinQp: 0,
-  nvencMinQpIntra: 0, nvencForceCbr: true, nvencLowDelayKfScale: 2,
+  nvencMinQpIntra: 0, nvencForceCbr: false, nvencLowDelayKfScale: 2,
   nvencMaxBitrateHeadroomPct: 0, nvencVbvFrames: 2, nvencForceFps: 90,
-  nvencBitrateCurve: 0, nvencBitrateConstancyPct: 0, nvencVrlinkClampMbit: 350, nvencPreset: 0,
+  nvencBitrateCurve: 0, nvencBitrateConstancyPct: 0, nvencPreset: 0,
   nvencPresetMerge: true, nvencVuiFullRange: -1, nvencVuiMatrix: -1,
   nvencVuiPrimaries: -1, nvencVuiTransfer: -1, nvencSplitMode: 1,
   nvencQpFovea: 0, nvencQpPeriphery: 0, nvencVerbose: false,
@@ -66,6 +66,13 @@ describe('vendor defaults before info.json exists', () => {
     expect(state.settings).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
     expect(await service.loadSetting()).toBe(true);
     expect(service.values()?.streamFrame).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
+  });
+
+  it.each(['', 'galaxyxr'])('pins the SDR10 default On for the %s build against stale info.json telemetry while a stored Off wins', async vendor => {
+    const stale = await load(vendor, {}, { galaxyXr: { sdr10Baseline: false } });
+    expect(stale.values()?.galaxyXr?.sdr10Baseline).toBe(true);
+    const stored = await load(vendor, { galaxyXr: { sdr10Baseline: false } }, { galaxyXr: { sdr10Baseline: true } });
+    expect(stored.values()?.galaxyXr?.sdr10Baseline).toBe(false);
   });
 
   it.each(['', 'galaxyxr'])('uses the installed %s encoder defaults when runtime telemetry is stale', async vendor => {

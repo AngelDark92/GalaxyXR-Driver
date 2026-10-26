@@ -28,6 +28,8 @@ export type GalaxyXrConfig = {
   synthesizeGripTouch?: boolean,
   gripTouchThreshold?: number,
   nativeResolution?: boolean,
+  renderWidth?: number,
+  renderHeight?: number,
   streamQuality?: string,
   customEncodeWidth?: number,
   customStreamFormatWidth?: number, // foveated tile width; independent of legacy customEncodeWidth
@@ -56,7 +58,9 @@ export type GalaxyXrConfig = {
   meshOffsetYCm?: number,
   meshOffsetZCm?: number,
   officialComponents?: boolean,
-  // leave streamed controllers as vrlink presents them (Kalman excluded)
+  // 2026-10-24: master disable for every controller feature (identity,
+  // profile, pose corrections, motion filter, Game Link layout, space
+  // velocity fix). Stored per-feature values are kept.
   controllerBypass?: boolean,
   // Samsung Game Link placement and identity, Kalman CA motion
   gameLinkLayout?: boolean,
@@ -195,6 +199,8 @@ export type StreamFrameDimmingConfig = {
   dimSeconds: number;
   brightenSeconds: number;
 };
+export type BitrateCurvePoint = { x: number; y: number };
+
 export type StreamFrameConfig = {
   enable: boolean;
   saturation: number;
@@ -237,7 +243,7 @@ export type StreamFrameConfig = {
   nvencForceFps: number;
   nvencBitrateCurve: number;
   nvencBitrateConstancyPct: number;
-  nvencVrlinkClampMbit: number;
+  nvencBitrateCurvePoints: BitrateCurvePoint[];
   // Optional for settings written before the editable H.264 recipe (2026-10-16).
   // GOP/IDR: 0 follows the encoder FPS; -1 preserves upstream parameters.
   nvencH264GopFrames?: number;
@@ -261,10 +267,16 @@ export type StreamFrameConfig = {
   // Async Spacewarp toggle (2026-10-17): never-set key keeps its native
   // default (false) — no migration, and nothing silently rewrites it.
   spacewarpEnable: boolean;
-  // Async Spacewarp mode (2026-10-20): 0 = late frames only, 1 = half rate.
-  // Dormant while the toggle is off; the saved value is user-owned and is
-  // never rewritten by a codec switch or a reset of the other row.
+  // Async Spacewarp mode (2026-10-26): 0 = Automatic (late-frame recovery until
+  // the measured application cadence stays below 90% of refresh, then half
+  // rate), 1 = Forced half rate. The Companion exposes mode 1 as a separate
+  // Force half-rate switch. The saved value is user-owned and is never rewritten
+  // by a codec switch, an automatic transition or a reset of the other row.
   spacewarpMode: number;
+  // Async Spacewarp settings-semantics version (2026-10-26): absent/1 = legacy
+  // file (same stored 0/1 meanings), 2 = Automatic/Forced semantics. The
+  // migration stamps this only; it never rewrites enable/mode or tuning.
+  spacewarpSettingsVersion: number;
   nvencLowDelayKfScale: number;
   nvencVuiMatrix: number;
   nvencVuiPrimaries: number;
@@ -450,7 +462,6 @@ export type OfxrPreferences = {
   // the bundled seed. The dropdown lists versions reported by ofxr_status.
   version: string;
   mode: 'fidelityfx' | 'nvidia-fast' | 'nvidia-medium' | 'nvidia-slow';
-  scale: 50 | 75 | 100;
   bidirectional: boolean;
   logging: boolean;
   maxLogMb: number;
@@ -462,7 +473,8 @@ export type OfxrPreferences = {
 // registration state, never a synthesized value.
 export type OfxrVersion = {
   version: string;
-  source: 'bundled' | 'downloaded' | 'external' | string;
+  source: 'bundled' | 'downloaded' | 'imported' | 'external' | string;
+  label?: string | null;
 };
 
 export type OfxrStatus = {
@@ -496,6 +508,11 @@ export type AppSetting = {
   // passed the live SteamVR initialization check it stays verified until the
   // next install or uninstall clears it. GUI state, not a user-facing toggle.
   driverVerified: boolean;
+  // Driver install root (2026-10-26): empty means the default
+  // %LOCALAPPDATA%/GalaxyXR/Drivers. A non-empty absolute local fixed-drive
+  // path is used only by the next explicit install or reinstall. The
+  // installation receipt, not this preference, owns the active package.
+  driverInstallRoot: string;
 }
 
 export const HeadsetType = {
@@ -539,16 +556,39 @@ export type DriverInfo = {
     enabled: boolean;
     hookInstalled: boolean;
     published: boolean;
+    publishedValue?: number;
     // Pinned cross-child seam (brief 11, 2026-10-17): the keys and the status
     // enum are read verbatim from info.json — exactly 'off' | 'on' | 'waiting'.
     status: 'off' | 'on' | 'waiting';
+    // 2026-10-26 automatic/forced split (additive; older drivers omit these).
+    // requestedMode is the stored 0/1 value; effectiveMode is the carrier class
+    // the driver wants to publish (0 off, 1 late, 2 half). publishedValue is
+    // the last confirmed delivery and may differ after a failed transition.
+    requestedMode?: number;
+    effectiveMode?: number;
+    transportGeneration?: number;
+    auto?: {
+      enabled: boolean;
+      requestedMode: number;
+      effectiveMode: number;
+      measuredFps: number;
+      refreshHz: number;
+      historySpanSeconds: number;
+      historyValid: boolean;
+      reason: string;
+      generation: number;
+      enterCount: number;
+      exitCount: number;
+    };
+    // 2026-10-25: driver write time (ms since epoch). Lets the row trust a
+    // fresh host report even when the separate installation/version check is
+    // in a mismatch or polling failure. Optional for older drivers.
+    observedAt?: number;
   };
   // 2026-10-21 (S1): encoder ceiling vs the request clamp VRLink honours.
-  // overdrive = ceiling above clamp while the request sits at the clamp.
+  // Observed request, Max Bitrate and applied target.
   bitratePolicy?: {
-    overdrive: boolean;
     ceilingMbit: number;
-    clampMbit: number;
     requestMbit: number;
     targetMbit: number;
   };

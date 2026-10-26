@@ -24,9 +24,10 @@
 //     reacts to frame lateness (encode + transmit); at 2048 tiles every
 //     preset is late and the allocation starves. 1536 tiles hold the full
 //     allocation at P7 on a 3-engine GPU.
-//   * vrlink's own request never exceeds 350; the tap scales it to the
-//     tier bandwidth. 450 is the client's limit (its reset requests climb
-//     steeply at 500 and 600 while the radio stays fine).
+//   * vrlink's request is sampled and mapped by the tap onto the Max Bitrate
+//     row (the 2026-10-23 curve no longer normalizes against a fixed 350
+//     clamp). 450 is the client's limit (its reset requests climb steeply at
+//     500 and 600 while the radio stays fine).
 //   * CBR + VBV 2 caps every frame (vegetation peaks and reset IDRs) far
 //     below vrlink's 2 MB send limit; spatial AQ serializes NVENC submission
 //     and is never used.

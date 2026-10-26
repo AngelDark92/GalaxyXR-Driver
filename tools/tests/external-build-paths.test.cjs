@@ -68,6 +68,15 @@ test('migration protects tracked artifacts', { skip: process.platform !== 'win32
   const result = f.run(true); assert.notEqual(result.status, 0); assert.match(result.stderr, /Tracked path protected/);
   assert.ok(fs.existsSync(path.join(f.repo, 'build/custom-script.ps1')));
 });
+test('test runners keep generated output outside the checkout', () => {
+  const tools = path.join(project, 'tools');
+  const offenders = [];
+  for (const name of fs.readdirSync(tools).filter(name => /^Test-.*\.ps1$/.test(name))) {
+    const text = fs.readFileSync(path.join(tools, name), 'utf8');
+    if (/\$(?:repo|repoRoot)\s+['"](?:\.\/)?(?:build|output|dist|target)[\\/]/.test(text)) offenders.push(name);
+  }
+  assert.deepEqual(offenders, [], `Test runners must write under ../builds/GalaxyXR-Driver: ${offenders.join(', ')}`);
+});
 test('frontend and Rust consumers resolve the same external dist and Cargo roots', () => {
   const gui = path.join(project, 'GalaxyXRDriverGUI');
   const config = JSON.parse(fs.readFileSync(path.join(gui, 'src-tauri/tauri.conf.json')));

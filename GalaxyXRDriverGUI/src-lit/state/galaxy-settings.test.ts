@@ -808,6 +808,7 @@ describe('galaxyXr config', () => {
   it('fills missing galaxyXr keys with the shipped defaults', () => {
     const { gs } = buildHarness({ galaxyXr: { streamQuality: 'balanced' } });
     expect(gs.galaxyXr.nativeResolution).toBe(true);
+    expect(gs.galaxyXr.sdr10Baseline).toBe(true);
     expect(gs.galaxyXr.renderModelScale).toBe(1.15);
     expect(gs.galaxyXr.customBandwidthMbit).toBe(350);
     expect(gs.galaxyXr.synthesizeGripTouch).toBe(true);
@@ -822,6 +823,13 @@ describe('galaxyXr config', () => {
   });
 
   it('honours sdr10Baseline and its custom-shader conflict', () => {
+    // 2026-10-23 (owner directive): the shipped default is On.
+    const { gs: defaulted } = buildHarness(structuredClone(driverDefaults));
+    expect(defaulted.sdr10BaselineActive()).toBe(true);
+    const { gs: filled } = buildHarness({ galaxyXr: {} });
+    expect(filled.galaxyXr.sdr10Baseline).toBe(true);
+    expect(filled.sdr10BaselineActive()).toBe(true);
+
     const { gs } = buildHarness({ galaxyXr: { sdr10Baseline: true } });
     expect(gs.sdr10BaselineActive()).toBe(true);
 
@@ -831,6 +839,11 @@ describe('galaxyXr config', () => {
     });
     expect(conflicting.sdr10BaselineConflict()).toBe(true);
     expect(conflicting.sdr10BaselineActive()).toBe(false);
+
+    // H.264 is 8-bit only: the stored On is suppressed, matching the
+    // disabled switch and the driver's codec gate.
+    const { gs: h264 } = buildHarness({ galaxyXr: { sdr10Baseline: true }, streamFrame: { nvencCodec: 1 } });
+    expect(h264.sdr10BaselineActive()).toBe(false);
   });
 });
 
@@ -952,7 +965,7 @@ describe('profile import/export', () => {
 
 describe('per-codec encoder defaults', () => {
   // each codec owns a default rate-control profile (galaxy-settings.ts):
-  // Force CBR is ON in every row (owner directive 2026-10-17, revised); HEVC/AV1 carry a 2-frame VBV, H.264 one frame
+  // Force CBR is OFF in every row (owner directive 2026-10-23); HEVC/AV1 carry a 2-frame VBV, H.264 one frame
   // (splitMode stays 1 everywhere — it also opens the 12.1 session; the
   // tap skips the split bits for codec 1 itself). 2026-10-16 owner directive:
   // a codec switch applies that codec's table row at once — tile, bandwidth
@@ -986,7 +999,7 @@ describe('per-codec encoder defaults', () => {
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
     expect(reopened.gs.galaxyXr.customBandwidthMbit).toBe(500);
-    expect(reopened.gs.settings?.nvencForceCbr).toBe(true);
+    expect(reopened.gs.settings?.nvencForceCbr).toBe(false);
   });
 
   it.each([0, 2])('switches to codec %s loading its optimized defaults', async codec => {
@@ -1014,7 +1027,7 @@ describe('per-codec encoder defaults', () => {
   it('switches only the codec and the codec-owned keys that actually differ (HEVC -> AV1)', () => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, streamQuality: 'custom', customStreamFormatWidth: 1536, customBandwidthMbit: 350 },
-      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0, nvencForceCbr: true, nvencVbvFrames: 2, nvencLowDelayKfScale: 2, nvencSplitMode: 1 },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0, nvencForceCbr: false, nvencVbvFrames: 2, nvencLowDelayKfScale: 2, nvencSplitMode: 1 },
     };
     const { gs } = buildHarness(stored);
     void gs.galaxyXr; void gs.settings; // materialize getter default fills before the baseline clone
@@ -1026,7 +1039,7 @@ describe('per-codec encoder defaults', () => {
     // rows carry splitMode 1 (2026-10-17 evening — AV1's row applies the
     // portable forced split, so the switch changes no split value).
     before.streamFrame.nvencCodec = 2;
-    before.galaxyXr.customBandwidthMbit = 400;
+    before.galaxyXr.customBandwidthMbit = 280;
     expect(after).toEqual(before);
   });
 
@@ -1060,7 +1073,7 @@ describe('per-codec encoder defaults', () => {
       expect(harness.gs.settings).toMatchObject({ nvencCodec: codec, ...chosen });
     }
     // the final apply (codec 1) replaced the codec-owned rows with the table
-    expect(harness.gs.settings!.nvencForceCbr).toBe(true);
+    expect(harness.gs.settings!.nvencForceCbr).toBe(false);
     expect(harness.gs.settings!.nvencVbvFrames).toBe(1);
     expect(harness.gs.settings!.nvencLowDelayKfScale).toBe(2);
     expect(harness.gs.settings!.nvencSplitMode).toBe(1);
@@ -1140,11 +1153,11 @@ describe('per-codec encoder defaults', () => {
     const { bandwidthMbit: av1Bandwidth, splitMode: av1Split, ...av1Rest } = codecEncoderDefaults[2];
     const { bandwidthMbit: hevcBandwidth, splitMode: hevcSplit, ...hevcRest } = codecEncoderDefaults[0];
     expect(av1Rest).toEqual(hevcRest);
-    expect(av1Bandwidth).toBe(400);
+    expect(av1Bandwidth).toBe(280);
     expect(av1Split).toBe(1);
     expect(hevcSplit).toBe(1);
     expect(hevcBandwidth).toBe(350);
-    expect(codecEncoderDefaults[1].forceCbr).toBe(true);
+    expect(codecEncoderDefaults[1].forceCbr).toBe(false);
     expect(codecEncoderDefaults[1].vbvFrames).toBe(1);
     expect(codecEncoderDefaults[1].splitMode).toBe(1); // split bits are skipped for codec 1 in the tap, but the key still opens the 12.1 session
     expect(codecEncoderDefaults[1].lowDelayKfScale).toBe(codecEncoderDefaults[0].lowDelayKfScale);
@@ -1163,38 +1176,51 @@ describe('per-codec encoder defaults', () => {
   });
 });
 
-describe('Async Spacewarp toggle (2026-10-17)', () => {
-  it('defaults to false and keeps a never-set key absent on disk', async () => {
+describe('Async Spacewarp toggle (2026-10-17; semantics 2026-10-26)', () => {
+  it('defaults to false; a never-set Spacewarp key keeps the dated stamp absent', async () => {
     expect(driverDefaults.streamFrame!.spacewarpEnable).toBe(false);
+    expect(driverDefaults.streamFrame!.spacewarpMode).toBe(0);
+    expect(driverDefaults.streamFrame!.spacewarpSettingsVersion).toBe(1);
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2 },
       streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0 },
     };
     const { gs, saved, flush } = buildHarness(stored);
     await flush();
-    expect(saved).toHaveLength(0); // brief 11 seam: never-set key — no migration, no silent stamp
+    expect(saved).toHaveLength(0); // never-set feature: no migration, no silent stamp
     expect(gs.settings?.spacewarpEnable).toBe(false);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
   });
 
-  it('keeps an explicit toggle, resets it to the native default and round-trips both', async () => {
+  it('keeps an explicit toggle and forces the stored mode through reset and round-trip', async () => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2 },
-      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, spacewarpEnable: true },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, spacewarpEnable: true, spacewarpMode: 1 },
     };
-    const { gs, saved, flush } = buildHarness(stored);
+    const raw = structuredClone(stored);
+    const { gs, saved, flush } = buildHarness(stored, undefined, raw);
     await flush();
-    expect(saved).toHaveLength(0); // the explicit choice is stored state, never rewritten on load
+    expect(saved).toHaveLength(1); // dated semantics stamp (the selection itself stays)
+    const stamped = JSON.parse(JSON.stringify(saved[0]));
+    expect(stamped.streamFrame.spacewarpEnable).toBe(true);
+    expect(stamped.streamFrame.spacewarpMode).toBe(1);
+    expect(stamped.streamFrame.spacewarpSettingsVersion).toBe(2);
     expect(gs.settings?.spacewarpEnable).toBe(true);
+    expect(gs.settings?.spacewarpMode).toBe(1);
     gs.reset('spacewarpEnable');
     expect(gs.settings?.spacewarpEnable).toBe(false); // native default
-    const persisted = JSON.parse(JSON.stringify(saved[0]));
+    expect(gs.settings?.spacewarpMode).toBe(1); // the separate Force row is not reset with ASW
+    gs.reset('spacewarpMode');
+    expect(gs.settings?.spacewarpMode).toBe(0); // Automatic
+    const persisted = JSON.parse(JSON.stringify(saved[saved.length - 1]));
     expect(persisted.streamFrame.spacewarpEnable).toBe(false);
+    expect(persisted.streamFrame.spacewarpMode).toBe(0);
     const reopened = buildHarness(persisted);
     await reopened.flush();
     expect(reopened.gs.settings?.spacewarpEnable).toBe(false);
+    expect(reopened.gs.settings?.spacewarpMode).toBe(0);
   });
 });
 
@@ -1275,7 +1301,7 @@ describe('H.264 stored-profile migration', () => {
     expect(gs.galaxyXr.customBandwidthMbit).toBe(450);
     expect(gs.galaxyXr.customStreamFormatWidth).toBe(1536);
     expect(gs.galaxyXr.streamQuality).toBe('sharp');
-    expect(gs.settings?.nvencForceCbr).toBe(true);
+    expect(gs.settings?.nvencForceCbr).toBe(false);
     expect(gs.settings?.nvencVbvFrames).toBe(2);
   });
 
@@ -1297,10 +1323,67 @@ describe('H.264 stored-profile migration', () => {
     };
     const { gs, flush } = buildHarness(stored);
     await flush();
-    expect(gs.settings?.nvencForceCbr).toBe(true);
+    expect(gs.settings?.nvencForceCbr).toBe(false);
     expect(gs.settings?.nvencVbvFrames).toBe(2);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
+  });
+});
+
+describe('seven-point custom bitrate curve', () => {
+  it('seeds Custom from the visible preset, validates points and resets both keys', async () => {
+    const { gs, saved, flush } = buildHarness({});
+    await flush();
+    gs.setBitrateCurve(1);
+    expect(gs.settings?.nvencBitrateCurve).toBe(1);
+    gs.setBitrateCurve(3);
+    expect(gs.settings?.nvencBitrateCurve).toBe(3);
+    const seeded = gs.settings!.nvencBitrateCurvePoints;
+    expect(seeded).toHaveLength(7);
+    expect(seeded[3].y).toBeGreaterThan(0.5); // power-knee shape, not the linear default
+
+    const moved = seeded.map(point => ({ ...point }));
+    moved[2] = { x: 0.5, y: 0.5 };
+    expect(gs.setCustomBitrateCurve(moved)).toBe(true);
+    expect(gs.settings?.nvencBitrateCurvePoints[2]).toEqual({ x: 0.5, y: 0.5 });
+    expect(gs.setCustomBitrateCurve([{ x: 0, y: 0 }])).toBe(false);
+    expect(gs.settings?.nvencBitrateCurvePoints[2]).toEqual({ x: 0.5, y: 0.5 });
+
+    gs.resetBitrateCurve();
+    expect(gs.settings?.nvencBitrateCurve).toBe(0);
+    expect(gs.settings?.nvencBitrateCurvePoints.map(point => ({ ...point }))).toEqual([
+      { x: 0, y: 0 }, { x: 0.2, y: 0.2 }, { x: 0.4, y: 0.4 }, { x: 0.6, y: 0.6 },
+      { x: 0.8, y: 0.8 }, { x: 1, y: 1 }, { x: 1, y: 1 },
+    ]);
+    expect(saved.length).toBeGreaterThan(0);
+    const reopened = buildHarness(structuredClone(saved[saved.length - 1] as any));
+    await reopened.flush();
+    expect(reopened.gs.settings?.nvencBitrateCurve).toBe(0);
+  });
+
+  it('upgrades a stored five-point custom shape on load and persists seven points', async () => {
+    const stored = {
+      streamFrame: {
+        streamFrameSchema: 5, nvencSettingsVersion: 4, nvencBitrateCurve: 3,
+        nvencBitrateCurvePoints: [
+          { x: 0, y: 0 }, { x: 0.1, y: 0.05 }, { x: 0.4, y: 0.3 },
+          { x: 0.7, y: 0.9 }, { x: 1, y: 1 },
+        ],
+      },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(gs.settings?.nvencBitrateCurvePoints).toEqual([
+      { x: 0, y: 0 }, { x: 0.1, y: 0.05 }, { x: 0.4, y: 0.3 },
+      { x: 0.7, y: 0.9 }, { x: 0.85, y: 0.95 }, { x: 1, y: 1 }, { x: 1, y: 1 },
+    ]);
+    expect(saved.length).toBeGreaterThan(0);
+    const persisted = saved[saved.length - 1] as any;
+    expect(persisted.streamFrame.nvencBitrateCurvePoints).toHaveLength(7);
+    const reopened = buildHarness(persisted);
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
+    expect(reopened.gs.settings?.nvencBitrateCurvePoints).toHaveLength(7);
   });
 });

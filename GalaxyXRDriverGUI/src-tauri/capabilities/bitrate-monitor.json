@@ -1,0 +1,12 @@
+{
+  "$schema": "../../../../builds/GalaxyXR-Driver/gui/schemas/desktop-schema.json",
+  "identifier": "bitrate-monitor",
+  "description": "On-demand read-only bitrate monitor window",
+  "windows": [
+    "bitrate-monitor"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:default"
+  ]
+}

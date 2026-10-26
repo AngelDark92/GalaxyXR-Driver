@@ -1,15 +1,15 @@
 {
   "schema": 1,
-  "version": "116",
+  "version": "557",
   "upstream": {
-    "repo": "https://github.com/tig3rmast3r/OFXR-Bridge",
-    "tag": "v0.2.1",
-    "commit": "dad56ac"
+    "repo": "https://github.com/djules75/OFXR-Bridge",
+    "tag": "0.2.14.2",
+    "commit": "f64d4b0aa7e15747bc2060c8f962b830a53b02ab"
   },
   "files": {
     "LICENSE": "7d3a95e5e06978064ed3f8e2b7c8f845e7fd8a405294727cc708f94cb83b8059",
-    "NOTICE": "0042abf25897f64f8f5763064f4d2e2e15a44eefa4ae944d740e4791be91a341",
-    "XR_APILAYER_XRFrameBridge_diagnostic.dll": "5601418ec2b5d9bf75b0ed0668fcbe999f1806d347c6885c724ff12e0ca1c2a4",
-    "ofxr_bridge.ini": "652af582872c8b5d11c260e675f20cc8127a544480feb7fcca2aabe6fa570746"
+    "NOTICE": "9bb4a29761556d65f80897f44d91d8cc54380bb6c87c84d3fd25bca21cb8fd74",
+    "XR_APILAYER_XRFrameBridge_diagnostic.dll": "863a5ad107e1a2dc41643ef3b3e6f1d90b898bd01e80bca833979099e97fd340",
+    "ofxr_bridge.ini": "5f5f2f916e9268330697ad89ce25d0ffdfdf4d52e7947a99081cc3e6248cc8d9"
   }
 }

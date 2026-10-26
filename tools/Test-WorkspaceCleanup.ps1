@@ -28,6 +28,11 @@ function Package([string]$Name) {
     Put "output/$Name/GalaxyXRNative/resources/settings/default.vrsettings" '{}'
     Put "output/$Name/GalaxyXRNative/bin/win64/driver_GalaxyXRNative.dll"
     Put "output/$Name/GalaxyXRDriverGUI/Galaxy XR Companion.exe"
+    Put "output/$Name/GalaxyXRDriverGUI/ofxr/XR_APILAYER_XRFrameBridge_diagnostic.dll"
+    Put "output/$Name/GalaxyXRDriverGUI/ofxr/ofxr_bridge.ini" ''
+    Put "output/$Name/GalaxyXRDriverGUI/ofxr/payload.json" '{}'
+    Put "output/$Name/GalaxyXRDriverGUI/ofxr/LICENSE" ''
+    Put "output/$Name/GalaxyXRDriverGUI/ofxr/NOTICE" ''
 }
 function Run-Cleanup([switch]$Apply, [string]$Keep=$script:keep) {
     return @(& (Join-Path $fixture 'tools/Clean-Workspace.ps1') -KeepPackage $Keep -Apply:$Apply)
@@ -70,11 +75,24 @@ try {
     Put 'build/toolchains/compiler.exe' 'preserve toolchain'
     Put 'GalaxyXRDriverGUI/node_modules/package/source.js' 'preserve dependency'
     Put 'ThirdParty/source.h' 'preserve vendored source'
-    foreach ($cache in @('output/GalaxyXRDriverGUI','GalaxyXRDriverGUI/src-tauri/target')) {
+    foreach ($cache in @('output/GalaxyXRDriverGUI','output/GalaxyXRDriverGUI-wt-curve','build/cargo-target','GalaxyXRDriverGUI/src-tauri/target')) {
         Put "$cache/CACHEDIR.TAG" 'Signature: 8a477f597d28d172789f06886806bc55'
         Put "$cache/.rustc_info.json" '{"rustc_fingerprint":123}'
         Put "$cache/debug/.fingerprint/pkg-1234567890abcdef/lib-pkg.json" '{}'
         Put "$cache/debug/deps/pkg-1234567890abcdef.rlib"
+    }
+    # Tauri's top-level Cargo artifacts, including the library target and its
+    # import/export sidecars, are generated cache files too.
+    foreach ($artifact in @('app_lib.d','app_lib.lib','app_lib.dll.exp','app_lib.dll.lib','libapp_lib.rlib')) {
+        Put "output/GalaxyXRDriverGUI/debug/$artifact"
+    }
+    # A cache with an unrecognized file must be preserved, not partially emptied.
+    foreach ($cache in @('output/GalaxyXRDriverGUI-unknown')) {
+        Put "$cache/CACHEDIR.TAG" 'Signature: 8a477f597d28d172789f06886806bc55'
+        Put "$cache/.rustc_info.json" '{"rustc_fingerprint":123}'
+        Put "$cache/debug/.fingerprint/pkg-1234567890abcdef/lib-pkg.json" '{}'
+        Put "$cache/debug/deps/pkg-1234567890abcdef.rlib"
+        Put "$cache/debug/personal.txt" 'unknown generated-layout file'
     }
     Put 'outside-junction/sentinel.txt' 'must survive'
     $junction = Join-Path $fixture "$linked/linked-user-folder"
@@ -89,6 +107,7 @@ try {
     Assert ([bool]($preview -match 'Reparse point')) 'Junction was not rejected.'
     Assert ([bool]($preview -match 'Tracked path protected')) 'Tracked package file was not protected.'
     Assert ([bool]($preview -match 'Unknown package file')) 'Unknown package addition was not protected.'
+    Assert ([bool]($preview -match 'Unknown Cargo cache entry')) 'Unknown Cargo cache entry was not protected.'
     Assert ([bool]($preview -match 'Incomplete package')) 'Partial package was not protected.'
     Expect-Failure { Run-Cleanup -Apply -Keep '../escape' } 'Parent traversal accepted.'
     Expect-Failure { Run-Cleanup -Apply -Keep (Join-Path $fixture $keep) } 'Absolute keep path accepted.'
@@ -115,10 +134,13 @@ try {
     Run-Cleanup -Apply | Out-Null
     Assert (-not (Test-Path -LiteralPath (Join-Path $fixture $old))) 'Old package remained.'
     Assert (-not (Test-Path -LiteralPath (Join-Path $fixture 'output/GalaxyXRDriverGUI'))) 'Cargo output cache remained.'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $fixture 'output/GalaxyXRDriverGUI-wt-curve'))) 'Worktree Cargo cache remained.'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $fixture 'build/cargo-target'))) 'Build-root Cargo cache remained.'
     Assert (-not (Test-Path -LiteralPath (Join-Path $fixture 'GalaxyXRDriverGUI/src-tauri/target'))) 'Local Cargo cache remained.'
     Assert (-not (Test-Path -LiteralPath (Join-Path $fixture 'build/portable-objects-20260101-000001/unit.obj'))) 'Object remained.'
     foreach ($preserved in @($keep,$unknown,$partial,$tracked,$linked,'outside-junction/sentinel.txt',
-        'source.txt','output/user-backup/important.txt','build/portable-objects-20260101-000001/driver-build.log',
+        'source.txt','output/user-backup/important.txt','output/GalaxyXRDriverGUI-unknown/debug/personal.txt',
+        'build/portable-objects-20260101-000001/driver-build.log',
         'build/portable-objects-20260101-000002/unit.obj','build/portable-work-20260101-000001-failed/failure.obj',
         'build/toolchains/compiler.exe','GalaxyXRDriverGUI/node_modules/package/source.js','ThirdParty/source.h')) {
         Assert (Test-Path -LiteralPath (Join-Path $fixture $preserved)) "Protected content removed: $preserved"

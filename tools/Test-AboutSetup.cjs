@@ -117,7 +117,7 @@ function cleanMock(h, next) {
       assert.deepEqual(effectiveSettings(c.dss.values()),expected.values,'all effective reloaded settings match a fresh service');
       assert.deepEqual(effectiveSettings(c.galaxy.rootSetting),expected.views,'all effective control values match a fresh service');
       for(const settings of [c.dss.values(),expected.values]){
-        assert.equal(settings.galaxyXr.sdr10Baseline,false);assert.equal(settings.galaxyXr.sdr10AllowEnhancements,false);
+        assert.equal(settings.galaxyXr.sdr10Baseline,true);assert.equal(settings.galaxyXr.sdr10AllowEnhancements,false);
       }
       assert.equal(await c.dss.loadSetting(),true);await tick();
       const saving=c.dss.save(structuredClone(c.dss.values()));await tick();await h.source('platform/writer').flushFileWrites();assert.equal(await saving,true);

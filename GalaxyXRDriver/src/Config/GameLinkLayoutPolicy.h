@@ -22,22 +22,16 @@ namespace gxr {
 //   motion    the selected Controller Fix Mode's, untouched. field
 //             2026-10-04: with the mode Off the stream's own velocities
 //             threw sideways in Half-Life: Alyx, Kalman CA threw straight.
-// with controllerBypass the layout still applies, bare: Samsung's identity,
-// model and pose components on vrlink's untouched pose, with none of the
-// driver's own corrections (the skeleton offset, the grip touch synthesis).
-// the runtime copy drops the bypass flag so the shim and the pose path run;
-// everything the bypass stands for is zeroed here.
+// 2026-10-24: controllerBypass is the master controller disable
+// (Config/ControllerMasterPolicy.h) and wins over this layout. Apply the
+// master first; when it is on this policy is a no-op and the runtime copy
+// already carries gameLinkLayout = false.
 inline bool GameLinkLayoutMode(const Config& config) {
     return config.galaxyXr.gameLinkLayout;
 }
 inline void ApplyGameLinkLayoutPolicy(Config& config) {
-    if (!GameLinkLayoutMode(config)) return;
+    if (!GameLinkLayoutMode(config) || config.galaxyXr.controllerBypass) return;
     auto& g = config.galaxyXr;
-    if (g.controllerBypass) {
-        g.controllerBypass = false;
-        g.synthesizeGripTouch = false;
-        g.skeletonOffsetXCm = g.skeletonOffsetYCm = g.skeletonOffsetZCm = 0.0;
-    }
     g.gripConvention = false;
     g.officialComponents = true;
     g.componentRebaseIncludeTrim = false;

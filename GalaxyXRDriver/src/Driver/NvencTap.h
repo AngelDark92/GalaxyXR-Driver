@@ -4,6 +4,8 @@
 #include <mutex>
 #include <cstdint>
 #include <string>
+#include <vector>
+#include "CurveMath.h"
 
 // ============================================================================
 // NvencTap — hook on vrlink's NVENC usage (nvEncodeAPI64.dll), rebuilt
@@ -12,8 +14,11 @@
 //   * every nvEncReconfigureEncoder at 3072-wide frames fails with
 //     NV_ENC_ERR_INVALID_PARAM ("NVENC: Invalid Level", 100-300x per
 //     session) -> vrlink cannot adjust bitrate after init at all.
-//   * vrlink clamps the encoder request to avg 350 / max 402.5 Mbit/s no
-//     matter what targetBandwidth says (run 3: 600 requested, 350 sent).
+//   * historically vrlink clamped the encoder request to avg 350 / max 402.5
+//     Mbit/s no matter what targetBandwidth said (run 3: 600 requested, 350
+//     sent). The 2026-10-23 curve maps the observed request onto Max Bitrate,
+//     and the driver writes targetBandwidth/recommendedBandwidthMbit = Max
+//     Bitrate; VRLink's own request cap is not patched.
 //   * the stream is 8-bit HEVC ("Using 10bit mode: 0").
 //
 // Mechanism: MinHook on NvEncodeAPICreateInstance; the returned caller-
@@ -64,9 +69,12 @@ struct NvencTapConfig {
 	// Galaxy XR requires exact four-tile active pictures/reconfiguration;
 	// initial allocation may differ. Neutral/legacy callers remain unchanged.
 	bool enforceTile = false;
-	// 0 = leave vrlink's bitrate alone. otherwise averageBitRate is
-	// replaced by this (Mbit/s), maxBitRate by 1.15x, vbvBufferSize scaled
-	// by the same ratio as the average. lifts the 350 Mbit/s clamp.
+	// 0 = leave vrlink's bitrate alone. Otherwise this is the maximum
+	// requested averageBitRate (decimal Mbit/s), reshaped by the curve.
+	// maxBitRate follows headroom under VBR and equals average under CBR;
+	// NVENC ignores maxBitRate under CBR. Neither is a hard output-byte cap
+	// or proof of a lifted VRLink transport/allocation limit. VBV is owned
+	// independently by vbvFrames; zero preserves the caller's buffer size.
 	int bitrateMbit = 0;
 	// 0 = leave. otherwise enableMaxQP and set maxQP (P/B/I) to this value:
 	// a ceiling on how coarsely any block may be quantized, the lever
@@ -74,34 +82,30 @@ struct NvencTapConfig {
 	int maxQp = 0;
 	// 0 = leave. 1..15 enable spatial AQ with this strength.
 	int aqStrength = 0;
-	// 0 = leave. else enableMinQP with this floor (1..51). run G2: the IDR
+	// 0 = leave. else enableMinQP with this codec-specific floor. Historical HEVC run G2: the IDR
 	// after every encoder reset came out at avgQP 8-9 and 3.5-5.4 MB, over
 	// vrlink's ~2 MB send limit ("Packet too big" death loop). a floor of
 	// ~14-18 stops near-lossless frames from ballooning.
 	int minQp = 0;
 	// 0 = same as minQp. else a separate floor for intra (IDR/I) frames.
-	// vrlink's send limit is exactly 2 MB per frame; a 3200x8192 IDR at
-	// QP 16 is 2.3 MB, at QP 23-24 it is 1.45 MB. so P-frames can keep a
-	// low floor while intra frames get ~24.
+	// Historical HEVC observations at 3200x8192: an IDR at QP 16 was
+	// rejected at 2.3 MB, while QP 23-24 produced 1.45 MB. These do not
+	// establish the current transport threshold or transferable AV1 values.
 	int minQpIntra = 0;
-	// force CBR + lowDelayKeyFrameScale=1: NVENC's low-latency mode, the
-	// one in which VBV is honoured on key frames (VBR ignores it right
-	// after a reinit). the second lever against the reset-IDR fault.
+	// Request CBR and lowDelayKeyFrameScale. This configures rate control;
+	// it does not enforce a maximum output-buffer size after encoding.
 	bool forceCbr = false;
-	// with forceCbr: I-frame bits as a multiple of P-frame bits
-	// (NV_ENC_RC_PARAMS::lowDelayKeyFrameScale). 1 = the reset IDR gets one
-	// frame's budget (Q1/R runs: ~1.0 MB at QP 34-48, visibly soft for a few
-	// frames after every reset; vrlink's watchdog resets 3-5x/s while an app
-	// loads, so that softness is what the user sees during that phase).
-	// 2 = IDR up to two frame budgets, still under the VBV of vbvFrames=2.
+	// I/P bit-budget ratio (NV_ENC_RC_PARAMS::lowDelayKeyFrameScale),
+	// documented by NVIDIA for single-frame VBV with CBR. Larger VBV
+	// configurations do not establish an equivalent hard keyframe bound.
 	int lowDelayKfScale = 1;
 	// peak headroom over the average, percent. vrlink uses 15. run C died
 	// with "FAULT: Packet too big" at 500 Mbit: a single (IDR) frame
-	// exceeded vrlink's send limit. 0 = max == avg (flatter frames).
+	// exceeded vrlink's send limit. 0 = max == avg; max is ignored in CBR.
 	int maxBitrateHeadroomPct = 15;
-	// 0 = leave vbv alone. else vbvBufferSize = avg/fps * N frames, which
-	// bounds the size of any one frame (the other lever against the
-	// packet-too-big fault). vrlink's own value wanders 0.9..33 Mbit.
+	// 0 = preserve the caller's VBV even when bitrate scaling is active.
+	// Otherwise request vbvBufferSize = avg/fps * N (bits). This is a
+	// rate-control buffer budget, not a checked maximum output size.
 	// 2026-09-03: fps here is forceFps when set, else the NOMINAL 90, never
 	// vrlink's per-call frameRateNum (see forceFps).
 	int vbvFrames = 0;
@@ -118,15 +122,17 @@ struct NvencTapConfig {
 	// rate; frames that are not sent simply cost nothing.
 	int forceFps = 0;
 	// 2026-10-19 bitrate curve: how vrlink's request maps onto bitrateMbit.
-	// 0 = linear (the pre-curve mapping: target = B * request / clamp),
-	// 1 = power knee, 2 = soft knee (see CurveMath.h). constancy 0..100
-	// lifts the selected curve toward the ceiling: 0 = the curve itself,
-	// 100 = constant ceiling (the retired nvencBitrateScale=false).
+	// 0 = linear (request passes through, capped at Max Bitrate), 1 = power
+	// knee, 2 = soft knee, 3 = Custom seven-point curve (see CurveMath.h).
+	// constancy 0..100 lifts the selected curve toward the ceiling: 0 = the
+	// curve itself, 100 = constant ceiling (the retired nvencBitrateScale=false).
 	int bitrateCurve = 0;
 	int bitrateConstancyPct = 0;
-	// the encoder ceiling vrlink applies to its own request (run 3: 600
-	// asked, 350 sent). the reference point for every curve.
-	int vrlinkClampMbit = 350;
+	// 2026-10-23: seven normalized control points for the Custom family. P1 is
+	// fixed at x=0 with an editable floor; P6 has y=1 and a movable x plateau
+	// start; P7 is fixed at (1,1). Invalid points are refused by validation
+	// before a request is accepted.
+	std::vector<GxrCurvePoint> bitrateCurvePoints;
 	// 2026-10-16: explicit H.264 tuning; zero GOP/IDR derives rational fps,
 	// -1 preserves the caller. Other fields use their documented NVENC values.
 	int h264GopFrames = 0, h264IdrFrames = 0;
@@ -326,17 +332,11 @@ struct NvencTapRuntimeState {
 	uint32_t encodeWidth = 0, encodeHeight = 0;
 };
 
-// 2026-10-21 (S1): the relationship between the encoder ceiling (Bandwidth
-// row), VRLink's own request clamp, and the request it currently makes.
-// overdrive = the ceiling is above the clamp while the request sits at the
-// clamp: the encoder is asked to send more than the streamer requests, so the
-// pacer plans for less than it receives. Published for the Companion, which
-// shows it and offers an explicit align action; the driver never rewrites the
-// user's value.
+// 2026-10-23: the observed request, configured Max Bitrate and applied target.
+// The old 350 Mbit clamp/overdrive fields are gone; the curve maps the request
+// onto Max Bitrate directly. Published for diagnostics only.
 struct BitratePolicyState {
-	bool overdrive = false;
 	int ceilingMbit = 0;
-	int clampMbit = 0;
 	int requestMbit = 0;
 	int targetMbit = 0;
 };

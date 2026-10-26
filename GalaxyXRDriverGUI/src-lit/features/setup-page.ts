@@ -1,10 +1,11 @@
 // Setup, read-back checks, and maintenance (2026-09-26).
 import { html, nothing, type TemplateResult, css } from 'lit';
 import { customElement } from 'lit/decorators.js';
-import { BasePage, fieldRow, sectionHeading, fieldStyles } from './page-base';
+import { BasePage, fieldRow, noteRow, sectionHeading, fieldStyles } from './page-base';
 import { pageIntro, statusIcon, statusMessage } from '../ui/presentation';
 import { t } from '../locale/i18n';
 import { galaxyXRDriverName } from '../environment';
+import { open } from '@tauri-apps/plugin-dialog';
 import '../ui/controls';
 import './system-ready';
 import './driver-banner';
@@ -35,6 +36,8 @@ export class SetupPage extends BasePage {
     .location .separator { padding: 0 6px; }
     .location small { display: block; color: var(--colorNeutralForeground2); }
     .technical { overflow-wrap: anywhere; white-space: pre-wrap; }
+    .install-root { display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+    .install-root .setup-actions { margin-top: 0; }
     .check-details { margin-top: 12px; }
     .action-card.danger-zone { border-color: var(--colorPaletteRedBorder1, var(--colorNeutralStroke2)); }
     /* 2026-10-17: step 2 stays highlighted until the app verifies driver
@@ -63,6 +66,11 @@ export class SetupPage extends BasePage {
     const initialized = installed && enabled !== false && (verified || status?.driverInitialized === true);
     const installLabel = !installed ? t('Install Driver') : updateInfo?.installAvailable
       ? this.installText(updateInfo.currentVersion) : t('Reinstall driver');
+    const customRoot = (this.ctx.appSetting.values()?.driverInstallRoot ?? '').trim();
+    const defaultRoot = this.ctx.sds.defaultDriverRoot() ?? '%LOCALAPPDATA%\\GalaxyXR\\Drivers';
+    const desiredRoot = customRoot || this.ctx.sds.defaultDriverRoot();
+    const currentRoot = this.ctx.sds.driverRegisteredPath();
+    const locationMismatch = installed && !!currentRoot && !!desiredRoot && !this.sameManagedRoot(currentRoot, desiredRoot);
     return html`
       <div class="step-grid">
         <article class="step-card">
@@ -100,6 +108,21 @@ export class SetupPage extends BasePage {
           </div>` : nothing}
         </article>
       </div>
+      ${sectionHeading(t('Advanced'), 0, 'setup-advanced')}
+      ${fieldRow(t('Driver install location'), html`
+        <div class="install-root">
+          <span>${customRoot ? t('Custom: {path}', { path: customRoot }) : t('Default: {path}', { path: defaultRoot })}</span>
+          <div class="setup-actions">
+            <fluent-button ?disabled=${busy} @click=${() => this.chooseInstallRoot()}>${t('Change…')}</fluent-button>
+            ${customRoot ? html`<fluent-button ?disabled=${busy} @click=${() => this.resetInstallRoot()}>${t('Reset to default')}</fluent-button>` : nothing}
+          </div>
+        </div>
+      `, {
+        tip: t("Choose the parent folder for versioned driver packages. The default is recommended. The driver is installed in a GalaxyXRNative versioned subfolder. A custom location must be an absolute folder on a local fixed drive; network, removable, cloud-synced, temporary and reparse-point folders are not supported. The saved location applies only after you install or reinstall the driver. Changing it does not move the current installation.\n\nValue: driverInstallRoot (gui-settings.json). GUI-only install preference; empty means the default."),
+      })}
+      ${currentRoot ? noteRow(t('Current installation: {path}', { path: currentRoot })) : nothing}
+      ${locationMismatch ? statusMessage('warning', t('Install location saved for the next reinstall'),
+        t('The current installation stays at {path}. Use Reinstall driver to apply the new location.', { path: currentRoot! })) : nothing}
       ${installed ? html`<p class="secondary">${t('After verification, check the picture and controller tracking in your headset.')}</p>` : nothing}
       ${!sds.steamVRinstalled() || (installed && (!sds.systemReady() || enabled === false))
         ? html`<app-driver-troubleshooter .ctx=${this.ctx}></app-driver-troubleshooter>` : nothing}
@@ -228,8 +251,39 @@ export class SetupPage extends BasePage {
       this.ctx.startup.invalidate();
       this.ctx.checks.clear();
       await this.resetVerified();
-      await this.ctx.dialog.message(t('Driver files installed'), t('Start SteamVR and connect your headset through Steam Link to verify the driver.'));
+      const installedAt = this.ctx.sds.driverRegisteredPath();
+      await this.ctx.dialog.message(t('Driver files installed'), installedAt
+        ? t('Driver installed at {path}. Start SteamVR and connect your headset through Steam Link to verify the driver.', { path: installedAt })
+        : t('Start SteamVR and connect your headset through Steam Link to verify the driver.'));
     }
+  }
+  private sameInstallPath(left: string, right: string): boolean {
+    const normalize = (value: string) => value.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+    return normalize(left) === normalize(right);
+  }
+  private sameManagedRoot(currentPackage: string, root: string): boolean {
+    const normalize = (value: string) => value.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+    const current = normalize(currentPackage);
+    const expected = normalize(root);
+    if (!current.startsWith(expected + '\\')) return false;
+    return !current.slice(expected.length + 1).includes('\\');
+  }
+  private async chooseInstallRoot(): Promise<void> {
+    const selected = await open({ directory: true, multiple: false,
+      defaultPath: this.ctx.appSetting.values().driverInstallRoot?.trim() || this.ctx.sds.defaultDriverRoot() });
+    if (!selected || Array.isArray(selected)) return;
+    const defaultRoot = this.ctx.sds.defaultDriverRoot();
+    const value = defaultRoot && this.sameInstallPath(selected, defaultRoot) ? '' : selected;
+    const saved = await this.ctx.appSetting.save({ ...this.ctx.appSetting.values(), driverInstallRoot: value });
+    if (!saved) await this.ctx.dialog.message(t('Install location not saved'),
+      t('The install location preference could not be saved. Check the app settings file permissions and try again.'));
+    this.requestUpdate();
+  }
+  private async resetInstallRoot(): Promise<void> {
+    const saved = await this.ctx.appSetting.save({ ...this.ctx.appSetting.values(), driverInstallRoot: '' });
+    if (!saved) await this.ctx.dialog.message(t('Install location not saved'),
+      t('The install location preference could not be saved. Check the app settings file permissions and try again.'));
+    this.requestUpdate();
   }
   private async cleanSettings(): Promise<void> {
     this.pinSetupRoute();

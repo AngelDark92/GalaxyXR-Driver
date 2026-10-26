@@ -12,7 +12,8 @@ changes, including compensation for time spent inside the callback. No sample or
 tracking-state update is dropped; no smoothing or velocity substitution is added.
 
 Eligibility requires the Galaxy XR vendor build, a recognized physical controller,
-healthy source tracking, direct mode and Controller Bypass OFF. Loss, malformed
+healthy source tracking, direct mode and Disable All Controller Features OFF
+(the former Controller Bypass). Loss, malformed
 timestamps, nonfinite fields, clock discontinuity and callback gaps reset history.
 The history is per device and guarded by a leaf mutex. ABI mismatch clears that
 device's history without interpreting the pose. Provider cleanup clears all history.

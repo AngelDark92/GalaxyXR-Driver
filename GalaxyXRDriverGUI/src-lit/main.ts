@@ -15,6 +15,8 @@ import { setLocale } from './locale/i18n';
 import { appCustomElements } from './register';
 import { applyTheme } from './ui/theme';
 import { applyUiScale } from './ui/ui-scale';
+import { complete_companion_startup } from './platform/tauri';
+import { t } from './locale/i18n';
 function localeFromPath(): string {
   const segments = window.location.pathname.split('/').filter(Boolean);
   // /<locale>/index.html -> the segment before the last is the locale.
@@ -57,7 +59,10 @@ async function boot(): Promise<void> {
   if (scaleError) console.warn('Could not apply the saved interface scale', scaleError);
   await loadLocale();
   await ctx.lifecycle.start();
-  await ctx.ofxr.start();
+  // Mount before awaiting restoration: even a hung manager leaves a usable
+  // diagnostic window when the native startup watchdog reveals it.
+  const restore = ctx.ofxr.start();
+  void ctx.windowsStartup.start();
 
   const host = document.createElement('app-shell');
   (host as unknown as { ctx: unknown }).ctx = ctx;
@@ -65,6 +70,13 @@ async function boot(): Promise<void> {
   // Exposed for debugging / future integration tests.
   (window as unknown as Record<string, unknown>).appContext = ctx;
   (window as unknown as Record<string, unknown>).appCustomElements = appCustomElements;
+  await restore;
+  const startupError = ctx.lifecycle.error() || ctx.ofxr.error()
+    || (ctx.appSetting.readFileError() || ctx.dss.readFileError()
+      ? t('Saved settings could not be read. Check Settings on Setup before restoring Optical Flow.') : undefined);
+  // Native recovery reports the same failure through the lifecycle banner;
+  // keep the mounted shell usable instead of treating recovery as boot death.
+  await complete_companion_startup(startupError ?? null).catch(console.error);
 }
 
 document.title = 'Galaxy XR Companion';
@@ -72,6 +84,7 @@ applyTheme('system');
 
 boot().catch((err) => {
   console.error(err);
+  void complete_companion_startup(String(err)).catch(console.error);
   const el = document.createElement('pre');
   el.style.cssText = 'font-family: monospace; padding: 1rem; white-space: pre-wrap; margin: 0;';
   el.textContent = `Failed to start the GUI:\n${err}`;

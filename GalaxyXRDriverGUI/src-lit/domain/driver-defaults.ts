@@ -6,7 +6,7 @@ import type { Settings } from './types';
 const nativeDefaults = {
   "debugMode": false,
   "galaxyXr": {
-    "sdr10Baseline": false,
+    "sdr10Baseline": true,
     "sdr10AllowEnhancements": false,
     "sdr10SettingsVersion": 1,
     "nativeIdentity": true,
@@ -15,6 +15,8 @@ const nativeDefaults = {
     "synthesizeGripTouch": true,
     "gripTouchThreshold": 0.03,
     "nativeResolution": true,
+    "renderWidth": 3552,
+    "renderHeight": 3840,
     "streamQuality": "custom",
     "customEncodeWidth": 3072,
     "customStreamFormatWidth": 1536,
@@ -287,7 +289,36 @@ const nativeDefaults = {
     "nvencForceFps": 90,
     "nvencBitrateCurve": 0,
     "nvencBitrateConstancyPct": 0,
-    "nvencVrlinkClampMbit": 350,
+    "nvencBitrateCurvePoints": [
+      {
+        "x": 0.0,
+        "y": 0.0
+      },
+      {
+        "x": 0.2,
+        "y": 0.2
+      },
+      {
+        "x": 0.4,
+        "y": 0.4
+      },
+      {
+        "x": 0.6,
+        "y": 0.6
+      },
+      {
+        "x": 0.8,
+        "y": 0.8
+      },
+      {
+        "x": 1.0,
+        "y": 1.0
+      },
+      {
+        "x": 1.0,
+        "y": 1.0
+      }
+    ],
     "nvencH264GopFrames": 0,
     "nvencH264IdrFrames": 0,
     "nvencH264RefFrames": 3,
@@ -305,9 +336,10 @@ const nativeDefaults = {
     "nvencVuiFullRange": -1,
     "nvencMinQp": 0,
     "nvencMinQpIntra": 0,
-    "nvencForceCbr": true,
+    "nvencForceCbr": false,
     "spacewarpEnable": false,
     "spacewarpMode": 0,
+    "spacewarpSettingsVersion": 1,
     "nvencLowDelayKfScale": 2,
     "nvencVuiMatrix": -1,
     "nvencVuiPrimaries": -1,

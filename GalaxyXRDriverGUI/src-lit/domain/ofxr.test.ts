@@ -16,7 +16,7 @@ describe('OFRX preferences', () => {
 
   it('keeps every valid pinned value and rounds only out-of-contract log sizes', () => {
     const full: OfxrPreferences = {
-      enabled: true, version: '116', mode: 'nvidia-slow', scale: 100, bidirectional: true,
+      enabled: true, version: '116', mode: 'nvidia-slow', bidirectional: true,
       logging: true, maxLogMb: 512, flushEachEvent: true, overlay: 'lower-right',
     };
     expect(normalizeOfxrPreferences(full)).toEqual(full);
@@ -28,8 +28,8 @@ describe('OFRX preferences', () => {
   });
 
   it('replaces values outside the pinned enums with defaults instead of coercing them', () => {
-    const dirty = { mode: 'nvidia', scale: 60, overlay: 'center' } as unknown as Partial<OfxrPreferences>;
-    expect(normalizeOfxrPreferences(dirty)).toMatchObject({ mode: 'fidelityfx', scale: 50, overlay: 'off' });
+    const dirty = { mode: 'nvidia', overlay: 'center' } as unknown as Partial<OfxrPreferences>;
+    expect(normalizeOfxrPreferences(dirty)).toMatchObject({ mode: 'fidelityfx', overlay: 'off' });
   });
 
   it('fills the nested ofxr block when an older gui-settings.json only has a few keys', () => {

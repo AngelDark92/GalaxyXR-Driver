@@ -30,10 +30,13 @@ function group(route: Route, containers: string[], sections: string[], advanced 
 }
 const headset = group('driver-settings', ['Headset'], ['headset']);
 headset('galaxyXr.nativeIdentity', 'Galaxy XR Recognition', { advanced: true });
-headset('galaxyXr.nativeResolution', 'Native Panel Resolution');
+headset('galaxyXr.nativeResolution', 'Override Render Resolution');
+headset('galaxyXr.renderWidth', 'Render Width per Eye', { kind: 'value' });
+headset('galaxyXr.renderHeight', 'Render Height per Eye', { kind: 'value' });
 headset('galaxyXr.vrlinkHeadsetProfile', 'Mirror to Steam Link Aliases', { advanced: true });
 headset('galaxyXr.sdr10Baseline', '10-Bit SDR Mode');
 const controllers = group('driver-settings', ['Controllers'], ['controllers'], false, 'vendor');
+group('driver-settings', ['Controllers'], ['controllers'])('galaxyXr.controllerBypass', 'Disable All Controller Features');
 controllers('galaxyXr.nativeInputProfile', 'Official Controller Layout');
 controllers('galaxyXr.synthesizeGripTouch', 'Grip Touch From Pressure', { gate: 'native-input-profile', vendorOnly: true });
 controllers('galaxyXr.officialComponents', 'Official Pose Components');
@@ -43,7 +46,6 @@ const kalman = group('driver-settings', ['Controllers', 'Controller Fix', 'Kalma
 kalman('streamFrame.kalmanCaExactCov', 'Exact Covariance Model (Experimental)', { gate: 'kalman-ca' });
 kalman('streamFrame.kalmanDeviceTime', 'Use Tracking Timestamps');
 kalman('streamFrame.kalmanPosFreeze3dof', 'Freeze Protection');
-group('driver-settings', ['Controllers', 'Controllers Advanced'], ['controllers'], true, 'vendor')('galaxyXr.controllerBypass', 'Controller Bypass');
 group('driver-settings', ['Controllers', 'Controllers Advanced', 'Controller Offsets'], ['controllers', 'ctrlOffsets'], true, 'controllers')('controllers.mirrorOffsetsForRightHand', 'Same Alignment Both Hands');
 
 group('app-settings', ['Picture'], ['heading:app-picture'])('image-enhancements', 'Image Enhancements', {
@@ -74,16 +76,19 @@ const controllerDebug = group('debug', ['Controllers', 'Diagnostics'], ['debugCo
 controllerDebug('streamFrame.poseLogging', 'Motion Logging');
 controllerDebug('streamFrame.poseLogBurst', 'Motion Logging: Burst');
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.nvencTap', 'Override NVIDIA Encoder');
-// Async Spacewarp (2026-10-17): stream synthesis toggle; its page row lives in
-// the vendor build's Stream Quality branch, so it mirrors nvencTap's gate.
+// Async Spacewarp (2026-10-17; 2026-10-26): stream synthesis toggle and the
+// separate Force half-rate switch; both rows live in the vendor build's Stream
+// Quality branch, so they mirror nvencTap's gate.
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpEnable', 'Async Spacewarp');
-// Optical Flow (2026-10-17): the managed OFXR Bridge card. All eight rows are
-// gui-settings.json values owned by the Companion; the page's Enable switch is
-// additionally gated by the native ofxr_status() state.
+group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpMode', 'Force half-rate');
+// Optical Flow (2026-10-17; 2026-10-23): the managed OFXR Bridge card. The
+// remaining rows are gui-settings.json values owned by the Companion; the
+// page's Enable switch is additionally gated by the native ofxr_status()
+// state. NVIDIA input scale and other build-specific options are set in the
+// imported OFXR build's own tray and are not written by the Companion.
 const ofxr = group('stream-frame', ['Optical Flow'], ['heading:optical-flow'], false, 'vendor');
 ofxr('ofxr.enabled', 'Enable Optical Flow', { source: 'gui-settings.json' });
 ofxr('ofxr.mode', 'Backend', { source: 'gui-settings.json', kind: 'value' });
-ofxr('ofxr.scale', 'NVIDIA OFA resolution', { source: 'gui-settings.json', kind: 'value' });
 ofxr('ofxr.bidirectional', 'NVIDIA bidirectional consistency', { source: 'gui-settings.json' });
 ofxr('ofxr.logging', 'Bridge flight recorder', { source: 'gui-settings.json' });
 ofxr('ofxr.maxLogMb', 'Flight log size limit (MB)', { source: 'gui-settings.json', kind: 'value' });
@@ -200,6 +205,12 @@ export function settingUnavailable(setting: SettingPresentation, context: Presen
   if (setting.source === 'settings.json' && !context.driverInstalled) return 'Install the driver to show this control.';
   if (setting.route === 'debug' && context.settings?.debugMode !== true) return 'Enable Debug Mode in App Settings to show diagnostic controls.';
   if ((setting.vendorOnly || setting.gate === 'vendor') && !context.vendor) return 'This control is available in the Galaxy XR build.';
+  // 2026-10-24: the master switch hides every other controller control; the
+  // checker keeps its saved values inspectable but explains why they are inert.
+  if (setting.route === 'driver-settings' && setting.containers.includes('Controllers')
+      && setting.id !== 'galaxyXr.controllerBypass' && context.settings?.galaxyXr?.controllerBypass) {
+    return 'Disable All Controller Features is on. Its saved adjustments are kept.';
+  }
   const sf = context.settings?.streamFrame;
   const enhancements = imageEnhancementsEnabled(context.settings);
   if (setting.gate === 'native-input-profile' && !context.settings?.galaxyXr?.nativeInputProfile) return 'Official Controller Layout is off. Its saved adjustments are kept.';

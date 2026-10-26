@@ -6,6 +6,8 @@
 #include "CompositorPlugin.h"
 #include "HidModifier.h"
 #include "FrameProcessor.h"
+#include "AswAutoMode.h"
+#include "VrlinkTap.h"
 
 #include "Hooking/InterfaceHookInjector.h"
 #include "Hooking/ControllerPoseVelocity.h"
@@ -96,7 +98,7 @@ vr::EVRInitError GalaxyXRDeviceProvider::Init(vr::IVRDriverContext *pDriverConte
 	
 	driverConfigLoader.Start();
 #ifdef VENDOR_GALAXYXR
-	DriverLog("ControllerPoseEpoch: exact-repeat timing correction available in Controller Fix Off; 50ms bound; Controller Bypass disables it (2026-10-12).");
+	DriverLog("ControllerPoseEpoch: exact-repeat timing correction available in Controller Fix Off; 50ms bound; Disable All Controller Features disables it (2026-10-12).");
 #endif
 	{
 		// 2026-09-25: publish saved/default encoder options before installing
@@ -139,11 +141,16 @@ vr::EVRInitError GalaxyXRDeviceProvider::Init(vr::IVRDriverContext *pDriverConte
 	
 	// the shim classes can be used to implement entirely new headsets, not just shim existing ones
 	if(driverConfig.fakeHeadset.enable){
-		FakeHeadset* fakeHeadsetImplementation = new FakeHeadset();
-		fakeHeadsetImplementation->deviceProvider = this;
-		shims.insert(fakeHeadsetImplementation);
-		vr::ITrackedDeviceServerDriver* driver = new ShimTrackedDeviceDriver(fakeHeadsetImplementation, nullptr);
-		vr::VRServerDriverHost()->TrackedDeviceAdded("FakeCustomHMD", vr::TrackedDeviceClass_HMD, driver);
+		if(!driverConfig.debugMode){
+			DriverLog("GalaxyXRNative: fakeHeadset.enable ignored because Debug Mode is off; no FakeCustomHMD added");
+		} else {
+			DriverLog("GalaxyXRNative: fakeHeadset.enable is ON; adding FakeCustomHMD (debug phantom headset)");
+			FakeHeadset* fakeHeadsetImplementation = new FakeHeadset();
+			fakeHeadsetImplementation->deviceProvider = this;
+			shims.insert(fakeHeadsetImplementation);
+			vr::ITrackedDeviceServerDriver* driver = new ShimTrackedDeviceDriver(fakeHeadsetImplementation, nullptr);
+			vr::VRServerDriverHost()->TrackedDeviceAdded("FakeCustomHMD", vr::TrackedDeviceClass_HMD, driver);
+		}
 	}
 	
 	driverConfigLoader.info.runtimeInitialized = true;
@@ -195,6 +202,80 @@ void GalaxyXRDeviceProvider::RefreshKalDiagnosticSession(){
 	for(auto& entry : deriveFilterStates){ entry.second.lastDirLogTime = 0; }
 }
 
+// 2026-10-26 automatic half-rate source of truth: the HMD's published refresh.
+// The property may be absent before the headset activates; the tracker then
+// keeps its previous/default value instead of inventing a cadence.
+double GalaxyXRDeviceProvider::QueryDisplayRefreshHz(){
+	vr::PropertyContainerHandle_t container =
+		vr::VRProperties()->TrackedDeviceToPropertyContainer(vr::k_unTrackedDeviceIndex_Hmd);
+	if(!container){ return 0.0; }
+	vr::ETrackedPropertyError error = vr::TrackedProp_Success;
+	const float hz = vr::VRProperties()->GetFloatProperty(container,
+		vr::Prop_DisplayFrequency_Float, &error);
+	if(error != vr::TrackedProp_Success || !std::isfinite(hz) || hz <= 1.0f){ return 0.0; }
+	return static_cast<double>(hz);
+}
+
+// Sample application cadence at most ten times per second through the public
+// IVRServerDriverHost::GetFrameTimings provider callback. The tracker owns the
+// one-second history, deduplication, thresholds and hysteresis; this function
+// only bridges OpenVR records and publishes effective-mode transitions. Forced
+// mode bypasses the thresholds inside the tracker. Compositor/encoder/decoder
+// FPS are never substituted.
+void GalaxyXRDeviceProvider::UpdateAswAutoMode(){
+	const double now = std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::steady_clock::now().time_since_epoch()).count() / 1000000.0;
+	auto& autoMode = gxr::AswAutoMode::Get();
+	// The settings publisher already delivered/retries the user's Off request.
+	// Settled Off needs no refresh-property or compositor-timing queries.
+	if(!autoMode.Snapshot().enabled){
+		lastAswEffectiveMode = 0;
+		return;
+	}
+	const double refresh = QueryDisplayRefreshHz();
+	if(refresh > 0.0){ autoMode.SetRefreshHz(refresh); }
+
+	// A replacement vrlink transport is a reconnect: discard pre-gap cadence
+	// evidence but keep the user's saved request. The same applies to a scene
+	// application change, which is handled in the event loop below.
+	const auto tap = VrlinkTap::Get().GetRuntimeState();
+	if(!haveAswTransportGeneration || tap.transportGeneration != lastAswTransportGeneration){
+		if(haveAswTransportGeneration){ autoMode.NotifyBoundary("reconnect"); }
+		lastAswTransportGeneration = tap.transportGeneration;
+		haveAswTransportGeneration = true;
+	}
+
+	const auto snapshot = autoMode.Snapshot();
+	const bool automaticEnabled = snapshot.enabled && snapshot.requestedMode == 0;
+	if(automaticEnabled && autoMode.SampleDue(now)){
+		autoMode.MarkSampled(now);
+		// Request enough overlapping history to cover a full 100 ms poll at
+		// 90 FPS plus scheduling jitter. Eight records undercount 90 FPS as
+		// ~80 FPS and falsely select half rate; deduplication keeps this cheap.
+		constexpr uint32_t kTimingRecords = 32;
+		vr::Compositor_FrameTiming timing[kTimingRecords] = {};
+		for(auto& entry : timing){ entry.m_nSize = sizeof(vr::Compositor_FrameTiming); }
+		uint32_t count = vr::VRServerDriverHost()->GetFrameTimings(timing, kTimingRecords);
+		if(count > kTimingRecords){ count = kTimingRecords; }
+		gxr::AswTimingFrame frames[kTimingRecords] = {};
+		for(uint32_t i = 0; i < count; i++){
+			frames[i].frameIndex = timing[i].m_nFrameIndex;
+			frames[i].systemTimeSeconds = timing[i].m_flSystemTimeInSeconds;
+		}
+		autoMode.Observe(now, refresh, frames, count);
+	}
+
+	const int effective = autoMode.Evaluate(now);
+	if(effective != lastAswEffectiveMode){
+		lastAswEffectiveMode = effective;
+		const auto latest = autoMode.Snapshot();
+		DriverLog("AswAutoMode: effective mode -> %d (%s; fps %.2f, refresh %.2f, history %.2fs)",
+			effective, latest.reason, latest.measuredFps, latest.refreshHz,
+			latest.historySpanSeconds);
+		VrlinkTap::Get().SetEffectiveMode(effective);
+	}
+}
+
 void GalaxyXRDeviceProvider::RunFrame(){
 	// when locked out by the vendor-neutral driver nothing was initialized, so do nothing
 	if(lockedOut){
@@ -219,6 +300,7 @@ void GalaxyXRDeviceProvider::RunFrame(){
 	settings.config = driverConfig.streamFrame;
 	settings.policy = gxr::ResolveSdr10Policy(driverConfig);
 	FrameProcessor::UpdateEncoderSettings(settings);
+	UpdateAswAutoMode();
 	RefreshGripTouch();
 	
 	hidModifier.RunFrame();
@@ -279,6 +361,12 @@ void GalaxyXRDeviceProvider::RunFrame(){
 		if(vrevent.eventType == vr::VREvent_ProcessConnected && customShaderEnabled){
 			// check new processes and inject if they are the compositor
 			InjectCompositorPlugin(vrevent.data.process.pid);
+		}
+		if(vrevent.eventType == vr::VREvent_SceneApplicationChanged){
+			// The scene application changed. Its cadence history belongs to the
+			// previous app; unrelated ProcessConnected events (overlays,
+			// background tools) must not discard it. Keep the saved request.
+			gxr::AswAutoMode::Get().NotifyBoundary("scene-application-changed");
 		}
 		for(auto shim : shims){
 			shim->HandleEvent(vrevent);
@@ -1355,8 +1443,9 @@ bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::Driv
 	// convention shift). same serial gate the velocity fix uses; cached
 	// after the first read, false while the property is not readable yet.
 	// property query with no lock held.
-	// galaxyXr.controllerBypass: pose left as vrlink sent it (Kalman is
-	// applied further down and is not part of the bypass).
+	// galaxyXr.controllerBypass: master controller disable; pose left as
+	// vrlink sent it. Config/ControllerMasterPolicy.h also zeroes the
+	// motion-filter mode in the runtime copy, so no estimator runs.
 	const bool streamedController = openVRID != vr::k_unTrackedDeviceIndex_Hmd
 		&& !driverConfig.galaxyXr.controllerBypass
 		&& GetDeviceClass(openVRID) == (int)vr::TrackedDeviceClass_Controller

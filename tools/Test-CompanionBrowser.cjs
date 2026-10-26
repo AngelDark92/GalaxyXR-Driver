@@ -52,6 +52,9 @@ function fixture() {
   // Native registrations belong to the process: a reload starts disarmed,
   // while gui-settings.json remains in the fixture filesystem.
   let ofxrState = 'ready';
+  const currentStartupCommand = '"C:\\Companion\\Galaxy XR Companion.exe" --start-in-tray';
+  window.__qa.windowsStartup = { supported: true, state: 'absent', command: null,
+    currentCommand: currentStartupCommand, registeredPath: null };
   const ofxrStatus = () => ({ state: ofxrState, version: '116', runtimeDir: '/ofxr/v116', reason: null,
     versions: [{ version: '116', source: 'bundled' }] });
   const oldFetch = window.fetch;
@@ -78,9 +81,23 @@ function fixture() {
       if (command === 'plugin:path|dirname') return p.slice(0, p.lastIndexOf('/'));
       if (command === 'plugin:event|listen') { events.set(args.event, args.handler); return ++callback; }
       if (command === 'complete_companion_quit') return window.__qa.holdQuitAck ? new Promise(resolve => { window.__qa.releaseQuitAck = resolve; }) : undefined;
+      if (command === 'complete_companion_startup') return;
+      if (command === 'get_windows_startup') return structuredClone(window.__qa.windowsStartup);
+      if (command === 'set_windows_startup') {
+        if (window.__qa.startupError) throw Error(window.__qa.startupError);
+        if (args.expectedCommand !== window.__qa.windowsStartup.command) throw Error('Startup entry changed');
+        window.__qa.windowsStartup = { supported: true, state: args.enabled ? 'current' : 'absent',
+          command: args.enabled ? currentStartupCommand : null, currentCommand: currentStartupCommand,
+          registeredPath: args.enabled ? 'C:\\Companion\\Galaxy XR Companion.exe' : null };
+        return structuredClone(window.__qa.windowsStartup);
+      }
       if (command === 'plugin:event|unlisten' || command === 'sync_companion_lifecycle' || command === 'set_webview_zoom') return;
       if (command === 'ofxr_status') return ofxrStatus();
-      if (command === 'ofxr_arm') { ofxrState = 'armed'; return ofxrStatus(); }
+      if (command === 'ofxr_arm') {
+        const error = sessionStorage.getItem('qa-ofxr-error');
+        if (error) throw Error(error);
+        ofxrState = 'armed'; return ofxrStatus();
+      }
       if (command === 'ofxr_disarm' || command === 'ofxr_reinstall' || command === 'ofxr_remove') { ofxrState = 'ready'; return ofxrStatus(); }
       if (command === 'ofxr_apply') return;
       if (command === 'plugin:app|version') return '1.2.13';
@@ -131,6 +148,7 @@ function fixture() {
           restoredSettings: 2, removedIdentityKeys: [], removedIdentitySections: [], steamvrCleaned: true, warnings: [] };
       }
       if (command === 'uninstall_galaxyxr_driver') {
+        window.__qa.windowsStartup = { ...window.__qa.windowsStartup, state: 'absent', command: null, registeredPath: null };
         for (const key of Object.keys(files)) {
           if (key.startsWith('/managed/') || (key.startsWith(data + '/') && !key.startsWith(data + '/Distortion/'))) delete files[key];
         }
@@ -222,10 +240,11 @@ function fixture() {
     await openRoute('debug');
     const debug = page.locator('app-debug-page');
     assert.deepEqual(await debug.locator('.section-group.source > .section-group-label').allTextContents(),
-      ['Image Processing', 'Controllers', 'Encoder']);
+      ['Monitoring', 'Image Processing', 'Controllers', 'Encoder']);
+    await debug.locator('#open-bitrate-monitor').waitFor();
     assert.equal(await debug.locator('.section-group.source > .section-group-label').evaluateAll(labels =>
       labels.every(label => label.tagName === 'DIV' && !label.hasAttribute('aria-expanded'))), true);
-    const imageDiagnostics = debug.locator('.section-card .section-title').first();
+    const imageDiagnostics = debug.locator('.section-title').filter({ hasText: 'Diagnostics' }).first();
     await imageDiagnostics.click();
     await debug.locator('[data-setting-id="streamFrame.hitchDiag"]').waitFor({ state: 'detached' });
     await imageDiagnostics.click();
@@ -267,6 +286,16 @@ function fixture() {
     await page.reload();
     await page.waitForFunction(() => window.appContext?.ofxr.isArmed());
     assert.ok(await page.evaluate(() => __qa.calls.some(call => call.command === 'ofxr_arm' && call.args.prefs.mode === 'nvidia-medium')));
+    await page.evaluate(() => sessionStorage.setItem('qa-ofxr-error', 'Saved Optical Flow restore failed'));
+    await page.reload();
+    await page.waitForFunction(() => window.appContext?.ofxr.error()?.includes('Saved Optical Flow restore failed'));
+    await page.locator('app-shell fluent-message-bar').filter({ hasText: 'Optical Flow needs attention' }).waitFor();
+    await page.waitForFunction(() => __qa.calls.some(call => call.command === 'complete_companion_startup' && call.args.error?.includes('Saved Optical Flow restore failed')));
+    assert.equal(await page.evaluate(() => appContext.appSetting.confirmedValues().ofxr.enabled), true);
+    await page.evaluate(() => sessionStorage.removeItem('qa-ofxr-error'));
+    await page.reload();
+    await page.waitForFunction(() => window.appContext?.ofxr.isArmed());
+    results.push('Failed saved Optical Flow restoration preserves On, renders a global recovery link and reports failed startup readiness');
     await openRoute('stream-frame');
     assert.equal(await opticalSwitch.evaluate(el => el.checked), true);
     await page.locator('app-stream-frame-page fluent-button').filter({ hasText: 'Reinstall' }).click();
@@ -279,6 +308,29 @@ function fixture() {
     results.push('Optical Flow arms from its page, restores saved NVIDIA selection on app reopen, rearms after Reinstall, and disables after Uninstall (mocked native IPC)');
     await openRoute('app-settings');
     const trayRow = page.locator('app-app-settings-page [data-setting-id="minimizeToTray"]');
+    const startupRow = page.locator('app-app-settings-page .field').filter({ hasText: 'Start with Windows' }).filter({ has: page.locator('app-switch') });
+    const startupSwitch = startupRow.locator('app-switch');
+    await page.waitForFunction(() => window.appContext?.windowsStartup.status()?.state === 'absent');
+    assert.equal(await startupSwitch.evaluate(el => el.checked), false);
+    assert.equal(await page.evaluate(() => __qa.calls.some(call => call.command === 'set_windows_startup')), false);
+    await startupSwitch.click();
+    await page.waitForFunction(() => appContext.windowsStartup.status()?.state === 'current');
+    assert.equal(await startupSwitch.evaluate(el => el.checked), true);
+    assert.equal(await page.evaluate(() => Object.hasOwn(appContext.appSetting.values(), 'startWithWindows')), false);
+    await page.evaluate(async () => {
+      __qa.windowsStartup = { ...__qa.windowsStartup, state: 'other-copy', command: '"D:\\Old\\Companion.exe" --start-in-tray', registeredPath: 'D:\\Old\\Companion.exe' };
+      await appContext.windowsStartup.refresh();
+    });
+    await page.getByRole('button', { name: 'Use this copy', exact: true }).click();
+    await page.waitForFunction(() => appContext.windowsStartup.status()?.state === 'current');
+    await page.evaluate(() => { __qa.startupError = 'Startup access denied'; });
+    await startupSwitch.click();
+    await page.waitForFunction(() => !!appContext.windowsStartup.error() && !appContext.windowsStartup.changing());
+    assert.equal(await startupSwitch.evaluate(el => el.checked), true);
+    await page.evaluate(() => { __qa.startupError = ''; });
+    await startupSwitch.click();
+    await page.waitForFunction(() => appContext.windowsStartup.status()?.state === 'absent');
+    results.push('Windows startup defaults Off, uses OS state, retargets only explicitly and preserves actual state after a failed mutation (mocked IPC)');
     assert.equal(await trayRow.locator('app-switch').evaluate(el => el.checked), true);
     const oldScale = await page.locator('app-app-settings-page .scale-value').textContent();
     await page.evaluate(async () => {
@@ -476,6 +528,13 @@ function fixture() {
     results.push('Update checks expose loading, current, failure, recovery and new-release states without installing or writing');
     await openRoute('distortion-profile');
     await page.evaluate(() => appContext.galaxy.sections.set({ ...appContext.galaxy.sections(), share: true }));
+    // 2026-10-23 (owner directive): desktop-style non-selectable UI.
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).userSelect), 'none');
+    const profileLabel = page.locator('app-distortion-profile-page .field .title').first();
+    assert.equal(await profileLabel.evaluate(node => getComputedStyle(node).userSelect), 'none');
+    const profileText = page.locator('app-distortion-profile-page textarea').first();
+    assert.equal(await profileText.evaluate(node => getComputedStyle(node).userSelect), 'text');
+    results.push('Desktop UI text is non-selectable while editable fields keep selection');
     const beforeImport = await mutations();
     const chooserPromise = page.waitForEvent('filechooser');
     await page.locator('app-distortion-profile-page').getByText('Import .json', { exact: true }).click();
@@ -601,12 +660,16 @@ function fixture() {
     assert.equal(await page.evaluate(() => window.appContext.appSetting.values().advanceMode), false);
     assert.equal(await page.evaluate(() => window.appContext.appSetting.values().colorScheme), 'dark');
     results.push('Confirmed reset reloads driver and app defaults');
+    await page.evaluate(async () => { await appContext.windowsStartup.refresh(); await appContext.windowsStartup.setEnabled(true); });
+    assert.equal(await page.evaluate(() => appContext.windowsStartup.enabled()), true);
     await setup.locator('fluent-button.danger:not([disabled])').click();
     await dialog.locator('fluent-dialog-body').waitFor();
     assert.deepEqual(await dialog.locator('fluent-button').allTextContents(), ['Cancel', 'Uninstall and clear settings']);
     await dialog.locator('fluent-button').nth(1).click();
     await dialog.getByText('Uninstall complete', { exact: true }).waitFor();
     await dialog.locator('fluent-button').click();
+    await page.waitForFunction(() => appContext.windowsStartup.status()?.state === 'absent');
+    results.push('Uninstall refreshes Windows startup status immediately without a focus change');
     assert.equal(await page.evaluate(() => window.__qa.files[window.__qa.data + '/Distortion/kept.json']), '{"name":"kept-profile"}');
     assert.equal(await page.evaluate(() => window.__qa.files[window.__qa.data + '/gui-settings.json']), undefined);
     await page.reload();
@@ -634,7 +697,8 @@ function fixture() {
   } catch (error) {
     if (page) {
       console.error(await page.evaluate(() => ({ dialogs: [...document.querySelectorAll('fluent-dialog')].map(dialog => dialog.innerText),
-        calls: window.__qa?.calls.slice(-20).map(call => call.command), runtime: window.appContext?.startup.status() })));
+        calls: window.__qa?.calls.slice(-20), runtime: window.appContext?.startup.status(),
+        windowsStartup: window.appContext?.windowsStartup.status(), startupError: window.appContext?.windowsStartup.error() })));
       await page.screenshot({ path: path.join(out, 'failure.png'), animations: 'disabled' });
     }
     throw error;

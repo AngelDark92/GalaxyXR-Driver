@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <cstring>
 #include "nlohmann/json.hpp"
 
 // Read actual tuning from driver_vrlink; per-model copies are not read by the
@@ -86,7 +87,8 @@ static std::string ExpectedReadyIcon(const std::string &prefix){
         (prefix == "headset_galaxy_xr_status" ? "headset_galaxy_xr_ready.png" : prefix + "_ready.png");
 }
 
-// the Galaxy XR native per-eye render geometry; see GalaxyXrConfig::nativeResolution
+// Physical panel geometry for the headset capability profile. The render
+// override below uses the user's independently configurable dimensions.
 static const int kGalaxyXrRenderWidth = 3552;
 static const int kGalaxyXrRenderHeight = 3840;
 
@@ -310,9 +312,15 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 	// follow the EFFECTIVE policy (active baseline forces both on, inactive
 	// disables the 10-bit request and keeps stored geometry). the debug overlay is not
 	// baseline-owned and keeps its stored-config read
+	// 2026-10-23: H.264 is 8-bit only. the GUI switch reads Off and disabled
+	// while that codec is selected; suppress the request here as well so a
+	// hand-edited or older stored On cannot disagree with the visible field.
+	if(policy.codecBlocked){
+		DriverLog("GalaxyXR: SDR10 baseline is stored On but H.264 is selected (streamFrame.nvencCodec=1). H.264 carries 8-bit only, so the baseline's supports10bit request is suppressed; the Companion switch reads Off and disabled until another codec is selected. A stored explicit advanced profileSupports10bit request remains user-owned.");
+	}
 	for(const auto& section : gxr::VrlinkCapabilitySections(g.vrlinkHeadsetProfile, modelNumberIn)){
-		DriverLog("GalaxyXR: headset profile apply: section %s profile=%d requestedTile=%d (fixed requested range) supports10bit=%d overlay=%d",
-			section.c_str(), (int)policy.profileEnabled, maxSfw, (int)policy.profileSupports10bit, (int)g.vrlinkDebugOverlay);
+		DriverLog("GalaxyXR: headset profile apply: section %s profile=%d requestedTile=%d (fixed requested range) supports10bit=%d codecBlocked=%d overlay=%d",
+			section.c_str(), (int)policy.profileEnabled, maxSfw, (int)policy.profileSupports10bit, (int)policy.codecBlocked, (int)g.vrlinkDebugOverlay);
 		const char* sec = section.c_str();
 		// The enabled custom profile is what unlocks vrlink's eye-tracking component; identity
 		// strings must be present because that branch rewrites them from the section.
@@ -457,10 +465,10 @@ static void ApplyNativeResolutionSetting(){
     for(const auto& target : gxr::VrlinkTuningSections(driverConfig.galaxyXr.vrlinkHeadsetProfile)){
         const char* section = target.c_str();
         if(driverConfig.galaxyXr.nativeResolution){
-            SetInt32IfDifferent(section, "renderWidth", kGalaxyXrRenderWidth);
-            SetInt32IfDifferent(section, "renderHeight", kGalaxyXrRenderHeight);
-            SetInt32IfDifferent(section, "overrideRenderWidth", kGalaxyXrRenderWidth);
-            SetInt32IfDifferent(section, "overrideRenderHeight", kGalaxyXrRenderHeight);
+            SetInt32IfDifferent(section, "renderWidth", driverConfig.galaxyXr.renderWidth);
+            SetInt32IfDifferent(section, "renderHeight", driverConfig.galaxyXr.renderHeight);
+            SetInt32IfDifferent(section, "overrideRenderWidth", driverConfig.galaxyXr.renderWidth);
+            SetInt32IfDifferent(section, "overrideRenderHeight", driverConfig.galaxyXr.renderHeight);
         }else{
             for(const char* key : {"renderWidth", "renderHeight", "overrideRenderWidth", "overrideRenderHeight"})
                 gxrsettings::RestoreOwnedKey(section, key);
@@ -469,6 +477,62 @@ static void ApplyNativeResolutionSetting(){
 }
 
 // ---------------- HMD ----------------
+
+// Identify the component by its implementation module, not the spoofable headset
+// identity. Leave other headsets and their display components untouched.
+#ifdef _WIN32
+static bool IsComponentOwnedByModule(vr::IVRDisplayComponent* component, HMODULE module){
+	if(!component || !module) return false;
+	const auto methods = *reinterpret_cast<void***>(component);
+	HMODULE owner = nullptr;
+	return methods && GetModuleHandleExW(
+		GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		reinterpret_cast<LPCWSTR>(methods[0]), &owner) && owner == module;
+}
+
+static bool IsVrlinkDisplayComponent(vr::IVRDisplayComponent* component){
+	return IsComponentOwnedByModule(component, GetModuleHandleW(L"driver_vrlink.dll"));
+}
+#else
+static bool IsVrlinkDisplayComponent(vr::IVRDisplayComponent*){ return false; }
+#endif
+
+void GalaxyXRHmdShim::PosTrackedDeviceGetComponent(const char *&pchComponentNameAndVersion, void *&returnComponent){
+	if(!returnComponent || std::strcmp(pchComponentNameAndVersion, vr::IVRDisplayComponent_Version) != 0) return;
+	auto* original = static_cast<vr::IVRDisplayComponent*>(returnComponent);
+	if(IsVrlinkDisplayComponent(original)){
+		returnComponent = new ShimDisplayComponent(this, original);
+	}else if(!displayComponentUnrecognizedLogged){
+		displayComponentUnrecognizedLogged = true;
+		DriverLog("GalaxyXR: IVRDisplayComponent is not implemented by driver_vrlink.dll; manual render resolution is not applied");
+	}
+}
+
+void GalaxyXRHmdShim::PosDisplayComponentGetRecommendedRenderTargetSize(uint32_t *&pnWidth, uint32_t *&pnHeight){
+	std::lock_guard<std::mutex> lock(driverConfigLock);
+	const auto& config = driverConfig.galaxyXr;
+	if(!active || !config.nativeResolution || !pnWidth || !pnHeight) return;
+	// 2026-10-15: VRLink clamps each recommended dimension to 4096 even
+	// after accepting larger renderWidth/renderHeight settings. Override its
+	// final OpenVR recommendation, before SteamVR applies supersampling.
+	const uint32_t originalWidth = *pnWidth, originalHeight = *pnHeight;
+	bool expertWidth = false, expertHeight = false;
+	for(const auto& entry : config.vrlinkExtraKeys){
+		const auto& key = std::get<0>(entry);
+		expertWidth |= key == "renderWidth" || key == "overrideRenderWidth";
+		expertHeight |= key == "renderHeight" || key == "overrideRenderHeight";
+	}
+	// Explicit expert values/removals keep ownership of their respective axis.
+	if(!expertWidth) *pnWidth = static_cast<uint32_t>(config.renderWidth);
+	if(!expertHeight) *pnHeight = static_cast<uint32_t>(config.renderHeight);
+	if((originalWidth != *pnWidth || originalHeight != *pnHeight)
+			&& (loggedRenderWidth != *pnWidth || loggedRenderHeight != *pnHeight)){
+		loggedRenderWidth = *pnWidth;
+		loggedRenderHeight = *pnHeight;
+		DriverLog("GalaxyXR: OpenVR render recommendation %ux%u -> %ux%u per eye; SteamVR resolution scaling still applies",
+			originalWidth, originalHeight, *pnWidth, *pnHeight);
+	}
+}
 
 void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue){
 	identityApplied = false;
@@ -513,6 +577,8 @@ void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInit
 	appliedProfileRoute = driverConfig.galaxyXr.vrlinkHeadsetProfile;
 	ApplyNativeResolutionSetting();
 	appliedNativeResolution = driverConfig.galaxyXr.nativeResolution;
+	appliedRenderWidth = driverConfig.galaxyXr.renderWidth;
+	appliedRenderHeight = driverConfig.galaxyXr.renderHeight;
 	ApplyStreamQualitySetting();
 	// 2026-09-19 SDR10 baseline: track the EFFECTIVE values (not the stored
 	// ones) so a baseline toggle re-applies the profile request even when
@@ -674,9 +740,13 @@ void GalaxyXRHmdShim::RunFrame(){
 	if(active){
 		ProbeVrlinkPaths();
 	}
-	// config hot-reload: apply/remove the resolution override on toggle flips
-	if(active && (routeChanged || driverConfig.galaxyXr.nativeResolution != appliedNativeResolution)){
+	// Reload dimensions as well as the switch; SteamVR consumes them next launch.
+	if(active && (routeChanged || driverConfig.galaxyXr.nativeResolution != appliedNativeResolution
+			|| driverConfig.galaxyXr.renderWidth != appliedRenderWidth
+			|| driverConfig.galaxyXr.renderHeight != appliedRenderHeight)){
 		appliedNativeResolution = driverConfig.galaxyXr.nativeResolution;
+		appliedRenderWidth = driverConfig.galaxyXr.renderWidth;
+		appliedRenderHeight = driverConfig.galaxyXr.renderHeight;
 		ApplyNativeResolutionSetting();
 		reapplyExtraKeys = true;
 	}
@@ -1161,7 +1231,10 @@ std::string GalaxyXRControllerShim::TargetModelName(){
 }
 
 void GalaxyXRControllerShim::ApplyIdentity(){
-	if(!active){
+	// 2026-10-24: controllerBypass is the master controller disable. A shim
+	// created before the switch went on must not reapply identity/profile
+	// while it is on (a fresh session never creates the shim at all).
+	if(!active || driverConfig.galaxyXr.controllerBypass){
 		return;
 	}
 	// the shim now also exists for input-profile-only setups, so the
@@ -1209,7 +1282,7 @@ void GalaxyXRControllerShim::ApplyIdentity(){
 }
 
 void GalaxyXRControllerShim::RunFrame(){
-	if(!active){
+	if(!active || driverConfig.galaxyXr.controllerBypass){
 		return;
 	}
 	if(!driverConfig.galaxyXr.nativeIdentity){

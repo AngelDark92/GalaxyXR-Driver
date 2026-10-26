@@ -2,7 +2,7 @@ param([switch]$UseCurrentEnvironment)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 if (-not $UseCurrentEnvironment) { . (Join-Path $PSScriptRoot 'Enter-PortableBuildEnvironment.ps1') }
-$build = Join-Path $repo 'build/game-link-layout-policy-test'
+$build = Join-Path $repo '../builds/GalaxyXR-Driver/build/game-link-layout-policy-test'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 $exe = Join-Path $build 'GameLinkLayoutPolicyTest.exe'
 # Runtime preset of the Game Link layout toggle (header-only config types); never loads SteamVR.

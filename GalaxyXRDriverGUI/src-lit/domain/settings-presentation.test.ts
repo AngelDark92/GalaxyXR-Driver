@@ -7,7 +7,7 @@ import { classifyBoolean, presentSettings, SETTINGS_PRESENTATION, settingPresent
 import { setLocale } from '../locale/i18n';
 import type { AppSetting } from './types';
 
-const app: AppSetting = { advanceMode: false, colorScheme: 'dark', minimizeToTray: true, uiScale: 100, closeButtonAction: 'ask', updateMode: 'rewrite', devUpdates: false, driverVerified: false, ofxr: { ...ofxrDefaults } };
+const app: AppSetting = { advanceMode: false, colorScheme: 'dark', minimizeToTray: true, uiScale: 100, closeButtonAction: 'ask', updateMode: 'rewrite', devUpdates: false, driverVerified: false, driverInstallRoot: '', ofxr: { ...ofxrDefaults } };
 const context = () => ({ settings: structuredClone(driverDefaults), app: { ...app }, driverInstalled: true, vendor: true });
 
 describe('human-readable settings inspection', () => {
@@ -31,7 +31,17 @@ describe('human-readable settings inspection', () => {
       .toEqual(['Image Settings', 'Encoder Advanced', 'Force Constant Bitrate']);
     expect(rows.find(row => row.id === 'streamFrame.spacewarpEnable')?.location)
       .toEqual(['Image Settings', 'Stream Quality', 'Async Spacewarp']);
+    expect(rows.find(row => row.id === 'streamFrame.spacewarpMode')?.location)
+      .toEqual(['Image Settings', 'Stream Quality', 'Force half-rate']);
+    expect(rows.find(row => row.id === 'galaxyXr.controllerBypass')?.location)
+      .toEqual(['Driver Settings', 'Controllers', 'Disable All Controller Features']);
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
+  });
+
+  it('keeps numeric render-resolution rows out of the boolean check report', () => {
+    const rows = presentSettings([], context());
+    expect(rows.some(row => row.id === 'galaxyXr.renderWidth')).toBe(false);
+    expect(rows.some(row => row.id === 'galaxyXr.renderHeight')).toBe(false);
   });
 
   it('presents the Optical Flow card as vendor-gated gui-settings.json controls', () => {
@@ -40,7 +50,7 @@ describe('human-readable settings inspection', () => {
     expect(row.location).toEqual(['Image Settings', 'Optical Flow', 'Enable Optical Flow']);
     expect(row.state).toBe('Off');
     const ofxrEntries = SETTINGS_PRESENTATION.filter(entry => entry.id.startsWith('ofxr.'));
-    expect(ofxrEntries).toHaveLength(8);
+    expect(ofxrEntries).toHaveLength(7);
     expect(ofxrEntries.every(entry => entry.source === 'gui-settings.json' && entry.gate === 'vendor')).toBe(true);
     expect(settingUnavailable(settingPresentation('ofxr.enabled')!, { ...c, vendor: false })).toMatch(/Galaxy XR build/);
     const checks = inspectBooleanSettings({ ofxr: { enabled: true, logging: false } }, {}, 'gui-settings.json');
@@ -82,6 +92,17 @@ describe('human-readable settings inspection', () => {
     expect(presentSettings(checks, c).find(row => row.id === 'image-enhancements')?.origin).toBe('mixed');
     expect(presentSettings(checks, c).find(row => row.id === 'streamFrame.nvencTap')?.origin).toBe('default');
     expect(presentSettings([], { ...c, settings: undefined }).find(row => row.id === 'advanceMode')?.state).toBe('Off');
+  });
+
+  it('marks controller controls unavailable while the master switch is on', () => {
+    const c = context();
+    c.settings.galaxyXr!.controllerBypass = true;
+    const before = structuredClone(c);
+    const reason = (id: string) => settingUnavailable(settingPresentation(id)!, c);
+    expect(reason('galaxyXr.controllerBypass')).toBeUndefined();
+    expect(reason('galaxyXr.gripConvention')).toMatch(/Disable All Controller Features is on/);
+    expect(reason('streamFrame.kalmanDeviceTime')).toMatch(/Disable All Controller Features is on/);
+    expect(c).toEqual(before);
   });
 
   it('keeps unavailable modes explanatory and never enables their prerequisites', () => {

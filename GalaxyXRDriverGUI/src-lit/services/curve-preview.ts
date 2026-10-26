@@ -1,10 +1,12 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open_curve_preview, publish_curve_preview, type CurvePreviewState } from '../platform/tauri';
 import type { Settings } from '../domain/types';
+import { bitrateCurvePointsForSettings } from '../domain/bitrate-curve';
 
 /** Effective Companion values, including merged defaults and unsaved edits.
  * No file parsing, coercion, migration or settings writes in the graph path. */
-export function previewState(settings: Settings | undefined, bandwidthMbit = settings?.galaxyXr?.customBandwidthMbit ?? 350): CurvePreviewState {
+export function previewState(settings: Settings | undefined, bandwidthMbit = settings?.galaxyXr?.customBandwidthMbit ?? 350,
+  locked = false): CurvePreviewState {
   if (!settings?.streamFrame) throw new Error('Settings are unavailable');
   const sf = settings.streamFrame!;
   return {
@@ -12,10 +14,11 @@ export function previewState(settings: Settings | undefined, bandwidthMbit = set
     constancyPct: sf.nvencBitrateConstancyPct,
     ceilingMbit: sf.nvencBitrateMbit !== 0 ? sf.nvencBitrateMbit
       : sf.nvencBandwidthOverrideMbit !== 0 ? sf.nvencBandwidthOverrideMbit : bandwidthMbit,
-    clampMbit: sf.nvencVrlinkClampMbit,
     // 2026-10-21: a constancy of 100 pins the request factor to 1.0, so the graph
     // marks a single operating point instead of implying a live curve.
     fallbackDisabled: (sf.nvencBitrateConstancyPct ?? 0) >= 100,
+    points: bitrateCurvePointsForSettings(sf),
+    locked,
   };
 }
 

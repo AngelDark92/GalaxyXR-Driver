@@ -2,7 +2,7 @@ import { signal } from '../reactive';
 import { t } from '../locale/i18n';
 import { normalizeOfxrPreferences } from '../domain/ofxr';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
-import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_remove, ofxr_reinstall, ofxr_status } from '../platform/tauri';
+import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_import, ofxr_remove, ofxr_reinstall, ofxr_status } from '../platform/tauri';
 import type { AppSettingService } from './app-setting';
 import type { DriverSettingService } from './driver-setting';
 import type { GalaxySettingsBase } from '../state/galaxy-settings';
@@ -24,6 +24,7 @@ export class OfxrSessionService {
 
   preferences(): OfxrPreferences { return normalizeOfxrPreferences(this.app.values().ofxr); }
   isArmed(): boolean { return this.status()?.state === 'armed'; }
+  setError(message: string | undefined): void { this.error.set(message); }
   idle(): Promise<void> { return this.queue; }
   dispose(): void { this.disposed = true; }
 
@@ -143,8 +144,33 @@ export class OfxrSessionService {
     });
   }
 
+  /** Copy a downloaded fork build into the Companion-owned RuntimeLayer. The
+   * native side validates the payload shape but deliberately applies no
+   * version-compatibility gate; the build's own INI is copied so fork-specific
+   * keys survive. */
+  importBuild(source: string): Promise<void> {
+    return this.serialize(async () => {
+      await this.refreshStatus();
+      if (this.status()?.state === 'armed' || this.status()?.state === 'armed_external') {
+        this.status.set(await ofxr_disarm());
+      }
+      const version = await ofxr_import(source);
+      const prefs = await this.save({ version });
+      try {
+        if (prefs.enabled) await this.arm(false);
+        else this.error.set(undefined);
+      } finally { await this.refreshStatus(); }
+    });
+  }
+
   reinstall(): Promise<void> {
     return this.serialize(async () => {
+      await this.refreshStatus();
+      const active = this.status()?.version;
+      const selected = this.status()?.versions.find(entry => entry.version === active);
+      if (selected?.source === 'imported') {
+        throw new Error(t('Reinstall only replaces the bundled payload. Select the bundled version, or remove the imported build through Uninstall Optical Flow first.'));
+      }
       try {
         this.status.set(await ofxr_reinstall(this.preferences()));
         if (this.preferences().enabled) await this.arm(false);

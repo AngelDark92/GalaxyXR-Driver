@@ -1197,12 +1197,13 @@ dependencies = [
 
 [[package]]
 name = "galaxyxrdriver-gui"
-version = "1.14.0"
+version = "1.15.0-dev.11"
 dependencies = [
  "locale_config",
  "log",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
  "tauri",
  "tauri-build",
@@ -1214,6 +1215,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "webview2-com",
  "windows-core 0.62.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

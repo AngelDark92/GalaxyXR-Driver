@@ -10,6 +10,7 @@ import { driverAvailable } from '../domain/navigation';
 import { pageIntro, statusMessage } from '../ui/presentation';
 import { applyUiScale, normalizeUiScale, UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP } from '../ui/ui-scale';
 import '../ui/controls';
+import type { AppSwitch } from '../ui/controls';
 
 @customElement('app-app-settings-page')
 export class AppSettingsPage extends BasePage {
@@ -24,6 +25,18 @@ export class AppSettingsPage extends BasePage {
   // the zoom is applied and saved once from the slider's commit event, which
   // keeps the window from relaying out under the pointer.
   private uiScaleDraft: number | undefined;
+
+  private async setWindowsStartup(enabled: boolean, control?: AppSwitch): Promise<void> {
+    const startup = this.ctx.windowsStartup;
+    if (this.ctx.lifecycle.quitting() || this.ctx.sds.installingDriver()) return;
+    const change = startup.setEnabled(enabled);
+    // Let the adapter render the intent once before restoring confirmed state;
+    // otherwise Lit can retain its old binding while Fluent has toggled itself.
+    if (control) { await control.updateComplete; control.checked = startup.enabled(); }
+    await change;
+    if (control) { await control.updateComplete; control.checked = startup.enabled(); }
+    this.requestUpdate();
+  }
 
   private previewUiScale(value: number): void {
     this.uiScaleDraft = normalizeUiScale(value);
@@ -58,6 +71,8 @@ export class AppSettingsPage extends BasePage {
     const installed = driverAvailable(sds.driverInstalled(), sds.driverState());
     const known = !!this.ctx.dss.values() && !this.ctx.dss.readFileError();
     const busy = checks.checking() || sds.installingDriver() || galaxy.imageModeChanging();
+    const startup = this.ctx.windowsStartup;
+    const startupStatus = startup.status();
     const save = (patch: Partial<AppSetting>) => {
       void appSetting.save({ ...appSetting.values(), ...patch });
       this.requestUpdate();
@@ -83,6 +98,21 @@ export class AppSettingsPage extends BasePage {
       `, {
         tip: t("Scales the whole Companion window: text, controls, dialogs and popups. Drag to preview; the scale applies and saves when you release the slider.\n\nValue: uiScale (gui-settings.json). GUI-only presentation preference.") }),
       sectionHeading(t('Window'), 0, 'app-window'),
+      fieldRow(t('Start with Windows'), html`
+        <app-switch .known=${!!startupStatus?.supported && startupStatus.state !== 'conflict'}
+          .checked=${startup.enabled()}
+          .disabled=${!startupStatus?.supported || startupStatus.state === 'conflict' || startup.changing() || this.ctx.lifecycle.quitting() || sds.installingDriver()}
+          @change=${(e: CustomEvent<boolean>) => { void this.setWindowsStartup(e.detail, e.currentTarget as AppSwitch); }}></app-switch>
+        ${startupStatus?.state === 'other-copy' ? html`<button type="button"
+          ?disabled=${startup.changing() || this.ctx.lifecycle.quitting() || sds.installingDriver()}
+          @click=${() => { void this.setWindowsStartup(true); }}>${t('Use this copy')}</button>` : ''}
+      `, { tip: t('Start the Companion in the system tray when you sign in to Windows. Saved Optical Flow is restored if enabled. Manual launches open the window. Off by default; independent of Optical Flow and Minimize to tray.') }),
+      ...(startupStatus?.supported ? [noteRow(t('Windows Startup Apps can disable automatic launch. This setting shows Companion registration; Windows controls whether and when it runs.'))] : []),
+      ...(startupStatus && !startupStatus.supported ? [noteRow(t('Automatic startup is available on Windows only.'))] : []),
+      ...(startupStatus?.registeredPath ? [noteRow(t('Registered copy: {path}', { path: startupStatus.registeredPath }))] : []),
+      ...(startupStatus?.state === 'other-copy' ? [noteRow(t('Another portable copy is registered. Use this copy updates the path only when you choose it. Keep the complete registered package in place.'))] : []),
+      ...(startupStatus?.state === 'conflict' ? [statusMessage('error', t('Windows startup entry was changed externally'), t('The existing entry was preserved. Resolve the conflict in Windows Startup Apps before registering this copy.'))] : []),
+      ...(startup.error() ? [statusMessage('error', t('Windows startup could not be read or changed'), startup.error()!)] : []),
       settingFieldRow('minimizeToTray', html`
         <app-switch .known=${!appSetting.readFileError()} .disabled=${!!appSetting.readFileError() || this.ctx.lifecycle.changing()}
           .checked=${appSetting.values().minimizeToTray}

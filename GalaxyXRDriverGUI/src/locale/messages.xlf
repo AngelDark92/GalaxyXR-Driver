@@ -970,6 +970,9 @@
       <trans-unit id="fluent-fix-1a221772fc9be711" datatype="html">
         <source>Controller Bypass</source>
       </trans-unit>
+      <trans-unit id="galaxyxr-controller-master-20261024" datatype="html">
+        <source>Disable All Controller Features</source>
+      </trans-unit>
       <trans-unit id="fluent-fix-b31b4434716fd6af" datatype="html">
         <source>Controller Fix</source>
       </trans-unit>
@@ -1680,7 +1683,7 @@ Enabled by default. Stream size and bandwidth, render overrides, diagnostics, an
         The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_&lt;original model&gt; destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.</source>
       </trans-unit>
       <trans-unit id="sdr10-opt-in-273e6bb8a7648ff4" datatype="html">
-        <source>Send the stream as 10-bit SDR. Off by default; works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.
+        <source>Send the stream as 10-bit SDR. On by default; a saved Off stays Off. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.
 
 Turning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.
 
@@ -2603,9 +2606,9 @@ An encoder already created with the tap can retain its earlier parameters and AP
       <trans-unit id="spacewarp-20261017-2" datatype="html">
         <source>Applies live to the running stream. Async Spacewarp synthesizes frames on the headset client when the stream misses a display tick. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.
 
-Mode: Late frames only synthesizes when a display tick has no new decoded frame. Mode changes are saved immediately and apply live.
+Automatic enters half rate after the application cadence stays below 90% of the headset refresh for 500 ms, and returns to normal late-frame recovery after it stays at or above 97% for two seconds. Force half-rate keeps half rate on regardless of game FPS. Half rate targets 45 selected stream frames plus 45 synthetic display slots at 90 Hz (36/36 at 72 Hz); it does not throttle the game or promise upstream GPU savings, and selected stream frames may already contain repeated or reprojected game content.
 
-Value: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json). Stream side — publishes the toggle and mode live to the running vrlink stream; the headset client synthesizes the frames.</source>
+Value: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json). Stream side — publishes the effective mode live to the running vrlink stream; the headset client synthesizes the frames.</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-3" datatype="html">
         <source>Async Spacewarp: Off</source>
@@ -2617,13 +2620,13 @@ Value: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json)
         <source>Async Spacewarp: Active</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-6" datatype="html">
-        <source>The running stream carries the request. Frames are synthesized only while the headset client patch is active.</source>
+        <source>Green confirms that the driver published the request. It does not guarantee that the headset is synthesizing frames or that motion will be smoother. {mode} Frames are synthesized only while the headset client patch is active.</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-7" datatype="html">
         <source>Async Spacewarp: Waiting for stream</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-8" datatype="html">
-        <source>The saved value is not confirmed by the running stream yet. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.</source>
+        <source>The saved value is not confirmed by the running stream yet. Green confirms that the driver published the request. It does not guarantee that the headset is synthesizing frames or that motion will be smoother. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-9" datatype="html">
         <source>Late frames only</source>
@@ -2633,6 +2636,28 @@ Value: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json)
       </trans-unit>
       <trans-unit id="spacewarp-20261021-1" datatype="html">
         <source>Half rate is retired in this build. Late frames only is applied; your saved choice is kept.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-1" datatype="html">
+        <source>Force half-rate</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-2" datatype="html">
+        <source>Keep half-rate presentation on regardless of game FPS. Off is Automatic: the driver publishes normal late-frame recovery until the measured application cadence stays below 90% of the headset refresh for 500 ms, then half rate; it returns to normal after the cadence stays at or above 97% for two seconds. The measurement uses the application's frame timings, never compositor, encoder or decoder FPS. Automatic and forced transitions publish live to the running stream without rewriting your saved enable/mode choice.
+
+Half rate is client-side frame selection: 45 selected stream frames plus 45 synthetic display slots at 90 Hz (36/36 at 72 Hz). It does not throttle the game or promise upstream GPU savings, and selected stream frames may already contain repeated or reprojected game content.
+
+Value: streamFrame.spacewarpMode (settings.json). 0 = Automatic, 1 = Forced half rate. Changes apply live to the running stream.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-3" datatype="html">
+        <source>The driver currently publishes half rate.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-4" datatype="html">
+        <source>The driver currently publishes late-frame recovery.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-5" datatype="html">
+        <source>The published mode is not reported by this driver.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-6" datatype="html">
+        <source>A mode change is pending publication.</source>
       </trans-unit>
       <trans-unit id="ofxr-20261017-1" datatype="html">
         <source>Optical Flow</source>
@@ -2932,7 +2957,7 @@ On (default): the tuner forces the angular grid + warped overlays on while activ
 Value: streamFrame.distortion.tune.forceGrid (settings.json). Driver side — forces grid overlays during tuner sessions.</source>
       </trans-unit>
       <trans-unit id="1607213352" datatype="html">
-        <source>Bitrate (Mbit/s)</source>
+        <source>Max Bitrate (Mbit/s)</source>
       </trans-unit>
       <trans-unit id="2290962057" datatype="html">
         <source>Bitrate Headroom (%)</source>
@@ -2948,11 +2973,14 @@ Smart saturation: changes muted colors the most and already vivid colors the lea
 Value: streamFrame.vibrance (settings.json). Driver side — selective saturation boost for muted colors.</source>
       </trans-unit>
       <trans-unit id="512420747" datatype="html">
-        <source>Bypass this driver's controller adjustments while leaving the headset path active. Use this to compare with Steam Link's controller behavior.
+        <source>Master switch for every controller feature this driver adds. On leaves the streamed controllers exactly as Steam Link presents them.
 
-Leave the streamed controllers exactly as vrlink presents them: no Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, no offsets. Kalman is not part of the bypass; use Controller Motion Filter to turn it off. For A/B tests against stock, or if you only want the image processing. Identity and input profile changes take effect after a SteamVR restart.
+No Galaxy XR identity, models or icons, no official input profile or pose components, no grip convention, offsets or pose trims, no grip-touch synthesis, no skeleton offsets, no motion filter (all Kalman modes), no Game Link layout and no space velocity fix. The per-feature settings are kept in settings.json and return when this switch is off. Requires a SteamVR restart.
 
-Value: galaxyXr.controllerBypass (settings.json). Driver side — skips pose corrections and controller identity; the motion filter follows Controller Motion Filter.</source>
+Value: galaxyXr.controllerBypass (settings.json). Driver side — master disable for every controller feature; saved settings are not changed.</source>
+      </trans-unit>
+      <trans-unit id="galaxyxr-controller-master-note-20261024" datatype="html">
+        <source>All controller features are off. Steam Link controls the controllers untouched; the saved controller settings return when this switch is off.</source>
       </trans-unit>
       <trans-unit id="3072309701" datatype="html">
         <source>Center Quality Boost (QP)</source>
@@ -3109,15 +3137,15 @@ Interactive tuning of the distortion CENTER offsets. While on: the image gently 
 Value: streamFrame.distortion.centerTune.enable (settings.json). Driver side — the in-headset center-offset tuner.</source>
       </trans-unit>
       <trans-unit id="379854560" datatype="html">
-        <source>Force CBR selects constant-bitrate rate control. Off preserves upstream rate control, which may already be CBR. The optimized recommendation is On for every codec; turn it off whenever it underperforms for you. The reset arrow restores it.
+        <source>Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off is the default for every codec and preserves upstream rate control, which may already be CBR. Turn it on whenever it helps. The reset arrow restores Off. Requires a SteamVR restart.
 
-Value: streamFrame.nvencForceCbr (settings.json). Encoder side — switches rate control to constant bitrate with low-delay keyframes.</source>
+Value: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes.</source>
       </trans-unit>
       <trans-unit id="2062785449" datatype="html">
         <source>Force FPS</source>
       </trans-unit>
       <trans-unit id="4009830004" datatype="html">
-        <source>Frame Size Cap</source>
+        <source>VBV Encoder Buffer Budget</source>
       </trans-unit>
       <trans-unit id="1726393207" datatype="html">
         <source>Frame Sync Timeout (ms)</source>
@@ -3309,14 +3337,14 @@ Value: streamFrame.nvencBitrateMbit (settings.json). Encoder side — encoder-on
       <trans-unit id="1392487683" datatype="html">
         <source>Override the normal stream bandwidth budget. 0 follows the Bitrate row above instead of forcing a separate value.
 
-0 uses the Tile Width and Bandwidth settings. Nonzero writes both the network pacer and the encoder bitrate at once, replacing the Bandwidth row's value.
+Nonzero supplies the network pacing budget and highest requested encoder target instead of the Bitrate row. It does not guarantee actual encoded output or constant sent bits. Requires a SteamVR restart.
 
-Value: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — nonzero writes the network pacer and the encoder bitrate, replacing the Bitrate row.</source>
+Value: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — pacing budget and requested encoder target.</source>
       </trans-unit>
       <trans-unit id="4190754806" datatype="html">
         <source>Present the controllers the way Samsung's own PC driver (Game Link) does. An add-on to the selected Controller Motion Filter: the motion stays the mode's.
 
-The controllers get Samsung's model at its authored size, Samsung's pose points and Samsung's input profile, on Steam Link's raw pose. While it is on, the Grip Convention, the Controller Offsets, the model scale and the aim trim are not applied; the Game Link Layout Offsets are used instead. Everything comes back when it goes off. With Controller Bypass on, the layout still applies, without this driver's other corrections. Requires a SteamVR restart.
+The controllers get Samsung's model at its authored size, Samsung's pose points and Samsung's input profile, on Steam Link's raw pose. While it is on, the Grip Convention, the Controller Offsets, the model scale and the aim trim are not applied; the Game Link Layout Offsets are used instead. Everything comes back when it goes off. The Disable All Controller Features master switch wins: no layout is applied while it is on. Requires a SteamVR restart.
 
 Value: galaxyXr.gameLinkLayout (settings.json). Driver side — swaps in Samsung's Game Link model, pose points and input profile; its offsets below replace the shared ones.</source>
       </trans-unit>
@@ -3376,7 +3404,7 @@ Performance: draws the processed frame directly into the layer texture instead o
 Value: streamFrame.directRender (settings.json). Driver side — renders the processed frame directly into the layer texture.</source>
       </trans-unit>
       <trans-unit id="1339468676" datatype="html">
-        <source>Send the stream as 10-bit SDR. Off by default; works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.
+        <source>Send the stream as 10-bit SDR. On by default; a saved Off stays Off. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.
 
 Turning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.
 
@@ -3448,11 +3476,11 @@ Seconds of stillness before dimming starts, and seconds to fade fully to black.
 Value: streamFrame.stationaryDimming.movementTime + dimSeconds (settings.json). Driver side — stillness threshold and fade duration, in seconds.</source>
       </trans-unit>
       <trans-unit id="3000084157" datatype="html">
-        <source>Set how much video the encoder may buffer. A smaller buffer can reduce delay but makes sudden complex scenes harder to encode cleanly.
+        <source>Request an NVENC VBV buffer budget in nominal frame units. A smaller budget can reduce buffering but makes complex scenes harder to encode cleanly.
 
-VBV = average bitrate per frame times this, which bounds how large any single frame can be. 2 caps vegetation peaks and reset key frames at about two frame budgets, far below the streamer's 2 MB send limit. 0 leaves the streamer's value.
+For N &gt; 0, requested VBV = (target bits/s / nominal fps) × N, in bits. 0 preserves the caller's VBV value. This is a rate-control buffer request, not a guaranteed maximum encoded frame size or a transport limit. Requires a SteamVR restart.
 
-Value: streamFrame.nvencVbvFrames (settings.json). Encoder side — VBV buffer sized as frame budgets; caps single-frame size.</source>
+Value: streamFrame.nvencVbvFrames (settings.json). Encoder side — requested VBV buffer size in bits.</source>
       </trans-unit>
       <trans-unit id="34752632" datatype="html">
         <source>Set how quickly the correction changes when you move the thumbstick. A lower speed makes small final adjustments easier.
@@ -3574,11 +3602,11 @@ Value: streamFrame.nvencQpFovea + nvencQpPeriphery (settings.json). Encoder side
 Value: streamFrame.distortion.tune.segments (settings.json). Driver side — angular segment count per tuning band.</source>
       </trans-unit>
       <trans-unit id="93620499" datatype="html">
-        <source>Streaming bandwidth budget, written to targetBandwidth and recommendedBandwidthMbit (the pacer) and used as the encoder bitrate; the streamer's own request never exceeds 350 Mbit/s, above that the encoder is scaled up proportionally.
+        <source>Set the stream bandwidth budget and highest requested encoder target (the Max Bitrate ceiling for the curve). The budget is written to targetBandwidth and recommendedBandwidthMbit for pacing. The driver maps the streamer's request directly onto this Max Bitrate; there is no separate 350 Mbit/s clamp. No curve point or applied target can exceed this Max Bitrate value.
 
-HEVC-era runs measured the headset's intake limit near 450 Mbit/s; limits per codec above that are unmeasured - test before relying on them. Actual wire rate is content-driven. Takes effect at the next SteamVR start or headset connect.
+A target is not a guarantee of actual encoded output or constant sent bits. Actual encoded and wire rates depend on content and encoder behavior. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.
 
-Value: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; used as the encoder bitrate.</source>
+Value: galaxyXr.customBandwidthMbit (settings.json), applied through the shared stream-quality values. SteamVR side — targetBandwidth + recommendedBandwidthMbit in steamvr.vrsettings; encoder side — requested bitrate target.</source>
       </trans-unit>
       <trans-unit id="2731911702" datatype="html">
         <source>The 10-bit request is not applied to the H.264 codec. AV1 and HEVC honor it.</source>
@@ -3650,9 +3678,9 @@ The streamer stamps every hand pose with WHEN it was actually true (poseTimeOffs
 Value: streamFrame.kalmanDeviceTime (settings.json). Driver side — uses the streamer's poseTimeOffset timestamps for filter time steps.</source>
       </trans-unit>
       <trans-unit id="2099847124" datatype="html">
-        <source>With Force CBR, set the key-frame to P-frame budget ratio (0–255, NVENC byte field). The optimized recommendation is 2. Unsupported requests fail without rewriting the value.
+        <source>With Force CBR, request the keyframe-to-P-frame size ratio (0–255, NVENC byte field). NVENC documents this ratio for CBR with a single-frame VBV buffer. It is not a hard keyframe size limit or a transport limit. The optimized recommendation is 2. Unsupported requests fail without rewriting the value. Requires a SteamVR restart.
 
-Value: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — keyframe budget in P-frame units under CBR.</source>
+Value: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — requested low-delay keyframe ratio under CBR.</source>
       </trans-unit>
       <trans-unit id="2463326475" datatype="html">
         <source>Write detailed NVIDIA encoder diagnostics to the log. Use this for troubleshooting; extra logging can add overhead and large files.
@@ -3685,7 +3713,7 @@ Value: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset mer
         <source>streamer request (Mbit/s)</source>
       </trans-unit>
       <trans-unit id="2194687293" datatype="html">
-        <source>applied (Mbit/s)</source>
+        <source>applied target (Mbit/s)</source>
       </trans-unit>
       <trans-unit id="3333270645" datatype="html">
         <source>Streamer standard (linear)</source>
@@ -3694,30 +3722,30 @@ Value: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset mer
         <source>Steady-state map. Except for Linear at 0%, the driver median-filters the streamer request over five frames; that filter is not shown.</source>
       </trans-unit>
       <trans-unit id="469935408" datatype="html">
-        <source>Choose how the streamer's per-frame request becomes the encoder target. Changing this needs SteamVR closed; the saved value applies to the next session.
+        <source>Choose how the streamer's per-frame request becomes the requested encoder target. Close SteamVR to change this; the saved value applies to the next session. Requires a SteamVR restart.
 
-Linear maps the request straight onto the ceiling, so a 350 Mbit/s request means your bandwidth. The knees hold more of your ceiling until the request falls further: power knee raises the middle of the range and keeps a proportional tail below 60% of the clamp, while soft knee holds the ceiling until 60%. A constancy of 100% overrides the family and always sends the ceiling, which is the retired bitrate-follows-backoff switch turned off.
+The ceiling is the highest requested encoder target, not a guaranteed actual output limit. Linear maps a request at Max Bitrate to that ceiling; below it the request passes through. Power knee raises targets in the middle of the range and keeps a proportional tail below 60% of Max Bitrate; soft knee requests the ceiling from 60% upward. Custom uses seven points in the graph window: P1 is fixed at request 0 with an editable floor, P2–P5 are free, P6 starts at the fixed Max Bitrate endpoint overlapping hidden P7 and can move left to start the plateau, and P7 is fixed at full request and Max Bitrate and is shown only as the curve endpoint. At 100% constancy, every positive request selects the ceiling regardless of curve family. No point or applied target can exceed Max Bitrate. None of these settings guarantees constant encoded output or constant sent bits.
 
-Value: streamFrame.nvencBitrateCurve (settings.json). Encoder side — reshapes the NVENC average bitrate target.</source>
+Value: streamFrame.nvencBitrateCurve and streamFrame.nvencBitrateCurvePoints (settings.json). Encoder side — reshapes the requested NVENC average bitrate target.</source>
       </trans-unit>
       <trans-unit id="1939510974" datatype="html">
-        <source>Lift the selected curve toward your ceiling. 0 leaves the curve as selected; 100 sends the ceiling whatever the streamer asks. Changing this needs SteamVR closed.
+        <source>Lift the selected curve toward Max Bitrate. 0 leaves the selected curve unchanged; 100 requests Max Bitrate for any positive streamer request; the applied target never exceeds it. Close SteamVR to change this. Requires a SteamVR restart.
 
-At a 450 Mbit/s ceiling a 280 Mbit/s request maps to 360 at 0%, 381 with the power knee at 0%, 402 with Linear at 50%, 414 with the power knee at 50% and 450 at 100%. High constancy overrides the streamer's congestion response; the measured cost is stream resets and stalled pacing, so raise it deliberately.
+With a 450 Mbit/s Max Bitrate, a 280 Mbit/s request is 62% of the range: 280 with Linear at 0%, about 315 with power knee at 0%, about 355 with Linear at 50%, about 377 with power knee at 50%, and 450 at 100%. These are requested targets, not guaranteed encoded or wire rates. Higher constancy reduces the encoder target's response to congestion and can increase stream resets or stalled pacing.
 
 Value: streamFrame.nvencBitrateConstancyPct (settings.json). Encoder side — exponent lift applied to the selected curve.</source>
       </trans-unit>
       <trans-unit id="628060530" datatype="html">
-        <source>Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Read-only, drawn from the same arithmetic the driver uses.
+        <source>Open the curve graph in its own resizable window. It follows the curve and percentage immediately while you edit them. Editable, drawn from the same arithmetic the driver uses. Drag P1–P6 to shape a Custom curve; P1 stays at request 0 with an editable floor, P2–P5 are free, P6 starts on the fixed Max Bitrate endpoint and moves left to start the plateau, and hidden P7 stays at full request and Max Bitrate. Selecting a preset seeds the handles.
 
-Solid line: the selected curve and percentage. Dashed line: the linear mapping the streamer itself applies. The graph shows the steady-state map; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.
+Solid line: the applied curve after Bitrate Constancy; the thin line is the base curve through the seven points. Dashed line: the linear reference mapping; the top line is Max Bitrate. The graph shows requested encoder targets, not measured encoded output or wire rates; the five-frame request median is not drawn. Minimizing or closing to the tray hides the graph with the Companion. Quitting the Companion closes the graph window too.
 
-Value: none (preview only). Client side — no driver call.</source>
+Value: streamFrame.nvencBitrateCurve + streamFrame.nvencBitrateCurvePoints (settings.json). Client side graph; the main window validates and saves committed edits.</source>
       </trans-unit>
       <trans-unit id="1058167583" datatype="html">
-        <source>Applied encoder target in Mbit/s for each streamer request, at the ceiling and clamp currently saved.
+        <source>Applied encoder target in Mbit/s for each streamer request, at the Max Bitrate currently saved.
 
-The graph reads the saved bandwidth, override and clamp values, so editing those updates it. It does not measure the stream; delivered rate stays content- and transport-bound.</source>
+The graph reads the saved bandwidth and override values, so editing those updates it. It does not measure the stream; delivered rate stays content- and transport-bound.</source>
       </trans-unit>
       <trans-unit id="ofxr-20261019-1" datatype="html">
         <source>OFXR Bridge version</source>
@@ -3741,12 +3769,12 @@ The graph reads the saved bandwidth, override and clamp values, so editing those
         <source>Uninstall Optical Flow</source>
       </trans-unit>
       <trans-unit id="ofxr-20261019-8" datatype="html">
-        <source>Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Downloaded was imported by you; External belongs to OFXR's own tray and is never modified by the Companion. Switching versions disarms first because the layer's arm event belongs to the payload path.
+        <source>Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Imported is a build you copied from a folder; Downloaded is reserved for future use; External belongs to OFXR's own tray. Imported builds are used as-is with no version-compatibility check: download any fork, unzip it, and install it from its folder. Switching versions disarms first because the layer's arm event belongs to the payload path.
 
 Value: ofxr.version (gui-settings.json).</source>
       </trans-unit>
       <trans-unit id="ofxr-20261019-9" datatype="html">
-        <source>Reinstall deletes the Companion-owned runtime directory for the selected version and stages the bundled payload again, verifying its files. Uninstall disarms the layer, removes the Companion registration and deletes every payload directory the Companion created; OFXR tray installs are left untouched. The driver uninstall performs the same cleanup.</source>
+        <source>Install from folder copies a downloaded OFXR Bridge build into the Companion's own runtime area. The build must contain XR_APILAYER_XRFrameBridge_diagnostic.dll and its own ofxr_bridge.ini; the whole payload folder is copied so fork-specific helper DLLs survive. No version check is applied. The Companion only manages the settings shared by every fork (backend, NVIDIA preset, bidirectional flow, flight recorder and overlay position); Hybrid, 3X, NVIDIA input scale, frame-generation mode, Vulkan/D3D11 bridges and other build-specific options stay in the downloaded build's own tray. Reinstall re-stages the bundled payload. Uninstall removes the Companion's copies but leaves external tray installs untouched. Driver uninstall keeps imported builds.</source>
       </trans-unit>
 
       <trans-unit id="uiscale-20261019-1" datatype="html">
@@ -3774,7 +3802,7 @@ Value: uiScale (gui-settings.json). GUI-only presentation preference.</source>
         <source>Bitrate curve</source>
       </trans-unit>
       <trans-unit id="4131997893" datatype="html">
-        <source>Ceiling {ceiling} Mbit/s, clamp {clamp} Mbit/s</source>
+        <source>Max Bitrate {ceiling} Mbit/s</source>
       </trans-unit>
       <trans-unit id="2851497539" datatype="html">
         <source>Could not read settings.json: {reason}</source>
@@ -3784,7 +3812,7 @@ Value: uiScale (gui-settings.json). GUI-only presentation preference.</source>
         <source>Close</source>
       </trans-unit>
       <trans-unit id="curve-preview-invalid-values" datatype="html">
-        <source>Cannot plot these curve values. Check the curve family, constancy, ceiling and clamp in the Companion.</source>
+        <source>Cannot plot these curve values. Check the curve family, constancy, Max Bitrate and the seven points.</source>
       </trans-unit>
       <trans-unit id="companion-tray-20261020-1" datatype="html">
         <source>Minimize to tray</source>
@@ -3841,12 +3869,6 @@ Value: minimizeToTray (gui-settings.json). Companion-only window preference; On 
       </trans-unit>
       <trans-unit id="ofxr-session-20261020-7" datatype="html">
         <source>Disarm Optical Flow from its current manager before enabling Async Spacewarp.</source>
-      </trans-unit>
-      <trans-unit id="bitrate-overdrive-20261021-1" datatype="html">
-        <source>Encoder ceiling {ceiling} Mbit is above the VRLink request clamp of {clamp} Mbit: the streamer paces for less than the encoder sends.</source>
-      </trans-unit>
-      <trans-unit id="bitrate-overdrive-20261021-2" datatype="html">
-        <source>Align bitrate to {clamp} Mbit</source>
       </trans-unit>
       <trans-unit id="vrlink-fallback-20261020-6" datatype="html">
         <source>fixed operating point</source>
@@ -3905,7 +3927,7 @@ Value: closeButtonAction (gui-settings.json). Companion-only window preference; 
         <source>Average</source>
       </trans-unit>
       <trans-unit id="bitrate-monitor-20261021-5" datatype="html">
-        <source>BITRATE MONITOR</source>
+        <source>Bitrate Monitor</source>
       </trans-unit>
       <trans-unit id="bitrate-monitor-20261021-6" datatype="html">
         <source>Browse…</source>
@@ -3920,7 +3942,7 @@ Value: closeButtonAction (gui-settings.json). Companion-only window preference; 
         <source>Counter is stale; waiting for a fresh measurement.</source>
       </trans-unit>
       <trans-unit id="bitrate-monitor-20261021-10" datatype="html">
-        <source>Export CSV</source>
+        <source>Export CSV…</source>
       </trans-unit>
       <trans-unit id="bitrate-monitor-20261021-11" datatype="html">
         <source>Export CSV…</source>
@@ -4047,6 +4069,232 @@ Value: closeButtonAction (gui-settings.json). Companion-only window preference; 
       </trans-unit>
       <trans-unit id="bitrate-monitor-20261021-52" datatype="html">
         <source>Saved frame interval is invalid; inspection uses 5 seconds until a valid interval is applied.</source>
+      </trans-unit>
+      <trans-unit id="nvenc-budget-help-retired-0" datatype="html">
+        <source>Set the encoder's quantization constraint. This is an advanced quality/bandwidth constraint, not a simple quality slider.
+
+A quality floor can fight CBR and increase encoded frame sizes in complex scenes. VBV and keyframe ratios do not guarantee a hard encoded frame size limit.</source>
+      </trans-unit>
+      <trans-unit id="nvenc-budget-help-retired-1" datatype="html">
+        <source>Request a lower quantizer bound for P/B pictures and, separately, intra pictures. A higher bound can reduce quality and encoded size where supported by the selected codec and rate-control mode.
+
+This request is not a hard encoded-output size limit. Validate its actual effect on the running encoder.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-output-rate-unit" datatype="html">
+        <source>buffers/s</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-decoder-input-rate-unit" datatype="html">
+        <source>decoder input frames/s</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-1" datatype="html">
+        <source>The bitrate monitor window could not be opened: {reason}</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-2" datatype="html">
+        <source>Sampling is paused while the window is hidden.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-3" datatype="html">
+        <source>Choose an existing adb executable.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-4" datatype="html">
+        <source>ADB is unavailable or rejected the command.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-5" datatype="html">
+        <source>No single authorized USB headset; connect USB and authorize ADB.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-6" datatype="html">
+        <source>The connected USB device is not a supported Galaxy XR headset (SM-I610).</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-7" datatype="html">
+        <source>The selected USB headset changed or disconnected.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-8" datatype="html">
+        <source>Headset boot identity is unavailable.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-9" datatype="html">
+        <source>Cannot identify one WLAN RX interface.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-10" datatype="html">
+        <source>Current driver telemetry is missing or incomplete.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-11" datatype="html">
+        <source>Driver telemetry is stale; start a current stream.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-12" datatype="html">
+        <source>SteamVR is not running with the driver initialized.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-13" datatype="html">
+        <source>The installed NVENC output counter is not active.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-14" datatype="html">
+        <source>NVENC has not accepted a live stream yet.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-15" datatype="html">
+        <source>Cannot read the current SteamVR process (closed or access denied).</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-16" datatype="html">
+        <source>The telemetry driver DLL does not match a module in current SteamVR.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-17" datatype="html">
+        <source>This driver build has no audited counter profile.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-18" datatype="html">
+        <source>The NVENC frame probe is unavailable.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-19" datatype="html">
+        <source>The NVENC counter changed during sampling.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-20" datatype="html">
+        <source>The NVENC counters moved backwards; waiting for a new baseline.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-21" datatype="html">
+        <source>The SteamVR process changed; waiting for a new baseline.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-22" datatype="html">
+        <source>The NVENC counter is no longer readable.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-23" datatype="html">
+        <source>The received counter sample was invalid.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-24" datatype="html">
+        <source>Exact counter · PID {pid} · SHA-256 {sha}</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-25" datatype="html">
+        <source>USB {serial}; existing fresh decoder telemetry. Not display/presentation proof.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-26" datatype="html">
+        <source>USB {serial}; decoder byte telemetry unavailable. Includes audio, FEC, retransmits and other traffic; NOT video-only bitrate.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-27" datatype="html">
+        <source>Waiting for a captured frame…</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-28" datatype="html">
+        <source>Connection</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-29" datatype="html">
+        <source>Measured bitrate history</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-30" datatype="html">
+        <source>Monitoring</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-31" datatype="html">
+        <source>Bitrate monitor</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-32" datatype="html">
+        <source>Open monitor window</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-33" datatype="html">
+        <source>The monitor samples only while its window is open. Closing or hiding the window stops every sampler.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-monitor-20261023-34" datatype="html">
+        <source>Read exact NVENC output and USB headset counters in a separate window. Nothing is sampled before the window opens, sampling stops when it closes or hides, and no stream setting is changed.
+
+NVENC bytes come from the installed driver's read-only telemetry; the headset uses USB ADB and labels WLAN RX as all-traffic when decoder telemetry is unavailable. The window keeps its own pause, reset and CSV export state.
+
+Value: none (diagnostic only). Native side — read-only process telemetry and ADB.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-1" datatype="html">
+        <source>Custom (seven points)</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-2" datatype="html">
+        <source>Max Bitrate {value} Mbit/s</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-3" datatype="html">
+        <source>Base curve (points)</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-4" datatype="html">
+        <source>Request</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-5" datatype="html">
+        <source>Target</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-6" datatype="html">
+        <source>Reset points</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-7" datatype="html">
+        <source>Point {index} request Mbit/s</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-8" datatype="html">
+        <source>Point {index} target Mbit/s</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-9" datatype="html">
+        <source>Enter whole numbers for the request and target.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-10" datatype="html">
+        <source>Points must keep their order: request increases left-to-right and target never decreases.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-11" datatype="html">
+        <source>P1 is fixed at request 0 with an editable floor. P2–P5 move freely. P6 begins at the fixed Max Bitrate endpoint, overlapping the hidden P7; drag it left to begin the flat max section earlier. P7 is shown only as the curve endpoint, not as a selectable point. Request must increase left-to-right and target must never decrease. The applied target is lifted toward Max Bitrate by Bitrate Constancy and never exceeds it.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-15" datatype="html">
+        <source>Close SteamVR to change the curve.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-12" datatype="html">
+        <source>Bitrate Constancy is 100%: the applied target is pinned to Max Bitrate. The points still shape the base curve and apply when constancy is lowered.</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-13" datatype="html">
+        <source>Custom (editing)</source>
+      </trans-unit>
+      <trans-unit id="bitrate-curve-20261023-14" datatype="html">
+        <source>The graph window could not apply the change: {reason}</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261023-1" datatype="html">
+        <source>Select the OFXR Bridge build folder</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261023-2" datatype="html">
+        <source>Install from folder…</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261023-3" datatype="html">
+        <source>Imported</source>
+      </trans-unit>
+      <trans-unit id="ofxr-20261023-4" datatype="html">
+        <source>Reinstall only replaces the bundled payload. Select the bundled version, or remove the imported build through Uninstall Optical Flow first.</source>
+      </trans-unit>
+      <trans-unit id="windows-startup-20261026-1" datatype="html"><source>Start with Windows</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-2" datatype="html"><source>Use this copy</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-3" datatype="html"><source>Start the Companion in the system tray when you sign in to Windows. Saved Optical Flow is restored if enabled. Manual launches open the window. Off by default; independent of Optical Flow and Minimize to tray.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-4" datatype="html"><source>Windows Startup Apps can disable automatic launch. This setting shows Companion registration; Windows controls whether and when it runs.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-5" datatype="html"><source>Automatic startup is available on Windows only.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-6" datatype="html"><source>Registered copy: {path}</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-7" datatype="html"><source>Another portable copy is registered. Use this copy updates the path only when you choose it. Keep the complete registered package in place.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-8" datatype="html"><source>Windows startup entry was changed externally</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-9" datatype="html"><source>The existing entry was preserved. Resolve the conflict in Windows Startup Apps before registering this copy.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-10" datatype="html"><source>Windows startup could not be read or changed</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-11" datatype="html"><source>Windows startup could not be changed.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-12" datatype="html"><source>Keep the Companion open, minimized, or running in the system tray while playing. Enable Start with Windows in App Settings to restore saved Optical Flow at sign-in. Quitting the Companion stops Optical Flow.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-13" datatype="html"><source>Optical Flow needs attention</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-14" datatype="html"><source>Open Optical Flow</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-15" datatype="html"><source>Saved settings could not be read. Check Settings on Setup before restoring Optical Flow.</source></trans-unit>
+      <trans-unit id="driver-install-20261026-1" datatype="html"><source>Driver install location</source></trans-unit>
+      <trans-unit id="driver-install-20261026-2" datatype="html"><source>Custom: {path}</source></trans-unit>
+      <trans-unit id="driver-install-20261026-3" datatype="html"><source>Default: {path}</source></trans-unit>
+      <trans-unit id="driver-install-20261026-4" datatype="html"><source>Change…</source></trans-unit>
+      <trans-unit id="driver-install-20261026-5" datatype="html"><source>Current installation: {path}</source></trans-unit>
+      <trans-unit id="driver-install-20261026-6" datatype="html"><source>Install location saved for the next reinstall</source></trans-unit>
+      <trans-unit id="driver-install-20261026-7" datatype="html"><source>The current installation stays at {path}. Use Reinstall driver to apply the new location.</source></trans-unit>
+      <trans-unit id="driver-install-20261026-8" datatype="html"><source>Driver installed at {path}. Start SteamVR and connect your headset through Steam Link to verify the driver.</source></trans-unit>
+      <trans-unit id="driver-install-20261026-9" datatype="html"><source>Install location not saved</source></trans-unit>
+      <trans-unit id="driver-install-20261026-10" datatype="html"><source>The install location preference could not be saved. Check the app settings file permissions and try again.</source></trans-unit>
+      <trans-unit id="driver-install-20261026-11" datatype="html"><source>Choose the parent folder for versioned driver packages. The default is recommended. The driver is installed in a GalaxyXRNative versioned subfolder. A custom location must be an absolute folder on a local fixed drive; network, removable, cloud-synced, temporary and reparse-point folders are not supported. The saved location applies only after you install or reinstall the driver. Changing it does not move the current installation. Value: driverInstallRoot (gui-settings.json). GUI-only install preference; empty means the default.</source></trans-unit>
+      <trans-unit id="manual-render-resolution-20261014-0" datatype="html">
+        <source>Override Render Resolution</source>
+      </trans-unit>
+      <trans-unit id="manual-render-resolution-20261014-1" datatype="html">
+        <source>Render Width per Eye</source>
+      </trans-unit>
+      <trans-unit id="manual-render-resolution-20261014-2" datatype="html">
+        <source>Render Height per Eye</source>
+      </trans-unit>
+      <trans-unit id="manual-render-resolution-20261014-3" datatype="html">
+        <source>Choose the render target size in pixels per eye at SteamVR 100% resolution. The native default is 3552 × 3840. Higher values increase GPU load. Requires a SteamVR restart. SteamVR Auto, global resolution and per-game scaling still apply; use Custom 100% to compare the requested size. Turning this off restores the previous resolution while keeping your manual values. Refresh rate and stream encoding size are separate settings. Advanced VRLink resolution overrides take priority.</source>
+      </trans-unit>
+      <trans-unit id="manual-render-resolution-20261014-4" datatype="html">
+        <source>Enter a whole number from 1 to 16384 pixels per eye. Requires a SteamVR restart.</source>
+      </trans-unit>
+      <trans-unit id="manual-render-resolution-invalid-20261019" datatype="html">
+        <source>Render resolution must use whole numbers from 1 to 16384 pixels per eye.</source>
+      </trans-unit>
+      <trans-unit id="manual-render-resolution-error-20261019" datatype="html">
+        <source>Invalid render resolution</source>
       </trans-unit>
     </body>
   </file>

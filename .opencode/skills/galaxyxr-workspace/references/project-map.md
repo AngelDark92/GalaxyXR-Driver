@@ -18,12 +18,9 @@ current files before making a behavioral claim.
 | GUI-only settings | `GalaxyXRDriverGUI/src-lit/services/app-setting.ts` | `gui-settings.json`; keep presentation settings separate from native settings. |
 | Runtime polling | `GalaxyXRDriverGUI/src-lit/services/driver-info.ts`, `pulling.ts`, `driver-startup.ts` | Info is telemetry; stale/missing data must not silently re-enable settings. |
 
-For a new setting, cover C++ field/default, parser/default serialization, TS
-mirror/default, shared state, page control/tip/reset, runtime consumer, source
-XLIFF, relevant tests and user docs. For semantic changes, mirror versioned
-migrations in `ConfigLoader.cpp` and `galaxy-settings.ts`, preserving user tuning.
-Use dated-campaign comments to explain why tuning changes exist. Regenerate
-native-derived defaults through the generator rather than hand-editing them.
+For a new setting, follow the full chain in `AGENTS.md`. For semantic changes,
+mirror versioned migrations in `ConfigLoader.cpp` and `galaxy-settings.ts`,
+preserve user tuning, and regenerate native-derived defaults through the generator.
 
 ## Runtime file contract and installation
 
@@ -75,9 +72,15 @@ disabled. Live assertions require fresh PID/module evidence.
 
 The read-only bitrate graph uses a separate `curve.html` / `src-lit/curve-main.ts`
 entry. `src-lit/services/curve-preview.ts` owns the Companion subscription while
-`src-tauri/src/curve_preview.rs` creates the native window on demand. Keep both
-HTML entries in Vite and the per-locale asset verifier. See
-`Docs/CompanionGraphWindow.md` for async WebView2 creation, lifecycle and QA.
+`src-tauri/src/curve_preview.rs` creates the native window on demand. The
+on-demand bitrate monitor uses `bitrate.html` / `src-lit/bitrate-main.ts`;
+`src-tauri/src/bitrate_monitor/` owns the native window and the read-only
+NVENC/USB ADB samplers, and `src-lit/features/bitrate-monitor-window.ts` starts
+them only on mount/visible and stops them on close/hide. Debug Mode gates the
+open control. Keep all three HTML entries in Vite and the per-locale asset
+verifier. See `Docs/CompanionGraphWindow.md` for async WebView2 creation,
+lifecycle and QA, and `Docs/BitrateMonitor.md` for the monitor's measurement
+contract.
 
 - `features/driver-settings-page.ts`: headset/device and legacy controls.
 - `features/stream-frame-page.ts`: stream/image processing controls.
@@ -102,8 +105,7 @@ flags come from `src/environment.ts` and generated `src/environment-gen.ts` via
 
 ## Build and artifact routing
 
-Artifact root: `../builds/GalaxyXR-Driver/` from repository root. Every artifact
-path below is relative to that root, independent of source/runtime identities.
+Artifact root: `../builds/GalaxyXR-Driver/` from repository root. Paths below are relative to that root; the artifact contract is in `AGENTS.md`.
 
 | Artifacts | Consumers to align |
 | --- | --- |
@@ -133,18 +135,12 @@ and restores the previous working directory. Tauri-generated `gen/schemas` stay
 there and are copied to stable `gui/schemas/`. Capability `$schema` links point to
 that stable location; never regenerate an in-source `src-tauri/gen/` directory.
 
-Full staging: `node build.js --vendor galaxyxr` or `--vendor neutral`. Only when
-full local verification is authorized/necessary, run
-`powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-Portable.ps1`;
-exit 0 plus `Built test package: ...` proves a complete local package.
+Full staging: `node build.js --vendor galaxyxr` or `--vendor neutral`;
 `-DriverOnly`/`-GuiOnly` are partial builds. Version changes use
-`node bump-version.js <version>`, never manual version edits. It synchronizes
-seven files: GUI `package.json`/`package-lock.json`, native `Config.cpp`/manifest,
-and Tauri `tauri.conf.json`/`Cargo.toml`/`Cargo.lock`; the npm lock has both root
-and root-package version fields (eight values in total).
-Linux: `cmake -S GalaxyXRDriver -B ../builds/GalaxyXR-Driver/build/cmake`, then
-`cmake --build ../builds/GalaxyXR-Driver/build/cmake`; staging lives in that
-external binary tree under `GalaxyXRDriver/bin/linux64/`.
+`node bump-version.js <version>` and synchronize the native, npm, Cargo and Tauri
+version files. Linux: `cmake -S GalaxyXRDriver -B ../builds/GalaxyXR-Driver/build/cmake`,
+then `cmake --build ../builds/GalaxyXR-Driver/build/cmake`; staging lives under
+`GalaxyXRDriver/bin/linux64/` in that external tree.
 
 ## Focused verification and CI
 
@@ -155,7 +151,8 @@ external binary tree under `GalaxyXRDriver/bin/linux64/`.
   `GalaxyXRDriver/tests/`. Inspect input sources/defines first; wrappers configure
   the compiler and external outputs. Journal tests deliberately omit live writes.
   The NVENC (`Test-NvencToggle`, `Test-NvencPostPackOrder`), Game Link layout
-  (`Test-GameLinkLayoutPolicy`) and controller-pose (`Test-ControllerPoseEpoch`,
+  (`Test-GameLinkLayoutPolicy`), controller master disable
+  (`Test-ControllerMasterPolicy`) and controller-pose (`Test-ControllerPoseEpoch`,
   `Test-ControllerPoseVelocity`, `Test-ControllerPoseDispatch`) runners are now
   local end-of-task checks; release CI no longer runs them.
 - Rust logic: from `GalaxyXRDriverGUI/src-tauri`, `cargo test --locked --lib`
@@ -188,68 +185,27 @@ external binary tree under `GalaxyXRDriver/bin/linux64/`.
   use the original checkout's credentials; it never resets the build checkout.
   `node --test tools/tests/backmerge-release.test.cjs tools/tests/workflows.test.cjs`
   checks real local Git remotes and workflow wiring without changing GitHub.
-- `.github/workflows/build-tools.yml` tests tool compatibility on Windows
-  PowerShell 5.1 and 7 and runs the GUI unit suite. `.github/workflows/release.yml`
-  is build-only: both vendor builds, packaging and release publication, with no
-  unit, Rust, service or NVENC suites. Run those suites locally at the end of
-  every task. Read actual run results before claiming CI success; dispatch/push
-  need authorization.
-- Measured on the hosted runners (2026-10-12): the release job ran 13.7 min with
-  every suite, 9.9 min build-only with a warm registry cache, 10.3 min after the
-  upload rework. The neutral build is the largest single step (5-7 min, output
-  not packaged); the Galaxy XR build adds 2-3 min. GitHub's own actions validate
-  paths against the workspace: `actions/cache` rejects `..` in `path`, and
-  `upload-artifact` rejects any pattern that leaves the workspace
-  (`Relative pathing '.' and '..' is not allowed`). The release job therefore
-  stages the external ZIP/checksum/notes into `ci-artifacts/` and the failure
-  diagnostics into `ci-diagnostics/` before uploading. In PowerShell, normalize
-  such paths with `[IO.Path]::GetFullPath` before slicing relative names — a
-  joined `../` string makes `Substring($root.Length)` cut the real path wrong.
+- `.github/workflows/build-tools.yml` runs tool/service/GUI tests;
+  `.github/workflows/release.yml` builds both vendors and packages. Read actual
+  run results before claiming CI success; dispatch/push need authorization.
 
-## Migration and cleanup
+## Cleanup
 
-Read `Docs/PortableBuildCleanup.md`. Preview `tools/Move-BuildFolders.ps1` before
-`-Apply`: known generated paths, verified boundaries/collisions and preservation
-of evidence. Migration receipt: artifact root `build-folder-migration.json`.
-Do not improvise recursive moves/deletes based only on directory names.
-
-For retention, select one package from successful full-build evidence and check
-its EXE, native DLL and manifest. Preview then apply
-`tools/Clean-Workspace.ps1 -KeepPackage output/<verified-package>`; the argument
-is relative to artifact root. Inspect `build/workspace-cleanup-last.json` there;
-report removed bytes/protected skips. Preserve source/uncommitted work, vendored
-source, offline toolchains, `node_modules`, registered/installed driver paths,
-active paths, journals and diagnostics. Keep failed-build evidence until its
-cause is understood. Unknown outputs/release ZIPs need individual review.
-Finish downstream CI consumers before cleanup; do not repopulate caches afterward.
+Follow `AGENTS.md` and `Docs/PortableBuildCleanup.md`. Preview
+`tools/Move-BuildFolders.ps1` or `tools/Clean-Workspace.ps1` before applying,
+inspect targets and protections, retain one verified package and report removed
+bytes and skipped paths. Do not improvise recursive moves or deletes based only
+on directory names.
 
 User docs: `Docs/StreamFrame.md`, `TunerUsage.md`, `DriverUninstall.md`,
 `SteamLinkTrackingCapabilities.md`, `VrlinkSettingsRouting-2026-09-23.md`,
 `tools/PORTABLE_BUILD.md`, `README.md`.
 
-## Project agent roles
+## Delegation
 
-OpenCode reads the workspace-level `.opencode/agents/cavecrew-investigator.md`
-(read-only symbol/execution-path discovery), `cavecrew-builder.md` (bounded
-assigned edits) and `cavecrew-reviewer.md` (read-only concrete diff findings).
-Run OpenCode from the workspace root for the workspace copies, or from a project
-root for that project's local `.opencode` copies.
-
-Each host keeps its own preset surface for the same three roles: OpenCode reads
-`.opencode/agents/*.md`, Codex reads `.codex/agents/*.toml`, Cursor reads
-`.cursor/rules/project.mdc`, and Hermes reads the shared `.agents/skills/`. Codex
-discovers standalone role files in `.codex/agents/`; do not add a separate
-registration requirement. The exact role links are available in the cavecrew skill.
-
-Hermes does not read `.codex/agents/`, `.opencode/agents/` or `.cursor/`. Trust the checkout
-once (`hermes skills trust` from the checkout root) so `.agents/skills/` loads,
-then delegate with `delegate_task`: children inherit the session model, get a
-fresh context and cannot ask questions, so paste the role contract and every
-path into each child's `context`; the parent re-reads cited lines and reruns
-the checks.
-
-Read [cavecrew](../../cavecrew/SKILL.md) for delegation and output contracts.
-Pass explicit file ownership, source/artifact roots, requested evidence and
-authorized checks to each spawned agent; a role's read-only scope prohibits
-write-producing tests. Generic communication skills do not override those roles
-or the repository contract.
+OpenCode reads `.opencode/agents/*.md`, Codex `.codex/agents/*.toml`, Cursor
+`.cursor/rules/project.mdc`, and Hermes `.agents/skills/`. Read
+[the cavecrew skill](../../cavecrew/SKILL.md) for role contracts and output
+formats. Children start with fresh context and cannot ask questions: paste the
+role, exact paths, evidence and authorization into each call. The parent re-reads
+cited lines and reruns the checks.
