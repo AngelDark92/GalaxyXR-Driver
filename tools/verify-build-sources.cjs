@@ -52,6 +52,7 @@ const REQUIRED_BUILD_SOURCES = Object.freeze([
   'GalaxyXRDriverGUI/src-lit/domain/rate-tracker.ts',
   'GalaxyXRDriverGUI/src-lit/domain/local-time.ts',
   'GalaxyXRDriverGUI/src-tauri/src/curve_preview.rs',
+  'GalaxyXRDriverGUI/src-tauri/src/windows_startup.rs',
   'GalaxyXRDriverGUI/src-tauri/src/bitrate_monitor/mod.rs',
   'GalaxyXRDriverGUI/src-tauri/src/bitrate_monitor/codec.rs',
   'GalaxyXRDriverGUI/src-tauri/src/bitrate_monitor/headset.rs',

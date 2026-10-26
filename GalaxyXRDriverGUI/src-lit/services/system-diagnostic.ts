@@ -25,7 +25,7 @@ import { DialogService } from './dialog';
 import { PullingService } from './pulling';
 import { cleanJsonComments } from '../domain/pure';
 import { suspendFileWrites, resumeFileWrites } from '../platform/writer';
-import { steamVRSettingsDiff, launch_process } from '../platform/tauri';
+import { steamVRSettingsDiff, launch_process, get_windows_startup, set_windows_startup } from '../platform/tauri';
 import { PathsService } from './paths';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { t } from '../locale/i18n';
@@ -585,7 +585,15 @@ export class SystemDiagnosticService {
         await this.refreshSteamVRSettings();
         return true;
       }
-      return steamVrPath ? await this.uninstallLegacyDriver(steamVrPath) : false;
+      if (!steamVrPath) return false;
+      // This public uninstall is explicit. The legacy helper is also used by
+      // upgrades, which must preserve the user's startup registration.
+      const startup = await get_windows_startup(vendor);
+      if (startup.supported) {
+        if (startup.state === 'conflict') throw new Error(t('Windows startup entry was changed externally'));
+        if (startup.command) await set_windows_startup(vendor, false, startup.command);
+      }
+      return await this.uninstallLegacyDriver(steamVrPath);
     } catch (e) {
       if (!this.driverDataRemoved && suspended) {
         await this.dis.reloadAfterReset();

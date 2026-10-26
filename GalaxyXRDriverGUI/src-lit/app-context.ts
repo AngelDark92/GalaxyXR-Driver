@@ -16,6 +16,8 @@ import { GalaxySettingsBase } from './state/galaxy-settings';
 import { CurvePreviewPublisher, previewState } from './services/curve-preview';
 import { CompanionLifecycleService } from './services/companion-lifecycle';
 import { OfxrSessionService } from './services/ofxr-session';
+import { WindowsStartupService } from './services/windows-startup';
+import { vendor } from './environment';
 import { listen } from '@tauri-apps/api/event';
 import type { BitrateCurvePoint } from './domain/types';
 
@@ -33,6 +35,7 @@ export interface AppContext {
   curvePreview: CurvePreviewPublisher;
   lifecycle: CompanionLifecycleService;
   ofxr: OfxrSessionService;
+  windowsStartup: WindowsStartupService;
   dispose(): void;
 }
 
@@ -49,7 +52,10 @@ export function createAppContext(paths: PathsService): AppContext {
   const aus = new AppUpdateService(sds, appSettingGetter);
   const galaxy = new GalaxySettingsBase(appSetting, dss, dis);
   const ofxr = new OfxrSessionService(appSetting, dss, galaxy);
-  const lifecycle = new CompanionLifecycleService(appSetting, dialog, () => ofxr.idle());
+  const windowsStartup = new WindowsStartupService(vendor);
+  const lifecycle = new CompanionLifecycleService(appSetting, dialog, async () => {
+    await Promise.all([ofxr.idle(), windowsStartup.idle()]);
+  });
   const startup = new DriverStartupService(sds);
   const curvePreview = new CurvePreviewPublisher(
     () => previewState(galaxy.rootSetting, galaxy.streamQualityValues.bandwidth,
@@ -62,7 +68,10 @@ export function createAppContext(paths: PathsService): AppContext {
     });
   const checks = new SettingsCheckService(appSetting, dss, dis, sds);
   const stopInstallation = sds.driverInstalled.subscribe(() => startup.invalidate());
-  const stopMaintenance = sds.installingDriver.subscribe(() => { if (sds.installingDriver()) startup.invalidate(); });
+  const stopMaintenance = sds.installingDriver.subscribe(() => {
+    if (sds.installingDriver()) startup.invalidate();
+    else void windowsStartup.refresh(); // Uninstall also changes OS registration.
+  });
   // 2026-10-23: the graph window relays committed point edits here. The main
   // window remains the only settings writer; SteamVR-running edits are refused.
   let disposed = false;
@@ -106,11 +115,13 @@ export function createAppContext(paths: PathsService): AppContext {
     curvePreview,
     lifecycle,
     ofxr,
+    windowsStartup,
     dispose() {
       disposed = true;
       for (const stop of stopCurveListeners.splice(0)) stop();
       lifecycle.dispose();
       ofxr.dispose();
+      windowsStartup.dispose();
       curvePreview.dispose();
       stopInstallation(); stopMaintenance(); startup.invalidate();
       sds.dispose();

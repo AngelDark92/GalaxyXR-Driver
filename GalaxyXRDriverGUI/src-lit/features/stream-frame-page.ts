@@ -538,7 +538,7 @@ if (vendor && settings) {
         const ofxrStatus = this.ofxrStatus;
         parts.push(sectionHeading(t('Optical Flow'), 0, 'optical-flow'));
         parts.push(statusMessage('info', t('Optical Flow requires the Companion to stay running'),
-          t('Keep the Companion open, minimized, or running in the system tray while playing. Quitting the Companion stops Optical Flow.'),
+          t('Keep the Companion open, minimized, or running in the system tray while playing. Enable Start with Windows in App Settings to restore saved Optical Flow at sign-in. Quitting the Companion stops Optical Flow.'),
           html`<a href="#/app-settings">${t('Open App Settings')}</a>`));
         parts.push(settingFieldRow('ofxr.enabled', html`
       <app-switch .checked=${this.ctx.ofxr.isArmed()} ?disabled=${this.ctx.ofxr.changing() || (!this.ctx.ofxr.isArmed() && !ofxrCanArm(ofxrStatus))} title=${this.ofxrError ?? t(ofxrDisabledReason(ofxrStatus) ?? '')} @change=${(e: CustomEvent) => { void this.setOfxrEnabled(e.detail); }}></app-switch>

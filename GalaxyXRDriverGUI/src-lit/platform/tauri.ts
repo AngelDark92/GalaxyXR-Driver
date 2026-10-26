@@ -22,6 +22,22 @@ export function dismiss_companion_close(token: number): Promise<void> {
 export function complete_companion_quit(token: number, error: string | null): Promise<void> {
     return invoke('complete_companion_quit', { token, error });
 }
+export interface WindowsStartupStatus {
+    supported: boolean;
+    state: 'absent' | 'current' | 'other-copy' | 'conflict';
+    command: string | null;
+    currentCommand: string;
+    registeredPath: string | null;
+}
+export function get_windows_startup(vendor: string): Promise<WindowsStartupStatus> {
+    return invoke('get_windows_startup', { vendor });
+}
+export function set_windows_startup(vendor: string, enabled: boolean, expectedCommand: string | null): Promise<WindowsStartupStatus> {
+    return invoke('set_windows_startup', { vendor, enabled, expectedCommand });
+}
+export function complete_companion_startup(error: string | null): Promise<void> {
+    return invoke('complete_companion_startup', { error });
+}
 // SteamVR settings diff is pure logic in the domain layer (unit-tested by
 // tools/Test-SteamVRSettingsDiff.cjs); re-exported here so the platform
 // module keeps its public API.

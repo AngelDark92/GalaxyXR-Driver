@@ -1009,7 +1009,19 @@ fn uninstall_residue_dumps() -> Vec<PathBuf> { uninstall_dump_paths() }
 fn ofxr_cleanup_for_uninstall() -> Result<()> { Ok(()) }
 #[cfg(not(test))]
 fn ofxr_cleanup_for_uninstall() -> Result<()> {
-    crate::ofxr::cleanup_companion_state().map_err(|e| format!("OFXR companion state: {e}"))
+    // Startup ownership lives in HKCU, outside the removed driver-data tree.
+    // A conflict keeps its receipt and makes uninstall retryable.
+    cleanup_companion_integrations(
+        || crate::windows_startup::cleanup_companion_startup("galaxyxr"),
+        || crate::ofxr::cleanup_companion_state(),
+    )
+}
+
+fn cleanup_companion_integrations(startup: impl FnOnce() -> Result<()>, ofxr: impl FnOnce() -> Result<()>) -> Result<()> {
+    let mut errors = Vec::new();
+    if let Err(error) = startup() { errors.push(format!("Companion Windows startup: {error}")); }
+    if let Err(error) = ofxr() { errors.push(format!("OFXR companion state: {error}")); }
+    if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
 }
 
 fn cleanup_uninstall_residue(ctx: &Context) -> Result<Vec<String>> {
@@ -1178,6 +1190,20 @@ fn uninstall_driver(ctx:&Context,exe:&Path,mut register:impl FnMut(&Path,bool)->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_cleanup_conflict_never_skips_ofxr_shutdown() {
+        let mut stopped = false;
+        let result = cleanup_companion_integrations(
+            || Err("Run entry changed externally".into()),
+            || { stopped = true; Err("OpenXR registration busy".into()) },
+        );
+        assert!(stopped);
+        let error = result.unwrap_err();
+        assert!(error.contains("Run entry changed externally"));
+        assert!(error.contains("OpenXR registration busy"));
+        assert!(cleanup_companion_integrations(|| Ok(()), || Ok(())).is_ok());
+    }
     struct Fixture { root: PathBuf, ctx: Context }
     impl Fixture {
         fn new() -> Self {

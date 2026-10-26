@@ -4227,6 +4227,21 @@ Value: none (diagnostic only). Native side — read-only process telemetry and A
       <trans-unit id="ofxr-20261023-4" datatype="html">
         <source>Reinstall only replaces the bundled payload. Select the bundled version, or remove the imported build through Uninstall Optical Flow first.</source>
       </trans-unit>
+      <trans-unit id="windows-startup-20261026-1" datatype="html"><source>Start with Windows</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-2" datatype="html"><source>Use this copy</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-3" datatype="html"><source>Start the Companion in the system tray when you sign in to Windows. Saved Optical Flow is restored if enabled. Manual launches open the window. Off by default; independent of Optical Flow and Minimize to tray.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-4" datatype="html"><source>Windows Startup Apps can disable automatic launch. This setting shows Companion registration; Windows controls whether and when it runs.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-5" datatype="html"><source>Automatic startup is available on Windows only.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-6" datatype="html"><source>Registered copy: {path}</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-7" datatype="html"><source>Another portable copy is registered. Use this copy updates the path only when you choose it. Keep the complete registered package in place.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-8" datatype="html"><source>Windows startup entry was changed externally</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-9" datatype="html"><source>The existing entry was preserved. Resolve the conflict in Windows Startup Apps before registering this copy.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-10" datatype="html"><source>Windows startup could not be read or changed</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-11" datatype="html"><source>Windows startup could not be changed.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-12" datatype="html"><source>Keep the Companion open, minimized, or running in the system tray while playing. Enable Start with Windows in App Settings to restore saved Optical Flow at sign-in. Quitting the Companion stops Optical Flow.</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-13" datatype="html"><source>Optical Flow needs attention</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-14" datatype="html"><source>Open Optical Flow</source></trans-unit>
+      <trans-unit id="windows-startup-20261026-15" datatype="html"><source>Saved settings could not be read. Check Settings on Setup before restoring Optical Flow.</source></trans-unit>
     </body>
   </file>
 </xliff>
