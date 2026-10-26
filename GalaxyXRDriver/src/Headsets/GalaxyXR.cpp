@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <cstring>
 #include "nlohmann/json.hpp"
 
 // Read actual tuning from driver_vrlink; per-model copies are not read by the
@@ -86,7 +87,8 @@ static std::string ExpectedReadyIcon(const std::string &prefix){
         (prefix == "headset_galaxy_xr_status" ? "headset_galaxy_xr_ready.png" : prefix + "_ready.png");
 }
 
-// the Galaxy XR native per-eye render geometry; see GalaxyXrConfig::nativeResolution
+// Physical panel geometry for the headset capability profile. The render
+// override below uses the user's independently configurable dimensions.
 static const int kGalaxyXrRenderWidth = 3552;
 static const int kGalaxyXrRenderHeight = 3840;
 
@@ -463,10 +465,10 @@ static void ApplyNativeResolutionSetting(){
     for(const auto& target : gxr::VrlinkTuningSections(driverConfig.galaxyXr.vrlinkHeadsetProfile)){
         const char* section = target.c_str();
         if(driverConfig.galaxyXr.nativeResolution){
-            SetInt32IfDifferent(section, "renderWidth", kGalaxyXrRenderWidth);
-            SetInt32IfDifferent(section, "renderHeight", kGalaxyXrRenderHeight);
-            SetInt32IfDifferent(section, "overrideRenderWidth", kGalaxyXrRenderWidth);
-            SetInt32IfDifferent(section, "overrideRenderHeight", kGalaxyXrRenderHeight);
+            SetInt32IfDifferent(section, "renderWidth", driverConfig.galaxyXr.renderWidth);
+            SetInt32IfDifferent(section, "renderHeight", driverConfig.galaxyXr.renderHeight);
+            SetInt32IfDifferent(section, "overrideRenderWidth", driverConfig.galaxyXr.renderWidth);
+            SetInt32IfDifferent(section, "overrideRenderHeight", driverConfig.galaxyXr.renderHeight);
         }else{
             for(const char* key : {"renderWidth", "renderHeight", "overrideRenderWidth", "overrideRenderHeight"})
                 gxrsettings::RestoreOwnedKey(section, key);
@@ -475,6 +477,56 @@ static void ApplyNativeResolutionSetting(){
 }
 
 // ---------------- HMD ----------------
+
+// Identify the component by its implementation module, not the spoofable headset
+// identity. Leave other headsets and their display components untouched.
+static bool IsVrlinkDisplayComponent(vr::IVRDisplayComponent* component){
+#ifdef _WIN32
+	if(!component) return false;
+	const HMODULE vrlink = GetModuleHandleW(L"driver_vrlink.dll");
+	HMODULE owner = nullptr;
+	const auto methods = *reinterpret_cast<void***>(component);
+	return vrlink && methods && GetModuleHandleExW(
+		GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		reinterpret_cast<LPCWSTR>(methods[0]), &owner) && owner == vrlink;
+#else
+	return false;
+#endif
+}
+
+void GalaxyXRHmdShim::PosTrackedDeviceGetComponent(const char *&pchComponentNameAndVersion, void *&returnComponent){
+	if(!returnComponent || std::strcmp(pchComponentNameAndVersion, vr::IVRDisplayComponent_Version) != 0) return;
+	auto* original = static_cast<vr::IVRDisplayComponent*>(returnComponent);
+	if(IsVrlinkDisplayComponent(original)){
+		returnComponent = new ShimDisplayComponent(this, original);
+	}
+}
+
+void GalaxyXRHmdShim::PosDisplayComponentGetRecommendedRenderTargetSize(uint32_t *&pnWidth, uint32_t *&pnHeight){
+	std::lock_guard<std::mutex> lock(driverConfigLock);
+	const auto& config = driverConfig.galaxyXr;
+	if(!active || !config.nativeResolution || !pnWidth || !pnHeight) return;
+	// 2026-10-15: VRLink clamps each recommended dimension to 4096 even
+	// after accepting larger renderWidth/renderHeight settings. Override its
+	// final OpenVR recommendation, before SteamVR applies supersampling.
+	const uint32_t originalWidth = *pnWidth, originalHeight = *pnHeight;
+	bool expertWidth = false, expertHeight = false;
+	for(const auto& entry : config.vrlinkExtraKeys){
+		const auto& key = std::get<0>(entry);
+		expertWidth |= key == "renderWidth" || key == "overrideRenderWidth";
+		expertHeight |= key == "renderHeight" || key == "overrideRenderHeight";
+	}
+	// Explicit expert values/removals keep ownership of their respective axis.
+	if(!expertWidth) *pnWidth = static_cast<uint32_t>(config.renderWidth);
+	if(!expertHeight) *pnHeight = static_cast<uint32_t>(config.renderHeight);
+	if((originalWidth != *pnWidth || originalHeight != *pnHeight)
+			&& (loggedRenderWidth != *pnWidth || loggedRenderHeight != *pnHeight)){
+		loggedRenderWidth = *pnWidth;
+		loggedRenderHeight = *pnHeight;
+		DriverLog("GalaxyXR: OpenVR render recommendation %ux%u -> %ux%u per eye; SteamVR resolution scaling still applies",
+			originalWidth, originalHeight, *pnWidth, *pnHeight);
+	}
+}
 
 void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue){
 	identityApplied = false;
@@ -519,6 +571,8 @@ void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInit
 	appliedProfileRoute = driverConfig.galaxyXr.vrlinkHeadsetProfile;
 	ApplyNativeResolutionSetting();
 	appliedNativeResolution = driverConfig.galaxyXr.nativeResolution;
+	appliedRenderWidth = driverConfig.galaxyXr.renderWidth;
+	appliedRenderHeight = driverConfig.galaxyXr.renderHeight;
 	ApplyStreamQualitySetting();
 	// 2026-09-19 SDR10 baseline: track the EFFECTIVE values (not the stored
 	// ones) so a baseline toggle re-applies the profile request even when
@@ -680,9 +734,13 @@ void GalaxyXRHmdShim::RunFrame(){
 	if(active){
 		ProbeVrlinkPaths();
 	}
-	// config hot-reload: apply/remove the resolution override on toggle flips
-	if(active && (routeChanged || driverConfig.galaxyXr.nativeResolution != appliedNativeResolution)){
+	// Reload dimensions as well as the switch; SteamVR consumes them next launch.
+	if(active && (routeChanged || driverConfig.galaxyXr.nativeResolution != appliedNativeResolution
+			|| driverConfig.galaxyXr.renderWidth != appliedRenderWidth
+			|| driverConfig.galaxyXr.renderHeight != appliedRenderHeight)){
 		appliedNativeResolution = driverConfig.galaxyXr.nativeResolution;
+		appliedRenderWidth = driverConfig.galaxyXr.renderWidth;
+		appliedRenderHeight = driverConfig.galaxyXr.renderHeight;
 		ApplyNativeResolutionSetting();
 		reapplyExtraKeys = true;
 	}
