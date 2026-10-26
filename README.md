@@ -8,7 +8,7 @@ It is a fork of [CustomHeadsetOpenVR by sboys3](https://github.com/sboys3/Custom
 
 ## ⚠️ Required: patched Steam Link builds
 
-This driver has to work in tandem with the latest patched Steam Link releases for **2.0.20** and **2.0.23** — patch set **2.0.0** for both at the time of writing. Install the patched Steam Link on the headset first:
+This driver has to work in tandem with the latest patched Steam Link releases for **2.0.20 (recommended for stability)** and **2.0.24** — latest patch set and same as [XR Porting Hub](https://github.com/AngelDark92/xr-porting-hub). Install the patched Steam Link on the headset first:
 
 **→ [steamlink-androidxr-patched releases](https://github.com/AngelDark92/steamlink-androidxr-patched/releases)**
 
@@ -153,3 +153,4 @@ See the [OFXR-Bridge network](https://github.com/tig3rmast3r/OFXR-Bridge/network
 GPLv2, same as the original project.
 
 The bundled OFXR Bridge payload is a separate LGPL-3.0-or-later component and is shipped unmodified. Its source, tag, commit and license texts are recorded in `GalaxyXRDriverGUI/ofxr/NOTICE`, `GalaxyXRDriverGUI/ofxr/payload.json` and `GalaxyXRDriverGUI/ofxr/LICENSE`.
+****
