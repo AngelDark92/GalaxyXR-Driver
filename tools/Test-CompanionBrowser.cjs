@@ -107,6 +107,8 @@ function fixture() {
       }
       if (command === 'plugin:fs|exists') return Object.hasOwn(files, p) || Object.keys(files).some(key => key.startsWith(p + '/'));
       if (command === 'plugin:fs|read_text_file') {
+        const readErrors = JSON.parse(sessionStorage.getItem('qa-read-errors') || '{}');
+        if (readErrors[p]) throw Error(readErrors[p]);
         if (!Object.hasOwn(files, p)) throw Error('Missing fixture: ' + p);
         return Array.from(new TextEncoder().encode(files[p]));
       }
@@ -209,6 +211,79 @@ function fixture() {
       await page.evaluate(route => { location.hash = '/' + route; }, route);
       await page.locator(`app-${route}-page`).getByRole('heading', { level: 1 }).waitFor();
     };
+    // Each page has its own sessionStorage. Seed through the existing fixture,
+    // then reload so startup reads the scenario without changing baseline QA.
+    const startupCases = [
+      { name: 'Missing app and driver settings use confirmed tray defaults without creating files',
+        firstLaunch: true, appSettings: null, driverRaw: null, minimizeToTray: true, driverReason: 'File not exists', startupError: null },
+      { name: 'Missing driver settings preserve an explicit tray opt-out without writes',
+        firstLaunch: true, appSettings: { minimizeToTray: false }, driverRaw: null, minimizeToTray: false, driverReason: 'File not exists', startupError: null },
+      { name: 'Malformed driver settings still fail startup readiness without writes or Optical Flow arming',
+        appSettings: {}, driverRaw: '{broken', minimizeToTray: true, driverReason: 'Parsing failed', startupError: /Saved settings could not be read/ },
+      { name: 'Unreadable driver settings still fail startup readiness without writes or Optical Flow arming',
+        appSettings: {}, driverRaw: '{}', readError: 'Fixture driver access denied', minimizeToTray: true, driverReason: 'Read failed', startupError: /Saved settings could not be read/ },
+      { name: 'Missing driver settings block saved Optical Flow restoration and preserve the enabled preference',
+        firstLaunch: true, appSettings: { ofxr: { enabled: true } }, driverRaw: null, minimizeToTray: true, driverReason: 'File not exists',
+        startupError: /Read the saved driver and Companion settings successfully before enabling Optical Flow/, ofxrEnabled: true },
+    ];
+    for (const scenario of startupCases) {
+      const startupPage = await context.newPage();
+      const startupErrors = [];
+      startupPage.on('pageerror', error => startupErrors.push(String(error)));
+      try {
+        await startupPage.goto(base + '#/app-settings');
+        await startupPage.waitForFunction(() => window.__qa?.calls.some(call => call.command === 'complete_companion_startup'));
+        const seededFiles = await startupPage.evaluate(({ firstLaunch, appSettings, driverRaw, readError }) => {
+          const { data, files } = window.__qa;
+          if (firstLaunch) {
+            for (const key of Object.keys(files)) {
+              if (key.startsWith(data + '/') || key.startsWith('/managed/GalaxyXRNative/')) delete files[key];
+            }
+            files['/local/openvr/openvrpaths.vrpath'] = JSON.stringify({ runtime: ['/SteamVR'], config: ['/SteamConfig'], external_drivers: [] });
+            files['/SteamConfig/steamvr.vrsettings'] = '{}';
+          }
+          if (appSettings === null) delete files[data + '/gui-settings.json'];
+          else files[data + '/gui-settings.json'] = JSON.stringify(appSettings);
+          if (driverRaw === null) delete files[data + '/settings.json'];
+          else files[data + '/settings.json'] = driverRaw;
+          sessionStorage.setItem('qa-files', JSON.stringify(files));
+          sessionStorage.setItem('qa-read-errors', JSON.stringify(readError ? { [data + '/settings.json']: readError } : {}));
+          return files;
+        }, { firstLaunch: scenario.firstLaunch, appSettings: scenario.appSettings, driverRaw: scenario.driverRaw, readError: scenario.readError });
+        await startupPage.reload();
+        await startupPage.waitForFunction(() => window.__qa?.calls.some(call => call.command === 'complete_companion_startup'));
+        await startupPage.locator('app-app-settings-page').waitFor();
+        const state = await startupPage.evaluate(() => ({
+          calls: window.__qa.calls, files: window.__qa.files,
+          tray: appContext.appSetting.confirmedValues()?.minimizeToTray,
+          appReadError: appContext.appSetting.readFileError(), driverReadError: appContext.dss.readFileError(),
+          ofxrError: appContext.ofxr.error(), ofxrEnabled: appContext.appSetting.confirmedValues()?.ofxr?.enabled,
+        }));
+        assert.deepEqual(state.calls.filter(call => mutationCommands.includes(call.command)), [], scenario.name);
+        assert.deepEqual(state.files, seededFiles, scenario.name);
+        assert.deepEqual(state.calls.filter(call => call.command === 'ofxr_arm'), [], scenario.name);
+        assert.equal(state.appReadError, undefined, scenario.name);
+        assert.equal(state.driverReadError?.reason, scenario.driverReason, scenario.name);
+        if (scenario.readError) assert.match(state.driverReadError.message, /Fixture driver access denied/);
+        assert.equal(state.tray, scenario.minimizeToTray, scenario.name);
+        const lifecycleCalls = state.calls.filter(call => call.command === 'sync_companion_lifecycle');
+        assert.ok(lifecycleCalls.length > 0, scenario.name);
+        assert.ok(lifecycleCalls.every(call => call.args.minimizeToTray === scenario.minimizeToTray), scenario.name);
+        const readiness = state.calls.filter(call => call.command === 'complete_companion_startup');
+        assert.equal(readiness.length, 1, scenario.name);
+        if (scenario.startupError === null) assert.equal(readiness[0].args.error, null, scenario.name);
+        else assert.match(readiness[0].args.error, scenario.startupError, scenario.name);
+        if (scenario.ofxrEnabled) {
+          assert.equal(state.ofxrEnabled, true, scenario.name);
+          assert.match(state.ofxrError, scenario.startupError, scenario.name);
+          await startupPage.locator('app-shell fluent-message-bar').filter({ hasText: 'Optical Flow needs attention' }).waitFor();
+        } else assert.equal(state.ofxrError, undefined, scenario.name);
+        assert.deepEqual(startupErrors, [], scenario.name);
+        results.push(scenario.name);
+      } finally {
+        await startupPage.close();
+      }
+    }
     const debugSelections = () => page.evaluate(() => {
       const settings = appContext.dss.values(), sf = settings.streamFrame;
       return { hitchDiag: sf.hitchDiag, poseLogging: sf.poseLogging, poseLogBurst: sf.poseLogBurst,
