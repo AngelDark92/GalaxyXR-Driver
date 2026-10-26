@@ -272,6 +272,9 @@ int ScenarioConfig(){
 	// config field default (deliverable 1)
 	const Config fresh = {};
 	Check(fresh.streamFrame.spacewarpEnable == false, "config: spacewarpEnable default false");
+	Check(fresh.streamFrame.spacewarpMode == 0, "config: spacewarpMode default Automatic");
+	Check(fresh.streamFrame.spacewarpSettingsVersion == 1,
+		"config: spacewarpSettingsVersion default 1 (legacy stamp)");
 	// pinned constants (brief: UpdateValue(0x48, &one, 4) at impl rva 0xa51d80)
 	Check(VrlinkTapPin::kSpacewarpValueTransportId == 0x48, "pin: carrier ValueTransportID 0x48");
 	Check(VrlinkTapPin::kPublishPayloadBytes == 4, "pin: 4-byte u32 payload");
@@ -310,6 +313,29 @@ int ScenarioConfig(){
 		Check(driverConfig.streamFrame.spacewarpEnable == parseCase.second,
 			(std::string("parse round-trip: ") + (parseCase.first[0] ? parseCase.first : "(file absent)")).c_str());
 	}
+	// Dated semantics migration: a present Spacewarp choice keeps both values
+	// and only advances the version stamp; a never-set feature stays absent.
+	{
+		const std::string file = base + "/CustomHeadset/settings.json";
+		{
+			std::ofstream out(file.c_str(), std::ios::binary);
+			out << "{\"streamFrame\":{\"spacewarpEnable\":true,\"spacewarpMode\":1}}";
+		}
+		{
+			AppdataOverride overrideAppdata(base);
+			driverConfigLoader.ParseConfig();
+		}
+		Check(driverConfig.streamFrame.spacewarpEnable == true
+			&& driverConfig.streamFrame.spacewarpMode == 1,
+			"migration: an explicit enable/forced mode is preserved");
+		Check(driverConfig.streamFrame.spacewarpSettingsVersion == 2,
+			"migration: the dated semantics stamp advances to 2");
+		std::remove(file.c_str());
+		{
+			AppdataOverride overrideAppdata(base);
+			driverConfigLoader.ParseConfig();
+		}
+	}
 
 	// the real WriteInfo -> info.json seam (pinned cross-child shape)
 	BuildFakeModules();
@@ -331,6 +357,10 @@ int ScenarioConfig(){
 				&& info["spacewarp"].contains("published")
 				&& info["spacewarp"].contains("status")
 				&& info["spacewarp"].contains("reason")
+				&& info["spacewarp"].contains("requestedMode")
+				&& info["spacewarp"].contains("effectiveMode")
+				&& info["spacewarp"].contains("transportGeneration")
+				&& info["spacewarp"].contains("auto")
 				&& info["spacewarp"].contains("observedAt")
 				&& info["spacewarp"].contains("implRva")
 				&& info["spacewarp"].contains("workerRva")
@@ -438,26 +468,42 @@ int ScenarioTap(){
 	// re-enable publishes again
 	VrlinkTap::Get().SetConfig(true);
 	CheckPublished(0x48, 4, 0, 1, "re-enable: publish 1 again after an off cycle");
-	// 2026-10-21: half rate is retired. A stored 1 must publish 1 (late frames),
-	// never 2, and every published 0x48 value must stay out of the half-rate slot.
+	// 2026-10-26: requested and effective modes are separate. Automatic (stored
+	// 0) starts at late-frame recovery and the tracker raises it to half rate;
+	// Forced (stored 1) publishes carrier 2 regardless of measured FPS.
 	{
-		const size_t beforeRetired = gImplCalls.size();
+		const size_t beforeModes = gImplCalls.size();
+		VrlinkTap::Get().SetConfig(false);
+		VrlinkTap::Get().SetConfig(true, 0);
+		Check(gImplCalls.size() == beforeModes + 2 && gImplCalls.back().id == 0x48
+			&& (gImplCalls.back().payload & gImplCalls.back().payloadMask) == 1,
+			"automatic: a stored 0 starts in late-frame recovery (carrier 1)");
+		VrlinkTap::Get().SetEffectiveMode(2);
+		Check(gImplCalls.size() == beforeModes + 3 && gImplCalls.back().id == 0x48
+			&& (gImplCalls.back().payload & gImplCalls.back().payloadMask) == 2,
+			"automatic: the cadence decision publishes carrier 2");
+		const size_t afterHalf = gImplCalls.size();
+		VrlinkTap::Get().SetEffectiveMode(2);
+		Check(gImplCalls.size() == afterHalf,
+			"automatic: an unchanged effective mode never republishes");
+		VrlinkTap::Get().SetEffectiveMode(1);
+		Check(gImplCalls.size() == afterHalf + 1
+			&& (gImplCalls.back().payload & gImplCalls.back().payloadMask) == 1,
+			"automatic: recovery publishes carrier 1");
 		VrlinkTap::Get().SetConfig(false);
 		VrlinkTap::Get().SetConfig(true, 1);
-		Check(gImplCalls.size() == beforeRetired + 2 && gImplCalls.back().id == 0x48
-			&& (gImplCalls.back().payload & gImplCalls.back().payloadMask) == 1,
-			"retired: a stored half rate publishes late-frames only");
+		Check(gImplCalls.size() == afterHalf + 3 && gImplCalls.back().id == 0x48
+			&& (gImplCalls.back().payload & gImplCalls.back().payloadMask) == 2,
+			"forced: a stored 1 publishes carrier 2");
+		VrlinkTap::Get().SetEffectiveMode(1);
+		Check((gImplCalls.back().payload & gImplCalls.back().payloadMask) == 2,
+			"forced: the automatic decision cannot lower the carrier");
 		VrlinkTap::Get().SetConfig(false);
-		VrlinkTap::Get().SetConfig(true, 2);
+		VrlinkTap::Get().SetConfig(true, 7);
 		Check(gImplCalls.back().id == 0x48
 			&& (gImplCalls.back().payload & gImplCalls.back().payloadMask) == 1,
-			"retired: an unknown stored mode publishes late-frames only");
-		bool publishedHalf = false;
-		for(const auto &record : gImplCalls){
-			if(record.id == 0x48 && (record.payload & record.payloadMask) == 2) publishedHalf = true;
-		}
-		Check(!publishedHalf, "retired: carrier 2 is never published");
-		VrlinkTap::Get().SetConfig(true, 1);  // leave the stored half state for the reconnect case
+			"an unknown stored mode applies as Automatic (carrier 1) and is not rewritten");
+		VrlinkTap::Get().SetConfig(true, 1);  // leave forced for the reconnect case
 	}
 	// 2026-10-17: post-restart republish — a NEW transport instance resets the
 	// stale latch and auto-publishes for the fresh connection with no reload
@@ -468,10 +514,10 @@ int ScenarioTap(){
 		"reconnect: fresh transport republished without a settings reload");
 	Check((int)gImplCalls.size() == beforeReconnect + 2 && gImplCalls.size() >= 2
 		&& gImplCalls[gImplCalls.size() - 2].id == 0x48
-		&& (gImplCalls[gImplCalls.size() - 2].payload & gImplCalls[gImplCalls.size() - 2].payloadMask) == 1
+		&& (gImplCalls[gImplCalls.size() - 2].payload & gImplCalls[gImplCalls.size() - 2].payloadMask) == 2
 		&& gImplCalls[gImplCalls.size() - 1].id == 11,
-		"reconnect: one 0x48=1 republish + one passthrough in hook order");
-	CheckPublished(0x48, 4, 0, 1, "reconnect: the fresh connection carries 0x48=1");
+		"reconnect: one 0x48=2 (forced) republish + one passthrough in hook order");
+	CheckPublished(0x48, 4, 0, 2, "reconnect: the fresh connection carries 0x48=2");
 	// disabled tap: a cadence publish must never appear
 	VrlinkTap::Get().SetConfig(false);
 	const int beforeDisabled = (int)gImplCalls.size();
@@ -567,12 +613,300 @@ int ScenarioSignature(){
 	return failures == 0 ? 0 : 1;
 }
 
+int ScenarioCadence(){
+	gxr::AswCadenceTracker tracker;
+	double refresh = 90.0;
+	tracker.SetRefreshHz(refresh);
+	tracker.SetRequested(true, 0);
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+		"cadence: Automatic starts in late-frame recovery");
+	Check(tracker.SampleDue(0.0), "cadence: first sample is immediately due");
+	tracker.MarkSampled(0.0);
+	Check(!tracker.SampleDue(0.05), "cadence: a second sample inside 100 ms is refused");
+	Check(tracker.SampleDue(0.10), "cadence: the ten-per-second cadence is allowed at 100 ms");
+
+	uint32_t index = 1;
+	double frameTime = 0.0;
+	auto feed = [&](double now, double fps, int records){
+		gxr::AswTimingFrame frames[16];
+		const double interval = 1.0 / fps;
+		// Emit this sample's newest records in ascending order, ending at the
+		// sample time so the application timeline never runs ahead of the clock.
+		double first = now - (records - 1) * interval;
+		if(first <= frameTime) first = frameTime + interval;
+		for(int i = 0; i < records; ++i){
+			frames[i].frameIndex = index++;
+			frames[i].systemTimeSeconds = first + i * interval;
+		}
+		frameTime = frames[records - 1].systemTimeSeconds;
+		tracker.MarkSampled(now);
+		tracker.Observe(now, refresh, frames, static_cast<size_t>(records));
+	};
+
+	// One second of 90 FPS application timing (10 samples x 9 frames).
+	for(int sample = 1; sample <= 11; ++sample){ feed(sample * 0.1, 90.0, 9); }
+	Check(tracker.HaveValidHistory(), "cadence: one second of 90 FPS history is valid");
+	Check(tracker.MeasuredFps() > 88.0 && tracker.MeasuredFps() < 92.0,
+		"cadence: measured FPS comes from advancing frame timestamps");
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+		"cadence: 90 FPS at 90 Hz stays in late-frame recovery");
+
+	// Drop to 45 FPS. Entry requires 500 ms of continuous low cadence.
+	feed(1.2, 45.0, 4);
+	feed(1.3, 45.0, 4);
+	feed(1.4, 45.0, 4);
+	feed(1.5, 45.0, 4);
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+		"cadence: no half rate before the 500 ms entry hold");
+	for(int sample = 16; sample <= 20; ++sample){ feed(sample * 0.1, 45.0, 4); }
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kHalfRate,
+		"cadence: 45 FPS at 90 Hz enters half rate after 500 ms");
+	Check(tracker.Reason() == std::string("auto-low-fps"), "cadence: entry reason recorded");
+
+	// 85 FPS is inside the 0.90-0.97 hysteresis band: keep half rate.
+	for(int sample = 21; sample <= 26; ++sample){ feed(sample * 0.1, 85.0, 8); }
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kHalfRate,
+		"cadence: the hysteresis band holds half rate");
+
+	// Recovery needs 2 s at >= 97% of refresh.
+	for(int sample = 27; sample <= 44; ++sample){ feed(sample * 0.1, 90.0, 9); }
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kHalfRate,
+		"cadence: no recovery before the two-second exit hold");
+	for(int sample = 45; sample <= 65; ++sample){ feed(sample * 0.1, 90.0, 9); }
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+		"cadence: 90 FPS recovers after two seconds");
+	Check(tracker.Reason() == std::string("auto-recovered"), "cadence: exit reason recorded");
+
+	// Deduplicate overlapping records: replaying the newest record must not
+	// inflate the measured FPS or the history.
+	const double fpsBefore = tracker.MeasuredFps();
+	gxr::AswTimingFrame duplicate[1] = {{index - 1, frameTime}};
+	tracker.Observe(6.55, refresh, duplicate, 1);
+	Check(tracker.MeasuredFps() == fpsBefore, "cadence: duplicate frame index is ignored");
+
+	// Forced bypasses thresholds even with no valid history.
+	tracker.SetRequested(true, 1);
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kHalfRate,
+		"cadence: Forced half-rate bypasses the FPS thresholds");
+	tracker.SetRefreshHz(72.0);
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kHalfRate,
+		"cadence: refresh change does not lower a forced request");
+	tracker.SetRequested(true, 0);
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+		"cadence: leaving Forced returns to late-frame recovery until re-measured");
+
+	// Refresh change resets automatic history and requires a fresh second.
+	tracker.SetRefreshHz(72.0);
+	Check(!tracker.HaveValidHistory(), "cadence: refresh change clears the history");
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+		"cadence: refresh change resets the decision to late-frame recovery");
+	refresh = 72.0;
+	frameTime = 0.0;  // the refresh change cleared history; restart the app timeline
+	for(int sample = 50; sample <= 60; ++sample){ feed(sample * 0.1, 72.0, 8); }
+	Check(tracker.HaveValidHistory() && tracker.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+		"cadence: 72 FPS at 72 Hz is normal after refresh re-warm");
+
+	// Stale timing (>500 ms without a sample) resets to late-frame recovery.
+	tracker.Evaluate(7.2);
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+		"cadence: stale timing falls back to late-frame recovery");
+	Check(tracker.Reason() == std::string("stale-timing"), "cadence: stale reason recorded");
+
+	// Re-establish a live app timeline so the frame-index reset below is
+	// distinguishable from a cold start.
+	for(int sample = 73; sample <= 75; ++sample){ feed(sample * 0.1, 72.0, 8); }
+
+	// Application change: a newer timestamp with a reset frame index clears
+	// history and restarts the one-second evidence window.
+	gxr::AswTimingFrame restarted[3] = {{1, 7.8}, {2, 7.81}, {3, 7.82}};
+	tracker.Observe(7.9, 72.0, restarted, 3);
+	Check(tracker.Reason() == std::string("application-changed"),
+		"cadence: frame-index reset with newer timestamps is an application change");
+	Check(!tracker.HaveValidHistory(), "cadence: application change clears the history");
+
+	// Explicit reconnect boundary also resets, keeping the requested mode.
+	tracker.SetRequested(true, 0);
+	tracker.NotifyBoundary("reconnect");
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+		"cadence: reconnect resets Automatic to late-frame recovery");
+	tracker.SetRequested(false, 0);
+	Check(tracker.EffectiveMode() == gxr::AswCadenceTracker::kOff, "cadence: Off publishes off");
+
+	// Provider record order is not guaranteed: a newest-first sample must
+	// still build the same one-second history (otherwise the measured FPS
+	// collapses to the sample rate and automatic mode falsely enters half rate).
+	{
+		gxr::AswCadenceTracker reversed;
+		reversed.SetRefreshHz(90.0);
+		reversed.SetRequested(true, 0);
+		uint32_t idx = 1;
+		double ft = 0.0;
+		for(int sample = 1; sample <= 11; ++sample){
+			const double now = sample * 0.1;
+			gxr::AswTimingFrame frames[9];
+			for(int i = 0; i < 9; ++i){
+				frames[i].frameIndex = idx + static_cast<uint32_t>(8 - i);
+				frames[i].systemTimeSeconds = now - i * (1.0 / 90.0);
+			}
+			idx += 9;
+			ft = frames[0].systemTimeSeconds;
+			reversed.Observe(now, 90.0, frames, 9);
+		}
+		(void)ft;
+		Check(reversed.HaveValidHistory() && reversed.MeasuredFps() > 80.0,
+			"cadence: newest-first provider records still measure application FPS");
+	}
+
+	// The provider requests 32 overlapping records at 10 Hz. Feeding only the
+	// nine unique frames would undercount; the tracker must deduplicate the
+	// overlapping 32-record samples and still measure ~90 FPS.
+	{
+		gxr::AswCadenceTracker wide;
+		wide.SetRefreshHz(90.0);
+		wide.SetRequested(true, 0);
+		uint32_t newestIndex = 0;
+		for(int sample = 1; sample <= 15; ++sample){
+			const double now = sample * 0.1;
+			if(sample == 1) newestIndex = 32;
+			else newestIndex += 9;
+			gxr::AswTimingFrame frames[32];
+			for(int i = 0; i < 32; ++i){
+				frames[i].systemTimeSeconds = now - i * (1.0 / 90.0);
+				frames[i].frameIndex = newestIndex - static_cast<uint32_t>(i);
+			}
+			wide.Observe(now, 90.0, frames, 32);
+		}
+		Check(wide.HaveValidHistory() && wide.MeasuredFps() > 88.0,
+			"cadence: 32-record overlapping provider samples do not undercount 90 FPS");
+	}
+
+	// Model the actual provider contract: poll at 10 Hz, return the newest 32
+	// records including pre-poll history, and advance frames at their own rate.
+	// Deliberately give OpenVR timestamps an epoch unrelated to local time.
+	auto pollWindow = [](gxr::AswCadenceTracker& target, double now, double elapsed,
+		double fps, double epoch, uint32_t firstIndex, double hz = 90.0){
+		const uint32_t produced = static_cast<uint32_t>(std::floor(elapsed * fps + 1e-7));
+		gxr::AswTimingFrame frames[32];
+		for(uint32_t i = 0; i < 32; ++i){
+			frames[i].frameIndex = firstIndex + produced - i;
+			frames[i].systemTimeSeconds = epoch + (static_cast<double>(produced) - i) / fps;
+		}
+		target.MarkSampled(now);
+		target.Observe(now, hz, frames, 32);
+	};
+
+	// A narrow 0.98..1.02 s window permanently rejected 20.5 FPS: twenty
+	// intervals span 0.9756 s and twenty-one span 1.0244 s. Real fractional
+	// application cadences must remain measurable through the 128-entry ring.
+	const double fractionalRates[] = {20.5, 23.5, 59.94};
+	for(double fps : fractionalRates){
+		gxr::AswCadenceTracker fractional;
+		fractional.SetRequested(true, 0);
+		bool continuouslyValid = true;
+		bool continuouslyHalfRate = true;
+		for(int sample = 0; sample <= 600; ++sample){
+			const double elapsed = sample * 0.1;
+			pollWindow(fractional, 100.0 + elapsed, elapsed, fps, 1000.0, 1000);
+			if(sample >= 20){
+				continuouslyValid = continuouslyValid && fractional.HaveValidHistory();
+				continuouslyHalfRate = continuouslyHalfRate
+					&& fractional.EffectiveMode() == gxr::AswCadenceTracker::kHalfRate;
+			}
+		}
+		Check(continuouslyValid && std::fabs(fractional.MeasuredFps() - fps) < 0.001,
+			"cadence: fractional low FPS remains valid and accurate for sixty seconds");
+		Check(continuouslyHalfRate,
+			"cadence: fractional low FPS enters half rate and remains there");
+		Check(fractional.HistorySpanSeconds() >= 1.0
+			&& fractional.HistorySpanSeconds() <= 1.0 + 1.0 / fps + 1e-7,
+			"cadence: fractional history retains only the one-second bracketing interval");
+	}
+
+	// Enabling with a full 30 FPS history must not count the pre-enable
+	// second or start the 500 ms hold early. Every reset needs the same fresh
+	// second, including a new application's first already-populated poll.
+	for(int boundary = 0; boundary < 8; ++boundary){
+		gxr::AswCadenceTracker fresh;
+		fresh.SetRequested(true, 0);
+		for(int sample = 0; sample <= 20; ++sample){
+			pollWindow(fresh, 20.0 + sample * 0.1, sample * 0.1, 30.0, 5000.0, 1000);
+		}
+		Check(fresh.EffectiveMode() == gxr::AswCadenceTracker::kHalfRate,
+			"cadence: boundary regression begins with established half rate");
+		double start = 22.1;
+		double epoch = 5002.1;
+		uint32_t firstIndex = 2000;
+		double hz = 90.0;
+		switch(boundary){
+		case 0: fresh.NotifyBoundary("reconnect"); break;
+		case 1: hz = 72.0; fresh.SetRefreshHz(hz); break;
+		case 2: fresh.SetRequested(true, 1); fresh.SetRequested(true, 0); break;
+		case 3: fresh.SetRequested(false, 0); fresh.SetRequested(true, 0); break;
+		case 4:
+			// Replaying a poll is not frame advancement and cannot postpone stale.
+			pollWindow(fresh, 22.4, 2.0, 30.0, 5000.0, 1000);
+			fresh.Evaluate(22.6);
+			Check(fresh.Reason() == std::string("stale-timing"),
+				"cadence: repeated historical polls expire using local freshness");
+			start = 22.7;
+			break;
+		case 5: epoch = 5003.0; firstIndex = 100; break; // app index resets
+		case 6: start = 1.0; break; // local clock resets; OpenVR keeps its epoch
+		case 7:
+			// A newly constructed/enabled tracker also has no trusted watermark.
+			fresh = gxr::AswCadenceTracker{};
+			fresh.SetRequested(true, 0);
+			break;
+		}
+		pollWindow(fresh, start, 0.0, 30.0, epoch, firstIndex, hz);
+		Check(!fresh.HaveValidHistory() && fresh.HistoryCount() == 1,
+			"cadence: first post-boundary poll establishes only a newest-frame baseline");
+		bool prematureHistory = false;
+		bool prematureHalfRate = false;
+		for(int sample = 1; sample <= 9; ++sample){
+			pollWindow(fresh, start + sample * 0.1, sample * 0.1, 30.0, epoch, firstIndex, hz);
+			prematureHistory = prematureHistory || fresh.HaveValidHistory();
+			prematureHalfRate = prematureHalfRate
+				|| fresh.EffectiveMode() == gxr::AswCadenceTracker::kHalfRate;
+		}
+		Check(!prematureHistory && !prematureHalfRate,
+			"cadence: pre-boundary records cannot shorten the fresh one-second warmup");
+		pollWindow(fresh, start + 1.0, 1.0, 30.0, epoch, firstIndex, hz);
+		Check(fresh.HaveValidHistory(), "cadence: a full fresh second completes warmup");
+		for(int sample = 11; sample <= 14; ++sample){
+			pollWindow(fresh, start + sample * 0.1, sample * 0.1, 30.0, epoch, firstIndex, hz);
+		}
+		Check(fresh.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+			"cadence: fresh warmup does not consume the separate 500 ms entry hold");
+		pollWindow(fresh, start + 1.6, 1.6, 30.0, epoch, firstIndex, hz);
+		Check(fresh.EffectiveMode() == gxr::AswCadenceTracker::kHalfRate,
+			"cadence: fresh warmup plus the entry hold permits half rate");
+	}
+
+	// Both clocks must independently cover the evidence window. Rapidly
+	// returned timestamps spanning >1 s cannot compress local warmup to 600 ms.
+	{
+		gxr::AswCadenceTracker rapid;
+		rapid.SetRequested(true, 0);
+		for(int sample = 0; sample <= 6; ++sample){
+			pollWindow(rapid, 200.0 + sample * 0.1, sample * 0.2, 30.0, 8000.0, 1000);
+		}
+		Check(!rapid.HaveValidHistory()
+			&& rapid.EffectiveMode() == gxr::AswCadenceTracker::kLateFrames,
+			"cadence: advancing OpenVR timestamps cannot bypass local one-second warmup");
+	}
+
+	std::cout << "spacewarp cadence: " << checks << " checks, " << failures << " failures\n";
+	return failures == 0 ? 0 : 1;
+}
+
 int RunScenario(const char* name){
 	if(std::string(name) == "config"){ return ScenarioConfig(); }
 	if(std::string(name) == "tap"){ return ScenarioTap(); }
 	if(std::string(name) == "resolvefail"){ return ScenarioResolveFail(); }
 	if(std::string(name) == "retry"){ return ScenarioRetry(); }
 	if(std::string(name) == "signature"){ return ScenarioSignature(); }
+	if(std::string(name) == "cadence"){ return ScenarioCadence(); }
 	return 2;
 }
 }
@@ -581,7 +915,7 @@ int main(int argc, char** argv){
 	// child mode: run exactly one scenario (fresh tap singleton, latches reset)
 	if(argc == 2){ return RunScenario(argv[1]); }
 	// parent mode: self-spawn each scenario and aggregate
-	static const char* scenarios[] = { "config", "tap", "resolvefail", "retry", "signature" };
+	static const char* scenarios[] = { "config", "tap", "resolvefail", "retry", "signature", "cadence" };
 	int failed = 0;
 	for(const char* scenario : scenarios){
 		char quoted[1024];
@@ -592,6 +926,6 @@ int main(int argc, char** argv){
 			std::cerr << "scenario " << scenario << " failed with " << code << '\n';
 		}
 	}
-	std::cout << "spacewarp toggle: " << (5 - failed) << "/5 scenarios ok\n";
+	std::cout << "spacewarp toggle: " << (6 - failed) << "/6 scenarios ok\n";
 	return failed == 0 ? 0 : 1;
 }

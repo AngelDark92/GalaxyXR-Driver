@@ -1176,38 +1176,51 @@ describe('per-codec encoder defaults', () => {
   });
 });
 
-describe('Async Spacewarp toggle (2026-10-17)', () => {
-  it('defaults to false and keeps a never-set key absent on disk', async () => {
+describe('Async Spacewarp toggle (2026-10-17; semantics 2026-10-26)', () => {
+  it('defaults to false; a never-set Spacewarp key keeps the dated stamp absent', async () => {
     expect(driverDefaults.streamFrame!.spacewarpEnable).toBe(false);
+    expect(driverDefaults.streamFrame!.spacewarpMode).toBe(0);
+    expect(driverDefaults.streamFrame!.spacewarpSettingsVersion).toBe(1);
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2 },
       streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, nvencCodec: 0 },
     };
     const { gs, saved, flush } = buildHarness(stored);
     await flush();
-    expect(saved).toHaveLength(0); // brief 11 seam: never-set key — no migration, no silent stamp
+    expect(saved).toHaveLength(0); // never-set feature: no migration, no silent stamp
     expect(gs.settings?.spacewarpEnable).toBe(false);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();
     expect(reopened.saved).toHaveLength(0);
   });
 
-  it('keeps an explicit toggle, resets it to the native default and round-trips both', async () => {
+  it('keeps an explicit toggle and forces the stored mode through reset and round-trip', async () => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2 },
-      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, spacewarpEnable: true },
+      streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, spacewarpEnable: true, spacewarpMode: 1 },
     };
-    const { gs, saved, flush } = buildHarness(stored);
+    const raw = structuredClone(stored);
+    const { gs, saved, flush } = buildHarness(stored, undefined, raw);
     await flush();
-    expect(saved).toHaveLength(0); // the explicit choice is stored state, never rewritten on load
+    expect(saved).toHaveLength(1); // dated semantics stamp (the selection itself stays)
+    const stamped = JSON.parse(JSON.stringify(saved[0]));
+    expect(stamped.streamFrame.spacewarpEnable).toBe(true);
+    expect(stamped.streamFrame.spacewarpMode).toBe(1);
+    expect(stamped.streamFrame.spacewarpSettingsVersion).toBe(2);
     expect(gs.settings?.spacewarpEnable).toBe(true);
+    expect(gs.settings?.spacewarpMode).toBe(1);
     gs.reset('spacewarpEnable');
     expect(gs.settings?.spacewarpEnable).toBe(false); // native default
-    const persisted = JSON.parse(JSON.stringify(saved[0]));
+    expect(gs.settings?.spacewarpMode).toBe(1); // the separate Force row is not reset with ASW
+    gs.reset('spacewarpMode');
+    expect(gs.settings?.spacewarpMode).toBe(0); // Automatic
+    const persisted = JSON.parse(JSON.stringify(saved[saved.length - 1]));
     expect(persisted.streamFrame.spacewarpEnable).toBe(false);
+    expect(persisted.streamFrame.spacewarpMode).toBe(0);
     const reopened = buildHarness(persisted);
     await reopened.flush();
     expect(reopened.gs.settings?.spacewarpEnable).toBe(false);
+    expect(reopened.gs.settings?.spacewarpMode).toBe(0);
   });
 });
 

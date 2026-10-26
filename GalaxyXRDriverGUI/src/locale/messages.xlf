@@ -2606,9 +2606,9 @@ An encoder already created with the tap can retain its earlier parameters and AP
       <trans-unit id="spacewarp-20261017-2" datatype="html">
         <source>Applies live to the running stream. Async Spacewarp synthesizes frames on the headset client when the stream misses a display tick. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.
 
-Mode: Late frames only synthesizes when a display tick has no new decoded frame. Mode changes are saved immediately and apply live.
+Automatic enters half rate after the application cadence stays below 90% of the headset refresh for 500 ms, and returns to normal late-frame recovery after it stays at or above 97% for two seconds. Force half-rate keeps half rate on regardless of game FPS. Half rate targets 45 selected stream frames plus 45 synthetic display slots at 90 Hz (36/36 at 72 Hz); it does not throttle the game or promise upstream GPU savings, and selected stream frames may already contain repeated or reprojected game content.
 
-Value: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json). Stream side — publishes the toggle and mode live to the running vrlink stream; the headset client synthesizes the frames.</source>
+Value: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json). Stream side — publishes the effective mode live to the running vrlink stream; the headset client synthesizes the frames.</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-3" datatype="html">
         <source>Async Spacewarp: Off</source>
@@ -2620,13 +2620,13 @@ Value: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json)
         <source>Async Spacewarp: Active</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-6" datatype="html">
-        <source>The running stream carries the request. Frames are synthesized only while the headset client patch is active.</source>
+        <source>Green confirms that the driver published the request. It does not guarantee that the headset is synthesizing frames or that motion will be smoother. {mode} Frames are synthesized only while the headset client patch is active.</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-7" datatype="html">
         <source>Async Spacewarp: Waiting for stream</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-8" datatype="html">
-        <source>The saved value is not confirmed by the running stream yet. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.</source>
+        <source>The saved value is not confirmed by the running stream yet. Green confirms that the driver published the request. It does not guarantee that the headset is synthesizing frames or that motion will be smoother. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.</source>
       </trans-unit>
       <trans-unit id="spacewarp-20261017-9" datatype="html">
         <source>Late frames only</source>
@@ -2636,6 +2636,28 @@ Value: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json)
       </trans-unit>
       <trans-unit id="spacewarp-20261021-1" datatype="html">
         <source>Half rate is retired in this build. Late frames only is applied; your saved choice is kept.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-1" datatype="html">
+        <source>Force half-rate</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-2" datatype="html">
+        <source>Keep half-rate presentation on regardless of game FPS. Off is Automatic: the driver publishes normal late-frame recovery until the measured application cadence stays below 90% of the headset refresh for 500 ms, then half rate; it returns to normal after the cadence stays at or above 97% for two seconds. The measurement uses the application's frame timings, never compositor, encoder or decoder FPS. Automatic and forced transitions publish live to the running stream without rewriting your saved enable/mode choice.
+
+Half rate is client-side frame selection: 45 selected stream frames plus 45 synthetic display slots at 90 Hz (36/36 at 72 Hz). It does not throttle the game or promise upstream GPU savings, and selected stream frames may already contain repeated or reprojected game content.
+
+Value: streamFrame.spacewarpMode (settings.json). 0 = Automatic, 1 = Forced half rate. Changes apply live to the running stream.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-3" datatype="html">
+        <source>The driver currently publishes half rate.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-4" datatype="html">
+        <source>The driver currently publishes late-frame recovery.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-5" datatype="html">
+        <source>The published mode is not reported by this driver.</source>
+      </trans-unit>
+      <trans-unit id="spacewarp-20261026-6" datatype="html">
+        <source>A mode change is pending publication.</source>
       </trans-unit>
       <trans-unit id="ofxr-20261017-1" datatype="html">
         <source>Optical Flow</source>

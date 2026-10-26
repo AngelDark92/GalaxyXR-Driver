@@ -21,19 +21,17 @@
 // of vrlink's live-proven VTE_USE_ENCODE_TARGET_WIDTH (id 11) width publishes;
 // the receiving VR client auto-instantiates unknown value ids (06-bridge §3).
 //
-// Carrier encoding (2026-10-20): ONE u32 on 0x48 carries the whole state, so the
-// Companion needs no second id and no new RE. Carrier values: 0 = off,
-// 1 = late frames only, 2 = half rate. The stored setting is
-// streamFrame.spacewarpMode (0 = late frames only, the default; 1 = half rate;
-// any other stored value is treated as the default). The carrier value is
-// derived from the CURRENT stored (enabled, mode) pair on every publish
-// attempt, never from a captured request:
-//   want = enabled ? (mode == 1 ? 2u : 1u) : 0u
+// Carrier encoding (2026-10-26, owner directive): ONE u32 on 0x48 carries the
+// whole state, so the Companion needs no second id and no new RE. Carrier
+// values: 0 = Off, 1 = late-frame recovery, 2 = half rate. The stored setting
+// is streamFrame.spacewarpMode (0 = Automatic, 1 = Forced half rate; any other
+// stored value applies as Automatic and is never rewritten). Requested mode and
+// effective mode are separate: the host's automatic cadence tracker decides the
+// effective mode and publishes transitions without touching settings.json.
+//   want = enabled ? (effectiveMode == 2 ? 2u : 1u) : 0u
 // so a client that only understands the legacy boolean still reads 1 and 2 as
 // "enabled", and an explicit Off publishes 0 (only when a value was actually
-// delivered). 2026-10-21 (owner directive): half rate is retired, so
-// EncodeCarrierValue also gates on kHalfRateRetired and publishes 1 for a stored
-// 1; the formula above is the revived form and the stored value is never rewritten.
+// delivered).
 //
 // Derivation + gate (validated signature, never a build hash/RVA: fail CLOSED):
 //   - audited evidence: driver_vrlink.dll 13,908,632 B, sha256
@@ -82,9 +80,10 @@
 //      with spacewarp disabled there are no hooks and no behavior changes.
 //   5. the explicit user OFF is a legitimate publish (the user's own previous
 //      state, published 0 once), never a silent rewrite.
-//   6. stateLock guards enabled / mode / publishedValue / havePublished and is
-//      held across every read and write in the publish path, including the
-//      native call, so a concurrent SetConfig is never torn by a provider tick.
+//   6. stateLock guards enabled / requested mode / effective mode /
+//      publishedValue / havePublished and is held across every read and write
+//      in the publish path, including the native call, so a concurrent
+//      SetConfig or SetEffectiveMode is never torn by a provider tick.
 // ============================================================================
 
 // Locator constants. There is deliberately no build hash and no fixed RVA here:
@@ -120,6 +119,13 @@ struct VrlinkTapRuntimeState {
 	uint32_t publishedValue = 0; // last value actually delivered on 0x48
 	const char* status = "off";
 	const char* reason = "off";
+	// 2026-10-26 automatic/forced split. requestedMode is the stored 0/1 value;
+	// effectiveMode is the carrier class currently asked for (0 off, 1 late,
+	// 2 half). They differ in Automatic while the measured cadence is normal or
+	// during a transition. Additive keys; older Companions ignore them.
+	int requestedMode = 0;
+	int effectiveMode = 0;
+	uint32_t transportGeneration = 0; // increments on a new vrlink transport
 	uint32_t implRva = 0;        // resolved thunk RVA (0 before resolution)
 	uint32_t workerRva = 0;      // resolved worker RVA
 	uint32_t callerCount = 0;    // diagnostic; 32 -> 36 in the 2026-10-25 build
@@ -132,18 +138,24 @@ public:
 	static VrlinkTap& Get();
 
 	// single control path: hot reload only (FrameProcessor::UpdateEncoderSettings,
-	// beside the NvencTap::SetConfig line). Stores (enabled, mode) under
-	// stateLock, resolves+installs the hook when enabled, then publishes the
-	// CURRENT desired value: mode 1 -> 2, any other mode -> 1, disabled -> 0.
-	// A publish that cannot happen (unresolved signature, no capture, faulted
-	// call) leaves status "waiting" and is retried on the next SetConfig or the
-	// next captured Valve publish. false publishes 0 only when a value was
-	// actually delivered (explicit user off — a legitimate publish of the user's
-	// own previous state), then status "off".
+	// beside the NvencTap::SetConfig line). Stores (enabled, requested mode)
+	// under stateLock, resolves+installs the hook when enabled, then publishes
+	// the CURRENT effective value. requested mode 1 = forced half rate (carrier
+	// 2); mode 0 = automatic, whose carrier is late-frame recovery until the
+	// AswAutoMode tracker raises it to half rate. A publish that cannot happen
+	// (unresolved signature, no capture, faulted call) leaves status "waiting"
+	// and is retried on the next SetConfig or the next captured Valve publish.
+	// false publishes 0 only when a value was actually delivered (explicit user
+	// off — a legitimate publish of the user's own previous state), then status
+	// "off".
 	void SetConfig(bool enabled, int mode);
 	// compatibility forwarder for a caller that only carries the legacy boolean:
-	// same as SetConfig(enabled, 0), the default mode, i.e. carrier 0x48=1.
+	// same as SetConfig(enabled, 0), i.e. Automatic.
 	void SetConfig(bool enabled);
+	// Automatic/forced split: the cadence tracker's decision. 0 = off, 1 = late
+	// frames, 2 = half rate. Ignored while disabled; forced request wins. A
+	// change publishes immediately (no settings write, no restart).
+	void SetEffectiveMode(int mode);
 	VrlinkTapRuntimeState GetRuntimeState();
 	// pure tri-state classifier for the pinned seam enum
 	static const char* StatusString(bool enabled, bool published);
@@ -164,9 +176,11 @@ private:
 	std::mutex stateLock;
 	std::mutex installationLock;
 	bool enabled = false;         // guarded by stateLock
-	int mode = 0;                 // guarded by stateLock: stored spacewarpMode (0 -> carrier 1; 1 -> carrier 2 only while !kHalfRateRetired, else 1)
+	int mode = 0;                 // guarded by stateLock: stored requested mode (0 automatic, 1 forced)
+	int effectiveMode = 0;        // guarded by stateLock: 0 off, 1 late frames, 2 half rate
 	uint32_t publishedValue = 0;  // guarded by stateLock: last value actually delivered
 	bool havePublished = false;   // guarded by stateLock: a value was delivered at least once
+	uint32_t transportGeneration = 0; // guarded by stateLock
 	// newest capture wins (vrlink may replace the value-transport object per
 	// session; a fresh publish re-teaches it)
 	std::atomic<void*> capturedVts{nullptr};

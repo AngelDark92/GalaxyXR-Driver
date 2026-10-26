@@ -337,6 +337,7 @@ const nativeDefaults = {
     "nvencForceCbr": false,
     "spacewarpEnable": false,
     "spacewarpMode": 0,
+    "spacewarpSettingsVersion": 1,
     "nvencLowDelayKfScale": 2,
     "nvencVuiMatrix": -1,
     "nvencVuiPrimaries": -1,

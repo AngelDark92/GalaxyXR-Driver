@@ -17,6 +17,7 @@
 #include "Windows.h"
 #include "../Driver/NvencTap.h"
 #include "../Driver/VrlinkTap.h"
+#include "../Driver/AswAutoMode.h"
 #else
 #include <unistd.h>
 #endif
@@ -1089,6 +1090,9 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["spacewarpMode"].is_number()){
 				newConfig.streamFrame.spacewarpMode = streamFrameData["spacewarpMode"].get<int>();
 			}
+			if(streamFrameData["spacewarpSettingsVersion"].is_number()){
+				newConfig.streamFrame.spacewarpSettingsVersion = streamFrameData["spacewarpSettingsVersion"].get<int>();
+			}
 			if(streamFrameData["nvencLowDelayKfScale"].is_number()){
 				newConfig.streamFrame.nvencLowDelayKfScale = streamFrameData["nvencLowDelayKfScale"].get<int>();
 			}
@@ -1720,6 +1724,14 @@ void ConfigLoader::ParseConfig(){
 		if(newConfig.streamFrame.streamFrameSchema < 5){
 			newConfig.streamFrame.streamFrameSchema = 5;
 		}
+		// Async Spacewarp semantics v2 (2026-10-26): mode 0 becomes Automatic
+		// (late-frame recovery until the measured cadence drops, then half rate)
+		// and mode 1 becomes Forced half rate. The stored 0/1 values keep their
+		// meaning, so only the dated semantics stamp advances; no enable/mode
+		// selection and no tuning is rewritten. Mirrors GalaxySettingsBase.
+		if(newConfig.streamFrame.spacewarpSettingsVersion < 2){
+			newConfig.streamFrame.spacewarpSettingsVersion = 2;
+		}
 		gxr::ApplyDebugModePolicy(newConfig);
 		// 2026-10-24: controllerBypass is the master controller disable and
 		// must win over a saved Game Link layout. Runtime copy only; the
@@ -2114,6 +2126,7 @@ void ConfigLoader::WriteInfo(){
 				{"nvencForceCbr", defaultSettings.streamFrame.nvencForceCbr},
 				{"spacewarpEnable", defaultSettings.streamFrame.spacewarpEnable},
 				{"spacewarpMode", defaultSettings.streamFrame.spacewarpMode},
+				{"spacewarpSettingsVersion", defaultSettings.streamFrame.spacewarpSettingsVersion},
 				{"nvencLowDelayKfScale", defaultSettings.streamFrame.nvencLowDelayKfScale},
 				{"nvencVuiMatrix", defaultSettings.streamFrame.nvencVuiMatrix},
 				{"nvencVuiPrimaries", defaultSettings.streamFrame.nvencVuiPrimaries},
@@ -2264,10 +2277,25 @@ void ConfigLoader::WriteInfo(){
 	// / "waiting" (enabled but the value-transport publish has not happened
 	// yet). Do not deviate from the shape.
 	const auto spacewarpTap = VrlinkTap::Get().GetRuntimeState();
+	const auto aswAuto = gxr::AswAutoMode::Get().Snapshot();
 	data["spacewarp"] = {
 		{"enabled", spacewarpTap.enabled}, {"hookInstalled", spacewarpTap.hookInstalled},
 		{"published", spacewarpTap.published}, {"publishedValue", spacewarpTap.publishedValue},
 		{"status", spacewarpTap.status}, {"reason", spacewarpTap.reason},
+		{"requestedMode", spacewarpTap.requestedMode},
+		{"effectiveMode", spacewarpTap.effectiveMode},
+		{"transportGeneration", spacewarpTap.transportGeneration},
+		{"auto", {{"enabled", aswAuto.enabled},
+			{"requestedMode", aswAuto.requestedMode},
+			{"effectiveMode", aswAuto.effectiveMode},
+			{"measuredFps", aswAuto.measuredFps},
+			{"refreshHz", aswAuto.refreshHz},
+			{"historySpanSeconds", aswAuto.historySpanSeconds},
+			{"historyValid", aswAuto.historyValid},
+			{"reason", aswAuto.reason},
+			{"generation", aswAuto.generation},
+			{"enterCount", aswAuto.enterCount},
+			{"exitCount", aswAuto.exitCount}}},
 		{"observedAt", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
 		{"implRva", spacewarpTap.implRva}, {"workerRva", spacewarpTap.workerRva},
 		{"callerCount", spacewarpTap.callerCount},

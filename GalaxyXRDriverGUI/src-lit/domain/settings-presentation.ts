@@ -74,9 +74,11 @@ const controllerDebug = group('debug', ['Controllers', 'Diagnostics'], ['debugCo
 controllerDebug('streamFrame.poseLogging', 'Motion Logging');
 controllerDebug('streamFrame.poseLogBurst', 'Motion Logging: Burst');
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.nvencTap', 'Override NVIDIA Encoder');
-// Async Spacewarp (2026-10-17): stream synthesis toggle; its page row lives in
-// the vendor build's Stream Quality branch, so it mirrors nvencTap's gate.
+// Async Spacewarp (2026-10-17; 2026-10-26): stream synthesis toggle and the
+// separate Force half-rate switch; both rows live in the vendor build's Stream
+// Quality branch, so they mirror nvencTap's gate.
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpEnable', 'Async Spacewarp');
+group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpMode', 'Force half-rate');
 // Optical Flow (2026-10-17; 2026-10-23): the managed OFXR Bridge card. The
 // remaining rows are gui-settings.json values owned by the Companion; the
 // page's Enable switch is additionally gated by the native ofxr_status()

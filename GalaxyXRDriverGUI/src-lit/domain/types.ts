@@ -265,10 +265,16 @@ export type StreamFrameConfig = {
   // Async Spacewarp toggle (2026-10-17): never-set key keeps its native
   // default (false) — no migration, and nothing silently rewrites it.
   spacewarpEnable: boolean;
-  // Async Spacewarp mode (2026-10-20): 0 = late frames only, 1 = half rate.
-  // Dormant while the toggle is off; the saved value is user-owned and is
-  // never rewritten by a codec switch or a reset of the other row.
+  // Async Spacewarp mode (2026-10-26): 0 = Automatic (late-frame recovery until
+  // the measured application cadence stays below 90% of refresh, then half
+  // rate), 1 = Forced half rate. The Companion exposes mode 1 as a separate
+  // Force half-rate switch. The saved value is user-owned and is never rewritten
+  // by a codec switch, an automatic transition or a reset of the other row.
   spacewarpMode: number;
+  // Async Spacewarp settings-semantics version (2026-10-26): absent/1 = legacy
+  // file (same stored 0/1 meanings), 2 = Automatic/Forced semantics. The
+  // migration stamps this only; it never rewrites enable/mode or tuning.
+  spacewarpSettingsVersion: number;
   nvencLowDelayKfScale: number;
   nvencVuiMatrix: number;
   nvencVuiPrimaries: number;
@@ -548,9 +554,30 @@ export type DriverInfo = {
     enabled: boolean;
     hookInstalled: boolean;
     published: boolean;
+    publishedValue?: number;
     // Pinned cross-child seam (brief 11, 2026-10-17): the keys and the status
     // enum are read verbatim from info.json — exactly 'off' | 'on' | 'waiting'.
     status: 'off' | 'on' | 'waiting';
+    // 2026-10-26 automatic/forced split (additive; older drivers omit these).
+    // requestedMode is the stored 0/1 value; effectiveMode is the carrier class
+    // the driver wants to publish (0 off, 1 late, 2 half). publishedValue is
+    // the last confirmed delivery and may differ after a failed transition.
+    requestedMode?: number;
+    effectiveMode?: number;
+    transportGeneration?: number;
+    auto?: {
+      enabled: boolean;
+      requestedMode: number;
+      effectiveMode: number;
+      measuredFps: number;
+      refreshHz: number;
+      historySpanSeconds: number;
+      historyValid: boolean;
+      reason: string;
+      generation: number;
+      enterCount: number;
+      exitCount: number;
+    };
     // 2026-10-25: driver write time (ms since epoch). Lets the row trust a
     // fresh host report even when the separate installation/version check is
     // in a mismatch or polling failure. Optional for older drivers.

@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "VrlinkTap.h"
 #include "VrlinkSignature.h"
+#include "AswAutoMode.h"
 #include "DriverLog.h"
 #include "../../../ThirdParty/minhook/include/MinHook.h"
 #include <chrono>
@@ -41,17 +42,13 @@ double NowVtSeconds(){
 		std::chrono::steady_clock::now().time_since_epoch()).count() / 1000000.0;
 }
 
-// 2026-10-21 (owner directive): half rate is retired. The stored setting is kept
-// untouched, but this build never publishes carrier 2 - a stored 1 applies as
-// late-frames-only, exactly like every unknown stored value. Flip this constant
-// (and the client's matching flag) to revive; see Docs/RetiredHalfRateASW.md.
-constexpr bool kHalfRateRetired = true;
-
-// Carrier value from the CURRENT stored pair (brief C): 0 = off, 1 = late
-// frames only, 2 = half rate. The stored setting is 0-based (spacewarpMode:
-// 0 = late frames only — the default and every unknown value — 1 = half rate).
-uint32_t EncodeCarrierValue(bool enabled, int mode){
-	return enabled ? ((mode == 1 && !kHalfRateRetired) ? 2u : 1u) : 0u;
+// 2026-10-26 (owner directive): half rate is restored. The carrier value comes
+// from the CURRENT requested/effective pair: 0 = off, 1 = late-frame recovery,
+// 2 = half rate. The stored setting is 0-based (spacewarpMode: 0 = Automatic,
+// 1 = Forced half rate; any other value applies as Automatic).
+uint32_t EncodeCarrierValue(bool enabled, int effectiveMode){
+	if(!enabled) return 0u;
+	return effectiveMode == 2 ? 2u : 1u;
 }
 
 // PE-header sanity for the bounds gate: e_lfanew beyond this cannot be a real
@@ -103,7 +100,12 @@ void VrlinkTap::OnVrlinkPublish(void* vts){
 			std::lock_guard<std::mutex> stateGuard(stateLock);
 			publishedValue = 0;
 			havePublished = false;
+			++transportGeneration;
 		}
+		// A new transport instance is a reconnect: the automatic cadence
+		// decision must restart from fresh timing evidence (the saved request is
+		// untouched).
+		gxr::AswAutoMode::Get().NotifyBoundary("reconnect");
 		DriverLog("VrlinkTap: value-transport instance changed (0x%p -> 0x%p) — republishing on the fresh connection", previous, vts);
 		PublishDesired();
 		return;
@@ -116,7 +118,7 @@ void VrlinkTap::OnVrlinkPublish(void* vts){
 	bool pendingPublish;
 	{
 		std::lock_guard<std::mutex> stateGuard(stateLock);
-		const uint32_t want = EncodeCarrierValue(enabled, mode);
+		const uint32_t want = EncodeCarrierValue(enabled, effectiveMode);
 		pendingPublish = !failedPermanently.load(std::memory_order_relaxed)
 			&& installed.load(std::memory_order_relaxed)
 			&& (VrlinkTapShims::origUpdateValue != nullptr)
@@ -135,11 +137,23 @@ const char* VrlinkTap::StatusString(bool enabled, bool published){
 	return !enabled ? "off" : (published ? "on" : "waiting");
 }
 
-void VrlinkTap::SetConfig(bool enable, int mode){
+void VrlinkTap::SetConfig(bool enable, int requestedMode){
 	{
 		std::lock_guard<std::mutex> stateGuard(stateLock);
+		const int previousMode = mode;
 		enabled = enable;
-		this->mode = mode;
+		// Only 1 is defined as Forced; every other stored value applies as
+		// Automatic without rewriting the saved value.
+		mode = requestedMode == 1 ? 1 : 0;
+		if(!enable){
+			effectiveMode = 0;
+		}else if(mode == 1){
+			effectiveMode = 2;
+		}else if(effectiveMode == 0 || previousMode == 1){
+			// Automatic starts (or returns from Forced) in late-frame recovery;
+			// the cadence tracker raises it only with fresh evidence.
+			effectiveMode = 1;
+		}
 	}
 	if(enable){
 		TryInstall();
@@ -150,10 +164,30 @@ void VrlinkTap::SetConfig(bool enable, int mode){
 }
 
 void VrlinkTap::SetConfig(bool enable){
-	// Legacy boolean-only caller (a test harness or any settings path that does
-	// not carry the mode yet): the default stored mode (0 = late frames only)
-	// keeps the historical carrier value 0x48=1.
+	// Legacy boolean-only caller: Automatic is the stored default. The carrier
+	// starts at late-frame recovery (1) until the cadence tracker raises it.
 	SetConfig(enable, 0);
+}
+
+void VrlinkTap::SetEffectiveMode(int requestedEffective){
+	int publishMode = 0;
+	bool forced = false;
+	{
+		std::lock_guard<std::mutex> stateGuard(stateLock);
+		if(!enabled){
+			effectiveMode = 0;
+			return;
+		}
+		forced = mode == 1;
+		// Forced half rate always wins over the automatic decision.
+		const int wanted = forced ? 2 : (requestedEffective == 2 ? 2 : 1);
+		if(wanted == effectiveMode) return;
+		effectiveMode = wanted;
+		publishMode = effectiveMode;
+	}
+	DriverLog("VrlinkTap: effective spacewarp mode -> %d (%s; requested %s)", publishMode,
+		publishMode == 2 ? "half rate" : "late frames", forced ? "forced" : "automatic");
+	PublishDesired();
 }
 
 void VrlinkTap::TryInstall(){
@@ -357,9 +391,9 @@ void VrlinkTap::TryInstall(){
 
 void VrlinkTap::PublishDesired(){
 	std::lock_guard<std::mutex> stateGuard(stateLock);
-	// The wanted value comes from the CURRENT stored pair on every call, so a
-	// pending enable can never overwrite a later explicit Off.
-	const uint32_t want = EncodeCarrierValue(enabled, mode);
+	// The wanted value comes from the CURRENT requested/effective pair on every
+	// call, so a pending enable can never overwrite a later explicit Off.
+	const uint32_t want = EncodeCarrierValue(enabled, effectiveMode);
 	if(havePublished){
 		if(want == publishedValue){ return; } // already delivered at this value: idempotent
 	} else if(want == 0u){
@@ -413,7 +447,7 @@ void VrlinkTap::PublishDesired(){
 	if(want == 0u){
 		DriverLog("VrlinkTap: spacewarp bridge published 0x48=0 (explicit user off; impl status %d)", status);
 	} else {
-		DriverLog("VrlinkTap: spacewarp bridge published 0x48=%u (mode %d; impl status %d)", want, mode, status);
+		DriverLog("VrlinkTap: spacewarp bridge published 0x48=%u (effective %d, requested %d; impl status %d)", want, effectiveMode, mode, status);
 	}
 }
 
@@ -426,6 +460,9 @@ VrlinkTapRuntimeState VrlinkTap::GetRuntimeState(){
 	state.published = havePublished && publishedValue != 0u;
 	state.status = StatusString(enabled, state.published);
 	state.reason = lastReason;
+	state.requestedMode = mode;
+	state.effectiveMode = enabled ? effectiveMode : 0;
+	state.transportGeneration = transportGeneration;
 	state.implRva = resolvedImplRva;
 	state.workerRva = resolvedWorkerRva;
 	state.callerCount = resolvedCallerCount;

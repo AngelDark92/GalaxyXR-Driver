@@ -57,6 +57,15 @@ public:
 	// this allows them to have RunThread called
 	std::set<ShimDefinition*> shims;
 private:
+	// refresh from the HMD property; invalid/missing keeps the last value.
+	double QueryDisplayRefreshHz();
+	// 2026-10-26 automatic half-rate sampling (<=10 Hz) + effective-mode
+	// publication. Called from RunFrame after the settings hot-reload.
+	void UpdateAswAutoMode();
+	int lastAswEffectiveMode = -1;
+	uint32_t lastAswTransportGeneration = 0;
+	bool haveAswTransportGeneration = false;
+
 	std::array<gxr::ControllerPoseEpoch, vr::k_unMaxTrackedDeviceCount> controllerPoseEpochs{};
 	std::mutex controllerPoseEpochLock;
 	struct QueuedEvent {

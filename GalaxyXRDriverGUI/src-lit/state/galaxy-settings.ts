@@ -354,6 +354,22 @@ export class GalaxySettingsBase {
           rawSf.streamFrameSchema = 5;
           queueMicrotask(() => this.save());
         }
+        // Async Spacewarp semantics v2 (2026-10-26): mode 0 is Automatic
+        // (late-frame recovery until the measured cadence drops, then half
+        // rate) and mode 1 is Forced half rate. The stored 0/1 values keep
+        // their user meaning, so this dated stamp rewrites no enable/mode
+        // choice and no tuning. Presence is read from the RAW stored object:
+        // the service merges defaults into the in-memory tree, so a never-set
+        // feature stays absent (no silent stamp).
+        const rawStored = this.dss.storedValues?.() as any;
+        const storedSpacewarp = rawStored?.streamFrame;
+        const hasSpacewarpSelection = storedSpacewarp?.spacewarpEnable !== undefined
+          || storedSpacewarp?.spacewarpMode !== undefined
+          || storedSpacewarp?.spacewarpSettingsVersion !== undefined;
+        if (rawSf && canMigrate && hasSpacewarpSelection && (rawSf.spacewarpSettingsVersion ?? 1) < 2) {
+          rawSf.spacewarpSettingsVersion = 2;
+          queueMicrotask(() => this.save());
+        }
         // 2026-10-23 migration: the preceding GUI generated five or six custom
         // curve points. Upgrade a valid stored shape to the seven-point
         // plateau form and persist it. Invalid hand-edited shapes are left

@@ -31,6 +31,8 @@ describe('human-readable settings inspection', () => {
       .toEqual(['Image Settings', 'Encoder Advanced', 'Force Constant Bitrate']);
     expect(rows.find(row => row.id === 'streamFrame.spacewarpEnable')?.location)
       .toEqual(['Image Settings', 'Stream Quality', 'Async Spacewarp']);
+    expect(rows.find(row => row.id === 'streamFrame.spacewarpMode')?.location)
+      .toEqual(['Image Settings', 'Stream Quality', 'Force half-rate']);
     expect(rows.find(row => row.id === 'galaxyXr.controllerBypass')?.location)
       .toEqual(['Driver Settings', 'Controllers', 'Disable All Controller Features']);
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
