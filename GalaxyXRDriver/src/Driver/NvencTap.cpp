@@ -1262,8 +1262,22 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	}
 	if(cfg.bitrateMbit > 0){
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
-		int64_t target = cfg.bitrateMbit * 1000000ll;
-		if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0){
+		// 2026-10-27 (owner directive): Max Bitrate is the applied budget.
+		// Under VBR the requested average is the curve-shaped streamer request
+		// capped by the budget (and by the headroom reservation), and
+		// maxBitRate is exactly the budget. Under Force CBR the budget is the
+		// constant average and peak: the curve, constancy and headroom cannot
+		// reshape it, and a lower streamer request cannot lower it.
+		const int64_t ceiling = (int64_t)cfg.bitrateMbit * 1000000ll;
+		int64_t target = ceiling;
+		if(cfg.forceCbr){
+			target = ceiling;
+			static std::atomic<bool> cbrPolicyLogged{false};
+			if((cfg.bitrateCurve != 0 || cfg.bitrateConstancyPct != 0 || cfg.maxBitrateHeadroomPct != 0)
+				&& !cbrPolicyLogged.exchange(true)){
+				DriverLog("NvencTap: Force CBR applies streamFrame.nvencBitrateMbit directly as the constant average and maximum; the bitrate curve, constancy and headroom are not applied.");
+			}
+		}else if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0){
 			// 2026-10-23: no 350 reference. Linear at 0% is the request
 			// itself, capped at Max Bitrate below. This keeps the direct
 			// integer path exact and removes the old clamp scaling.
@@ -1280,17 +1294,25 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			// A zero request with a zero floor keeps the historical no-request
 			// behavior (leave the caller's target). A raised custom P1 floor is
 			// a real target and is applied even when the request is zero.
-			if(target <= 0 && reqMbit <= 0.0){ target = cfg.bitrateMbit * 1000000ll; }
+			if(target <= 0 && reqMbit <= 0.0){ target = ceiling; }
 		}
 		// Linear at 0% historically left a zero request alone rather than
 		// writing an invalid zero average into the encoder session.
-		if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0 && rc.averageBitRate <= 0){
-			target = cfg.bitrateMbit * 1000000ll;
+		if(!cfg.forceCbr && cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0 && rc.averageBitRate <= 0){
+			target = ceiling;
 		}
-		target = (std::min<int64_t>)(target, cfg.bitrateMbit * 1000000ll);
+		target = (std::min<int64_t>)(target, ceiling);
+		// 2026-10-27: headroom reserves part of the budget for the VBR peak.
+		// The average is capped at budget/(1+pct/100); maxBitRate stays the
+		// budget. 0 leaves the average free to use the whole budget. Force CBR
+		// is constant rate, so headroom is inert there (max == average).
+		if(!cfg.forceCbr && cfg.maxBitrateHeadroomPct > 0){
+			const int64_t reserved = ceiling * 100ll / (100ll + (int64_t)cfg.maxBitrateHeadroomPct);
+			target = (std::min<int64_t>)(target, reserved);
+		}
 		uint32_t avg = (uint32_t)target;
-		// Diagnostics only: request, Max Bitrate and applied target. No clamp
-		// assumption and no automatic alignment.
+		uint32_t mx = cfg.forceCbr ? avg : (uint32_t)ceiling;
+		// Diagnostics only: request, Max Bitrate budget and applied average.
 		{
 			double reqM = RequestMedian();
 			if(reqM <= 0.0){ reqM = rc.averageBitRate / 1e6; }
@@ -1299,8 +1321,6 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			policyState.requestMbit = (int)(reqM + 0.5);
 			policyState.targetMbit = (int)((avg + 500000ull) / 1000000ull);
 		}
-		double head = 1.0 + cfg.maxBitrateHeadroomPct / 100.0;
-		uint32_t mx = (uint32_t)(avg * head);
 		if(rc.averageBitRate != avg || rc.maxBitRate != mx){
 			w += snprintf(w, WhatRem(w, what, whatLen), "avg %.0fM->%.0fM max %.0fM->%.0fM; ", rc.averageBitRate / 1e6, avg / 1e6, rc.maxBitRate / 1e6, mx / 1e6);
 			rc.averageBitRate = avg;
@@ -1475,6 +1495,7 @@ std::string ValidateRequest(const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_P
 	if(cfg.splitMode > 0 && cfg.codec != 1 && !IsH264(p->encodeGUID) && (ApiMajor(p->version) < 12 || StructVer(p->version) < 6)){ return "streamFrame.nvencSplitMode requires NVENC API 12.1 initialization parameters."; }
 	if(cfg.preset < 0 || cfg.preset > 7 || cfg.multiPass < -1 || cfg.multiPass > 2){ return "streamFrame.nvencPreset must be 0..7 and streamFrame.nvencMultiPass must be -1..2."; }
 	if(cfg.forceFps < 0 || cfg.bitrateMbit < 0 || cfg.vbvFrames < 0 || cfg.maxBitrateHeadroomPct < 0){ return "streamFrame.nvencForceFps, streamFrame.nvencBitrateMbit, streamFrame.nvencVbvFrames and streamFrame.nvencMaxBitrateHeadroomPct cannot be negative."; }
+	if(cfg.maxBitrateHeadroomPct > 100){ return "streamFrame.nvencMaxBitrateHeadroomPct must be 0..100."; }
 	if(cfg.bitrateCurve < 0 || cfg.bitrateCurve > 3){ return "streamFrame.nvencBitrateCurve must be 0 (linear), 1 (power knee), 2 (soft knee) or 3 (custom seven-point curve)."; }
 	if(cfg.bitrateCurve == GxrCurveCustom && !GxrCurvePointsValid(cfg.bitrateCurvePoints)){
 		return "streamFrame.nvencBitrateCurvePoints must be seven finite {x,y} points with P1 at x=0, P6 at y=1 with a movable x, P7 at (1,1), x strictly increasing, y non-decreasing, and all values in 0..1.";
@@ -1482,7 +1503,7 @@ std::string ValidateRequest(const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_P
 	if(cfg.bitrateConstancyPct < 0 || cfg.bitrateConstancyPct > 100){ return "streamFrame.nvencBitrateConstancyPct must be 0..100."; }
 	const double maxValue = (double)(std::numeric_limits<uint32_t>::max)();
 	const double bitrate = cfg.bitrateMbit > 0 ? cfg.bitrateMbit * 1000000.0 : p->encodeConfig->rcParams.averageBitRate;
-	if(bitrate * (1.0 + cfg.maxBitrateHeadroomPct / 100.0) > maxValue){ return "streamFrame.nvencBitrateMbit with streamFrame.nvencMaxBitrateHeadroomPct exceeds the NVENC uint32 bit-rate field."; }
+	if(bitrate > maxValue){ return "streamFrame.nvencBitrateMbit exceeds the NVENC uint32 bit-rate field."; }
 	if(cfg.vbvFrames > 0 && bitrate / (cfg.forceFps > 0 ? cfg.forceFps : 90.0) * cfg.vbvFrames > maxValue){ return "streamFrame.nvencVbvFrames at this streamFrame.nvencBitrateMbit exceeds the NVENC uint32 field."; }
 	if(cfg.maxQp < 0 || cfg.minQp < 0 || cfg.minQpIntra < 0){ return "streamFrame.nvencMaxQp, streamFrame.nvencMinQp and streamFrame.nvencMinQpIntra must be nonnegative; NVENC validates the codec-specific range."; }
 	if(cfg.maxQp > 0 && (cfg.minQp > cfg.maxQp || cfg.minQpIntra > cfg.maxQp)){ return "streamFrame.nvencMinQp/streamFrame.nvencMinQpIntra exceed streamFrame.nvencMaxQp."; }

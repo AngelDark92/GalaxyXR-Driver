@@ -112,6 +112,7 @@ describe('stream-frame integer validation', () => {
     ['streamFrame.nvencMinQpIntra', 51],
     ['streamFrame.nvencBitrateMbit', 0],
     ['streamFrame.nvencMaxBitrateHeadroomPct', 12],
+    ['streamFrame.nvencMaxBitrateHeadroomPct', 100],
     ['streamFrame.nvencForceFps', 90],
     ['streamFrame.nvencVbvFrames', 0],
     ['streamFrame.nvencQpFovea', -128],
@@ -141,7 +142,8 @@ describe('stream-frame integer validation', () => {
     ['streamFrame.nvencMinQp', -3, 'nonnegative'],
     ['streamFrame.nvencMinQpIntra', -1, 'nonnegative'],
     ['streamFrame.nvencBitrateMbit', -1, 'nonnegative'],
-    ['streamFrame.nvencMaxBitrateHeadroomPct', -1, 'nonnegative'],
+    ['streamFrame.nvencMaxBitrateHeadroomPct', -1, '0 to 100'],
+    ['streamFrame.nvencMaxBitrateHeadroomPct', 101, '0 to 100'],
     ['streamFrame.nvencForceFps', -1, 'nonnegative'],
     ['streamFrame.nvencVbvFrames', -1, 'nonnegative'],
     ['streamFrame.nvencQpFovea', -129, '-128 to 127'],
@@ -803,6 +805,34 @@ describe('galaxyXr config', () => {
     expect(gs4.galaxyXr.streamQuality).toBe('sharp');
     expect(gs4.galaxyXr.customBandwidthMbit).toBe(100);
     expect(gs4.galaxyXr.customStreamFormatWidth).toBe(1536);
+  });
+
+  it('uses the native defaults and raises a one-shot notice for an unrecognized streamQuality', () => {
+    const { gs } = buildHarness({ galaxyXr: { streamQuality: 'mystery', customStreamFormatWidth: 2048, customBandwidthMbit: 500 } });
+    // The driver cannot resolve this name and applies the native defaults; the
+    // page must show the same values instead of the inert custom pair.
+    expect(gs.streamQualityValues).toEqual({ width: 1536, bandwidth: 350 });
+    expect(gs.streamQualityNotice()).toEqual({ name: 'mystery', tile: 1536, bandwidth: 350 });
+    // A nonzero Advanced bandwidth override replaces the fallback budget; the
+    // notice must quote the value the driver will actually use.
+    const { gs: overrideNotice } = buildHarness({
+      galaxyXr: { streamQuality: 'mystery' },
+      streamFrame: { nvencBandwidthOverrideMbit: 600 },
+    });
+    expect(overrideNotice.streamQualityNotice()).toEqual({ name: 'mystery', tile: 1536, bandwidth: 600 });
+    // The first explicit edit switches to custom and adopts the displayed
+    // defaults for the other field, so what the rows show is what is saved.
+    gs.setStreamQualityValue('width', 1024);
+    expect(gs.galaxyXr.streamQuality).toBe('custom');
+    expect(gs.galaxyXr.customStreamFormatWidth).toBe(1024);
+    expect(gs.galaxyXr.customBandwidthMbit).toBe(350);
+  });
+
+  it('does not raise the fallback notice for custom, tiers or aliases', () => {
+    for (const quality of ['custom', 'balanced', 'ultra', 'sharp']) {
+      const { gs } = buildHarness({ galaxyXr: { streamQuality: quality } });
+      expect(gs.streamQualityNotice()).toBeUndefined();
+    }
   });
 
   it('fills missing galaxyXr keys with the shipped defaults', () => {

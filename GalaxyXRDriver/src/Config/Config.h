@@ -838,8 +838,9 @@ struct StreamFrameConfig{
 	// level=AUTOSELECT / tier=HIGH: cures "NVENC: Invalid Level" (every
 	// bitrate reconfigure rejected at >=3072-wide frames)
 	bool nvencFixLevel = true;
-	// 0 = leave. else sets the curve's Max Bitrate reference and replaces the
-	// encoder target; max = 1.15x (headroom), capped at this value by the curve
+	// 0 = leave. else sets the applied encoder budget: under VBR maxBitRate is
+	// this value and the curve shapes the requested average below it; under
+	// Force CBR average and maximum are both this value
 	int nvencBitrateMbit = 0; // v3: DEBUG "encoder bitrate (separate)": 0 = same as the pacer bandwidth
 	// v3 Advanced: 0 = the tier's (or custom) bandwidth drives both the pacer
 	// and the encoder; nonzero overrides both at once
@@ -865,10 +866,13 @@ struct StreamFrameConfig{
 	// NVIDIA documents this I/P bit-budget ratio for single-frame VBV
 	// with CBR; it does not guarantee a maximum encoded-buffer size.
 	int nvencLowDelayKfScale = 2;
-	// peak/avg headroom percent (vrlink: 15). 0 flattens frames; the
-	// 500 Mbit run died on "Packet too big" (one IDR frame over vrlink's
-	// send limit)
-	int nvencMaxBitrateHeadroomPct = 0; // inert under CBR (max = avg); 0 measured safe under VBR
+	// 2026-10-27: VBR budget reserved for the peak. The requested average is
+	// capped at Max Bitrate/(1+pct/100); maxBitRate remains Max Bitrate.
+	// 0 lets the average use the whole budget. Inert under CBR (max = avg).
+	// Historical run C hit "Packet too big" at a 500 Mbit peak; the owner
+	// accepted the budget-as-peak semantics on 2026-10-27, so oversized
+	// frames remain a measured-transport risk rather than a driver clamp.
+	int nvencMaxBitrateHeadroomPct = 0;
 	// 0 = preserve caller VBV. Otherwise request avg/fps * N bits;
 	// fps = nvencForceFps or the nominal 90, never vrlink's per-call value
 	int nvencVbvFrames = 2; // requested VBV budget in nominal frames, not a hard encoded-output cap

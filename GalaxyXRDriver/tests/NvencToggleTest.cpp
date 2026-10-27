@@ -488,7 +488,8 @@ void CheckCodecOverride(void* encoder){
 	rcVbv0.rcParams.maxBitRate = 280000000;
 	Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS,
 		"linear no-clamp: below-max request init delegated");
-	Check(seenBitrate == 280000000u, "linear no-clamp: 280 Mbit request stays 280 Mbit");
+	Check(seenBitrate == 280000000u && seenMaxBitrate == 500000000u,
+		"linear no-clamp: 280 Mbit average stays, 500 Mbit budget is the VBR peak");
 	rcVbv0.rcParams.averageBitRate = 600000000;
 	rcVbv0.rcParams.maxBitRate = 600000000;
 	rcVbv0.rcParams.vbvInitialDelay = 123456;
@@ -498,8 +499,8 @@ void CheckCodecOverride(void* encoder){
 		const auto savedScaledInit = rcInitVbv0;
 		Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS,
 			"scaled VBV zero: initialization accepts caller buffer");
-		Check(seenBitrate == 500000000u && seenVbvSize == callerVbv && seenVbvDelay == 123456u,
-			"VBV zero: request 600 is capped at 500 while buffer and initial delay are preserved");
+		Check(seenBitrate == 500000000u && seenMaxBitrate == 500000000u && seenVbvSize == callerVbv && seenVbvDelay == 123456u,
+			"VBV zero: request 600 is capped at 500 for average and peak while buffer and initial delay are preserved");
 		Check(memcmp(&rcVbv0, &savedScaledConfig, sizeof(rcVbv0)) == 0
 			&& memcmp(&rcInitVbv0, &savedScaledInit, sizeof(rcInitVbv0)) == 0,
 			"scaled VBV zero: complete init and config restored");
@@ -510,8 +511,8 @@ void CheckCodecOverride(void* encoder){
 		reconfigureDriverStatus = NV_ENC_SUCCESS;
 		Check(NvencTapShims::ReconfigureEncoder(h264Enc, &reconfigure) == NV_ENC_SUCCESS,
 			"scaled VBV zero: reconfigure delegated");
-		Check(seenBitrate == 500000000u && seenVbvSize == callerVbv && seenVbvDelay == 123456u,
-			"VBV zero: reconfigure preserves the capped target, buffer and initial delay");
+		Check(seenBitrate == 500000000u && seenMaxBitrate == 500000000u && seenVbvSize == callerVbv && seenVbvDelay == 123456u,
+			"VBV zero: reconfigure preserves the capped average and peak, buffer and initial delay");
 		Check(memcmp(&rcVbv0, &savedScaledConfig, sizeof(rcVbv0)) == 0
 			&& memcmp(&reconfigure, &savedReconfigure, sizeof(reconfigure)) == 0,
 			"scaled VBV zero: complete reconfigure and config restored");
@@ -523,7 +524,7 @@ void CheckCodecOverride(void* encoder){
 	const auto savedScaledConfig = rcVbv0;
 	Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS,
 		"scaled positive VBV: large caller buffer does not reject explicit replacement");
-	Check(seenBitrate == 500000000u && seenVbvSize == (uint32_t)(500000000.0 / 90.0 * 2)
+	Check(seenBitrate == 500000000u && seenMaxBitrate == 500000000u && seenVbvSize == (uint32_t)(500000000.0 / 90.0 * 2)
 		&& seenVbvDelay == 123456u, "positive VBV: configured frames use nominal 90 FPS, delay preserved");
 	Check(memcmp(&rcVbv0, &savedScaledConfig, sizeof(rcVbv0)) == 0,
 		"scaled positive VBV: caller config restored");
@@ -550,14 +551,16 @@ void CheckCodecOverride(void* encoder){
 		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
 			"custom curve: five-request median init delegated");
 	}
-	Check(seenBitrate == 135000000u, "custom curve: x=0.4 maps to 0.3 * 450 Mbit");
+	Check(seenBitrate == 135000000u && seenMaxBitrate == 450000000u,
+		"custom curve: x=0.4 maps to 0.3 * 450 Mbit; the 450 budget is the VBR peak");
 	customCfg.bitrateConstancyPct = 50;
 	NvencTap::Get().SetConfig(customCfg);
 	for(int i = 0; i < 5; ++i){
 		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
 			"custom curve: pct50 init delegated");
 	}
-	Check(seenBitrate == 246475150u, "custom curve: pct50 lifts 0.3 to sqrt(0.3) * 450");
+	Check(seenBitrate == 246475150u && seenMaxBitrate == 450000000u,
+		"custom curve: pct50 lifts 0.3 to sqrt(0.3) * 450; the budget remains the VBR peak");
 
 	// A request above Max Bitrate must still cap every applied target.
 	customCfg.bitrateMbit = 300;
@@ -573,8 +576,8 @@ void CheckCodecOverride(void* encoder){
 		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
 			"custom curve: max-cap init delegated");
 	}
-	Check(seenBitrate == 300000000u,
-		"custom curve: a request above Max Bitrate maps to exactly Max Bitrate");
+	Check(seenBitrate == 300000000u && seenMaxBitrate == 300000000u,
+		"custom curve: a request above Max Bitrate maps to exactly Max Bitrate for average and peak");
 
 	// A request inside the range still maps through the seven points.
 	customRc.rcParams.averageBitRate = 120000000;
@@ -584,8 +587,54 @@ void CheckCodecOverride(void* encoder){
 		Check(NvencTapShims::InitializeEncoder(h264Enc, &customInit) == NV_ENC_SUCCESS,
 			"custom curve: interior-point init delegated");
 	}
-	Check(seenBitrate == 270000000u && seenBitrate <= 300000000u,
+	Check(seenBitrate == 270000000u && seenBitrate <= 300000000u && seenMaxBitrate == 300000000u,
 		"custom curve: x=0.4 maps to 0.9 * 300 and never exceeds the maximum");
+
+	// 2026-10-27 (owner directive): Force CBR treats Max Bitrate as the
+	// constant average and peak. The streamer request cannot lower it, and the
+	// curve, constancy and headroom are inert.
+	NvencTapConfig cbrBudget; cbrBudget.enabled = true; cbrBudget.codec = 1; cbrBudget.splitMode = 1;
+	cbrBudget.bitrateMbit = 500; cbrBudget.forceCbr = true;
+	cbrBudget.bitrateCurve = 3; cbrBudget.bitrateConstancyPct = 50; cbrBudget.maxBitrateHeadroomPct = 15;
+	cbrBudget.bitrateCurvePoints = {{0.0, 0.0}, {0.2, 0.2}, {0.4, 0.4}, {0.6, 0.6}, {0.8, 0.8}, {1.0, 1.0}, {1.0, 1.0}};
+	NvencTap::Get().SetConfig(cbrBudget);
+	NV_ENC_CONFIG cbrBudgetRc = {}; cbrBudgetRc.version = Tag111(7, true); cbrBudgetRc.rcParams.version = Tag111(1);
+	cbrBudgetRc.rcParams.averageBitRate = 280000000; cbrBudgetRc.rcParams.maxBitRate = 280000000;
+	cbrBudgetRc.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+	NV_ENC_INITIALIZE_PARAMS cbrBudgetInit = {}; cbrBudgetInit.version = Tag111(5, true);
+	cbrBudgetInit.encodeGUID = NV_ENC_CODEC_H264_GUID; cbrBudgetInit.encodeConfig = &cbrBudgetRc;
+	cbrBudgetInit.frameRateNum = 90; cbrBudgetInit.frameRateDen = 1;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &cbrBudgetInit) == NV_ENC_SUCCESS,
+		"CBR budget: init delegated");
+	Check(seenBitrate == 500000000u && seenMaxBitrate == 500000000u && seenRcMode == NV_ENC_PARAMS_RC_CBR,
+		"CBR budget: Max Bitrate is the constant average and peak; the 280 request cannot lower it");
+
+	// 2026-10-27: headroom reserves part of the VBR budget for the peak.
+	NvencTapConfig headroomCfg; headroomCfg.enabled = true; headroomCfg.codec = 1; headroomCfg.splitMode = 1;
+	headroomCfg.bitrateMbit = 500; headroomCfg.maxBitrateHeadroomPct = 15;
+	NvencTap::Get().SetConfig(headroomCfg);
+	NV_ENC_CONFIG headroomRc = {}; headroomRc.version = Tag111(7, true); headroomRc.rcParams.version = Tag111(1);
+	headroomRc.rcParams.averageBitRate = 600000000; headroomRc.rcParams.maxBitRate = 600000000;
+	headroomRc.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+	NV_ENC_INITIALIZE_PARAMS headroomInit = {}; headroomInit.version = Tag111(5, true);
+	headroomInit.encodeGUID = NV_ENC_CODEC_H264_GUID; headroomInit.encodeConfig = &headroomRc;
+	headroomInit.frameRateNum = 90; headroomInit.frameRateDen = 1;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &headroomInit) == NV_ENC_SUCCESS,
+		"headroom: init delegated");
+	Check(seenBitrate == 434782608u && seenMaxBitrate == 500000000u,
+		"headroom: 15% caps the average at budget/1.15 and keeps the 500 budget as the VBR peak");
+	headroomRc.rcParams.averageBitRate = 280000000;
+	headroomRc.rcParams.maxBitRate = 280000000;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &headroomInit) == NV_ENC_SUCCESS,
+		"headroom: below-reservation init delegated");
+	Check(seenBitrate == 280000000u && seenMaxBitrate == 500000000u,
+		"headroom: a request below the reservation is not raised");
+	headroomCfg.maxBitrateHeadroomPct = 101;
+	NvencTap::Get().SetConfig(headroomCfg);
+	const int beforeHeadroomInvalid = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &headroomInit) == NV_ENC_ERR_INVALID_PARAM
+		&& initDriverCalls == beforeHeadroomInvalid,
+		"headroom above 100 is refused, not clamped");
 
 	// Invalid point sets fail closed, before the driver call.
 	customCfg.bitrateCurvePoints = {

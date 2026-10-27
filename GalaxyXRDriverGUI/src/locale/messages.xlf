@@ -4296,6 +4296,18 @@ Value: none (diagnostic only). Native side — read-only process telemetry and A
       <trans-unit id="manual-render-resolution-error-20261019" datatype="html">
         <source>Invalid render resolution</source>
       </trans-unit>
+      <trans-unit id="stream-quality-fallback-title-20261027" datatype="html">
+        <source>Stream quality not recognized</source>
+      </trans-unit>
+      <trans-unit id="stream-quality-fallback-body-20261027" datatype="html">
+        <source>The stored stream quality "{name}" is not recognized. The driver is using its fallback values: {tile} px tile width and {bandwidth} Mbit/s encoder budget. Edit Tile Width or Max Bitrate to replace them.</source>
+      </trans-unit>
+      <trans-unit id="dismiss-20261027" datatype="html">
+        <source>Dismiss</source>
+      </trans-unit>
+      <trans-unit id="force-cbr-uses-max-bitrate-20261027" datatype="html">
+        <source>Force CBR uses Max Bitrate directly</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>

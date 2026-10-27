@@ -10,6 +10,8 @@ Sunshine defaults to quarter-resolution two-pass encoding; full-resolution analy
 
 ## Existing defaults retained
 
+2026-10-27 update: Max Bitrate is the applied encoder budget (CBR average and maximum; VBR maximum), and the Peak Headroom row now reserves part of that budget for the VBR average cap. The 0% default still adds no reservation. See [StreamFrame.md](StreamFrame.md).
+
 The C++ and GUI defaults agree in `GalaxyXRDriver/src/Config/Config.h` and `GalaxyXRDriverGUI/src-lit/domain/driver-defaults.ts`.
 
 | Setting | Default | Effective behavior |

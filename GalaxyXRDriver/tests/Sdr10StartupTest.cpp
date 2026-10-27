@@ -175,6 +175,8 @@ void GeometryRequests() {
     config.customStreamFormatWidth=768;
     config.customBandwidthMbit=600;
     config.customEncodeWidth=1200;
+    Check(GalaxyXR_EffectiveTileWidth()==1536 && GalaxyXR_EffectiveBandwidthMbit()==350,
+        "unrecognized streamQuality applies the native default tile and bandwidth");
     ApplyStreamQualitySetting();
     CheckInt(tuning,"streamFormatWidth",1234,"leaving mode restores original arbitrary width");
     for(const auto& section:tuning)

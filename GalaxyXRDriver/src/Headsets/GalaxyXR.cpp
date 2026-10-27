@@ -113,10 +113,34 @@ static void WriteStreamKeys(const char* section, int width, int bandwidth, int s
 // The Advanced bandwidth override uses zero only as its disabled sentinel.
 // Invalid or unsupported requests must be surfaced by validation/the encoder,
 // rather than becoming a different request here or in the SteamVR journal.
+// 2026-10-27: an unrecognized streamQuality has no tier to resolve. The driver
+// applies the native defaults (custom tile and bandwidth) and the Companion
+// shows a one-shot toast with the same values. Log once per process so the
+// fallback is never silent. These defaults are the same Config.h values the
+// GUI generator publishes, not separate literals.
+static const GalaxyXrConfig &StreamQualityDefaults(){
+	static const GalaxyXrConfig defaults{};
+	return defaults;
+}
+static void LogUnknownStreamQualityOnce(const std::string &name){
+	static std::atomic<bool> logged{false};
+	if(logged.exchange(true)){ return; }
+	// The Advanced bandwidth override replaces the tier/default budget; quote
+	// the value the encoder will actually use.
+	const int bandwidth = driverConfig.streamFrame.nvencBandwidthOverrideMbit != 0
+		? driverConfig.streamFrame.nvencBandwidthOverrideMbit
+		: StreamQualityDefaults().customBandwidthMbit;
+	DriverLog("GalaxyXR: stream quality '%s' is not recognized; using the fallback tile %d and %d Mbit/s encoder budget. Edit Tile Width or Max Bitrate in the Companion to replace them.",
+		name.c_str(), StreamQualityDefaults().customStreamFormatWidth, bandwidth);
+}
+
 int GalaxyXR_EffectiveTileWidth(){
 	const auto &g = driverConfig.galaxyXr;
 	const GxrStreamTier* tier = FindGxrStreamTier(g.streamQuality);
-	const int requested = g.streamQuality == "custom" ? g.customStreamFormatWidth : (tier ? tier->width : 1536);
+	const bool custom = g.streamQuality == "custom";
+	if(!custom && !tier){ LogUnknownStreamQualityOnce(g.streamQuality); }
+	const int requested = custom ? g.customStreamFormatWidth
+		: (tier ? tier->width : StreamQualityDefaults().customStreamFormatWidth);
 	static std::atomic<int> lastLoggedTile{-1};
 	// One line whenever the requested tile differs from the last logged
 	// one; no per-call spam
@@ -129,7 +153,10 @@ int GalaxyXR_EffectiveBandwidthMbit(){
 	const auto &g = driverConfig.galaxyXr;
 	if(driverConfig.streamFrame.nvencBandwidthOverrideMbit != 0){ return driverConfig.streamFrame.nvencBandwidthOverrideMbit; }
 	const GxrStreamTier* tier = FindGxrStreamTier(g.streamQuality);
-	return g.streamQuality == "custom" ? g.customBandwidthMbit : (tier ? tier->bandwidthMbit : 350);
+	const bool custom = g.streamQuality == "custom";
+	if(!custom && !tier){ LogUnknownStreamQualityOnce(g.streamQuality); }
+	return custom ? g.customBandwidthMbit
+		: (tier ? tier->bandwidthMbit : StreamQualityDefaults().customBandwidthMbit);
 }
 
 static void ApplyStreamQualitySettingIn(const char* section){

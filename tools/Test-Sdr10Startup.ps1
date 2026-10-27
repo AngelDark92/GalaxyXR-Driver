@@ -21,6 +21,8 @@ $build = Join-Path $repo '../builds/GalaxyXR-Driver/build/sdr10-startup-test'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 $source = Get-Content -Raw -LiteralPath (Join-Path $repo 'GalaxyXRDriver/src/Headsets/GalaxyXR.cpp')
 $functions = @(
+    'static const GalaxyXrConfig &StreamQualityDefaults()',
+    'static void LogUnknownStreamQualityOnce(',
     'static void RestoreInactiveVrlinkSettings(',
     'static void WriteStreamKeys(',
     'int GalaxyXR_EffectiveTileWidth()',
