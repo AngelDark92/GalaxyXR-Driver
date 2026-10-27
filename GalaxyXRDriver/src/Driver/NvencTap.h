@@ -77,6 +77,11 @@ struct NvencTapConfig {
 	// VRLink transport/allocation limit. VBV is owned independently by
 	// vbvFrames; zero preserves the caller's buffer size.
 	int bitrateMbit = 0;
+	// Internal request normalization; 0 preserves the neutral/legacy Max
+	// Bitrate denominator. A positive reference uses min(bitrateMbit, reference),
+	// so scaling can raise requests above the reference without lowering them
+	// when the configured budget is below it. Inert under Force CBR.
+	int bitrateRequestReferenceMbit = 0;
 	// 0 = leave. otherwise enableMaxQP and set maxQP (P/B/I) to this value:
 	// a ceiling on how coarsely any block may be quantized, the lever
 	// against dark flat regions being crushed to the black floor.
@@ -124,7 +129,7 @@ struct NvencTapConfig {
 	// rate; frames that are not sent simply cost nothing.
 	int forceFps = 0;
 	// 2026-10-19 bitrate curve: how vrlink's request maps onto bitrateMbit.
-	// 0 = linear (request passes through, capped at Max Bitrate), 1 = power
+	// 0 = linear (reference-normalized request capped at Max Bitrate), 1 = power
 	// knee, 2 = soft knee, 3 = Custom seven-point curve (see CurveMath.h).
 	// constancy 0..100 lifts the selected curve toward the ceiling: 0 = the
 	// curve itself, 100 = constant ceiling (the retired nvencBitrateScale=false).

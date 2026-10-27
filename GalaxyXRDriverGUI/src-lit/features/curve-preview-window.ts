@@ -99,6 +99,8 @@ export class CurvePreviewWindow extends LitElement {
       </header>
       <app-bitrate-curve .curve=${this.state.curve} .pct=${this.state.constancyPct}
         .ceiling=${this.state.ceilingMbit}
+        .requestReference=${this.state.requestReferenceMbit}
+        .forceCbr=${this.state.forceCbr} .headroomPct=${this.state.headroomPct}
         .points=${this.state.points} ?fixed=${this.state.fallbackDisabled === true}
         ?editable=${true} ?locked=${this.state.locked === true}
         @points-change=${this.onPointsChange} @points-reset=${this.onReset}></app-bitrate-curve>

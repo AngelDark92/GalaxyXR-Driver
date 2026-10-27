@@ -62,8 +62,9 @@ struct StreamFrameDistortionPoint{
 };
 
 // one control point of the seven-point Custom bitrate curve. Both axes are
-// normalized to [0,1]: x is the streamer request over Max Bitrate, y is the
-// applied target over Max Bitrate. Points must be fan-curve ordered (x strictly
+// normalized to [0,1]: x is the streamer request over min(Max Bitrate, 350)
+// for Galaxy XR (over Max Bitrate for neutral); y is the base target over
+// Max Bitrate. Points must be fan-curve ordered (x strictly
 // increasing, y non-decreasing). P1 x=0 with a free y floor; P6 y=1 with a free
 // x plateau start; P7 is fixed at (1,1).
 struct StreamFrameBitratePoint{

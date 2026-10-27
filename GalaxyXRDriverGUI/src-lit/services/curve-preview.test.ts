@@ -12,7 +12,8 @@ beforeEach(() => {
   bridge.listen.mockResolvedValue(bridge.stop);
 });
 const points = DEFAULT_BITRATE_CURVE_POINTS.map(point => ({ ...point }));
-const initial = { curve: 1, constancyPct: 35, ceilingMbit: 450, fallbackDisabled: false, points, locked: false };
+const initial = { curve: 1, constancyPct: 35, ceilingMbit: 450, requestReferenceMbit: 350,
+  forceCbr: false, headroomPct: 0, fallbackDisabled: false, points, locked: false };
 function fixture() {
   let state = { ...initial }, change = () => {};
   const unsubscribe = vi.fn();
@@ -26,7 +27,10 @@ it('uses effective values, ceiling precedence and preserves invalid entries for 
   settings.streamFrame!.nvencBitrateCurve = 99;
   settings.streamFrame!.nvencBitrateConstancyPct = 101.5;
   settings.streamFrame!.nvencBandwidthOverrideMbit = 400;
-  expect(previewState(settings)).toEqual({ curve: 99, constancyPct: 101.5, ceilingMbit: 400, fallbackDisabled: true, points: DEFAULT_BITRATE_CURVE_POINTS, locked: false });
+  expect(previewState(settings, 350, false, 'galaxyxr')).toEqual({ curve: 99, constancyPct: 101.5, ceilingMbit: 400,
+    requestReferenceMbit: 350, forceCbr: settings.streamFrame!.nvencForceCbr,
+    headroomPct: settings.streamFrame!.nvencMaxBitrateHeadroomPct,
+    fallbackDisabled: true, points: DEFAULT_BITRATE_CURVE_POINTS, locked: false });
   // 2026-10-21: a constancy of 100 marks the fixed operating point; any lower
   // value leaves the curve live even when the streamer request is steady.
   settings.streamFrame!.nvencBitrateConstancyPct = 100;
@@ -41,6 +45,15 @@ it('uses effective values, ceiling precedence and preserves invalid entries for 
   expect(previewState(settings, 300).ceilingMbit).toBe(300); // selected legacy tier, not stale custom bandwidth
   expect(previewState(settings, 0).ceilingMbit).toBe(0); // invalid explicit bandwidth must remain visible
   expect(() => previewState(undefined)).toThrow();
+});
+it('publishes encoder policy while leaving neutral request normalization unchanged', () => {
+  const settings = structuredClone(driverDefaults);
+  settings.streamFrame!.nvencForceCbr = true;
+  settings.streamFrame!.nvencMaxBitrateHeadroomPct = 15;
+  expect(previewState(settings, 800, false, 'galaxyxr')).toMatchObject({
+    requestReferenceMbit: 350, forceCbr: true, headroomPct: 15,
+  });
+  expect(previewState(settings, 800, false, '').requestReferenceMbit).toBe(0);
 });
 it('does no work until Open, streams only changes, and releases subscriptions on native close', async () => {
   const f = fixture();

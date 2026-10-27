@@ -15,6 +15,7 @@ FARPROC WINAPI FakeExport(HMODULE, LPCSTR);
 #undef LoadLibraryA
 #undef GetProcAddress
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -477,13 +478,13 @@ void CheckCodecOverride(void* encoder){
 
 	// A request above Max Bitrate is capped at Max Bitrate, and a zero-frame
 	// VBV request is left alone, including large valid caller buffers which
-	// previously failed validation. No 350 Mbit clamp participates.
+	// previously failed validation. The default reference of zero is neutral.
 	h264RcCfg.bitrateMbit = 500;
 	h264RcCfg.bitrateConstancyPct = 0;
 	h264RcCfg.h264VbvInitialDelay = 123456;
 	NvencTap::Get().SetConfig(h264RcCfg);
-	// A request below Max Bitrate passes through unchanged; the retired 350
-	// reference must not scale it upward.
+	// A request below Max Bitrate passes through unchanged when the internal
+	// reference stays zero (neutral/legacy behavior).
 	rcVbv0.rcParams.averageBitRate = 280000000;
 	rcVbv0.rcParams.maxBitRate = 280000000;
 	Check(NvencTapShims::InitializeEncoder(h264Enc, &rcInitVbv0) == NV_ENC_SUCCESS,
@@ -647,6 +648,120 @@ void CheckCodecOverride(void* encoder){
 		&& initDriverCalls == beforeCustomInvalid,
 		"custom curve: crossed points are refused without a driver call");
 
+	ConfigureCodec(true, 0);
+}
+
+void CheckBitrateRequestReference(){
+	const auto oldReconfigureStatus = reconfigureDriverStatus;
+	reconfigureDriverStatus = NV_ENC_SUCCESS;
+	for(int codec : {0, 1, 2}){
+		auto checkCase = [&](NvencTapConfig cfg, uint32_t request, uint32_t expected, const char* name, bool resetWindow = false){
+			const std::string label = std::string("request reference codec ") + std::to_string(codec) + ": " + name;
+			cfg.enabled = true; cfg.codec = codec; cfg.splitMode = codec == 1 ? 0 : 1;
+			cfg.bitrateRequestReferenceMbit = 350;
+			cfg.h264VbvInitialDelay = 123456;
+			NvencTap::Get().SetConfig(cfg);
+			void* encoder = OpenSession();
+			NV_ENC_CONFIG config = {}; config.version = Tag111(7, true); config.rcParams.version = Tag111(1);
+			config.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+			config.rcParams.averageBitRate = request; config.rcParams.maxBitRate = request;
+			config.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+			config.rcParams.vbvBufferSize = 2500000; config.rcParams.vbvInitialDelay = 123456;
+			NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag111(5, true);
+			init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init.encodeConfig = &config;
+			init.frameRateNum = 90; init.frameRateDen = 1;
+			init.encodeWidth = codec == 1 ? 1024 : 1536; init.encodeHeight = init.encodeWidth * 4;
+			const auto savedConfig = config; const auto savedInit = init;
+			Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS, (label + " init accepted").c_str());
+			Check(seenBitrate == expected && seenMaxBitrate == (uint32_t)cfg.bitrateMbit * 1000000u
+				&& NvencTap::Get().GetRuntimeState().effectiveCodec == codec,
+				(label + " init applies expected average, budget peak and selected codec").c_str());
+			Check(memcmp(&config, &savedConfig, sizeof(config)) == 0 && memcmp(&init, &savedInit, sizeof(init)) == 0,
+				(label + " restores every init/config byte").c_str());
+			NV_ENC_RECONFIGURE_PARAMS reconfigure = {}; reconfigure.version = Tag111(1, true);
+			reconfigure.reInitEncodeParams = init;
+			const auto savedReconfigure = reconfigure;
+			const bool shaped = cfg.bitrateCurve != 0 || cfg.bitrateConstancyPct != 0;
+			if(shaped && request > 0){
+				// Populate the five-sample window with a different request first.
+				// Repeated initialization would clear it and miss this behavior.
+				config.rcParams.averageBitRate = 350000000u;
+				const auto seededConfig = config;
+				for(int i = 0; i < 5; ++i){
+					Check(NvencTapShims::ReconfigureEncoder(encoder, &reconfigure) == NV_ENC_SUCCESS,
+						(label + " seed median through reconfigure").c_str());
+					Check(memcmp(&config, &seededConfig, sizeof(config)) == 0
+						&& memcmp(&reconfigure, &savedReconfigure, sizeof(reconfigure)) == 0,
+						(label + " seed restores every caller byte").c_str());
+				}
+				config = savedConfig;
+			}
+			for(int i = 0; i < (shaped ? 5 : 1); ++i){
+				Check(NvencTapShims::ReconfigureEncoder(encoder, &reconfigure) == NV_ENC_SUCCESS,
+					(label + " reconfigure accepted").c_str());
+				if(shaped && request > 0 && i < 2){
+					Check(seenBitrate == (uint32_t)cfg.bitrateMbit * 1000000u,
+						(label + " median retains the majority request during initial dips").c_str());
+				}
+				Check(memcmp(&config, &savedConfig, sizeof(config)) == 0
+					&& memcmp(&reconfigure, &savedReconfigure, sizeof(reconfigure)) == 0,
+					(label + " restores every reconfigure/config byte").c_str());
+			}
+			Check(seenBitrate == expected && seenMaxBitrate == (uint32_t)cfg.bitrateMbit * 1000000u
+				&& seenVbvSize == 2500000u && seenVbvDelay == 123456u,
+				(label + " reconfigure applies target and preserves caller VBV").c_str());
+			if(cfg.forceCbr){ Check(seenRcMode == NV_ENC_PARAMS_RC_CBR, (label + " applies CBR").c_str()); }
+			if(resetWindow){
+				config.rcParams.averageBitRate = 350000000u;
+				const auto resetConfig = config;
+				Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS
+					&& seenBitrate == (uint32_t)cfg.bitrateMbit * 1000000u,
+					(label + " fresh init clears lower-request median").c_str());
+				Check(memcmp(&config, &resetConfig, sizeof(config)) == 0 && memcmp(&init, &savedInit, sizeof(init)) == 0,
+					(label + " fresh init restores every caller byte").c_str());
+			}
+			Check(NvencTapShims::DestroyEncoder(encoder) == NV_ENC_SUCCESS, (label + " session destroyed").c_str());
+		};
+		NvencTapConfig cfg;
+		for(const auto& row : {std::array<uint32_t, 3>{280, 200000000, 200000000},
+			std::array<uint32_t, 3>{280, 320000000, 280000000},
+			std::array<uint32_t, 3>{500, 320000000, 457142857},
+			std::array<uint32_t, 3>{500, 350000000, 500000000},
+			std::array<uint32_t, 3>{800, 175000000, 400000000}}){
+			cfg.bitrateMbit = (int)row[0];
+			checkCase(cfg, row[1], row[2], "linear integer scaling");
+		}
+		cfg.bitrateMbit = 500; cfg.bitrateCurve = GxrCurveCustom;
+		cfg.bitrateCurvePoints = {{0.0, 0.0}, {0.1, 0.1}, {0.3, 0.3}, {0.5, 0.5}, {0.8, 0.8}, {1.0, 1.0}, {1.0, 1.0}};
+		checkCase(cfg, 175000000u, 250000000u, "custom identity", true);
+		checkCase(cfg, 0u, 500000000u, "zero request retains historical no-request behavior");
+		cfg.bitrateCurvePoints = {{0.0, 0.1}, {0.1, 0.15}, {0.4, 0.3}, {0.6, 0.8}, {0.7, 0.9}, {0.8, 1.0}, {1.0, 1.0}};
+		checkCase(cfg, 0u, 50000000u, "custom edited floor");
+		checkCase(cfg, 140000000u, 150000000u, "custom edited interior point");
+		checkCase(cfg, 280000000u, 500000000u, "custom edited plateau");
+		checkCase(cfg, 70000000u, (uint32_t)(500000000.0 * GxrCurveTarget(0.2, GxrCurveCustom, 0, cfg.bitrateCurvePoints)),
+			"custom edited interior interpolation");
+		for(int curve : {0, 1, 2}){
+			for(int constancy : {0, 35, 100}){
+				if(curve == 0 && constancy == 0){ continue; }
+				cfg.bitrateCurve = curve; cfg.bitrateConstancyPct = constancy;
+				for(int budget : {280, 500, 800}){
+					cfg.bitrateMbit = budget;
+					const double x = 175.0 / (double)(std::min)(budget, 350);
+					const uint32_t expected = (uint32_t)(budget * 1000000.0 * GxrCurveTarget(x, curve, constancy, cfg.bitrateCurvePoints));
+					checkCase(cfg, 175000000u, expected, "power/soft/constancy reference normalization");
+				}
+			}
+		}
+		cfg = NvencTapConfig{}; cfg.bitrateMbit = 500;
+		checkCase(cfg, 0u, 500000000u, "zero linear request retains historical no-request behavior");
+		cfg.maxBitrateHeadroomPct = 15;
+		checkCase(cfg, 320000000u, 434782608u, "headroom reserves budget after scaling");
+		checkCase(cfg, 0u, 434782608u, "zero linear request retains headroom behavior");
+		cfg.forceCbr = true; cfg.bitrateCurve = 2; cfg.bitrateConstancyPct = 35;
+		checkCase(cfg, 175000000u, 500000000u, "Force CBR applies direct budget");
+	}
+	reconfigureDriverStatus = oldReconfigureStatus;
 	ConfigureCodec(true, 0);
 }
 
@@ -1543,6 +1658,7 @@ void CheckSplitGateAndRefusalKeys(){
 	NvencTapConfig c5; c5.enabled = true; c5.maxQp = -1;
 	NvencTapConfig c6; c6.enabled = true; c6.vuiFullRange = 7;
 	NvencTapConfig c7; c7.enabled = true; c7.codec = 1; c7.h264SliceMode = 9;
+	NvencTapConfig c8; c8.enabled = true; c8.bitrateRequestReferenceMbit = -1;
 	const RefusalCase refusals[] = {
 		{ "invalid codec", c1, "streamFrame.nvencCodec" },
 		{ "invalid preset", c2, "streamFrame.nvencPreset" },
@@ -1551,6 +1667,7 @@ void CheckSplitGateAndRefusalKeys(){
 		{ "negative maxQp", c5, "streamFrame.nvencMaxQp" },
 		{ "invalid vui full range", c6, "streamFrame.nvencVuiFullRange" },
 		{ "invalid h264 slice mode", c7, "streamFrame.nvencH264" },
+		{ "negative internal request reference", c8, "bitrateRequestReferenceMbit" },
 	};
 	for(const RefusalCase &ref : refusals){
 		NvencTap::Get().SetConfig(ref.cfg);
@@ -1804,6 +1921,7 @@ int main(){
 	NvencTapShims::GetEncodeCaps(stock, NV_ENC_CODEC_HEVC_GUID, &stockCaps, &stockValue);
 	Check(seenCapsVersion == Tag111(1), "new OFF session continues with stock ABI");
 	CheckCodecOverride(stock);
+	CheckBitrateRequestReference();
 	CheckExplicitSettings();
 	CheckOutputBufferLog();
 	CheckDeltaMapConversion();

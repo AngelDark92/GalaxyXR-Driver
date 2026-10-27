@@ -292,6 +292,7 @@ std::string RequestDescription(const NvencTapConfig& c){
 	out << "codec=" << c.codec << " preset=" << c.preset << '/' << c.presetAuto << '/' << c.presetMerge
 		<< " split=" << c.splitMode << " multipass=" << c.multiPass << " fps=" << c.forceFps
 		<< " bitrate=" << c.bitrateMbit << '/' << c.bitrateCurve << '/' << c.bitrateConstancyPct << '/' << c.maxBitrateHeadroomPct
+		<< " requestReferenceMbit=" << c.bitrateRequestReferenceMbit
 		<< " cbr=" << c.forceCbr << " vbv=" << c.vbvFrames << " kf=" << c.lowDelayKfScale
 		<< " qp=" << c.minQp << '/' << c.minQpIntra << '/' << c.maxQp << " aq=" << c.aqStrength
 		<< " qpMap=" << c.qpFovea << '/' << c.qpPeriphery << '/' << c.qpEdgeFalloff << '/' << c.qpFoveaTop << " fixLevel=" << c.fixLevel
@@ -1269,6 +1270,8 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		// constant average and peak: the curve, constancy and headroom cannot
 		// reshape it, and a lower streamer request cannot lower it.
 		const int64_t ceiling = (int64_t)cfg.bitrateMbit * 1000000ll;
+		const int requestReferenceMbit = cfg.bitrateRequestReferenceMbit > 0
+			? (std::min)(cfg.bitrateMbit, cfg.bitrateRequestReferenceMbit) : cfg.bitrateMbit;
 		int64_t target = ceiling;
 		if(cfg.forceCbr){
 			target = ceiling;
@@ -1278,17 +1281,17 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 				DriverLog("NvencTap: Force CBR applies streamFrame.nvencBitrateMbit directly as the constant average and maximum; the bitrate curve, constancy and headroom are not applied.");
 			}
 		}else if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0){
-			// 2026-10-23: no 350 reference. Linear at 0% is the request
-			// itself, capped at Max Bitrate below. This keeps the direct
-			// integer path exact and removes the old clamp scaling.
-			target = (int64_t)rc.averageBitRate;
+			// Keep the raw request's integer-bit precision. The internal
+			// reference only scales upward when Max Bitrate exceeds it;
+			// the budget and headroom caps still apply below.
+			target = (int64_t)rc.averageBitRate * cfg.bitrateMbit / requestReferenceMbit;
 		} else {
 			// The curve reads the median of the last five requests so one
 			// deep one-frame dip cannot drag the target; the current call is
 			// already in the window (RecordRequest runs before ApplyOverrides).
 			double reqMbit = RequestMedian();
 			if(reqMbit <= 0.0){ reqMbit = rc.averageBitRate / 1e6; }
-			double x = reqMbit / (double)cfg.bitrateMbit;
+			double x = reqMbit / (double)requestReferenceMbit;
 			if(x < 0.0){ x = 0.0; } else if(x > 1.0){ x = 1.0; }
 			target = (int64_t)((double)cfg.bitrateMbit * 1e6 * GxrCurveTarget(x, cfg.bitrateCurve, cfg.bitrateConstancyPct, cfg.bitrateCurvePoints));
 			// A zero request with a zero floor keeps the historical no-request
@@ -1495,6 +1498,7 @@ std::string ValidateRequest(const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_P
 	if(cfg.splitMode > 0 && cfg.codec != 1 && !IsH264(p->encodeGUID) && (ApiMajor(p->version) < 12 || StructVer(p->version) < 6)){ return "streamFrame.nvencSplitMode requires NVENC API 12.1 initialization parameters."; }
 	if(cfg.preset < 0 || cfg.preset > 7 || cfg.multiPass < -1 || cfg.multiPass > 2){ return "streamFrame.nvencPreset must be 0..7 and streamFrame.nvencMultiPass must be -1..2."; }
 	if(cfg.forceFps < 0 || cfg.bitrateMbit < 0 || cfg.vbvFrames < 0 || cfg.maxBitrateHeadroomPct < 0){ return "streamFrame.nvencForceFps, streamFrame.nvencBitrateMbit, streamFrame.nvencVbvFrames and streamFrame.nvencMaxBitrateHeadroomPct cannot be negative."; }
+	if(cfg.bitrateRequestReferenceMbit < 0){ return "Internal bitrateRequestReferenceMbit cannot be negative."; }
 	if(cfg.maxBitrateHeadroomPct > 100){ return "streamFrame.nvencMaxBitrateHeadroomPct must be 0..100."; }
 	if(cfg.bitrateCurve < 0 || cfg.bitrateCurve > 3){ return "streamFrame.nvencBitrateCurve must be 0 (linear), 1 (power knee), 2 (soft knee) or 3 (custom seven-point curve)."; }
 	if(cfg.bitrateCurve == GxrCurveCustom && !GxrCurvePointsValid(cfg.bitrateCurvePoints)){

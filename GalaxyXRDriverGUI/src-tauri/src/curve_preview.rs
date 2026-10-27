@@ -23,8 +23,15 @@ pub struct CurvePreviewState {
     pub curve: f64,
     pub constancy_pct: f64,
     pub ceiling_mbit: f64,
-    /// 2026-10-20: 'No fallback' fixes the streamer request at Max Bitrate, so
-    /// the curve is not applied; the window marks the fixed operating point.
+    /// Internal transport reference; zero keeps neutral/legacy normalization.
+    #[serde(default)]
+    pub request_reference_mbit: f64,
+    #[serde(default)]
+    pub force_cbr: bool,
+    #[serde(default)]
+    pub headroom_pct: f64,
+    /// Compatibility constancy hint; it does not fix the streamer request.
+    /// Force CBR and headroom determine the final average target separately.
     #[serde(default)]
     pub fallback_disabled: bool,
     /// 2026-10-23: the seven displayed handles (derived for presets, the saved
@@ -129,4 +136,72 @@ pub fn close_curve_preview(window: WebviewWindow) -> Result<(), String> {
 pub fn destroyed(app: &AppHandle) {
     if let Ok(mut snapshot) = app.state::<Preview>().snapshot.lock() { *snapshot = None; }
     let _ = app.emit_to("main", "curve-preview-closed", ());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CurvePreviewState;
+    use serde_json::json;
+
+    #[test]
+    fn preview_snapshot_roundtrip_preserves_rate_policy_and_points() {
+        let payload = json!({
+            "curve": 3.0,
+            "constancyPct": 75.0,
+            "ceilingMbit": 500.0,
+            "requestReferenceMbit": 350.0,
+            "forceCbr": true,
+            "headroomPct": 25.0,
+            "fallbackDisabled": false,
+            "points": [
+                { "x": 0.0, "y": 0.1 },
+                { "x": 0.2, "y": 0.25 },
+                { "x": 0.4, "y": 0.5 },
+                { "x": 0.6, "y": 0.7 },
+                { "x": 0.8, "y": 0.9 },
+                { "x": 0.95, "y": 1.0 },
+                { "x": 1.0, "y": 1.0 }
+            ],
+            "locked": true
+        });
+
+        let snapshot: CurvePreviewState = serde_json::from_value(payload.clone()).unwrap();
+        assert_eq!(snapshot.request_reference_mbit, 350.0);
+        assert!(snapshot.force_cbr);
+        assert_eq!(snapshot.headroom_pct, 25.0);
+        assert_eq!(snapshot.points.len(), 7);
+        assert_eq!(serde_json::to_value(&snapshot).unwrap(), payload);
+        let encoded = serde_json::to_string(&snapshot).unwrap();
+        let restored: CurvePreviewState = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(restored, snapshot);
+    }
+
+    #[test]
+    fn legacy_snapshot_defaults_new_rate_policy_to_neutral() {
+        let mut expected = json!({
+            "curve": 2.0,
+            "constancyPct": 100.0,
+            "ceilingMbit": 280.0,
+            "fallbackDisabled": true,
+            "points": [
+                { "x": 0.0, "y": 0.0 },
+                { "x": 0.2, "y": 0.2 },
+                { "x": 0.4, "y": 0.4 },
+                { "x": 0.6, "y": 0.6 },
+                { "x": 0.8, "y": 0.8 },
+                { "x": 1.0, "y": 1.0 },
+                { "x": 1.0, "y": 1.0 }
+            ],
+            "locked": false
+        });
+
+        let snapshot: CurvePreviewState = serde_json::from_value(expected.clone()).unwrap();
+        assert_eq!(snapshot.request_reference_mbit, 0.0);
+        assert!(!snapshot.force_cbr);
+        assert_eq!(snapshot.headroom_pct, 0.0);
+        expected["requestReferenceMbit"] = json!(0.0);
+        expected["forceCbr"] = json!(false);
+        expected["headroomPct"] = json!(0.0);
+        assert_eq!(serde_json::to_value(&snapshot).unwrap(), expected);
+    }
 }

@@ -374,7 +374,14 @@ export class GalaxySettingsBase {
         // schema-5 policy (2026-10-01): root debugMode defaults OFF through
         // loading; preserve explicit master and individual diagnostic selections.
         if (rawSf && canMigrate && (rawSf.streamFrameSchema ?? 1) < 5) {
-          rawSf.streamFrameSchema = 5;
+          // Advance to current semantics together, avoiding a duplicate save.
+          rawSf.streamFrameSchema = 6;
+          queueMicrotask(() => this.save());
+        }
+        // Schema 6 (2026-10-27): new Galaxy XR request reference; only stamp
+        // semantics. Saved points, family, percentage and toggles stay owned.
+        if (rawSf && canMigrate && (rawSf.streamFrameSchema ?? 1) < 6) {
+          rawSf.streamFrameSchema = 6;
           queueMicrotask(() => this.save());
         }
         // Async Spacewarp semantics v2 (2026-10-26): mode 0 is Automatic

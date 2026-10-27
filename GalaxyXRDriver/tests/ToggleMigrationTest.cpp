@@ -178,9 +178,26 @@ int main(int argc, char** argv) {
         input["galaxyXr"]["gameLinkLayout"] = true;
         input["controllers"] = {{"spaceVelocityFix", "driver"}};
     } else if (scenario == 32) {
-        // master off: the same saved values keep their normal behavior
+        // Master off and schema 5: the semantics-only upgrade preserves every
+        // explicitly tuned encoder field, including the edited Custom curve.
         sf["streamFrameSchema"] = 5;
         sf["nvencSettingsVersion"] = 4;
+        sf.update(customTuning);
+        sf.update(h264Tuning);
+        sf["nvencTap"] = false;
+        sf["nvencFixLevel"] = false;
+        sf["nvencForceCbr"] = true;
+        sf["nvencPresetMerge"] = false;
+        sf["nvencCodec"] = 2;
+        sf["nvencBitrateCurve"] = 3;
+        sf["nvencBitrateConstancyPct"] = 37;
+        sf["nvencBitrateCurvePoints"] = json::array({
+            json{{"x",0.0},{"y",0.12}}, json{{"x",0.1},{"y",0.2}},
+            json{{"x",0.3},{"y",0.4}}, json{{"x",0.5},{"y",0.7}},
+            json{{"x",0.7},{"y",0.9}}, json{{"x",0.85},{"y",1.0}},
+            json{{"x",1.0},{"y",1.0}},
+        });
+        sf["postPack"] = {{"enable",false},{"casEnable",false},{"limitedRange",true}};
         sf["velocityFixMode"] = "kalmanCA";
         input["galaxyXr"]["controllerBypass"] = false;
         input["galaxyXr"]["gameLinkLayout"] = true;
@@ -192,7 +209,7 @@ int main(int argc, char** argv) {
         const auto &s = driverConfig.streamFrame;
         Check(s.nvencSettingsVersion == 4, "version reaches current schema");
         Check(s.hitchDiag == (scenario == 11 || scenario == 18), "hitch diagnostics require master and preserve explicit choices");
-        Check(s.streamFrameSchema == 5, "debug policy version stamp reaches schema 5");
+        Check(s.streamFrameSchema == 6, "bitrate reference semantics stamp reaches schema 6");
         if (scenario >= 16 && scenario <= 19) {
             const bool enabled = scenario == 18;
             Check(driverConfig.debugMode == enabled, "master is strictly boolean and defaults OFF");
@@ -336,6 +353,35 @@ int main(int argc, char** argv) {
             Check(!driverConfig.galaxyXr.controllerBypass, "controller master disable off stays off");
             Check(driverConfig.galaxyXr.gameLinkLayout, "Game Link layout still applies with the master off");
             Check(s.velocityFixMode == 6, "Kalman CA still applies with the master off");
+            Check(!s.nvencTap && !s.nvencFixLevel && s.nvencForceCbr && !s.nvencPresetMerge && s.nvencCodec == 2,
+                "schema 5 preserves explicit encoder switches and codec");
+            Check(s.nvencBitrateMbit == 123 && s.nvencBandwidthOverrideMbit == 234
+                && s.nvencBitrateCurve == 3 && s.nvencBitrateConstancyPct == 37 && s.nvencMaxBitrateHeadroomPct == 20,
+                "schema 5 preserves bitrate, bandwidth, curve, constancy and headroom tuning");
+            Check(s.nvencBitrateCurvePoints.size() == input["streamFrame"]["nvencBitrateCurvePoints"].size(),
+                "schema 5 retains all seven edited Custom points");
+            for(size_t i = 0; i < s.nvencBitrateCurvePoints.size(); ++i){
+                const auto &point = input["streamFrame"]["nvencBitrateCurvePoints"][i];
+                Check(s.nvencBitrateCurvePoints[i].x == point["x"].get<double>()
+                    && s.nvencBitrateCurvePoints[i].y == point["y"].get<double>(),
+                    "schema 5 preserves each Custom point coordinate exactly");
+            }
+            Check(s.nvencVbvFrames == 5 && s.nvencLowDelayKfScale == 4 && s.nvencForceFps == 72
+                && s.nvencSplitMode == 3 && s.nvencPreset == 7 && s.nvencAqStrength == 4,
+                "schema 5 preserves VBV, keyframe, FPS, split, preset and AQ tuning");
+            Check(s.nvencMinQp == 5 && s.nvencMinQpIntra == 7 && s.nvencMaxQp == 31
+                && s.nvencVuiFullRange == 1 && s.nvencVuiMatrix == 1 && s.nvencVuiPrimaries == 1 && s.nvencVuiTransfer == 1,
+                "schema 5 preserves QP bounds and every VUI choice");
+            Check(s.nvencH264GopFrames == 144 && s.nvencH264IdrFrames == 288
+                && s.nvencH264RefFrames == 2 && s.nvencH264Entropy == 2 && s.nvencH264SliceMode == 0
+                && s.nvencH264SliceData == 12 && !s.nvencH264Aud && !s.nvencH264RepeatHeaders
+                && s.nvencH264DisableHeaders && !s.nvencH264BitstreamRestriction
+                && s.nvencH264VbvInitialDelay == 12345 && s.nvencMultiPass == 2,
+                "schema 5 preserves multipass and every H264 recipe field");
+            Check(!s.postPack.enable && !s.postPack.casEnable && s.postPack.limitedRange,
+                "schema 5 preserves post-pack opt-outs and range tuning");
+            json stored; { std::ifstream in(path); in >> stored; }
+            Check(stored == input, "schema 6 semantics never rewrite schema 5 user tuning on disk");
         }
     };
     checkExpected();
