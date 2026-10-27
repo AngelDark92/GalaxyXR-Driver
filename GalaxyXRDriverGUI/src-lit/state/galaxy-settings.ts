@@ -25,6 +25,26 @@ import {
 
 function defaultStreamFrame(): StreamFrameConfig { return structuredClone(driverDefaults.streamFrame!); }
 
+// 2026-10-27: one resolver for the legacy tier names, the aliases and the
+// custom mode. The driver uses the same canonical names (StreamTiers.h);
+// anything else has no tier and falls back to the native defaults.
+const streamQualityAliases: Record<string, string> = {
+  stable: 'efficient', quality: 'balanced', default: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max',
+};
+const streamQualityTiers: Record<string, { width: number; bandwidth: number }> = {
+  efficient: { width: 1536, bandwidth: 300 }, balanced: { width: 1536, bandwidth: 350 },
+  vivid: { width: 1536, bandwidth: 400 }, sharp: { width: 1536, bandwidth: 450 }, max: { width: 2048, bandwidth: 450 },
+};
+function resolvedStreamQuality(name: string | undefined): { width: number; bandwidth: number } | undefined {
+  const tier = streamQualityTiers[streamQualityAliases[name ?? ''] ?? name ?? ''];
+  return tier ? { width: tier.width, bandwidth: tier.bandwidth } : undefined;
+}
+function unresolvedStreamQuality(name: string | undefined): string | undefined {
+  if (!name || name === 'custom' || resolvedStreamQuality(name)) return undefined;
+  return name;
+}
+export interface StreamQualityFallbackNotice { name: string; tile: number; bandwidth: number; }
+
 function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
   const bundled = defaultStreamFrame();
   const defaults = fillDefaults(infoDefaults ? structuredClone(infoDefaults) : undefined, bundled);
@@ -110,7 +130,7 @@ export const streamFrameNumberContracts: Record<string, StreamFrameNumberContrac
   },
   'streamFrame.nvencBitrateMbit': { range: 'nonnegative', check: value => value >= 0 },
   'streamFrame.nvencBitrateConstancyPct': { range: '0 to 100', check: value => value >= 0 && value <= 100 },
-  'streamFrame.nvencMaxBitrateHeadroomPct': { range: 'nonnegative', check: value => value >= 0 },
+  'streamFrame.nvencMaxBitrateHeadroomPct': { range: '0 to 100', check: value => value >= 0 && value <= 100 },
   'streamFrame.nvencForceFps': { range: 'nonnegative', check: value => value >= 0 },
   'streamFrame.nvencVbvFrames': { range: 'nonnegative', check: value => value >= 0 },
   // AQ strength fits 4 bits; the CBR keyframe scale is a byte field the
@@ -235,6 +255,9 @@ export class GalaxySettingsBase {
 
   // bumped on every edit so the curve component redraws immediately
   revision = signal(0);
+  // 2026-10-27: one-shot notice for a stored streamQuality name the driver
+  // cannot resolve. Same values the native fallback applies.
+  readonly streamQualityNotice = signal<StreamQualityFallbackNotice | undefined>(undefined);
   // friendly band layout inputs; the driver consumes the raw bands array,
   // these three regenerate it evenly spaced on change
   tuneBandCount = 7;
@@ -351,7 +374,14 @@ export class GalaxySettingsBase {
         // schema-5 policy (2026-10-01): root debugMode defaults OFF through
         // loading; preserve explicit master and individual diagnostic selections.
         if (rawSf && canMigrate && (rawSf.streamFrameSchema ?? 1) < 5) {
-          rawSf.streamFrameSchema = 5;
+          // Advance to current semantics together, avoiding a duplicate save.
+          rawSf.streamFrameSchema = 6;
+          queueMicrotask(() => this.save());
+        }
+        // Schema 6 (2026-10-27): new Galaxy XR request reference; only stamp
+        // semantics. Saved points, family, percentage and toggles stay owned.
+        if (rawSf && canMigrate && (rawSf.streamFrameSchema ?? 1) < 6) {
+          rawSf.streamFrameSchema = 6;
           queueMicrotask(() => this.save());
         }
         // Async Spacewarp semantics v2 (2026-10-26): mode 0 is Automatic
@@ -490,10 +520,29 @@ export class GalaxySettingsBase {
         }
         const segLayout = this.settings?.distortion?.tune?.segmentLayout;
         this.segLayoutText = Array.isArray(segLayout) ? segLayout.join(', ') : '';
+        // 2026-10-27: surface an unrecognized streamQuality once. The driver's
+        // GalaxyXR_EffectiveTileWidth/BandwidthMbit apply the native defaults
+        // for this case; the shell toast quotes the same values so the
+        // fallback is never silent.
+        const unknownQuality = unresolvedStreamQuality(this.rootSetting.galaxyXr?.streamQuality);
+        if (unknownQuality) {
+          if (this.streamQualityNotice()?.name !== unknownQuality) {
+            const defaults = driverDefaults.galaxyXr!;
+            const bandwidthOverride = this.settings?.nvencBandwidthOverrideMbit ?? 0;
+            this.streamQualityNotice.set({
+              name: unknownQuality,
+              tile: defaults.customStreamFormatWidth ?? 1536,
+              bandwidth: bandwidthOverride !== 0 ? bandwidthOverride : (defaults.customBandwidthMbit ?? 350),
+            });
+          }
+        } else if (this.streamQualityNotice()) {
+          this.streamQualityNotice.set(undefined);
+        }
       } else {
         // A failed disk read is unknown, never the last page's stale On state.
         this.settings = undefined;
         this.controllerSettings = undefined;
+        if (this.streamQualityNotice()) this.streamQualityNotice.set(undefined);
       }
       const infoDefaults = (this.dis.values()?.defaultSettings as any)?.streamFrame;
       this.defaults = streamFrameDefaults(infoDefaults);
@@ -655,13 +704,23 @@ export class GalaxySettingsBase {
 
   get streamQualityValues(): { width: number; bandwidth: number } {
     const g = this.galaxyXr;
-    const aliases: Record<string, string> = { stable: 'efficient', quality: 'balanced', default: 'balanced', high: 'sharp', highest: 'sharp', ultra: 'max' };
-    const tiers: Record<string, { width: number; bandwidth: number }> = {
-      efficient: { width: 1536, bandwidth: 300 }, balanced: { width: 1536, bandwidth: 350 },
-      vivid: { width: 1536, bandwidth: 400 }, sharp: { width: 1536, bandwidth: 450 }, max: { width: 2048, bandwidth: 450 }
+    const quality = g.streamQuality ?? 'custom';
+    const known = resolvedStreamQuality(quality);
+    if (known) return known;
+    const defaults = driverDefaults.galaxyXr!;
+    if (quality === 'custom') {
+      return {
+        width: g.customStreamFormatWidth ?? defaults.customStreamFormatWidth ?? 1536,
+        bandwidth: g.customBandwidthMbit ?? defaults.customBandwidthMbit ?? 350,
+      };
+    }
+    // 2026-10-27: an unrecognized name has no tier; show the native defaults
+    // the driver actually applies instead of a custom value it ignores. The
+    // shell toast explains the fallback.
+    return {
+      width: defaults.customStreamFormatWidth ?? 1536,
+      bandwidth: defaults.customBandwidthMbit ?? 350,
     };
-    return tiers[aliases[g.streamQuality ?? ''] ?? g.streamQuality ?? '']
-      ?? { width: g.customStreamFormatWidth ?? 1536, bandwidth: g.customBandwidthMbit ?? 350 };
   }
 
   renderResolutionError = signal<string | undefined>(undefined);

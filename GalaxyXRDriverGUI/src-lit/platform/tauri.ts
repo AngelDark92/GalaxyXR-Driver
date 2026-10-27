@@ -192,6 +192,9 @@ export interface CurvePreviewState {
     curve: number;
     constancyPct: number;
     ceilingMbit: number;
+    requestReferenceMbit: number;
+    forceCbr: boolean;
+    headroomPct: number;
     /** 'No fallback' on: the streamer request is fixed at Max Bitrate. */
     fallbackDisabled: boolean;
     /** Seven displayed handles: derived for presets, saved shape for Custom. */

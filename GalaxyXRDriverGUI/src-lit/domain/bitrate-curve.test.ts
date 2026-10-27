@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BITRATE_CURVE_PLATEAU_START, DEFAULT_BITRATE_CURVE_POINTS, bitrateCurveBase,
-  bitrateCurveMbit, bitrateCurvePointsForFamily, bitrateCurvePointsForSettings,
+  bitrateCurveMbit, bitrateCurveRequestDomain, bitrateCurvePointsForFamily, bitrateCurvePointsForSettings,
   bitrateCurvePointsValid, bitrateCurveTarget, moveBitrateCurvePoint,
   normalizeBitrateCurvePoints,
 } from './bitrate-curve';
@@ -60,6 +60,33 @@ describe('bitrate curve families', () => {
     expect(bitrateCurveBase(0.5, 99)).toBeCloseTo(0.5, 12);
   });
 
+  it('scales Galaxy XR requests once above 350 and retains the raw request below it', () => {
+    for (const [max, request, target] of [[280, 200, 200], [280, 320, 280],
+      [350, 200, 200], [500, 320, 320 * 500 / 350], [500, 350, 500], [800, 175, 400]]) {
+      expect(bitrateCurveMbit(request, max, 0, 0, undefined, 350)).toBeCloseTo(target, 9);
+      expect(bitrateCurveMbit(request, max, 3, 0, DEFAULT_BITRATE_CURVE_POINTS, 350)).toBeCloseTo(target, 9);
+      expect(bitrateCurveRequestDomain(max, 350)).toBe(Math.min(max, 350));
+    }
+    const saved = structuredClone(custom);
+    // Raw 140/350 lands on the tuned point (0.4, 0.3), without a second lift.
+    expect(bitrateCurveMbit(140, 500, 3, 0, custom, 350)).toBeCloseTo(150, 9);
+    expect(bitrateCurveMbit(140, 500, 3, 50, custom, 350)).toBeCloseTo(500 * Math.sqrt(0.3), 9);
+    for (const family of [1, 2]) {
+      expect(bitrateCurveMbit(175, 800, family, 35, undefined, 350))
+        .toBeCloseTo(800 * bitrateCurveTarget(0.5, family, 35), 9);
+    }
+    expect(custom).toEqual(saved);
+    expect(bitrateCurveRequestDomain(500)).toBe(500); // neutral mapping
+  });
+
+  it('matches the native headroom budget and Force CBR policy', () => {
+    expect(bitrateCurveMbit(320, 500, 0, 0, undefined, 350, 15)).toBe(434.782608);
+    expect(bitrateCurveMbit(100, 500, 0, 0, undefined, 350, 15)).toBeCloseTo(100 * 500 / 350, 9);
+    expect(bitrateCurveMbit(1, 500, 3, 100, custom, 350, 15)).toBe(434.782608);
+    expect(bitrateCurveMbit(0, 500, 3, 0, custom, 350, 15, true)).toBe(500);
+    expect(bitrateCurveMbit(70, 500, 0, 0, undefined, 350, 100, true)).toBe(500);
+  });
+
   it('evaluates the seven-point custom curve with a movable max plateau', () => {
     expect(bitrateCurvePointsValid(custom)).toBe(true);
     expect(bitrateCurveTarget(0, 3, 0, custom)).toBeCloseTo(0.1, 12);
@@ -99,6 +126,8 @@ describe('bitrate curve families', () => {
     expect(bitrateCurvePointsValid(custom.map((p, i) => i === 3 ? { ...p, y: 0.1 } : p))).toBe(false);
     expect(bitrateCurvePointsValid(custom.map((p, i) => i === 2 ? { ...p, x: 0.1 } : p))).toBe(false);
     expect(bitrateCurvePointsValid(custom.slice(0, 6))).toBe(false);
+    const invalid = custom.map((point, index) => index === 2 ? { ...point, x: 0.01 } : point);
+    expect(bitrateCurvePointsForSettings({ nvencBitrateCurve: 3, nvencBitrateCurvePoints: invalid })).toEqual(invalid);
     expect(bitrateCurvePointsValid(custom.map((p, i) => i === 1 ? { ...p, y: 1.5 } : p))).toBe(false);
     expect(bitrateCurvePointsValid(custom.map((p, i) => i === 0 ? { ...p, x: 0.1 } : p))).toBe(false);
     expect(bitrateCurvePointsValid(custom.map((p, i) => i === 6 ? { ...p, x: 0.9 } : p))).toBe(false);

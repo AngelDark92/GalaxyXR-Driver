@@ -6,6 +6,18 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.15.2-dev.2] - 2026-10-27
+
+### Fixes
+
+- Update Galaxy XR settings and curve preview functionality (`7886450`)
+
+## [1.15.2-dev.1] - 2026-10-27
+
+### Fixes
+
+- Implement fallback handling for unrecognized stream quality settings (`6e3cfe1`)
+
 ## [1.15.1] - 2026-10-26
 
 ### Fixes

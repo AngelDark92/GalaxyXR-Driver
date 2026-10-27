@@ -2,16 +2,20 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open_curve_preview, publish_curve_preview, type CurvePreviewState } from '../platform/tauri';
 import type { Settings } from '../domain/types';
 import { bitrateCurvePointsForSettings } from '../domain/bitrate-curve';
+import { vendor } from '../environment';
 
 /** Effective Companion values, including merged defaults and unsaved edits.
  * No file parsing, coercion, migration or settings writes in the graph path. */
 export function previewState(settings: Settings | undefined, bandwidthMbit = settings?.galaxyXr?.customBandwidthMbit ?? 350,
-  locked = false): CurvePreviewState {
+  locked = false, buildVendor = vendor): CurvePreviewState {
   if (!settings?.streamFrame) throw new Error('Settings are unavailable');
   const sf = settings.streamFrame!;
   return {
     curve: sf.nvencBitrateCurve,
     constancyPct: sf.nvencBitrateConstancyPct,
+    requestReferenceMbit: buildVendor === 'galaxyxr' ? 350 : 0,
+    forceCbr: sf.nvencForceCbr,
+    headroomPct: sf.nvencMaxBitrateHeadroomPct,
     ceilingMbit: sf.nvencBitrateMbit !== 0 ? sf.nvencBitrateMbit
       : sf.nvencBandwidthOverrideMbit !== 0 ? sf.nvencBandwidthOverrideMbit : bandwidthMbit,
     // 2026-10-21: a constancy of 100 pins the request factor to 1.0, so the graph

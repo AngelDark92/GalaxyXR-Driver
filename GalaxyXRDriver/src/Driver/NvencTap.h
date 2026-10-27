@@ -69,13 +69,19 @@ struct NvencTapConfig {
 	// Galaxy XR requires exact four-tile active pictures/reconfiguration;
 	// initial allocation may differ. Neutral/legacy callers remain unchanged.
 	bool enforceTile = false;
-	// 0 = leave vrlink's bitrate alone. Otherwise this is the maximum
-	// requested averageBitRate (decimal Mbit/s), reshaped by the curve.
-	// maxBitRate follows headroom under VBR and equals average under CBR;
-	// NVENC ignores maxBitRate under CBR. Neither is a hard output-byte cap
-	// or proof of a lifted VRLink transport/allocation limit. VBV is owned
-	// independently by vbvFrames; zero preserves the caller's buffer size.
+	// 0 = leave vrlink's bitrate alone. Otherwise this is the applied budget:
+	// under VBR the requested average is the curve-shaped streamer request
+	// capped at this value (and by the headroom reservation), and maxBitRate
+	// is exactly this value; under Force CBR averageBitRate and maxBitRate are
+	// both this value. Neither is a hard output-byte cap or proof of a lifted
+	// VRLink transport/allocation limit. VBV is owned independently by
+	// vbvFrames; zero preserves the caller's buffer size.
 	int bitrateMbit = 0;
+	// Internal request normalization; 0 preserves the neutral/legacy Max
+	// Bitrate denominator. A positive reference uses min(bitrateMbit, reference),
+	// so scaling can raise requests above the reference without lowering them
+	// when the configured budget is below it. Inert under Force CBR.
+	int bitrateRequestReferenceMbit = 0;
 	// 0 = leave. otherwise enableMaxQP and set maxQP (P/B/I) to this value:
 	// a ceiling on how coarsely any block may be quantized, the lever
 	// against dark flat regions being crushed to the black floor.
@@ -99,10 +105,11 @@ struct NvencTapConfig {
 	// documented by NVIDIA for single-frame VBV with CBR. Larger VBV
 	// configurations do not establish an equivalent hard keyframe bound.
 	int lowDelayKfScale = 1;
-	// peak headroom over the average, percent. vrlink uses 15. run C died
-	// with "FAULT: Packet too big" at 500 Mbit: a single (IDR) frame
-	// exceeded vrlink's send limit. 0 = max == avg; max is ignored in CBR.
-	int maxBitrateHeadroomPct = 15;
+	// 2026-10-27: reserve part of the Max Bitrate budget for the VBR peak.
+	// The requested average is capped at budget/(1+pct/100); maxBitRate stays
+	// the budget. 0 lets the average use the whole budget. Inert under Force
+	// CBR (max == average).
+	int maxBitrateHeadroomPct = 0;
 	// 0 = preserve the caller's VBV even when bitrate scaling is active.
 	// Otherwise request vbvBufferSize = avg/fps * N (bits). This is a
 	// rate-control buffer budget, not a checked maximum output size.
@@ -122,7 +129,7 @@ struct NvencTapConfig {
 	// rate; frames that are not sent simply cost nothing.
 	int forceFps = 0;
 	// 2026-10-19 bitrate curve: how vrlink's request maps onto bitrateMbit.
-	// 0 = linear (request passes through, capped at Max Bitrate), 1 = power
+	// 0 = linear (reference-normalized request capped at Max Bitrate), 1 = power
 	// knee, 2 = soft knee, 3 = Custom seven-point curve (see CurveMath.h).
 	// constancy 0..100 lifts the selected curve toward the ceiling: 0 = the
 	// curve itself, 100 = constant ceiling (the retired nvencBitrateScale=false).

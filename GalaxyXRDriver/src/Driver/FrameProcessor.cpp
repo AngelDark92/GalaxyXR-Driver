@@ -1728,6 +1728,11 @@ void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings)
 	// encoder bitrate: the debug "separate" value if set, else the
 	// effective pacer bandwidth (tier/custom/Advanced override)
 	tc.bitrateMbit = settings.config.nvencBitrateMbit != 0 ? settings.config.nvencBitrateMbit : GalaxyXR_EffectiveBandwidthMbit();
+#ifdef VENDOR_GALAXYXR
+	// 2026-10-27: upscale VRLink's adaptive request above its 350 Mbit reference.
+	// Below 350, preserve the request and cap at the configured budget.
+	tc.bitrateRequestReferenceMbit = 350;
+#endif
 	tc.maxQp = settings.config.nvencMaxQp;
 	tc.aqStrength = settings.config.nvencAqStrength;
 	tc.maxBitrateHeadroomPct = settings.config.nvencMaxBitrateHeadroomPct;

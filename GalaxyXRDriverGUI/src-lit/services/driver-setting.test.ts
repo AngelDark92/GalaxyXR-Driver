@@ -329,14 +329,14 @@ describe('vendor defaults before info.json exists', () => {
     const state = new GalaxySettingsBase({ values: () => ({}) } as any, service, { values: () => undefined } as any);
     await new Promise<void>(resolve => setTimeout(resolve, 0));
     await service.flush();
-    expect(state.settings?.streamFrameSchema).toBe(5);
+    expect(state.settings?.streamFrameSchema).toBe(6);
     expect(state.controllerSettings).toMatchObject({
       mirrorOffsetsForRightHand: false,
       rotationOffsetDeg: { x: 0, y: 0, z: 0 },
       positionOffsetCm: { x: 0, y: 0, z: 0 },
       left,
     });
-    expect(JSON.parse(storage.files.get(filePath)!).streamFrame.streamFrameSchema).toBe(5);
+    expect(JSON.parse(storage.files.get(filePath)!).streamFrame.streamFrameSchema).toBe(6);
     expect(await service.loadSetting()).toBe(true);
     expect(service.values()?.controllers).toMatchObject({
       mirrorOffsetsForRightHand: false,

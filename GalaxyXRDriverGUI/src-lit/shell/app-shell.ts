@@ -10,6 +10,7 @@ import { driverAvailable, parseRoute, parseSettingTarget, permittedRoute, visibl
 import { settingPresentation } from '../domain/settings-presentation';
 import { close_bitrate_monitor, publish_bitrate_monitor_theme } from '../platform/tauri';
 import type { BasePage } from '../features/page-base';
+import type { StreamQualityFallbackNotice } from '../state/galaxy-settings';
 
 @customElement('app-shell')
 export class AppShell extends LitElement {
@@ -19,6 +20,8 @@ export class AppShell extends LitElement {
   private targetGeneration = 0;
   private debugAllowed = false;
   private monitorAllowed = false;
+  private streamQualityToast?: StreamQualityFallbackNotice;
+  private streamQualityToastTimer?: number;
 
   static styles = [interactiveStyles, css`
     :host { display: flex; flex-direction: column; height: 100%; width: 100%; background: var(--colorNeutralBackground2); }
@@ -29,6 +32,7 @@ export class AppShell extends LitElement {
     .content { flex: 1; overflow: auto; min-height: 0; padding: 12px 8px; }
     .panel { max-width: 1500px; margin: 0 auto; outline-offset: -2px; }
     .status { margin: 8px 20px; }
+    .stream-toast { position: fixed; right: 16px; bottom: 16px; z-index: 1000; margin: 0; max-width: min(440px, calc(100vw - 32px)); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); }
     .warn { color: var(--colorPaletteDarkOrangeForeground1); margin-left: 0.35rem; }
     @media (max-width: 720px) { .header { padding-inline: 8px; } .brand-icon { display: none; } .content { padding-inline: 0; } }
   `];
@@ -78,7 +82,9 @@ export class AppShell extends LitElement {
       this.ctx.lifecycle.error.subscribe(notify), this.ctx.lifecycle.quitting.subscribe(notify),
       this.ctx.ofxr.error.subscribe(notify),
       subscribeLocale(notify),
+      this.ctx.galaxy.streamQualityNotice.subscribe(() => this.onStreamQualityNotice()),
     );
+    this.onStreamQualityNotice();
     this.themeDispose = effect(() => {
       const preference = this.ctx.appSetting.values().colorScheme;
       applyTheme(preference);
@@ -96,6 +102,10 @@ export class AppShell extends LitElement {
     this.systemTheme.removeEventListener('change', this.onSystemTheme);
     for (const unsubscribe of this.unsubs) unsubscribe();
     this.unsubs = [];
+    if (this.streamQualityToastTimer !== undefined) {
+      window.clearTimeout(this.streamQualityToastTimer);
+      this.streamQualityToastTimer = undefined;
+    }
     this.themeDispose?.();
     this.scaleDispose?.();
     super.disconnectedCallback();
@@ -104,6 +114,40 @@ export class AppShell extends LitElement {
   private get driverAvailable(): boolean {
     return driverAvailable(this.ctx.sds.driverInstalled(), this.ctx.sds.driverState());
   }
+
+  private onStreamQualityNotice(): void {
+    const notice = this.ctx.galaxy.streamQualityNotice();
+    if (!notice) {
+      if (this.streamQualityToastTimer !== undefined) {
+        window.clearTimeout(this.streamQualityToastTimer);
+        this.streamQualityToastTimer = undefined;
+      }
+      this.streamQualityToast = undefined;
+      this.requestUpdate();
+      return;
+    }
+    if (this.streamQualityToast?.name === notice.name) return;
+    if (this.streamQualityToastTimer !== undefined) {
+      window.clearTimeout(this.streamQualityToastTimer);
+      this.streamQualityToastTimer = undefined;
+    }
+    this.streamQualityToast = { ...notice };
+    this.streamQualityToastTimer = window.setTimeout(() => {
+      this.streamQualityToast = undefined;
+      this.streamQualityToastTimer = undefined;
+      this.requestUpdate();
+    }, 12000);
+    this.requestUpdate();
+  }
+
+  private dismissStreamQualityToast = (): void => {
+    if (this.streamQualityToastTimer !== undefined) {
+      window.clearTimeout(this.streamQualityToastTimer);
+      this.streamQualityToastTimer = undefined;
+    }
+    this.streamQualityToast = undefined;
+    this.requestUpdate();
+  };
 
   private syncRoute(): void {
     this.debugAllowed = this.driverAvailable && this.ctx.galaxy.debugMode;
@@ -214,6 +258,13 @@ export class AppShell extends LitElement {
           aria-labelledby=${`tab-${route}`} ?hidden=${activeRoute !== route} tabindex="0">
           ${activeRoute === route ? this.renderPage() : nothing}
         </section>`)}
-      </main>`;
+      </main>
+      ${this.streamQualityToast ? html`<fluent-message-bar class="stream-toast" intent="warning" layout="multiline" role="status" aria-live="polite">
+        <span slot="icon" aria-hidden="true">!</span>
+        <strong>${t('Stream quality not recognized')}</strong>
+        ${t('The stored stream quality "{name}" is not recognized. The driver is using its fallback values: {tile} px tile width and {bandwidth} Mbit/s encoder budget. Edit Tile Width or Max Bitrate to replace them.', {
+          name: this.streamQualityToast.name, tile: this.streamQualityToast.tile, bandwidth: this.streamQualityToast.bandwidth })}
+        <fluent-button slot="actions" appearance="subtle" @click=${this.dismissStreamQualityToast}>${t('Dismiss')}</fluent-button>
+      </fluent-message-bar>` : nothing}`;
   }
 }

@@ -8,7 +8,8 @@ import { html, LitElement, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import {
   BITRATE_CURVE_FAMILIES, BITRATE_CURVE_POINT_GAP, bitrateCurveBase, bitrateCurveMbit,
-  bitrateCurvePointsValid, moveBitrateCurvePoint, normalizeBitrateCurvePoints,
+  bitrateCurveFivePointsValid, bitrateCurvePointsValid, bitrateCurveRequestDomain,
+  bitrateCurveSixPointsValid, moveBitrateCurvePoint, normalizeBitrateCurvePoints,
 } from '../domain/bitrate-curve';
 import type { BitrateCurvePoint } from '../domain/types';
 import { t } from '../locale/i18n';
@@ -60,7 +61,11 @@ export class BitrateCurvePanel extends LitElement {
   @property({ type: Number }) curve = 0;
   @property({ type: Number }) pct = 0;
   @property({ type: Number }) ceiling = 450;
-  /** 'No fallback' on: the streamer request is fixed at Max Bitrate. */
+  /** Zero preserves the neutral build's Max Bitrate request domain. */
+  @property({ type: Number }) requestReference = 0;
+  @property({ type: Boolean }) forceCbr = false;
+  @property({ type: Number }) headroomPct = 0;
+  /** Retained for preview IPC compatibility; constancy does not fix request. */
   @property({ type: Boolean }) fixed = false;
   /** Six displayed handles: derived for presets, saved shape for Custom. */
   @property({ attribute: false }) points: BitrateCurvePoint[] = [];
@@ -74,22 +79,40 @@ export class BitrateCurvePanel extends LitElement {
   @state() private dragCustom = false;
   @state() private dragMoved = false;
   private dragStart: BitrateCurvePoint[] = [];
+  private dragCustomStart = false;
+  private dragSnapshotChanged = false;
   @state() private selected = 0;
   @state() private inputError = '';
   private resizeObserver?: ResizeObserver;
 
   connectedCallback() {
     super.connectedCallback();
-    this.localPoints = normalizeBitrateCurvePoints(this.points);
+    this.localPoints = this.acceptPoints();
+  }
+
+  private acceptPoints(): BitrateCurvePoint[] {
+    // Clone malformed entries into objects so validation can reject them
+    // without throwing. Only recognized valid shapes may be normalized.
+    const points = Array.isArray(this.points) ? this.points.map(point => ({ ...point })) : [];
+    return bitrateCurvePointsValid(points) || bitrateCurveSixPointsValid(points) || bitrateCurveFivePointsValid(points)
+      ? normalizeBitrateCurvePoints(points) : points;
   }
 
   protected updated(changed: Map<string, unknown>) {
-    if (this.dragIndex < 0 && (changed.has('points') || changed.has('curve'))) {
-      this.localPoints = normalizeBitrateCurvePoints(this.points);
+    if (changed.has('points') || changed.has('curve')) {
+      if (this.dragIndex < 0) {
+        this.localPoints = this.acceptPoints();
+        this.dragCustom = false;
+        this.inputError = '';
+      } else {
+        this.dragSnapshotChanged = true;
+      }
     }
     if (changed.has('locked') && this.locked) {
       this.dragIndex = -1;
+      this.dragMoved = false;
       this.dragCustom = false;
+      this.localPoints = this.acceptPoints();
     }
     this.resizeObserver ??= new ResizeObserver(() => this.draw());
     this.resizeObserver.disconnect();
@@ -111,7 +134,15 @@ export class BitrateCurvePanel extends LitElement {
     return BITRATE_CURVE_FAMILIES.some(entry => entry.value === this.curve)
       && Number.isFinite(this.pct) && this.pct >= 0 && this.pct <= 100
       && Number.isFinite(this.ceiling) && this.ceiling > 0
+      && Number.isFinite(this.requestReference) && this.requestReference >= 0
+      && Number.isFinite(this.headroomPct) && this.headroomPct >= 0 && this.headroomPct <= 100
       && (!this.drawingCustom() || bitrateCurvePointsValid(this.localPoints));
+  }
+
+  private plotDomain() {
+    const request = bitrateCurveRequestDomain(this.ceiling, this.requestReference);
+    const x = this.requestReference > 0 ? this.requestReference : this.ceiling;
+    return { request, x, y: Math.max(x, this.ceiling) };
   }
 
   private draw() {
@@ -129,8 +160,9 @@ export class BitrateCurvePanel extends LitElement {
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     const padL = 56, padR = 16, padT = 16, padB = 34;
     const ceiling = this.ceiling;
-    const xAt = (mbit: number) => padL + (W - padL - padR) * Math.max(0, Math.min(1, mbit / ceiling));
-    const yAt = (mbit: number) => H - padB - (H - padT - padB) * Math.max(0, Math.min(1, mbit / ceiling));
+    const domain = this.plotDomain();
+    const xAt = (mbit: number) => padL + (W - padL - padR) * Math.max(0, Math.min(1, mbit / domain.x));
+    const yAt = (mbit: number) => H - padB - (H - padT - padB) * Math.max(0, Math.min(1, mbit / domain.y));
     const points = this.localPoints;
     const custom = this.drawingCustom();
 
@@ -140,16 +172,23 @@ export class BitrateCurvePanel extends LitElement {
     ctx.lineWidth = 1;
     ctx.fillStyle = 'rgba(128,128,128,1)';
     ctx.font = '11px monospace';
-    for (const frac of [0, 0.25, 0.5, 0.75, 1]) {
-      const x = xAt(ceiling * frac);
+    const xTicks = [...new Set([0, 0.25, 0.5, 0.75, 1].map(frac => domain.x * frac).concat(domain.request))].sort((a, b) => a - b);
+    for (const value of xTicks) {
+      const x = xAt(value);
       ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, H - padB); ctx.stroke();
-      const label = String(Math.round(ceiling * frac));
+      const label = String(Math.round(value));
       ctx.fillText(label, x - ctx.measureText(label).width / 2, H - padB + 14);
     }
-    for (const frac of [0, 0.5, 1]) {
-      const y = yAt(ceiling * frac);
+    // Keep the exact reference and Max Bitrate ticks even when the regular
+    // midpoint would overlap them (for example 350 and 400 with Max 800).
+    const requiredYTicks = [...new Set([0, domain.x, ceiling])];
+    const midpoint = domain.y / 2;
+    const yTicks = [...requiredYTicks];
+    if (requiredYTicks.every(value => Math.abs(yAt(value) - yAt(midpoint)) >= 14)) yTicks.push(midpoint);
+    for (const value of yTicks.sort((a, b) => a - b)) {
+      const y = yAt(value);
       ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
-      const label = String(Math.round(ceiling * frac));
+      const label = String(Math.round(value));
       ctx.fillText(label, padL - 6 - ctx.measureText(label).width, y + 4);
     }
 
@@ -159,15 +198,16 @@ export class BitrateCurvePanel extends LitElement {
     ctx.beginPath(); ctx.moveTo(padL, yAt(ceiling)); ctx.lineTo(W - padR, yAt(ceiling)); ctx.stroke();
     ctx.fillStyle = '#b07a2a';
     const maxLabel = t('Max Bitrate {value} Mbit/s', { value: String(Math.round(ceiling)) });
-    ctx.fillText(maxLabel, W - padR - ctx.measureText(maxLabel).width, padT - 4);
+    ctx.fillText(maxLabel, W - padR - ctx.measureText(maxLabel).width, yAt(ceiling) - 4);
     ctx.lineWidth = 1;
 
-    // streamer standard: target = request, capped at Max Bitrate
+    // Streamer standard: identity over its own request range, including the
+    // part above a lower user-selected Max Bitrate.
     ctx.setLineDash([5, 4]);
     ctx.strokeStyle = 'rgba(128,128,128,0.9)';
     ctx.beginPath();
     ctx.moveTo(xAt(0), yAt(0));
-    ctx.lineTo(xAt(ceiling), yAt(ceiling));
+    ctx.lineTo(xAt(domain.x), yAt(domain.x));
     ctx.stroke();
     ctx.setLineDash([]);
 
@@ -177,23 +217,26 @@ export class BitrateCurvePanel extends LitElement {
     ctx.beginPath();
     const samples = 81;
     for (let i = 0; i < samples; i++) {
-      const xNorm = i / (samples - 1);
+      const request = domain.x * i / (samples - 1);
+      const xNorm = request / domain.request;
       const target = ceiling * (custom
         ? bitrateCurveBase(xNorm, 3, points)
         : bitrateCurveBase(xNorm, this.curve));
-      const x = xAt(ceiling * xNorm);
+      const x = xAt(request);
       const y = yAt(target);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
 
-    // applied curve: base lifted toward Max Bitrate by constancy
+    // Final average target: the same request-domain, constancy, headroom and
+    // Force CBR policy as the driver, without the temporal request filter.
     ctx.strokeStyle = '#5f9fdf';
     ctx.lineWidth = 2;
     ctx.beginPath();
     for (let i = 0; i < samples; i++) {
-      const request = ceiling * (i / (samples - 1));
-      const target = bitrateCurveMbit(request, ceiling, custom ? 3 : this.curve, this.pct, points);
+      const request = domain.x * (i / (samples - 1));
+      const target = bitrateCurveMbit(request, ceiling, custom ? 3 : this.curve, this.pct,
+        points, this.requestReference, this.headroomPct, this.forceCbr);
       const x = xAt(request);
       const y = yAt(target);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
@@ -201,9 +244,9 @@ export class BitrateCurvePanel extends LitElement {
     ctx.stroke();
     ctx.lineWidth = 1;
 
-    // Fixed endpoint tick: P7 is not a separate selectable handle. The applied
-    // curve visibly terminates here instead.
-    const endpointX = xAt(ceiling), endpointY = yAt(ceiling);
+    // Fixed base endpoint: P7 is hidden. For Max below the request reference,
+    // the curve continues horizontally from here to the plot's right edge.
+    const endpointX = xAt(domain.request), endpointY = yAt(ceiling);
     ctx.strokeStyle = '#5f9fdf';
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(endpointX, endpointY); ctx.lineTo(endpointX, endpointY + 7); ctx.stroke();
@@ -213,7 +256,7 @@ export class BitrateCurvePanel extends LitElement {
     const handleRadius = 5;
     for (let i = 0; i < points.length - 1; i++) {
       const point = points[i];
-      const x = xAt(point.x * ceiling);
+      const x = xAt(point.x * domain.request);
       const y = yAt(point.y * ceiling);
       const selected = i === this.selected;
       ctx.globalAlpha = this.locked ? 0.45 : 1;
@@ -239,19 +282,6 @@ export class BitrateCurvePanel extends LitElement {
     ctx.rotate(-Math.PI / 2);
     ctx.fillText(t('applied target (Mbit/s)'), 0, 0);
     ctx.restore();
-
-    if (this.fixed) {
-      const x = xAt(ceiling);
-      ctx.setLineDash([3, 3]);
-      ctx.strokeStyle = '#5f9fdf';
-      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, H - padB); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#5f9fdf';
-      ctx.beginPath(); ctx.arc(x, yAt(ceiling), 4.5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(128,128,128,1)';
-      const label = t('fixed operating point');
-      ctx.fillText(label, Math.min(x - ctx.measureText(label).width, W - padR - ctx.measureText(label).width), padT + 10);
-    }
   }
 
   private canvasGeometry(event: PointerEvent | MouseEvent) {
@@ -259,10 +289,11 @@ export class BitrateCurvePanel extends LitElement {
     if (!canvas) return undefined;
     const rect = canvas.getBoundingClientRect();
     const padL = 56, padR = 16, padT = 16, padB = 34;
+    const domain = this.plotDomain();
     return {
       canvas, rect,
-      x: (event.clientX - rect.left - padL) / Math.max(1, rect.width - padL - padR),
-      y: 1 - (event.clientY - rect.top - padT) / Math.max(1, rect.height - padT - padB),
+      x: (event.clientX - rect.left - padL) / Math.max(1, rect.width - padL - padR) * domain.x / domain.request,
+      y: (1 - (event.clientY - rect.top - padT) / Math.max(1, rect.height - padT - padB)) * domain.y / this.ceiling,
     };
   }
 
@@ -275,13 +306,14 @@ export class BitrateCurvePanel extends LitElement {
     const py = event.clientY - rect.top;
     const plotW = Math.max(1, rect.width - padL - padR);
     const plotH = Math.max(1, rect.height - padT - padB);
+    const domain = this.plotDomain();
     let best = -1, bestDistance = 16;
     // P7 is hidden and not selectable; P6 remains draggable even when it
     // overlaps the fixed endpoint.
     for (let i = 0; i < this.localPoints.length - 1; i++) {
       const point = this.localPoints[i];
-      const handleX = padL + plotW * point.x;
-      const handleY = padT + plotH * (1 - point.y);
+      const handleX = padL + plotW * point.x * domain.request / domain.x;
+      const handleY = padT + plotH * (1 - point.y * this.ceiling / domain.y);
       const distance = Math.hypot(px - handleX, py - handleY);
       if (distance <= bestDistance) { best = i; bestDistance = distance; }
     }
@@ -297,8 +329,9 @@ export class BitrateCurvePanel extends LitElement {
     this.dragIndex = index;
     this.dragMoved = false;
     this.dragStart = this.localPoints.map(point => ({ ...point }));
+    this.dragCustomStart = this.dragCustom;
+    this.dragSnapshotChanged = false;
     this.selected = index;
-    this.dragCustom = this.curve === 3;
     this.inputError = '';
     geometry.canvas.setPointerCapture(event.pointerId);
     event.preventDefault();
@@ -324,8 +357,16 @@ export class BitrateCurvePanel extends LitElement {
     const moved = this.dragMoved;
     this.dragIndex = -1;
     this.dragMoved = false;
+    if (event.type === 'pointercancel' || !this.editable || this.locked || this.dragSnapshotChanged) {
+      const useSnapshot = this.dragSnapshotChanged || this.locked;
+      this.localPoints = useSnapshot ? this.acceptPoints() : this.dragStart.map(point => ({ ...point }));
+      this.dragCustom = useSnapshot ? false : this.dragCustomStart;
+      this.dragSnapshotChanged = false;
+      this.requestUpdate();
+      return;
+    }
     if (!moved) {
-      this.dragCustom = this.curve === 3;
+      this.dragCustom = this.dragCustomStart;
       this.requestUpdate();
       return;
     }
@@ -349,7 +390,12 @@ export class BitrateCurvePanel extends LitElement {
     this.commit(this.localPoints.map(point => ({ ...point })));
   }
 
-  private applyNumeric(index: number, xMbit: number, yMbit: number) {
+  private applyNumeric(index: number, axis: 'x' | 'y', mbit: number) {
+    const point = this.localPoints[index];
+    // Preserve the untouched normalized coordinate exactly. Display rounding
+    // must never change the other axis during a numeric edit.
+    const xMbit = axis === 'x' ? mbit : point.x * this.plotDomain().request;
+    const yMbit = axis === 'y' ? mbit : point.y * this.ceiling;
     if (!this.editable || this.locked || !Number.isFinite(xMbit) || !Number.isFinite(yMbit)) {
       this.inputError = t('Enter whole numbers for the request and target.');
       return;
@@ -357,8 +403,8 @@ export class BitrateCurvePanel extends LitElement {
     const last = this.localPoints.length - 1;
     const xLocked = index === 0 || index === last;
     const yLocked = index === last - 1 || index === last;
-    const x = xLocked ? (index === 0 ? 0 : 1) : xMbit / this.ceiling;
-    const y = yLocked ? 1 : yMbit / this.ceiling;
+    const x = xLocked ? (index === 0 ? 0 : 1) : axis === 'x' ? xMbit / this.plotDomain().request : point.x;
+    const y = yLocked ? 1 : axis === 'y' ? yMbit / this.ceiling : point.y;
     const lowX = index === 0 ? 0 : this.localPoints[index - 1].x + BITRATE_CURVE_POINT_GAP;
     const highX = index >= last - 1 ? 1 : this.localPoints[index + 1].x - BITRATE_CURVE_POINT_GAP;
     const lowY = index === 0 ? 0 : this.localPoints[index - 1].y;
@@ -395,13 +441,19 @@ export class BitrateCurvePanel extends LitElement {
     }
     const family = BITRATE_CURVE_FAMILIES.find(entry => entry.value === this.curve) ?? BITRATE_CURVE_FAMILIES[0];
     const familyLabel = this.drawingCustom() && this.curve !== 3 ? t('Custom (editing)') : t(family.label);
+    const requestDomain = this.plotDomain().request;
     const hint = this.locked
       ? t('Close SteamVR to change the curve.')
-      : this.fixed
-        ? t('Bitrate Constancy is 100%: the applied target is pinned to Max Bitrate. The points still shape the base curve and apply when constancy is lowered.')
-        : this.editable
-          ? t('P1 is fixed at request 0 with an editable floor. P2–P5 move freely. P6 begins at the fixed Max Bitrate endpoint, overlapping the hidden P7; drag it left to begin the flat max section earlier. P7 is shown only as the curve endpoint, not as a selectable point. Request must increase left-to-right and target must never decrease. The applied target is lifted toward Max Bitrate by Bitrate Constancy and never exceeds it.')
-          : t('Steady-state map. Except for Linear at 0%, the driver median-filters the streamer request over five frames; that filter is not shown.');
+      : this.editable
+        ? t('P1 is fixed at request 0 with an editable floor. P2–P5 move freely. P6 starts the flat Max Bitrate section; drag it left to begin the plateau earlier. P7 is the fixed endpoint and cannot be selected. Request must increase left-to-right and target must never decrease. The thin line shows the base curve before constancy and headroom.')
+        : '';
+    const policyHint = this.forceCbr
+      ? t('Force CBR fixes the final average target at Max Bitrate; curve, constancy and headroom do not apply.')
+      : this.pct >= 100
+        ? t('At 100% constancy, positive requests reach the final average limit after any headroom reservation. The points still shape the base curve.')
+        : this.headroomPct > 0
+          ? t('Headroom reserves part of Max Bitrate for the VBR peak and can limit the final average target below the base curve.')
+          : '';
     return html`
       <div class="wrap">
         <canvas class=${`${this.editable ? 'editable' : ''} ${this.locked ? 'locked' : ''}`}
@@ -410,12 +462,14 @@ export class BitrateCurvePanel extends LitElement {
           @pointerup=${this.onPointerUp} @pointercancel=${this.onPointerUp}
           @keydown=${this.onKeyDown}></canvas>
         <div class="legend">
-          <span class="item"><span class="swatch solid"></span>${familyLabel} — ${this.pct}%</span>
+          <span class="item"><span class="swatch solid"></span>${t('Final average target')} — ${familyLabel}, ${this.pct}%</span>
           <span class="item"><span class="swatch base"></span>${t('Base curve (points)')}</span>
           <span class="item"><span class="swatch dashed"></span>${t('Streamer standard (linear)')}</span>
           <span class="item"><span class="swatch max"></span>${t('Max Bitrate {value} Mbit/s', { value: String(Math.round(this.ceiling)) })}</span>
         </div>
-        <div class="hint">${hint}</div>
+        ${hint ? html`<div class="hint">${hint}</div>` : ''}
+        ${policyHint ? html`<div class="hint">${policyHint}</div>` : ''}
+        <div class="hint">${t('Positive-request, steady-state targets only; not measured throughput. The five-frame request filter and the zero or missing request fallback are not shown.')}</div>
         ${this.inputError ? html`<p class="error" role="alert">${this.inputError}</p>` : ''}
         ${this.editable ? html`
           <div class="points">
@@ -427,16 +481,16 @@ export class BitrateCurvePanel extends LitElement {
               <div class="point-row">
                 <span class="index">P${index + 1}</span>
                 <label>${t('Request')} Mbit/s
-                  <input type="number" min="0" max=${this.ceiling} step="1" .value=${String(Math.round(point.x * this.ceiling))}
+                  <input type="number" min="0" max=${requestDomain} step="1" .value=${String(Math.round(point.x * requestDomain))}
                     ?disabled=${this.locked || xLocked} aria-label=${t('Point {index} request Mbit/s', { index: index + 1 })}
-                    @change=${(event: Event) => this.applyNumeric(index,
-                      Number((event.target as HTMLInputElement).value), Math.round(point.y * this.ceiling))}>
+                    @change=${(event: Event) => this.applyNumeric(index, 'x',
+                      Number((event.target as HTMLInputElement).value))}>
                 </label>
                 <label>${t('Target')} Mbit/s
                   <input type="number" min="0" max=${this.ceiling} step="1" .value=${String(Math.round(point.y * this.ceiling))}
                     ?disabled=${this.locked || yLocked} aria-label=${t('Point {index} target Mbit/s', { index: index + 1 })}
-                    @change=${(event: Event) => this.applyNumeric(index,
-                      Math.round(point.x * this.ceiling), Number((event.target as HTMLInputElement).value))}>
+                    @change=${(event: Event) => this.applyNumeric(index, 'y',
+                      Number((event.target as HTMLInputElement).value))}>
                 </label>
               </div>`;
             })}

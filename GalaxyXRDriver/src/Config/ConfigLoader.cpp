@@ -1025,7 +1025,7 @@ void ConfigLoader::ParseConfig(){
 					scale ? "true" : "false", newConfig.streamFrame.nvencBitrateConstancyPct);
 			}
 			// 2026-10-23: nvencVrlinkClampMbit is retired and ignored. The curve
-			// and target normalize against Max Bitrate; old files keep the key.
+			// reference is internal (350 for Galaxy XR); old files keep the key.
 			// 2026-10-21 retirement (owner decision): streamFrame.nvencVrlinkFallbackMode
 			// is gone. It pinned two instructions inside driver_vrlink.dll, which cannot
 			// survive Valve's updates (one image change made it inert, another needed a
@@ -1733,6 +1733,11 @@ void ConfigLoader::ParseConfig(){
 		// saved diagnostic selections or tuning. Match Companion's version stamp.
 		if(newConfig.streamFrame.streamFrameSchema < 5){
 			newConfig.streamFrame.streamFrameSchema = 5;
+		}
+		// Schema 6 (2026-10-27): Galaxy XR normalizes requests against
+		// min(Max Bitrate, 350). Stamp semantics only; preserve all user tuning.
+		if(newConfig.streamFrame.streamFrameSchema < 6){
+			newConfig.streamFrame.streamFrameSchema = 6;
 		}
 		// Async Spacewarp semantics v2 (2026-10-26): mode 0 becomes Automatic
 		// (late-frame recovery until the measured cadence drops, then half rate)

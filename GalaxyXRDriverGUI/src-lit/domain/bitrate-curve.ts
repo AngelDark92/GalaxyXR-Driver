@@ -1,11 +1,12 @@
 // 2026-10-19 bitrate curve families, framework-free.
 // 2026-10-23 seven-point Custom family: editable floor plus a movable Max
-// Bitrate plateau, with no 350 Mbit clamp. Mirrors
+// Bitrate plateau. Galaxy XR uses a 350 Mbit request reference. Mirrors
 // GalaxyXRDriver/src/Driver/CurveMath.h exactly; the unit test pins the same
 // reference points as GalaxyXRDriver/tests/CurveTableTest.cpp so the preview
 // cannot drift from the driver.
 //
-//   x = request / MaxBitrate in [0,1]
+//   D = min(MaxBitrate, requestReference), or MaxBitrate without a reference
+//   x = request / D in [0,1]
 //   b = family(x)            all families: monotone, bounded to [0,1]
 //   y = b^(1 - pct/100)      pct 0 = the curve, 100 = MaxBitrate
 //   target = min(MaxBitrate, MaxBitrate * y)
@@ -167,12 +168,22 @@ export function bitrateCurveTarget(x: number, curve: number, pct: number, points
   return Math.pow(base, 1 - pct / 100);
 }
 
-/** Applied encoder target in Mbit/s for one streamer request against Max Bitrate. */
-export function bitrateCurveMbit(requestMbit: number, ceilingMbit: number, curve: number,
-  pct: number, points?: readonly BitrateCurvePoint[]): number {
+/** Request-domain endpoint. Zero reference preserves neutral/legacy mapping. */
+export function bitrateCurveRequestDomain(ceilingMbit: number, requestReferenceMbit = 0): number {
   const ceiling = ceilingMbit > 0 ? ceilingMbit : 1;
-  const x = Math.max(0, Math.min(1, requestMbit / ceiling));
-  return Math.min(ceiling, ceiling * bitrateCurveTarget(x, curve, pct, points));
+  return requestReferenceMbit > 0 ? Math.min(ceiling, requestReferenceMbit) : ceiling;
+}
+
+/** Steady-state positive-request map; native no-request recovery is separate. */
+export function bitrateCurveMbit(requestMbit: number, ceilingMbit: number, curve: number,
+  pct: number, points?: readonly BitrateCurvePoint[], requestReferenceMbit = 0,
+  headroomPct = 0, forceCbr = false): number {
+  const ceiling = ceilingMbit > 0 ? ceilingMbit : 1;
+  if (forceCbr) return ceiling;
+  const x = Math.max(0, Math.min(1, requestMbit / bitrateCurveRequestDomain(ceiling, requestReferenceMbit)));
+  const budget = headroomPct > 0
+    ? Math.floor(ceiling * 1e6 * 100 / (100 + headroomPct)) / 1e6 : ceiling;
+  return Math.min(budget, ceiling * bitrateCurveTarget(x, curve, pct, points));
 }
 
 /** Seed seven handles from an analytic family at fixed request fractions. */
@@ -194,7 +205,15 @@ export function bitrateCurvePointsForSettings(settings: {
   nvencBitrateCurvePoints?: readonly BitrateCurvePoint[];
 }): BitrateCurvePoint[] {
   const curve = settings.nvencBitrateCurve ?? 0;
-  if (curve === 3) return normalizeBitrateCurvePoints(settings.nvencBitrateCurvePoints);
+  if (curve === 3) {
+    const points = settings.nvencBitrateCurvePoints;
+    if (bitrateCurvePointsValid(points) || bitrateCurveFivePointsValid(points) || bitrateCurveSixPointsValid(points)) {
+      return normalizeBitrateCurvePoints(points);
+    }
+    // The native consumer rejects invalid saved shapes. Keep the graph's error
+    // visible too, rather than substituting an apparently valid default curve.
+    return Array.isArray(points) ? points.map(point => ({ ...point })) : [];
+  }
   return bitrateCurvePointsForFamily(curve);
 }
 
