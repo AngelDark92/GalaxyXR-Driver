@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.16.0-dev.5] - 2026-10-30
+
+### Fixes
+
+- ci: query card-body groups in companion browser test (`3cd24e3`)
+
 ## [1.16.0-dev.4] - 2026-10-30
 
 ### Features
