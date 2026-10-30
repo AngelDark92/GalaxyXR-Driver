@@ -1,5 +1,5 @@
 import { signal } from '../reactive';
-import { inspectBooleanSettings, type BooleanSettingCheck } from '../domain/settings-inspection';
+import { inspectSettings, type SettingCheck } from '../domain/settings-inspection';
 import { galaxyXRDriverName, vendor } from '../environment';
 import { presentSettings, type PresentedSettingCheck } from '../domain/settings-presentation';
 import { flushFileWrites } from '../platform/writer';
@@ -10,7 +10,7 @@ import type { SystemDiagnosticService } from './system-diagnostic';
 
 export interface SettingsCheckReport {
   checkedAt: string;
-  checks: BooleanSettingCheck[];
+  checks: SettingCheck[];
   settings: PresentedSettingCheck[];
   errors: string[];
   warnings: string[];
@@ -72,12 +72,12 @@ export class SettingsCheckService {
         appKnown = true;
         // driverVerified is the Setup page's verification latch, not a user
         // setting, so it stays out of the settings report (2026-09-23).
-        report.checks.push(...inspectBooleanSettings(this.app.values(), this.app.storedValues(), 'gui-settings.json')
+        report.checks.push(...inspectSettings(this.app.values(), this.app.storedValues(), this.app.effectiveDefaults(), 'gui-settings.json')
           .filter(check => check.key !== 'driverVerified'));
       } else report.errors.push(`gui-settings.json: ${this.app.readFileError()?.message ?? this.app.readFileError()?.reason}`);
       if (await this.driver.loadSetting()) {
         driverKnown = true;
-        report.checks.push(...inspectBooleanSettings(this.driver.values(), this.driver.storedValues(), 'settings.json'));
+        report.checks.push(...inspectSettings(this.driver.values(), this.driver.storedValues(), this.driver.effectiveDefaults(), 'settings.json'));
       } else report.errors.push(`settings.json: ${this.driver.readFileError()?.message ?? this.driver.readFileError()?.reason}`);
       if (await this.system.refreshSteamVRSettings()) {
         report.driverEnabled = this.system.getSteamVRDriverEnableState(this.system.steamVrConfig(), galaxyXRDriverName);

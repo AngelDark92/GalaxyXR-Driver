@@ -7,9 +7,10 @@ import { html, type TemplateResult } from 'lit';
 import { customElement } from 'lit/decorators.js';
 import { ref } from 'lit/directives/ref.js';
 import { css } from 'lit';
-import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionHeading, fieldStyles } from './page-base';
+import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionGroup, sectionHeading, fieldStyles, numberControl, sliderControl } from './page-base';
 import { t } from '../locale/i18n';
 import { pageIntro, statusMessage } from '../ui/presentation';
+import { crossFieldIssues } from '../domain/control-specs';
 import '../ui/controls';
 import './driver-banner';
 import './system-ready';
@@ -51,6 +52,19 @@ export class DistortionProfilePage extends BasePage {
     const galaxyXr = galaxy.galaxyXr;
     const sections = galaxy.sections();
     const save = () => { galaxy.save(); this.requestUpdate(); };
+    const controlContext = {
+      codec: settings.nvencCodec ?? 0,
+      forceCbr: !!settings.nvencForceCbr,
+      enhancements: galaxy.imageEnhancementsEnabled,
+      tap: !!settings.nvencTap,
+      gripCompensation: !!settings.kalmanGripEnable,
+      adaptiveDirectionLead: !!settings.kalmanDirLeadAdaptive,
+      gazeAssist: (settings.kalmanGazeAssist ?? 0) > 0,
+      deriveMode: settings.velocityFixMode === 'derive',
+      fastMagnitude: settings.kalmanMagSource === 'fast',
+      softDuplicates: settings.kalmanDupMode === 'soft',
+      ofxrLogging: !!this.ctx.ofxr.preferences().logging,
+    };
     const parts: TemplateResult[] = [pageIntro(t('Distortion Profile'), t('Lens correction and profile sharing.'))];
 if (settings) {
       parts.push(html`<app-driver-enable-banner .ctx=${this.ctx}></app-driver-enable-banner>`);
@@ -59,7 +73,7 @@ if (galaxy.calibrationActive()) {
             html`<fluent-button appearance="outline" @click=${() => { galaxy.stopCalibration(); this.requestUpdate(); }}>${t('Stop calibration')}</fluent-button>`));
 }
 if (galaxy.imageEnhancementsEnabled) {
-        parts.push(sectionRow(t('Distortion Correction'), sections['distortion'], 0, () => this.toggleSection('distortion')));
+        parts.push(sectionRow(t('Distortion Correction'), sections['distortion'], 0, () => this.toggleSection('distortion'), 'distortion'));
 if (sections.distortion) {
           parts.push(noteRow(html`<div class="action-row"><span>${t('Reduce image rippling during head turns with small lens corrections.')}</span>
             <fluent-button appearance="subtle" @click=${() => this.calibrationGuide()}>${t('Calibration guide')}</fluent-button></div>`));
@@ -87,12 +101,14 @@ if (advancedMode) {
 }
 if (advancedMode && settings.distortion.tune.enable) {
             parts.push(fieldRow(t('Tuner Adjust Rate'), html`
-      <app-number .value=${settings.distortion.tune.rate} step="0.01" min="0.01" max="0.5" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.distortion.tune.rate = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.distortion.tune.rate', { value: settings.distortion.tune.rate, ctx: controlContext, onCommit: value => { settings.distortion.tune.rate = value; save(); } })}
+      ${sliderControl('streamFrame.distortion.tune.rate', { value: settings.distortion.tune.rate, onChange: value => { settings.distortion.tune.rate = value; save(); } })}
             `, {
   tip: t("Set how quickly the correction changes when you move the thumbstick. A lower speed makes small final adjustments easier.\n\nScale change per second at full stick deflection (analog mode, used when Step Size is 0). The response is squared, so partial deflection is much slower for fine nulling. Lower it if the last bit of swim is hard to dial in.\n\nValue: streamFrame.distortion.tune.rate (settings.json). Driver side — tuner stick-response rate.")
             }));
             parts.push(fieldRow(t('Tuner Step Size'), html`
-      <app-number .value=${settings.distortion.tune.stepSize} step="0.001" min="0" max="0.05" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.distortion.tune.stepSize = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.distortion.tune.stepSize', { value: settings.distortion.tune.stepSize, ctx: controlContext, onCommit: value => { settings.distortion.tune.stepSize = value; save(); } })}
+      ${sliderControl('streamFrame.distortion.tune.stepSize', { value: settings.distortion.tune.stepSize, onChange: value => { settings.distortion.tune.stepSize = value; save(); } })}
             `, {
   tip: t("Choose smooth thumbstick adjustment or fixed-size steps. Set this to 0 for smooth adjustment.\n\n0 = analog mode. For higher values apply this step per 0.1s while the joystick is deflected.\n\nValue: streamFrame.distortion.tune.stepSize (settings.json). Driver side — fixed step per 0.1 s; 0 = analog.")
             }));
@@ -107,7 +123,8 @@ if (advancedMode && settings.distortion.tune.enable) {
   tip: t("Give different tuning rings different numbers of adjustment areas. Leave the list empty to use the same number everywhere.\n\nOptional: a comma list of segment counts, one per band from INNER to OUTER (e.g. 4, 4, 8, 8, 12, 16, 16). Outer bands cover far more circumference, so they usually deserve more segments than inner ones. Empty = the uniform Band Segments value everywhere. Shorter than the band list = the last entry repeats. Counts 1-32. The X walk covers the current band's own segments; switching bands restarts at ALL. Applies when the tuner is next toggled on.\n\nValue: streamFrame.distortion.tune.segmentLayout (settings.json). Driver side — per-band segment counts, inner to outer.")
             }));
             parts.push(fieldRow(t('Band Ring Opacity'), html`
-      <app-number .value=${settings.distortion.tune.ringOpacity} step="0.05" min="0" max="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.distortion.tune.ringOpacity = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.distortion.tune.ringOpacity', { value: settings.distortion.tune.ringOpacity, ctx: controlContext, onCommit: value => { settings.distortion.tune.ringOpacity = value; save(); } })}
+      ${sliderControl('streamFrame.distortion.tune.ringOpacity', { value: settings.distortion.tune.ringOpacity, onChange: value => { settings.distortion.tune.ringOpacity = value; save(); } })}
             `, {
   tip: t("Set how visible the orange tuning ring is. Lower it when the marker distracts you from judging image movement; 0 hides it.\n\nOpacity of the orange ring marking the band being edited. 0 hides it entirely (the band position is still logged); lower it if the ring itself distracts from judging the swim.\n\nValue: streamFrame.distortion.tune.ringOpacity (settings.json). Driver side — band ring highlight opacity.")
             }));
@@ -130,7 +147,7 @@ if (settings.distortion.tune.forceGrid) {
       <app-switch .checked=${!!settings.eyeGaze.debugGrid} @change=${(e: CustomEvent) => { settings.eyeGaze.debugGrid = e.detail; save(); }}></app-switch>
       <app-select .value=${settings.eyeGaze.gridMode} .options=${[{ value: 'uv', label: 'UV grid (eye tuning)' }, { value: 'angular', label: 'Angular grid (camera photos)' }, { value: 'sboys', label: 'Camera pattern (hue-coded, sboys)' }]} @change=${(e: CustomEvent) => { settings.eyeGaze.gridMode = e.detail; save(); }}></app-select>
       <span>deg</span>
-      <app-number .value=${settings.eyeGaze.gridAngularDeg} step="0.5" min="0.5" max="30" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.eyeGaze.gridAngularDeg = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.eyeGaze.gridAngularDeg', { value: settings.eyeGaze.gridAngularDeg, ctx: controlContext, onCommit: value => { settings.eyeGaze.gridAngularDeg = value; save(); } })}
               `, {
   tip: t("Show reference lines to check whether the image bends or moves as your eyes move. This unwanted movement is often called pupil swim.\n\nOverlays straight reference lines for pupil swim tuning. Fixate a grid intersection, then move only your eyes around it: if the nearby lines bend or shift as your gaze moves, that's pupil swim.\n\nValue: streamFrame.eyeGaze.debugGrid, gridMode, gridAngularDeg (settings.json). Driver side — reference grid overlay, its mode and spacing.")
               }));
@@ -161,21 +178,22 @@ if (advancedMode) {
             }));
 }
           parts.push(fieldRow(t('Correction Gain'), html`
-      <app-number .value=${settings.distortion.gain} step="0.1" min="-1.5" max="1.5" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.distortion.gain = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.distortion.gain', { value: settings.distortion.gain, ctx: controlContext, onCommit: value => { settings.distortion.gain = value; save(); } })}
+      ${sliderControl('streamFrame.distortion.gain', { value: settings.distortion.gain, onChange: value => { settings.distortion.gain = value; save(); } })}
           `, {
   tip: t("Adjust the overall strength and direction of lens correction. 1 uses the saved curve, 0 disables it, and negative values reverse its direction.\n\nMultiplies the whole correction: 1 = curve as authored, 0 = off, -1 = opposite-sign correction, values between scale it. THE perceptual search knob: turn on Warped Overlays + the angular grid, fixate a grid intersection, slowly rotate your head, and sweep the gain until the lines swim least. Settles the correction's sign and strength in one pass, without trusting eye tracking.\n\nValue: streamFrame.distortion.gain (settings.json). Driver side — global multiplier on the correction.")
           }));
 if (settings.distortion.mode == 'k1k2' && !settings.distortion.perEye && !settings.distortion.perAxis) {
             parts.push(fieldRow(t('k1'), html`
-      <app-number .value=${settings.k1} step="0.001" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.k1 = e.detail; } save(); }}></app-number>
-      <app-slider .value=${settings.k1} .min=${-0.1} .max=${0.1} .step=${0.001} @change=${(e: CustomEvent) => { settings.k1 = e.detail; save(); }}></app-slider>
+      ${numberControl('streamFrame.k1', { value: settings.k1, ctx: controlContext, onCommit: value => { settings.k1 = value; save(); } })}
+      ${sliderControl('streamFrame.k1', { value: settings.k1, onChange: value => { settings.k1 = value; save(); } })}
             `, {
   tip: t("Adjust the broad lens-correction curve across the image. Make small changes and compare them using the reference grid.\n\nQuadratic radial term. Affects the whole field, growing with distance from the center.\n\nValue: streamFrame.k1 (settings.json). Driver side — quadratic radial term of the curve."),
   reset: { can: settings.k1 != defaults.k1, on: () => { galaxy.reset('k1'); } }
             }));
             parts.push(fieldRow(t('k2'), html`
-      <app-number .value=${settings.k2} step="0.001" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.k2 = e.detail; } save(); }}></app-number>
-      <app-slider .value=${settings.k2} .min=${-0.1} .max=${0.1} .step=${0.001} @change=${(e: CustomEvent) => { settings.k2 = e.detail; save(); }}></app-slider>
+      ${numberControl('streamFrame.k2', { value: settings.k2, ctx: controlContext, onCommit: value => { settings.k2 = value; save(); } })}
+      ${sliderControl('streamFrame.k2', { value: settings.k2, onChange: value => { settings.k2 = value; save(); } })}
             `, {
   tip: t("Adjust lens correction mostly toward the image edges. Tune the broad correction first, then use this for the outer areas.\n\nQuartic radial term. Mostly affects the periphery.\n\nValue: streamFrame.k2 (settings.json). Driver side — quartic radial term of the curve."),
   reset: { can: settings.k2 != defaults.k2, on: () => { galaxy.reset('k2'); } }
@@ -194,56 +212,66 @@ if (advancedMode) {
 if (advancedMode && settings.distortion.annulus.enable) {
             parts.push(fieldRow(t('Band Range and Feather'), html`
       <span>min</span>
-      <app-number .value=${settings.distortion.annulus.rMin} step="0.05" min="0" max="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.distortion.annulus.rMin = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.distortion.annulus.rMin', { value: settings.distortion.annulus.rMin, ctx: controlContext, label: t('Inner radius'), onCommit: value => { settings.distortion.annulus.rMin = value; save(); } })}
       <span>max</span>
-      <app-number .value=${settings.distortion.annulus.rMax} step="0.05" min="0" max="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.distortion.annulus.rMax = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.distortion.annulus.rMax', { value: settings.distortion.annulus.rMax, ctx: controlContext, label: t('Outer radius'), onCommit: value => { settings.distortion.annulus.rMax = value; save(); } })}
       <span>feather</span>
-      <app-number .value=${settings.distortion.annulus.feather} step="0.01" min="0" max="0.5" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.distortion.annulus.feather = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.distortion.annulus.feather', { value: settings.distortion.annulus.feather, ctx: controlContext, label: t('Band feather'), onCommit: value => { settings.distortion.annulus.feather = value; save(); } })}
             `, {  tip: t("Set how far the ring band reaches into the image and how soft its edge is. Match the band you are tuning.\n\nValue: streamFrame.distortion.annulus.rMin, rMax, feather (settings.json). Driver side — radius span and soft edge of the tuning band.") }
           ));
+          {
+            const issues = crossFieldIssues({
+              'streamFrame.distortion.annulus.rMin': settings.distortion.annulus.rMin,
+              'streamFrame.distortion.annulus.rMax': settings.distortion.annulus.rMax,
+            });
+            if (issues.length) {
+              parts.push(statusMessage('warning', t('Conflicting settings'),
+                issues.map(issue => t(issue.message)).join(' ')));
+            }
+          }
 }
           parts.push(fieldRow(t('Optical Center Offset'), html`
       <span>x left</span>
-      <app-number .value=${settings.centerOffsetXLeft} step="0.001" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.centerOffsetXLeft = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.centerOffsetXLeft', { value: settings.centerOffsetXLeft, ctx: controlContext, label: t('Optical centre X, left'), onCommit: value => { settings.centerOffsetXLeft = value; save(); } })}
       <span>x right</span>
-      <app-number .value=${settings.centerOffsetXRight} step="0.001" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.centerOffsetXRight = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.centerOffsetXRight', { value: settings.centerOffsetXRight, ctx: controlContext, label: t('Optical centre X, right'), onCommit: value => { settings.centerOffsetXRight = value; save(); } })}
       <span>y</span>
-      <app-number .value=${settings.centerOffsetY} step="0.001" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.centerOffsetY = e.detail; } save(); }}></app-number>
+      ${numberControl('streamFrame.centerOffsetY', { value: settings.centerOffsetY, ctx: controlContext, label: t('Optical centre Y'), onCommit: value => { settings.centerOffsetY = value; save(); } })}
           `, {
   tip: t("Move the center around which the lens correction is applied. Small changes can affect both image sharpness and apparent movement.\n\nMoves the center the correction rings are anchored to, in uv units per eye. Use if the residual wobble is asymmetric.\n\nValue: streamFrame.centerOffsetXLeft, centerOffsetXRight, centerOffsetY (settings.json). Driver side — per-eye uv-space center of the correction.")
           }));
 if (advancedMode) {
-            parts.push(sectionRow(t('Eye Alignment'), sections['eyeAlign'], 1, () => this.toggleSection('eyeAlign')));
-if (sections.eyeAlign) {
+            parts.push(sectionGroup(t('Eye Alignment'), 1, 'group', 'eye-align'));
+
               parts.push(fieldRow(t('Eye Alignment Left H'), html`
-      <app-number .value=${settings.alignment.leftH} step="0.0005" min="-0.01" max="0.01" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.alignment.leftH = e.detail; } save(); }}></app-number>
-      <app-slider .value=${settings.alignment.leftH} .min=${-0.01} .max=${0.01} .step=${0.0005} @change=${(e: CustomEvent) => { settings.alignment.leftH = e.detail; save(); }}></app-slider>
+      ${numberControl('streamFrame.alignment.leftH', { value: settings.alignment.leftH, ctx: controlContext, onCommit: value => { settings.alignment.leftH = value; save(); } })}
+      ${sliderControl('streamFrame.alignment.leftH', { value: settings.alignment.leftH, onChange: value => { settings.alignment.leftH = value; save(); } })}
               `, {
   tip: t("Move the left-eye image sideways for alignment. Change this carefully: a poor setting can affect comfort and depth perception.\n\nPrism correction: shifts the LEFT eye's whole image horizontally, in fractions of the image (positive = right). Corrects binocular misalignment when an eye sits off its lens axis. Use sparingly: horizontal shift also changes apparent depth. Typical useful values are within a few thousandths.\n\nValue: streamFrame.alignment.leftH (settings.json). Driver side — horizontal prism shift for the left eye (fractions of image width)."),
   reset: { can: galaxy.alignmentDirty(), on: () => { galaxy.reset('alignment'); } }
               }));
               parts.push(fieldRow(t('Eye Alignment Left V'), html`
-      <app-number .value=${settings.alignment.leftV} step="0.0005" min="-0.01" max="0.01" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.alignment.leftV = e.detail; } save(); }}></app-number>
-      <app-slider .value=${settings.alignment.leftV} .min=${-0.01} .max=${0.01} .step=${0.0005} @change=${(e: CustomEvent) => { settings.alignment.leftV = e.detail; save(); }}></app-slider>
+      ${numberControl('streamFrame.alignment.leftV', { value: settings.alignment.leftV, ctx: controlContext, onCommit: value => { settings.alignment.leftV = value; save(); } })}
+      ${sliderControl('streamFrame.alignment.leftV', { value: settings.alignment.leftV, onChange: value => { settings.alignment.leftV = value; save(); } })}
               `, {
   tip: t("Move the left-eye image up or down for alignment. A mismatch between the eyes can be uncomfortable; keep a known-good profile to restore.\n\nPrism correction: shifts the LEFT eye's whole image vertically, in fractions of the image (positive = up). Vertical misalignment between the eyes is can contribute to one-eye 'something is off' strain: fusional range is tiny vertically. Tune while alternately closing each eye against a horizontal line until the line does not jump.\n\nValue: streamFrame.alignment.leftV (settings.json). Driver side — vertical prism shift for the left eye.")
               }));
               parts.push(fieldRow(t('Eye Alignment Right H'), html`
-      <app-number .value=${settings.alignment.rightH} step="0.0005" min="-0.01" max="0.01" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.alignment.rightH = e.detail; } save(); }}></app-number>
-      <app-slider .value=${settings.alignment.rightH} .min=${-0.01} .max=${0.01} .step=${0.0005} @change=${(e: CustomEvent) => { settings.alignment.rightH = e.detail; save(); }}></app-slider>
+      ${numberControl('streamFrame.alignment.rightH', { value: settings.alignment.rightH, ctx: controlContext, onCommit: value => { settings.alignment.rightH = value; save(); } })}
+      ${sliderControl('streamFrame.alignment.rightH', { value: settings.alignment.rightH, onChange: value => { settings.alignment.rightH = value; save(); } })}
               `, {
   tip: t("Move the right-eye image sideways for alignment. Change this carefully and compare both eyes together.\n\nPrism correction: shifts the RIGHT eye's whole image horizontally, in fractions of the image (positive = right).\n\nValue: streamFrame.alignment.rightH (settings.json). Driver side — horizontal prism shift for the right eye.")
               }));
               parts.push(fieldRow(t('Eye Alignment Right V'), html`
-      <app-number .value=${settings.alignment.rightV} step="0.0005" min="-0.01" max="0.01" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { settings.alignment.rightV = e.detail; } save(); }}></app-number>
-      <app-slider .value=${settings.alignment.rightV} .min=${-0.01} .max=${0.01} .step=${0.0005} @change=${(e: CustomEvent) => { settings.alignment.rightV = e.detail; save(); }}></app-slider>
+      ${numberControl('streamFrame.alignment.rightV', { value: settings.alignment.rightV, ctx: controlContext, onCommit: value => { settings.alignment.rightV = value; save(); } })}
+      ${sliderControl('streamFrame.alignment.rightV', { value: settings.alignment.rightV, onChange: value => { settings.alignment.rightV = value; save(); } })}
               `, {
   tip: t("Move the right-eye image up or down for alignment. Use small changes and stop if the result is uncomfortable.\n\nPrism correction: shifts the RIGHT eye's whole image vertically, in fractions of the image (positive = up). Usually only ONE eye needs a vertical correction; pick the eye that feels off.\n\nValue: streamFrame.alignment.rightV (settings.json). Driver side — vertical prism shift for the right eye.")
               }));
+
 }
 }
-}
-        parts.push(sectionRow(t('Share Distortion Profile'), sections['share'], 0, () => this.toggleSection('share')));
+        parts.push(sectionRow(t('Share Distortion Profile'), sections['share'], 0, () => this.toggleSection('share'), 'share'));
 if (sections.share) {
           parts.push(noteRow(html`<div class="action-row"><span>${t('Save your current profile or import a shared one.')}</span>
             <fluent-button appearance="subtle" @click=${() => this.sharingGuide()}>${t('Import and export')}</fluent-button></div>`));
@@ -262,7 +290,7 @@ if (sections.share) {
 </div>`);
 }
 } else {
-        parts.push(sectionHeading(t('Distortion Correction')));
+        parts.push(sectionHeading(t('Distortion Correction'), 0, 'distortion'));
         parts.push(statusMessage('info', t('Image Enhancements is off'),
           t('Enable it in App Settings to use lens correction and profile sharing.'),
           html`<a href="#/app-settings">${t('Open App Settings')}</a>`));

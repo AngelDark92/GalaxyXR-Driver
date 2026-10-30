@@ -10,6 +10,7 @@ import type { AppContext } from '../app-context';
 import { t } from '../locale/i18n';
 import { interactiveStyles } from '../ui/shared-styles';
 import { settingPresentation, settingUnavailable } from '../domain/settings-presentation';
+import { controlSpec, inertReasons, type ControlContext } from '../domain/control-specs';
 
 /**
  * Shared .field grid + color helpers, ported from src/simple-form.scss.
@@ -19,6 +20,9 @@ import { settingPresentation, settingUnavailable } from '../domain/settings-pres
  */
 export const fieldStyles = css`
   ${interactiveStyles}
+  /* The page is a size container: when the docked navigator opens or closes,
+     the page's own width changes and these queries reflow the rows. */
+  :host { container-type: inline-size; container-name: page; }
   .field {
     position: relative;
     display: grid;
@@ -43,6 +47,17 @@ export const fieldStyles = css`
     user-select: none;
     padding-right: 1rem;
     gap: 0.25rem;
+    font-size: 0.9rem;
+    line-height: 1.25;
+  }
+  .field .title .changed-dot {
+    width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%;
+    background: var(--colorBrandBackground, #0f6cbd);
+  }
+  .inert-note {
+    flex: 1 0 100%; width: 100%;
+    color: var(--colorPaletteDarkOrangeForeground1, #a85000);
+    font-size: 0.8rem; line-height: 1.35;
   }
   .field .title::after {
     content: '';
@@ -90,9 +105,11 @@ export const fieldStyles = css`
   .field .control { min-width: 0; display: flex; align-items: center; flex: 1 1 auto; gap: 0.5rem; flex-wrap: wrap; }
   .field .control .wide { flex: 1 1 auto; min-width: 0; }
   .field .control > * { max-width: 100%; }
-  .chevron { display: inline-block; width: 1em; flex: 0 0 auto; text-align: center; }
+  .chevron { display: inline-block; width: 1em; flex: 0 0 auto; text-align: center; transition: transform 150ms ease; }
   .chevron.closed { transform: rotate(-90deg); }
-  @media (max-width: 700px) {
+  .section-card { animation: card-in 180ms cubic-bezier(0.2, 0, 0, 1) both; }
+  @keyframes card-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+  @container page (max-width: 700px) {
     .field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
     .field .title::after { display: none; }
     .field .section-title, .field .note { grid-column: 1; }
@@ -108,15 +125,71 @@ export const fieldStyles = css`
   .section-card > .card-heading .collapsible:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: -3px; }
   .section-body { padding: 4px 16px 12px 22px; min-width: 0; }
   .section-body[hidden] { display: none; }
-  .section-body > .section-card { margin: 12px 0 8px 12px; border-inline-start-width: 3px;
-    border-inline-start-color: var(--colorNeutralStrokeAccessible); }
-  .section-body > .section-card > .card-heading .section-title { font-size: 1rem; }
-  .section-group { margin: 12px 0 8px; min-width: 0; }
-  .section-group-label { margin: 0 0 4px; color: var(--colorNeutralForeground2); font-size: 0.95rem; font-weight: 600; }
-  .section-group.source > .section-group-label { color: var(--colorNeutralForeground1); font-size: 1rem; }
-  .section-group > .section-card { margin-inline-start: 12px; }
+  /* 2026-10-30: only depth-0 sections are collapsible cards. Every nested
+     section is a group: a banded heading with a brand rule and dot, not a
+     button and not a row. Depth indentation carries the book hierarchy. */
+  .section-group { margin: 16px 0 6px; min-width: 0; }
+  .section-group.level-1 { margin-inline-start: 10px; }
+  .section-group.level-2 { margin-inline-start: 22px; }
+  .section-group.level-3 { margin-inline-start: 34px; }
+  .section-group-label {
+    display: flex; align-items: center; gap: 8px;
+    margin: 0; padding: 6px 10px;
+    border-inline-start: 3px solid var(--colorBrandStroke1, #0f6cbd);
+    border-radius: 0 6px 6px 0;
+    background: linear-gradient(90deg,
+      var(--colorNeutralBackground3, #f5f5f5) 0,
+      transparent 88%);
+    color: var(--colorNeutralForeground1, #242424);
+    font-size: 0.96rem; font-weight: 700;
+    letter-spacing: 0.06em; line-height: 1.25; text-transform: uppercase;
+    user-select: none;
+  }
+  .section-group-label::before {
+    content: ''; width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%;
+    background: var(--colorBrandBackground, #0f6cbd);
+  }
+  .section-group.source > .section-group-label {
+    border-inline-start-color: var(--colorNeutralStrokeAccessible, #616161);
+  }
+  .section-group.source > .section-group-label::before { background: var(--colorNeutralForeground3, #616161); }
+  /* 2026-10-30: a group inside another group is a subhead, not a second
+     band. The outer band carries the section; the inner one gets a tree
+     guide and a larger uppercase label without a filled header. */
+  .section-group.nested {
+    margin-top: 10px;
+    padding-inline-start: 12px;
+    border-inline-start: 1px solid var(--colorNeutralStroke2, #d1d1d1);
+  }
+  .section-group.nested > .section-group-label {
+    margin-top: 0;
+    padding: 7px 0 5px;
+    border-inline-start: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--colorNeutralForeground1, #242424);
+    font-size: 0.92rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    line-height: 1.25;
+  }
+  .section-group.nested > .section-group-label::before {
+    width: 4px; height: 4px; flex-basis: 4px;
+    background: var(--colorNeutralForeground3, #616161);
+  }
+  .section-group.nested > .section-group-label::after {
+    content: ''; flex: 1; height: 1px; margin-inline-start: 2px;
+    background: var(--colorNeutralStroke2, #d1d1d1);
+  }
+  .section-group:focus-visible, .section-card:focus-visible {
+    outline: 2px solid var(--colorBrandStroke1, #0f6cbd); outline-offset: 2px;
+  }
+  .section-group.revealed, .section-card.revealed {
+    outline: 2px solid var(--colorBrandStroke1, #0f6cbd); outline-offset: 2px;
+  }
+  .section-group > .field:first-of-type { border-top: 0; }
   .section-card .field { grid-template-columns: minmax(12rem, 22rem) minmax(0, 1fr); }
-  @media (max-width: 720px) {
+  @container page (max-width: 720px) {
     .section-body { padding-inline: 12px; }
     .section-body > .section-card { margin-inline-start: 6px; }
     .section-card .field { grid-template-columns: 1fr; }
@@ -125,6 +198,7 @@ export const fieldStyles = css`
   }
   .primary-color { color: var(--colorBrandForeground1, #1a73e8); }
   .warn-color { color: var(--colorPaletteDarkOrangeForeground1, #a85000); }
+  .section-card, .section-group { scroll-margin-top: 12px; }
 `;
 
 export class BasePage extends LitElement {
@@ -243,6 +317,43 @@ export class BasePage extends LitElement {
     this.ctx.galaxy.sections.set(next as unknown as typeof current);
   }
 
+  protected jumpToSection(anchorId: string): void {
+    const target = this.shadowRoot?.getElementById(`section-${anchorId}`);
+    if (!target) return;
+    const reduce = typeof window !== 'undefined'
+      && (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+    target.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  }
+
+  /**
+   * Reveal a section from the chapter Contents card. Nested groups no longer
+   * collapse, so `openKeys` only needs the enclosing depth-0 cards. The card
+   * and group renderer assigns tabindex=-1 to anchored targets; focus moves
+   * there so keyboard and screen-reader users land on the requested section.
+   */
+  async revealSection(anchorId: string, openKeys: readonly string[] = []): Promise<void> {
+    if (openKeys.length) {
+      const current = { ...(this.ctx.galaxy.sections() as unknown as Record<string, boolean>) };
+      let changed = false;
+      for (const key of openKeys) {
+        if (!current[key]) { current[key] = true; changed = true; }
+      }
+      if (changed) {
+        this.ctx.galaxy.sections.set(current as unknown as ReturnType<typeof this.ctx.galaxy.sections>);
+        await this.updateComplete;
+      }
+    }
+    const target = this.shadowRoot?.getElementById(`section-${anchorId}`);
+    if (!target) return;
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+    target.focus({ preventScroll: true });
+    // Programmatic focus after a pointer click does not match :focus-visible
+    // in Chromium; paint the ring explicitly and clear it on blur.
+    target.classList.add('revealed');
+    target.addEventListener('blur', () => target.classList.remove('revealed'), { once: true });
+    this.jumpToSection(anchorId);
+  }
+
   /** Card renderer for page bodies. Heading containers resolve their
    * open/closed state through the shared section state, so every container
    * in the app collapses like the other section cards (2026-09-22). */
@@ -273,12 +384,124 @@ export function fieldRow(
   return html`<div class="field" id=${opts?.settingId ? `setting-${opts.settingId}` : nothing}
     data-setting-id=${opts?.settingId ?? nothing} tabindex=${opts?.settingId ? '-1' : nothing}>
     <div class="title">
+      ${opts?.reset?.can ? html`<i class="changed-dot" aria-hidden="true"></i>` : nothing}
       <span>${title}</span>
       ${opts?.tip ? html`<app-field-tip .info=${opts.tip} .label=${typeof title === 'string' ? title : ''}></app-field-tip>` : html``}
       ${opts?.reset ? html`<app-reset .canReset=${opts.reset.can} @resetClick=${opts.reset.on}></app-reset>` : html``}
     </div>
     <div class="control ${opts?.wide ? 'wide' : ''}">${control}</div>
   </div>`;
+}
+
+export interface NumberControlOptions {
+  value: number;
+  ctx: ControlContext;
+  disabled?: boolean;
+  /** Explicit accessible name; required when a row has several numeric fields. */
+  label?: string;
+  wide?: boolean;
+  onCommit?: (value: number) => void;
+  onInvalid?: (message: string) => void;
+}
+
+/**
+ * Spec-driven numeric field. The bounds, unit, integer rule and sentinel labels
+ * come from `domain/control-specs.ts`; pages must not pass their own range.
+ * Validates on blur/Enter and refuses an out-of-contract edit (the control
+ * shows the reason); a stored value outside the spec is displayed and flagged,
+ * never rewritten.
+ */
+export function numberControl(key: string, opts: NumberControlOptions): TemplateResult {
+  const spec = controlSpec(key);
+  if (!spec || spec.kind !== 'number') throw new Error(`Unknown numeric control spec: ${key}`);
+  const inert = inertReasons(spec, opts.ctx);
+  return html`<app-number .spec=${spec} .ctx=${opts.ctx} .value=${opts.value}
+    .label=${opts.label ?? ''} .disabled=${!!opts.disabled} .wide=${!!opts.wide}
+    .commitOn=${'blur'}
+    @change=${(event: CustomEvent<number>) => { if (Number.isFinite(event.detail)) opts.onCommit?.(event.detail); }}
+    @invalid=${(event: CustomEvent<{ message: string }>) => opts.onInvalid?.(event.detail.message)}></app-number>${inert.length
+      ? html`<span class="inert-note">${inert.map(reason => t(reason)).join(' ')}</span>` : nothing}`;
+}
+
+export interface ChoiceControlOptions {
+  value: string | number;
+  ctx: ControlContext;
+  disabled?: boolean;
+  label?: string;
+  onCommit: (value: string | number) => void;
+}
+
+/**
+ * Spec-driven finite set. A stored value that is not in the list is appended as
+ * an explicit "Stored: X (unsupported)" option, so the control shows the truth
+ * instead of selecting a different value.
+ */
+export function choiceControl(key: string, opts: ChoiceControlOptions): TemplateResult {
+  const spec = controlSpec(key);
+  if (!spec || spec.kind !== 'choice') throw new Error(`Unknown choice control spec: ${key}`);
+  const options = spec.options.map(option => ({ value: option.value, label: t(option.label) }));
+  if (!options.some(option => String(option.value) === String(opts.value))) {
+    options.push({
+      value: opts.value,
+      label: t('Stored: {value} (unsupported)', { value: String(opts.value) }),
+    });
+  }
+  const onChange = (event: CustomEvent<string | number>) => opts.onCommit(event.detail);
+  const control = spec.segmented
+    ? html`<app-choice .value=${opts.value} .options=${options} .label=${opts.label ?? ''}
+        .disabled=${!!opts.disabled} @change=${onChange}></app-choice>`
+    : html`<app-select .value=${String(opts.value)} .options=${options} .label=${opts.label ?? ''}
+        .disabled=${!!opts.disabled} @change=${onChange}></app-select>`;
+  const inert = inertReasons(spec, opts.ctx);
+  return html`${control}${inert.length ? html`<span class="inert-note">${inert.map(reason => t(reason)).join(' ')}</span>` : nothing}`;
+}
+
+export interface SliderControlOptions {
+  value: number;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+  onCommit?: (value: number) => void;
+}
+
+/** Companion slider for rows whose spec declares a guidance band. Renders
+ *  nothing when the spec has none, so adding a slider stays a spec decision.
+ *  The row's numberControl owns the "saved, not applied" note, so the slider
+ *  does not repeat it. */
+export function sliderControl(key: string, opts: SliderControlOptions): TemplateResult {
+  const spec = controlSpec(key);
+  if (!spec || spec.kind !== 'number' || !spec.slider) return html``;
+  const band = spec.slider;
+  return html`<app-slider .value=${opts.value} .min=${band.min} .max=${band.max} .step=${band.step}
+    .disabled=${!!opts.disabled}
+    @change=${(event: CustomEvent<number>) => opts.onChange(event.detail)}
+    @commit=${(event: CustomEvent<number>) => opts.onCommit?.(event.detail)}></app-slider>`;
+}
+
+export interface VectorControlOptions {
+  keys: readonly [string, string, string];
+  values: readonly [number, number, number];
+  /** Visible axis captions, e.g. ['X','Y','Z']. */
+  labels: readonly [string, string, string];
+  /** Accessible base name; the axis caption is appended. */
+  baseLabel: string;
+  ctx: ControlContext;
+  disabled?: boolean;
+  onCommit: (key: string, value: number) => void;
+}
+
+/** Three-axis numeric row rendered as labelled cells. Spec lookup stays here,
+ *  so a vector cannot be added without declaring all three keys. */
+export function vectorControl(opts: VectorControlOptions): TemplateResult {
+  const axes = opts.keys.map((key, index) => {
+    const spec = controlSpec(key);
+    if (!spec || spec.kind !== 'number') throw new Error(`Unknown numeric control spec: ${key}`);
+    return {
+      key, label: opts.labels[index], ariaLabel: `${opts.baseLabel} ${opts.labels[index]}`,
+      value: opts.values[index], spec, disabled: !!opts.disabled,
+    };
+  });
+  return html`<app-vector .axes=${axes} .ctx=${opts.ctx}
+    @axis-change=${(event: CustomEvent<{ key: string; value: number }>) => opts.onCommit(event.detail.key, event.detail.value)}></app-vector>`;
 }
 
 /** One catalog label is used by the rendered control and its check result. */
@@ -295,7 +518,7 @@ export function noteRow(text: string | TemplateResult): TemplateResult {
 
 /** Section metadata stays with its template: no querying/transplanting DOM nodes,
  * no innerHTML, and no lifecycle changes to nested controls. */
-interface SectionSpec { title: string; depth: number; open: boolean; onToggle?: () => void; key?: string; group?: 'advanced' | 'source'; }
+interface SectionSpec { title: string; depth: number; open: boolean; onToggle?: () => void; key?: string; group?: 'group' | 'source'; anchorId?: string; }
 const sectionSpecs = new WeakMap<TemplateResult, SectionSpec>();
 
 /** Top-level container heading. Collapsible like every other section card:
@@ -303,21 +526,21 @@ const sectionSpecs = new WeakMap<TemplateResult, SectionSpec>();
  * key (open by default), wired in by BasePage.sectionCardsFor (2026-09-22). */
 export function sectionHeading(title: string, level = 0, id?: string): TemplateResult {
   const result = html`<h2 class="section-title">${title}</h2>`;
-  sectionSpecs.set(result, { title, depth: Math.max(0, Math.min(3, level)), open: true, key: `heading:${id ?? title}` });
+  sectionSpecs.set(result, { title, depth: Math.max(0, Math.min(3, level)), open: true, key: `heading:${id ?? title}`, anchorId: id });
   return result;
 }
 
-export function sectionRow(title: string, open: boolean, level: number, onToggle: () => void): TemplateResult {
+export function sectionRow(title: string, open: boolean, level: number, onToggle: () => void, anchorId?: string): TemplateResult {
   const result = html`<button type="button" aria-expanded=${String(open)} @click=${onToggle}>${title}</button>`;
-  sectionSpecs.set(result, { title, open, onToggle, depth: Math.max(0, Math.min(3, level)) });
+  sectionSpecs.set(result, { title, open, onToggle, depth: Math.max(0, Math.min(3, level)), anchorId });
   return result;
 }
 
-/** Inline groups keep row ownership without adding another card or collapse
- * switch. Advanced controls belong beside the settings they extend (2026-10-01). */
-export function sectionGroup(title: string, level = 0, kind: 'advanced' | 'source' = 'advanced'): TemplateResult {
+/** Non-collapsible nested section heading (2026-10-30). Depth-1+ sections are
+ * always groups: no chevron, no collapse state, a banded heading instead. */
+export function sectionGroup(title: string, level = 0, kind: 'group' | 'source' = 'group', anchorId?: string): TemplateResult {
   const result = html`<div class="section-group-label">${title}</div>`;
-  sectionSpecs.set(result, { title, depth: Math.max(0, Math.min(3, level)), open: true, group: kind });
+  sectionSpecs.set(result, { title, depth: Math.max(0, Math.min(3, level)), open: true, group: kind, anchorId });
   return result;
 }
 
@@ -346,18 +569,23 @@ export function sectionCards(rows: readonly TemplateResult[], opts?: SectionCard
       stack.push(card);
     } else (stack.length ? stack[stack.length - 1].children : root).push(row);
   });
-  const renderItem = (item: Card | TemplateResult, cardDepth = 0): TemplateResult => {
+  const renderItem = (item: Card | TemplateResult, cardDepth = 0, insideGroup = false): TemplateResult => {
     if (!('spec' in item)) return item;
     const { spec, index } = item;
     const label = `settings-section-${index}`;
     const body = `${label}-body`;
-    // A plain group does not count toward the two-card limit (2026-10-01).
-    // Excess hierarchy keeps its fields and label without another border or
-    // collapse switch; the enclosing real cards still control visibility.
-    if (spec.group || cardDepth >= 2) {
-      return html`<div class="section-group ${spec.group ?? 'source'}" role="group" aria-labelledby=${label}>
-        <div class="section-group-label" id=${label}>${spec.title}</div>
-        ${item.children.map(child => renderItem(child, cardDepth))}
+    // 2026-10-30: only depth-0 sections collapse. A nested section is a group
+    // even if its template still came from sectionRow/sectionHeading, so a
+    // collapsible card can never appear inside another collapsible card.
+    const isGroup = !!spec.group || cardDepth >= 1 || spec.depth >= 1;
+    if (isGroup) {
+      const kind = spec.group ?? 'group';
+      return html`<div class="section-group level-${spec.depth} ${kind} ${insideGroup ? 'nested' : ''}"
+        role="group" aria-labelledby=${label}
+        id=${spec.anchorId ? `section-${spec.anchorId}` : nothing}
+        tabindex=${spec.anchorId ? '-1' : nothing}>
+        <div class="section-group-label" id=${label} role="heading" aria-level=${String(spec.depth + 2)}>${spec.title}</div>
+        ${item.children.map(child => renderItem(child, cardDepth, true))}
       </div>`;
     }
     // Heading containers collapse like every other card; their state comes
@@ -366,7 +594,9 @@ export function sectionCards(rows: readonly TemplateResult[], opts?: SectionCard
     const toggle = opts?.onToggle;
     const open = key ? (opts?.sections ? opts.sections[key] ?? true : true) : spec.open;
     const onToggle = key ? (toggle ? () => toggle(key) : undefined) : spec.onToggle;
-    return html`<section class="section-card level-${spec.depth}" aria-labelledby=${label}>
+    return html`<section class="section-card level-${spec.depth}" aria-labelledby=${label}
+      id=${spec.anchorId ? `section-${spec.anchorId}` : nothing}
+      tabindex=${spec.anchorId ? '-1' : nothing}>
       <div class="card-heading" role="heading" aria-level=${String(spec.depth + 2)}>
         ${onToggle ? html`<button type="button" class="section-title collapsible" id=${label}
           aria-expanded=${String(open)} aria-controls=${body} @click=${onToggle}>
@@ -374,7 +604,7 @@ export function sectionCards(rows: readonly TemplateResult[], opts?: SectionCard
           <span class="section-label">${spec.title}</span>
         </button>` : html`<div class="section-title" id=${label}><span class="section-label">${spec.title}</span></div>`}
       </div>
-      <div class="section-body" id=${body} ?hidden=${!open}>${open ? item.children.map(child => renderItem(child, cardDepth + 1)) : html``}</div>
+      <div class="section-body" id=${body} ?hidden=${!open}>${open ? item.children.map(child => renderItem(child, cardDepth + 1, false)) : html``}</div>
     </section>`;
   };
   return html`${root.map(item => renderItem(item))}`;

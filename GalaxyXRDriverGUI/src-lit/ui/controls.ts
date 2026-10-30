@@ -13,6 +13,13 @@ import { customElement, property } from 'lit/decorators.js';
 import { css } from 'lit';
 import { t } from '../locale/i18n';
 import { interactiveStyles } from './shared-styles';
+import {
+  DEFAULT_CONTROL_CONTEXT, numberBounds, numberInputError,
+  type ControlContext, type NumberControlSpec,
+} from '../domain/control-specs';
+
+let controlId = 0;
+function nextControlId(): number { return ++controlId; }
 
 function accessibleLabel(element: HTMLElement, explicit = ''): string {
   return explicit || element.closest('.field')?.querySelector('.title > span')?.textContent?.trim() || t('Setting');
@@ -90,6 +97,15 @@ export class AppSelect extends LitElement {
     }
     fluent-dropdown {
       width: 100%;
+    }
+    fluent-listbox { transform-origin: top center; }
+    fluent-listbox:popover-open { animation: dropdown-in 120ms cubic-bezier(0.2, 0, 0, 1) both; }
+    @keyframes dropdown-in {
+      from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+      to { opacity: 1; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      fluent-listbox:popover-open { animation: none; }
     }
   `;
 
@@ -177,16 +193,150 @@ export class AppSelect extends LitElement {
 }
 
 /**
+ * app-choice — segmented choice for 2-4 enumerated values. Unlike a dropdown it
+ * keeps every option visible, which is what makes a finite set read as finite.
+ * `change` carries the declared option value (string or number), same contract
+ * as app-select. A stored value outside the option list stays selectable only
+ * as an explicit "Stored: X" button added by the caller, so it is never
+ * silently replaced.
+ */
+@customElement('app-choice')
+export class AppChoice extends LitElement {
+  static styles = css`
+    ${interactiveStyles}
+    :host { display: inline-block; max-width: 100%; }
+    .segmented {
+      display: inline-flex;
+      flex-wrap: wrap;
+      border: 1px solid var(--colorNeutralStroke1, #d1d1d1);
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--colorNeutralBackground1, #fff);
+    }
+    button {
+      min-height: 34px;
+      padding: 5px 12px;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      white-space: nowrap;
+      transition: background-color 120ms ease, color 120ms ease, transform 80ms ease;
+    }
+    button:active:not(:disabled) { transform: scale(0.98); }
+    button + button { border-left: 1px solid var(--colorNeutralStroke2, #e0e0e0); }
+    button[aria-pressed='true'] {
+      background: var(--colorBrandBackground, #0f6cbd);
+      color: var(--colorNeutralForegroundOnBrand, #fff);
+    }
+    button[aria-pressed='true']:hover:not(:disabled) { background: var(--colorBrandBackgroundHover, #115ea3); }
+    button:disabled { cursor: not-allowed; }
+  `;
+
+  @property({ attribute: false }) options: AppSelectOption[] = [];
+  @property({ attribute: false }) value: string | number = '';
+  @property({ type: Boolean }) disabled = false;
+  @property({ type: String }) label = '';
+
+  private select(option: AppSelectOption): void {
+    if (this.disabled || String(option.value) === String(this.value)) return;
+    this.value = option.value;
+    this.dispatchEvent(new CustomEvent('change', { detail: option.value, bubbles: true, composed: true }));
+  }
+
+  render() {
+    return html`<div class="segmented" role="group" aria-label=${accessibleLabel(this, this.label)}>
+      ${this.options.map(option => html`<button type="button"
+        aria-pressed=${String(option.value) === String(this.value) ? 'true' : 'false'}
+        ?disabled=${this.disabled}
+        @click=${() => this.select(option)}>${option.label}</button>`)}
+    </div>`;
+  }
+}
+
+export interface VectorAxis {
+  key: string;
+  /** Visible axis caption (X / Y / Z or R / G / B). */
+  label: string;
+  /** Accessible name; falls back to the visible caption. */
+  ariaLabel?: string;
+  value: number;
+  spec?: NumberControlSpec;
+  disabled?: boolean;
+}
+
+/**
+ * app-vector — 2-3 labelled axis cells sharing one spec-driven numeric field
+ * each. The visible caption sits with its field, so X/Y/Z (or R/G/B) no longer
+ * float as unlabelled spans. `axis-change` carries the axis key and value.
+ */
+@customElement('app-vector')
+export class AppVector extends LitElement {
+  static styles = css`
+    ${interactiveStyles}
+    :host { display: block; max-width: 100%; }
+    .vector {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+      gap: 0.4rem 0.75rem;
+      align-items: end;
+    }
+    .vector-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .vector-label {
+      color: var(--colorNeutralForeground3, #616161);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+  `;
+
+  @property({ attribute: false }) axes: VectorAxis[] = [];
+  @property({ attribute: false }) ctx?: ControlContext;
+
+  private axisChanged(key: string, event: CustomEvent<number>): void {
+    if (!Number.isFinite(event.detail)) return;
+    this.dispatchEvent(new CustomEvent('axis-change', {
+      detail: { key, value: event.detail }, bubbles: true, composed: true,
+    }));
+  }
+
+  render() {
+    return html`<div class="vector">
+      ${this.axes.map(axis => html`<span class="vector-cell">
+        <span class="vector-label">${axis.label}</span>
+        <app-number .spec=${axis.spec} .ctx=${this.ctx} .value=${axis.value}
+          .label=${axis.ariaLabel ?? axis.label} .disabled=${!!axis.disabled} .commitOn=${'blur'}
+          @change=${(event: CustomEvent<number>) => this.axisChanged(axis.key, event)}></app-number>
+      </span>`)}
+    </div>`;
+  }
+}
+
+/**
  * app-number — numeric field. Keeps the draft string separate from the last
  * valid numeric value: empty/NaN input never becomes 0 in the store; pages
  * receive `change` with a finite number or undefined (leave untouched).
+ *
+ * 2026-10-30: a spec-driven mode. With `.spec` set, the field resolves its
+ * bounds from the codec/context, keeps the typed draft private, validates on
+ * blur/Enter and refuses an out-of-contract edit (`invalid` event) instead of
+ * writing it. A stored value outside the spec is still shown verbatim and
+ * flagged, never rewritten. `commitOn` defaults to `input`, which preserves
+ * the legacy per-keystroke behavior for rows that have not migrated yet.
  */
 @customElement('app-number')
 export class AppNumber extends LitElement {
   static styles = css`
     ${interactiveStyles}
     :host {
-      display: inline-block;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+    }
+    .shell {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
     }
     input {
       width: 6rem;
@@ -198,6 +348,34 @@ export class AppNumber extends LitElement {
       border: 0.1rem solid var(--colorNeutralStroke1, #888);
       background: var(--colorNeutralBackground2, #f4f4f4);
       color: var(--colorNeutralForeground1, #202020);
+      font-variant-numeric: tabular-nums;
+    }
+    .shell.has-unit input {
+      width: 9rem;
+      padding-right: 3.4rem;
+    }
+    .unit {
+      position: absolute;
+      right: 0.5rem;
+      color: var(--colorNeutralForeground3, #616161);
+      font-size: 0.85em;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    input[aria-invalid='true'] {
+      border-color: var(--colorPaletteDarkOrangeForeground1, #a85000);
+    }
+    .error {
+      max-width: 16rem;
+      color: var(--colorPaletteRedForeground1, #b00020);
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+    .stored-warning {
+      max-width: 16rem;
+      color: var(--colorPaletteDarkOrangeForeground1, #a85000);
+      font-size: 0.8rem;
+      line-height: 1.35;
     }
   `;
 
@@ -207,36 +385,135 @@ export class AppNumber extends LitElement {
   @property({ type: Number }) step = 1;
   @property({ type: Boolean }) disabled = false;
   @property({ type: Boolean }) wide = false;
+  @property({ type: String }) unit = '';
+  @property({ type: Boolean }) integer = false;
+  /** Explicit accessible name; required for multi-field (vector) rows. */
+  @property({ type: String }) label = '';
+  /** 'input' keeps the legacy per-keystroke commit; 'blur' waits for commit. */
+  @property({ type: String }) commitOn: 'input' | 'blur' = 'input';
+  @property({ attribute: false }) spec?: NumberControlSpec;
+  @property({ attribute: false }) ctx?: ControlContext;
+
+  private draft?: string;
+  private error = '';
+  private readonly errorId = `app-number-error-${nextControlId()}`;
+
+  private get context(): ControlContext { return this.ctx ?? DEFAULT_CONTROL_CONTEXT; }
+
+  private get bounds(): { min: number; max: number } {
+    if (this.spec) return numberBounds(this.spec, this.context);
+    return { min: this.min, max: this.max };
+  }
+
+  private get unitText(): string { return this.spec?.unit ?? this.unit; }
+
+  private validate(value: number): string | undefined {
+    if (!this.spec) return undefined;
+    return numberInputError(this.spec.key, value, this.context);
+  }
+
+  private emitChange(value: number): void {
+    this.value = value;
+    this.dispatchEvent(new CustomEvent('change', { detail: value, bubbles: true, composed: true }));
+  }
+
+  private commit = (): void => {
+    if (this.disabled || this.commitOn !== 'blur' || this.draft === undefined) return;
+    const raw = this.draft.trim();
+    if (raw === '') {
+      this.error = t('Enter a value.');
+      this.requestUpdate();
+      return;
+    }
+    const num = Number(raw);
+    if (!Number.isFinite(num)) {
+      this.error = t('Enter a number.');
+      this.requestUpdate();
+      return;
+    }
+    const problem = this.validate(num);
+    if (problem) {
+      this.error = problem;
+      this.dispatchEvent(new CustomEvent('invalid', {
+        detail: { key: this.spec?.key, message: problem }, bubbles: true, composed: true,
+      }));
+      this.requestUpdate();
+      return;
+    }
+    this.error = '';
+    this.draft = undefined;
+    if (num !== this.value) this.emitChange(num);
+    else this.requestUpdate();
+  };
 
   private onInput = (event: Event) => {
     event.stopPropagation();
     if (this.disabled) return;
     const el = event.currentTarget as HTMLInputElement;
-    const raw = el.value.trim();
-    if (raw === '') {
+    const raw = el.value;
+    if (this.commitOn === 'blur') {
+      this.draft = raw;
+      if (this.error) { this.error = ''; this.requestUpdate(); }
+      return;
+    }
+    const trimmed = raw.trim();
+    if (trimmed === '') {
       this.dispatchEvent(new CustomEvent('change', { detail: undefined, bubbles: true, composed: true }));
       return;
     }
-    const num = Number(raw);
-    if (Number.isFinite(num)) {
-      this.value = num;
-      this.dispatchEvent(new CustomEvent('change', { detail: num, bubbles: true, composed: true }));
+    const num = Number(trimmed);
+    if (Number.isFinite(num)) this.emitChange(num);
+  };
+
+  private onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Enter') { event.preventDefault(); this.commit(); return; }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.draft = undefined;
+      this.error = '';
+      this.requestUpdate();
     }
   };
 
+  updated(changed: PropertyValues): void {
+    // An external settings reload or a preset/reset button replaces the stored
+    // value; drop a stale draft and its error so the field shows what will
+    // actually be written.
+    if (changed.has('value') && this.draft !== undefined) {
+      this.draft = undefined;
+      this.error = '';
+      this.requestUpdate();
+    }
+  }
+
   render() {
-    return html`<input
-      type="number"
-      .value=${Number.isFinite(this.value) ? String(this.value) : ''}
-      ?disabled=${this.disabled}
-      min=${Number.isFinite(this.min) ? String(this.min) : nothing}
-      max=${Number.isFinite(this.max) ? String(this.max) : nothing}
-      step=${Number.isFinite(this.step) ? String(this.step) : 'any'}
-      aria-label=${accessibleLabel(this)}
-      style=${this.wide ? 'width: 12rem;' : ''}
-      @input=${this.onInput}
-      @change=${(event: Event) => event.stopPropagation()}
-    >`;
+    const bounds = this.bounds;
+    const storedProblem = this.spec && Number.isFinite(this.value) && this.draft === undefined
+      ? this.validate(this.value) : undefined;
+    const shown = this.draft ?? (Number.isFinite(this.value) ? String(this.value) : '');
+    return html`
+      <span class="shell ${this.unitText ? 'has-unit' : ''}">
+        <input
+          type="number"
+          .value=${shown}
+          ?disabled=${this.disabled}
+          min=${Number.isFinite(bounds.min) ? String(bounds.min) : nothing}
+          max=${Number.isFinite(bounds.max) ? String(bounds.max) : nothing}
+          step=${Number.isFinite(this.step) ? String(this.step) : 'any'}
+          aria-label=${accessibleLabel(this, this.label)}
+          aria-invalid=${this.error ? 'true' : nothing}
+          aria-describedby=${this.error ? this.errorId : nothing}
+          style=${this.wide ? 'width: 12rem;' : ''}
+          @input=${this.onInput}
+          @change=${(event: Event) => event.stopPropagation()}
+          @blur=${this.commit}
+          @keydown=${this.onKeyDown}
+        >
+        ${this.unitText ? html`<span class="unit" aria-hidden="true">${this.unitText}</span>` : nothing}
+      </span>
+      ${this.error ? html`<span class="error" role="alert" id=${this.errorId}>${this.error}</span>` : html``}
+      ${!this.error && storedProblem ? html`<span class="stored-warning">${storedProblem}</span>` : html``}
+    `;
   }
 }
 
@@ -263,6 +540,10 @@ export class AppSlider extends LitElement {
     }
     fluent-slider {
       width: 100%;
+      --thumb-size: 18px;
+      --track-size: 6px;
+      --track-color: var(--colorNeutralStroke1, #d1d1d1);
+      --border-radius: 999px;
     }
   `;
 
@@ -515,6 +796,8 @@ declare global {
   interface HTMLElementTagNameMap {
     'app-switch': AppSwitch;
     'app-select': AppSelect;
+    'app-choice': AppChoice;
+    'app-vector': AppVector;
     'app-number': AppNumber;
     'app-slider': AppSlider;
     'app-section': AppSection;

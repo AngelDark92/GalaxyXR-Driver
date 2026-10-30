@@ -95,10 +95,10 @@ function streamFrameDefaults(infoDefaults: any): StreamFrameConfig {
 // every row — codec switches and the reset arrows apply Off, and turning it on
 // is the user's own choice; selecting H.264 also turns the SDR 10-bit baseline
 // off (capability: H.264 cannot carry 10-bit; see applyCodecEncoderDefaults).
-export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number, streamFormatWidth: number, bandwidthMbit: number }> = {
-  0: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350 },
-  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1024, bandwidthMbit: 500 },
-  2: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 280 },
+export const codecEncoderDefaults: Record<number, { forceCbr: boolean, vbvFrames: number, lowDelayKfScale: number, splitMode: number, streamFormatWidth: number, bandwidthMbit: number, sdr10Baseline: boolean }> = {
+  0: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 350, sdr10Baseline: true },
+  1: { forceCbr: false, vbvFrames: 1, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1024, bandwidthMbit: 500, sdr10Baseline: false },
+  2: { forceCbr: false, vbvFrames: 2, lowDelayKfScale: 2, splitMode: 1, streamFormatWidth: 1536, bandwidthMbit: 280, sdr10Baseline: true },
 };
 
 // 2026-10-16 (owner directive): inline per-key validation for the Stream
@@ -200,6 +200,32 @@ function fillDefaults(target: any, defaults: any): any {
     }
   }
   return target;
+}
+
+/** Render dimensions are whole pixels per eye; the native loader accepts 1..16384. */
+export function validRenderDimension(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 16384;
+}
+
+/** The linked slider edits the longer axis, so both axes stay inside its band. */
+export function renderLongEdge(width: unknown, height: unknown): number | undefined {
+  if (!validRenderDimension(width) || !validRenderDimension(height)) return undefined;
+  return Math.max(width, height);
+}
+
+/**
+ * Scale an existing width/height pair to a new longer edge. Orientation and
+ * ratio come from the current pair; the shorter axis is rounded and never
+ * collapses below one pixel. Undefined means an input is outside the native
+ * 1..16384 whole-pixel contract, so the caller must not write.
+ */
+export function scaleRenderResolution(width: unknown, height: unknown, longEdge: unknown):
+  { width: number; height: number } | undefined {
+  if (!validRenderDimension(width) || !validRenderDimension(height)
+      || !validRenderDimension(longEdge)) return undefined;
+  return width >= height
+    ? { width: longEdge, height: Math.max(1, Math.round(longEdge * height / width)) }
+    : { width: Math.max(1, Math.round(longEdge * width / height)), height: longEdge };
 }
 
 export class GalaxySettingsBase {
@@ -678,12 +704,9 @@ export class GalaxySettingsBase {
   // multipass, QP, postPack, the H.264 recipe) keep their values;
   // the switch is an explicit user action, never a load-time or driver-side
   // rewrite.
-  // 2026-10-23 (owner directive): Force CBR is Off in every row. Selecting
-  // H.264 also turns the SDR 10-bit baseline off — H.264 cannot carry 10-bit
-  // — writing sdr10Baseline false only; the retired consent key and the
-  // explicit advanced 10-bit capability request (galaxyXr.profileSupports10bit)
-  // stay user-owned and untouched, and switching away leaves the baseline off
-  // until the user enables it again.
+  // 2026-10-30 (owner directive): switching back to HEVC or AV1 turns the
+  // SDR 10-bit baseline on again, because H.264's Off is a codec capability
+  // state rather than a permanent user preference.
   applyCodecEncoderDefaults(codec: number): void {
     const codecDef = codecEncoderDefaults[codec] ?? codecEncoderDefaults[0];
     this.setStreamQualityValue('width', codecDef.streamFormatWidth);
@@ -695,10 +718,8 @@ export class GalaxySettingsBase {
       sf.nvencLowDelayKfScale = codecDef.lowDelayKfScale;
       sf.nvencSplitMode = codecDef.splitMode;
     }
-    const g = this.rootSetting?.galaxyXr;
-    if (codec === 1 && g?.sdr10Baseline) {
-      g.sdr10Baseline = false;
-    }
+    const g = this.galaxyXr;
+    g.sdr10Baseline = codecDef.sdr10Baseline;
     this.save();
   }
 
@@ -728,23 +749,56 @@ export class GalaxySettingsBase {
   // reload can clear only the former (2026-10-26).
   private renderResolutionErrorSource?: 'stored' | 'edit';
 
-  setRenderDimension(key: 'renderWidth' | 'renderHeight', value: number | undefined): void {
-    if (value === undefined || !Number.isInteger(value) || value < 1 || value > 16384) {
-      this.renderResolutionErrorSource = 'edit';
-      this.renderResolutionError.set(t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
-      return;
-    }
+  /** GUI-only slider layout; the default is tied, and a saved Off is respected. */
+  get renderResolutionLinked(): boolean {
+    return this.appSettings.values()?.renderResolutionLinked !== false;
+  }
+
+  get renderResolutionValid(): boolean {
     const config = this.galaxyXr;
-    config[key] = value;
-    const valid = [config.renderWidth, config.renderHeight].every(v =>
-      typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 16384);
-    if (valid) {
+    return validRenderDimension(config.renderWidth) && validRenderDimension(config.renderHeight);
+  }
+
+  private refreshRenderResolutionError(): void {
+    if (this.renderResolutionValid) {
       this.renderResolutionErrorSource = undefined;
       this.renderResolutionError.set(undefined);
     } else {
       this.renderResolutionErrorSource = 'edit';
       this.renderResolutionError.set(t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
     }
+  }
+
+  setRenderDimension(key: 'renderWidth' | 'renderHeight', value: number | undefined): void {
+    if (!validRenderDimension(value)) {
+      this.renderResolutionErrorSource = 'edit';
+      this.renderResolutionError.set(t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
+      return;
+    }
+    const config = this.galaxyXr;
+    config[key] = value;
+    this.refreshRenderResolutionError();
+    this.save();
+  }
+
+  /**
+   * Linked-slider edit: treat the value as the new longer edge and scale both
+   * axes by the pair's current ratio. An invalid stored pair keeps its warning
+   * and is never rewritten from a guessed ratio.
+   */
+  setRenderResolutionLongEdge(longEdge: number | undefined): void {
+    const config = this.galaxyXr;
+    const next = scaleRenderResolution(config.renderWidth, config.renderHeight, longEdge);
+    if (!next) {
+      if (this.renderResolutionValid) {
+        this.renderResolutionErrorSource = 'edit';
+        this.renderResolutionError.set(t('Render resolution must use whole numbers from 1 to 16384 pixels per eye.'));
+      }
+      return;
+    }
+    config.renderWidth = next.width;
+    config.renderHeight = next.height;
+    this.refreshRenderResolutionError();
     this.save();
   }
 

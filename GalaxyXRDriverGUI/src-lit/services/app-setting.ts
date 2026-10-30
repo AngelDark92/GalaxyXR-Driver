@@ -17,6 +17,9 @@ const appDefaults: AppSetting = {
   closeButtonAction: 'ask',
   updateMode: 'rewrite',
   advanceMode: false,
+  // Render slider link (2026-10-30): tied by default. Additive GUI preference;
+  // older gui-settings.json files receive the default without a rewrite.
+  renderResolutionLinked: true,
   // 2026-10-13: the dev (pre-release) update channel is opt-in; the stable
   // release channel stays the default.
   devUpdates: false,

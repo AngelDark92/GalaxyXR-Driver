@@ -226,6 +226,14 @@ const nativeDefaults = {
           0.65
         ]
       },
+      "map": {
+        "enable": true,
+        "cols": 0,
+        "rows": 0,
+        "left": [],
+        "right": [],
+        "source": ""
+      },
       "perEye": false,
       "perAxis": false,
       "curves": {},
@@ -236,6 +244,14 @@ const nativeDefaults = {
         "rMax": 0.75,
         "feather": 0.05
       }
+    },
+    "calib": {
+      "blackout": false,
+      "eye": -1,
+      "patternBrightness": 1.0,
+      "captureMode": false,
+      "pattern": -1,
+      "patternBits": 10
     },
     "centerOffsetXLeft": 0.0,
     "centerOffsetXRight": 0.0,

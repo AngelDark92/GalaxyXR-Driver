@@ -69,7 +69,7 @@ export class AboutPage extends BasePage {
     .compact-link span { min-width: 0; overflow-wrap: anywhere; }
     .donation-logo { width: 20px; height: 20px; object-fit: contain; }
     .support { border-inline-start: 1px solid var(--colorNeutralStroke2); padding-inline-start: 24px; }
-    @media (max-width: 700px) {
+    @container page (max-width: 700px) {
       .about-hero { padding: 20px; gap: 16px; }
       .brand-mark { flex-basis: 64px; height: 64px; border-radius: 16px; }
       .brand-mark img { width: 48px; }
@@ -147,7 +147,7 @@ export class AboutPage extends BasePage {
           <p>${t('Set up Galaxy XR for SteamVR, tune tracking, and adjust the streamed image.')}</p>
         </div>
       </section>`,
-      sectionHeading(t('Version and updates')),
+      sectionHeading(t('Version and updates'), 0, 'about-version'),
       html`<div class="version-panel">
         <div class="version-info"><span class="version-label">${t('App Version')}</span>
           <span class="version-number">${updateInfo?.currentVersion ?? t('Loading…')}</span></div>
@@ -166,7 +166,7 @@ export class AboutPage extends BasePage {
     if (!checking && !updateInfo?.fetchSuccess) parts.push(statusMessage('warning', t('Update check unavailable'), t('Try again when your connection is available.')));
 
     parts.push(
-      sectionHeading(t('Links')),
+      sectionHeading(t('Links'), 0, 'about-links'),
       html`<div class="resource-grid">
         ${this.resourceLink(projectUrl, t('GitHub project'), t('Explore the code and follow development.'), 'code')}
         ${this.resourceLink(projectUrl + '/releases', t('Releases and changelog'), t('Get the latest release and see what changed.'), 'release')}
@@ -174,7 +174,7 @@ export class AboutPage extends BasePage {
         ${this.resourceLink(projectUrl + '/blob/main/Docs/TunerUsage.md', t('Distortion tuner guide'), t('Calibrate your view with the in-headset tuner.'), 'tune')}
         ${this.resourceLink(projectUrl + '/issues', t('Report a problem'), t('Open an issue and attach your SteamVR server log.'), 'issue')}
       </div>`,
-      sectionHeading(t('Credits')),
+      sectionHeading(t('Credits'), 0, 'about-credits'),
       html`<div class="credits-grid">
         <div><h3>${t('Built together')}</h3>
           <p>${t('Built on CustomHeadsetOpenVR by sboys3, with Galaxy XR driver work by timkhronos and compdoge.')}</p>

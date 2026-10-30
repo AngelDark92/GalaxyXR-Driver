@@ -24,7 +24,7 @@ Source edits and focused checks for an authorized task may proceed. Deployment, 
 
 1. Preserve Galaxy XR and neutral builds and coexistence. `VENDOR_GALAXYXR` selects native vendor identity; GUI `VENDOR` must match. Do not hardcode one runtime name where vendor selection applies.
 2. Preserve upstream MeganeX 8K / Dream Air behavior, `meganeX8K` / `dreamAir` settings and the Driver Settings page.
-3. For a new or changed setting, complete the chain: `GalaxyXRDriver/src/Config/Config.h`, `ConfigLoader.cpp`, `GalaxyXRDriverGUI/src-lit/domain/types.ts`, `driver-defaults.ts`, `state/galaxy-settings.ts`, the relevant page, the driver consumer, source XLIFF and tests/docs. Defaults must match; do not add an unused control. A restart-only tip says **"Requires a SteamVR restart."**
+3. For a new or changed setting, complete the chain: `GalaxyXRDriver/src/Config/Config.h`, `ConfigLoader.cpp`, `GalaxyXRDriverGUI/src-lit/domain/types.ts`, `driver-defaults.ts`, `state/galaxy-settings.ts`, the relevant page, the driver consumer, source XLIFF and tests/docs. Defaults must match; do not add an unused control. Every numeric control also declares one control spec in `GalaxyXRDriverGUI/src-lit/domain/control-specs.ts` — range, step, unit, integer, sentinel, capability (codec/GPU), context gate, ordering and degenerate guard. Pages render the control from that spec; `npm test` fails an undeclared numeric control. A slider is guidance, not a gate: it is never the only control where the native contract is wider. A restart-only tip says **"Requires a SteamVR restart."**
 4. A settings-semantics change needs matching dated, versioned migrations in `ConfigLoader.cpp` and `galaxy-settings.ts`. Upgrade exact old defaults only; preserve user tuning.
 5. SteamVR `settings.vrjson` writes stay ownership-safe through `SteamVRSettingsJournal.h` and the Rust `driver_installation*` cleanup paths.
 6. New visible strings use `t(...)` and `GalaxyXRDriverGUI/src/locale/messages.xlf`. Do not hand-edit `zh-Hant` or `ja` unless requested.
@@ -41,7 +41,7 @@ Only two explicit actions write per-codec optimized defaults on Stream Frame: sw
 | Lifted-Blacks Fix (`streamFrame.postPack.limitedRange`) | Off in every codec; reset restores Off |
 | Force CBR | Off in every codec; reset restores Off |
 | Multi-Engine Encoding | On (driver-chosen strips) in every codec; reset restores On |
-| SDR 10-bit baseline | On; a saved Off stays Off; H.264 turns it Off/disabled and suppresses its `supports10bit` request with a log line |
+| SDR 10-bit baseline | On; H.264 turns it Off/disabled and suppresses its `supports10bit` request with a log line; switching back to HEVC or AV1 turns it On |
 | `galaxyXr.profileSupports10bit` | User-owned; never rewritten by codec selection |
 | Image Enhancements | On; independent of the 10-bit baseline and never disables its switch |
 | H.264 tile | 1024x4096 negotiated class; other codecs use the 1536 class |

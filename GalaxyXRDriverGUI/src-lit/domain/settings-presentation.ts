@@ -1,5 +1,5 @@
 import type { AppSetting, Settings } from './types';
-import type { BooleanSettingCheck } from './settings-inspection';
+import type { SettingCheck, SettingSource } from './settings-inspection';
 import { imageEnhancementsEnabled } from './image-mode';
 import { ROUTE_LABELS, settingHref, type Route } from './navigation';
 
@@ -12,11 +12,11 @@ export interface SettingPresentation {
   containers: string[];
   sections: string[];
   keys: string[];
-  source: BooleanSettingCheck['source'];
+  source: SettingSource;
   advanced: boolean;
   gate?: 'vendor' | 'enhancements' | 'postpack' | 'preencode' | 'encoder' | 'h264' | 'kalman' | 'kalman-ca' | 'graveyard' | 'grid' | 'camera-grid' | 'tuner' | 'native-input-profile' | 'controllers';
   vendorOnly?: boolean;
-  /** Non-boolean rows never appear in the boolean check report. */
+  /** Non-boolean rows use value formatting in the check report. */
   kind?: 'boolean' | 'value';
 }
 
@@ -33,6 +33,8 @@ headset('galaxyXr.nativeIdentity', 'Galaxy XR Recognition', { advanced: true });
 headset('galaxyXr.nativeResolution', 'Override Render Resolution');
 headset('galaxyXr.renderWidth', 'Render Width per Eye', { kind: 'value' });
 headset('galaxyXr.renderHeight', 'Render Height per Eye', { kind: 'value' });
+// GUI-only preference for the proportional render sliders (2026-10-30).
+headset('renderResolutionLinked', 'Render Resolution Sliders', { source: 'gui-settings.json' });
 headset('galaxyXr.vrlinkHeadsetProfile', 'Mirror to Steam Link Aliases', { advanced: true });
 headset('galaxyXr.sdr10Baseline', '10-Bit SDR Mode');
 const controllers = group('driver-settings', ['Controllers'], ['controllers'], false, 'vendor');
@@ -63,7 +65,9 @@ enhance('streamFrame.postPack.foveaTop', 'Center Tile at Top', { gate: 'postpack
 enhance('streamFrame.cas.perEye', 'Per-Eye Values', { gate: 'preencode' });
 enhance('streamFrame.dither', 'Dither');
 enhance('streamFrame.stationaryDimming.enable', 'Dim Screen When Idle');
-const advanced = group('stream-frame', ['Image Processing', 'Advanced'], ['heading:image-processing'], true);
+// 2026-10-30: the Advanced group lives inside Optical Flow, not under
+// Image Processing; the deep link must open the Optical Flow card.
+const advanced = group('stream-frame', ['Optical Flow', 'Advanced'], ['heading:optical-flow'], true);
 advanced('streamFrame.directRender', 'Fast Render Path');
 advanced('streamFrame.deferredEviction', 'Smooth Switching');
 advanced('streamFrame.processAtSubmitLayer', 'Alternative Processing Hook');
@@ -80,7 +84,7 @@ group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 've
 // separate Force half-rate switch; both rows live in the vendor build's Stream
 // Quality branch, so they mirror nvencTap's gate.
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpEnable', 'Async Spacewarp');
-group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpMode', 'Force half-rate');
+group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpMode', 'Force half-rate', { kind: 'value' });
 // Optical Flow (2026-10-17; 2026-10-23): the managed OFXR Bridge card. The
 // remaining rows are gui-settings.json values owned by the Companion; the
 // page's Enable switch is additionally gated by the native ofxr_status()
@@ -94,7 +98,8 @@ ofxr('ofxr.logging', 'Bridge flight recorder', { source: 'gui-settings.json' });
 ofxr('ofxr.maxLogMb', 'Flight log size limit (MB)', { source: 'gui-settings.json', kind: 'value' });
 ofxr('ofxr.flushEachEvent', 'Flush every event', { source: 'gui-settings.json' });
 ofxr('ofxr.overlay', 'FPS overlay position', { source: 'gui-settings.json', kind: 'value' });
-group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencCodec', 'Video Codec');
+ofxr('ofxr.version', 'OFXR Bridge version', { source: 'gui-settings.json', kind: 'value' });
+group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'encoder', true)('streamFrame.nvencCodec', 'Video Codec', { kind: 'value' });
 const encoder = group('stream-frame', ['Encoder Advanced'], ['heading:encoder'], true, 'encoder', true);
 encoder('streamFrame.nvencForceCbr', 'Force Constant Bitrate');
 encoder('streamFrame.nvencBitrateCurve', 'Bitrate Curve', { kind: 'value' });
@@ -160,16 +165,19 @@ export const INTERNAL_BOOLEAN_KEYS = [
   // 2026-10-17 (owner directive): the enhancements consent key is retired in
   // place — no control, no behavior — but bundled files still inspect it.
   'galaxyXr.sdr10AllowEnhancements',
+  // Camera-calibration and displacement-map booleans are tools/internal; only
+  // calib.blackout has a GUI control.
+  'streamFrame.calib.captureMode', 'streamFrame.distortion.map.enable',
   'generalHeadset.useViveBluetooth', 'customShader.enable', 'customShader.enableForOther',
   'customShader.contrastLinear', 'customShader.contrastPerEye', 'customShader.contrastPerEyeLinear',
   'customShader.subpixelShift', 'customShader.disableMuraCorrection', 'customShader.disableBlackLevels',
   'customShader.srgbColorCorrection', 'customShader.srgbWhitePointCorrection', 'customShader.dither10Bit',
   'customShader.enableFilterForOverlay', 'customShader.enableFilterForDashboard', 'forceTracking',
-  'streamFrame.distortion.enable', 'streamFrame.distortion.map.enable', 'streamFrame.pupilSwim.enable',
+  'streamFrame.distortion.enable', 'streamFrame.pupilSwim.enable',
   'streamFrame.reconLogger', 'streamFrame.zeroCopy', 'streamFrame.graveyardEnable',
-  'streamFrame.calib.captureMode', 'takeCompositorScreenshots', 'onlyHandlePrivateFunctionality', 'watchDistortionProfiles',
+  'takeCompositorScreenshots', 'onlyHandlePrivateFunctionality', 'watchDistortionProfiles',
 ] as const;
-export function classifyBoolean(check: Pick<BooleanSettingCheck, 'source' | 'key'>): 'control' | 'internal' | 'unknown' {
+export function classifyBoolean(check: Pick<SettingCheck, 'source' | 'key'>): 'control' | 'internal' | 'unknown' {
   if (SETTINGS_PRESENTATION.some(setting => setting.source === check.source && setting.keys.includes(check.key))) return 'control';
   if (check.source === 'settings.json' && (INTERNAL_BOOLEAN_KEYS as readonly string[]).includes(check.key)) return 'internal';
   if (check.source === 'gui-settings.json' && check.key === 'driverVerified') return 'internal';
@@ -184,10 +192,14 @@ export interface PresentationContext {
 }
 export interface PresentedSettingCheck {
   id: string;
-  source: BooleanSettingCheck['source'];
+  source: SettingSource;
   location: string[];
-  state: 'On' | 'Off' | 'Unknown' | 'Post-pack' | 'Pre-encode';
+  state: string;
+  defaultState?: string;
   origin: 'stored' | 'default' | 'mixed' | 'unknown';
+  changed: boolean;
+  hasDefault: boolean;
+  kind: 'boolean' | 'value';
   href: string;
   unavailableReason?: string;
   advanced: boolean;
@@ -199,6 +211,90 @@ function valueAt(value: unknown, path: string): unknown {
   }
   return value;
 }
+
+function codecLabel(value: unknown): string {
+  return value === 1 ? 'H.264' : value === 2 ? 'AV1' : 'HEVC (default)';
+}
+function ofxrModeLabel(value: unknown): string {
+  switch (value) {
+    case 'nvidia-fast': return 'NVIDIA Fast (test)';
+    case 'nvidia-medium': return 'NVIDIA Medium (recommended)';
+    case 'nvidia-slow': return 'NVIDIA Slow (best quality)';
+    default: return 'FidelityFX (any card)';
+  }
+}
+function ofxrOverlayLabel(value: unknown): string {
+  switch (value) {
+    case 'upper-left': return 'Upper left';
+    case 'upper-right': return 'Upper right';
+    case 'lower-left': return 'Lower left';
+    case 'lower-right': return 'Lower right';
+    default: return 'Off';
+  }
+}
+function bitrateCurveLabel(value: unknown): string {
+  switch (value) {
+    case 1: return 'Power knee';
+    case 2: return 'Soft knee';
+    case 3: return 'Custom';
+    default: return 'Linear';
+  }
+}
+
+/** Format a raw check value for the technical table. */
+export function formatSettingValue(value: unknown): string {
+  if (value === undefined) return 'None';
+  if (value === null) return 'None';
+  if (Array.isArray(value)) return value.length ? `${value.length} entries` : 'None';
+  if (typeof value === 'boolean') return value ? 'On' : 'Off';
+  if (typeof value === 'object') return 'Object';
+  return String(value);
+}
+
+/** Format a presented value row for the human-readable table. */
+function formatValue(id: string, value: unknown): string {
+  if (value === undefined || value === null) return 'Unknown';
+  switch (id) {
+    case 'galaxyXr.renderWidth':
+    case 'galaxyXr.renderHeight': return `${value} px`;
+    case 'ofxr.mode': return ofxrModeLabel(value);
+    case 'ofxr.maxLogMb': return `${value} MB`;
+    case 'ofxr.overlay': return ofxrOverlayLabel(value);
+    case 'ofxr.version': return String(value) || 'Automatic (newest installed)';
+    case 'streamFrame.nvencCodec': return codecLabel(value);
+    case 'streamFrame.spacewarpMode': return value === 1 ? 'On' : 'Off';
+    case 'streamFrame.nvencBitrateCurve': return bitrateCurveLabel(value);
+    case 'streamFrame.nvencBitrateConstancyPct': return `${value}%`;
+    default: return formatSettingValue(value);
+  }
+}
+
+export function formatCheckValue(check: SettingCheck): string {
+  return check.kind === 'boolean' ? (check.enabled ? 'On' : 'Off') : formatSettingValue(check.value);
+}
+
+/** Keys that are migration/runtime/legacy state rather than user-facing
+ * controls. The changed-values table hides these by default; Technical
+ * details still shows every check. */
+const INTERNAL_VALUE_KEYS = new Set([
+  'galaxyXr.sdr10SettingsVersion', 'galaxyXr.renderModelVariant', 'galaxyXr.streamQuality',
+  'galaxyXr.customEncodeWidth', 'galaxyXr.customStreamFormatWidthOverride', 'galaxyXr.profileMaxStreamFormatWidth',
+  'streamFrame.nvencSettingsVersion', 'streamFrame.spacewarpSettingsVersion', 'streamFrame.streamFrameSchema',
+  'streamFrame.nvencValidationError', 'streamFrame.distortion.enable', 'streamFrame.pupilSwim.enable',
+  'streamFrame.distortion.points', 'streamFrame.distortion.curves',
+  'streamFrame.pupilSwim.centerStrengthX', 'streamFrame.pupilSwim.centerStrengthY',
+  'forceTracking', 'takeCompositorScreenshots', 'onlyHandlePrivateFunctionality', 'watchDistortionProfiles',
+  'generalHeadset.useViveBluetooth',
+]);
+const INTERNAL_VALUE_PREFIXES = ['customShader.', 'streamFrame.distortion.map.', 'streamFrame.calib.'];
+export function isInternalCheck(check: Pick<SettingCheck, 'source' | 'key'>): boolean {
+  if (check.source === 'gui-settings.json') return check.key === 'driverVerified';
+  if ((INTERNAL_BOOLEAN_KEYS as readonly string[]).includes(check.key)) return true;
+  if (INTERNAL_VALUE_KEYS.has(check.key)) return true;
+  if (check.key === 'streamFrame.calib.blackout') return false;
+  return INTERNAL_VALUE_PREFIXES.some(prefix => check.key.startsWith(prefix));
+}
+
 export function settingUnavailable(setting: SettingPresentation, context: PresentationContext): string | undefined {
   if (setting.source === 'settings.json' && !context.settings) return 'Saved driver settings could not be read. Check installation to retry.';
   if (setting.source === 'gui-settings.json' && !context.app) return 'App preferences could not be read. Check installation to retry.';
@@ -229,18 +325,36 @@ export function settingUnavailable(setting: SettingPresentation, context: Presen
   return undefined;
 }
 
-export function presentSettings(checks: readonly BooleanSettingCheck[], context: PresentationContext): PresentedSettingCheck[] {
-  return SETTINGS_PRESENTATION.filter(setting => setting.kind !== 'value').map(setting => {
+export function presentSettings(checks: readonly SettingCheck[], context: PresentationContext): PresentedSettingCheck[] {
+  return SETTINGS_PRESENTATION.map(setting => {
     const root = setting.source === 'gui-settings.json' ? context.app : context.settings;
     const values = setting.keys.map(key => valueAt(root, key));
+    const found = setting.keys.map(key => checks.find(check => check.source === setting.source && check.key === key));
+    const kind = setting.kind ?? 'boolean';
     // Optional legacy controls have false as their UI default, but an unreadable
     // entire source is always Unknown; never turn a failed read into Off.
-    let state: PresentedSettingCheck['state'] = !root ? 'Unknown' : values[0] === true ? 'On' : 'Off';
+    let state: string = !root ? 'Unknown' : kind === 'value'
+      ? formatValue(setting.id, values[0])
+      : values[0] === true ? 'On' : 'Off';
     if (root && setting.id === 'image-enhancements') state = imageEnhancementsEnabled(context.settings) ? 'On' : 'Off';
     if (root && setting.id === 'cas-sharpening') state = values[1] === true && values[2] === true ? 'Post-pack' : values[0] === true ? 'Pre-encode' : 'Off';
-    const origins = new Set(setting.keys.map(key => checks.find(check => check.source === setting.source && check.key === key)?.origin ?? 'default'));
-    return { id: setting.id, source: setting.source, location: [ROUTE_LABELS[setting.route], ...setting.containers, setting.label], state,
+    const origins = new Set(found.map(check => check?.origin ?? 'default'));
+    const changed = found.some(check => check?.changed === true);
+    const hasDefault = found.length > 0 && found.every(check => check?.hasDefault === true);
+    const defaultState = found.length === 1
+      ? (found[0]?.kind === 'boolean'
+        ? (found[0].defaultValue === true ? 'On' : 'Off')
+        : formatValue(setting.id, found[0]?.defaultValue))
+      : undefined;
+    return {
+      id: setting.id, source: setting.source,
+      location: [ROUTE_LABELS[setting.route], ...setting.containers, setting.label],
+      state, defaultState,
       origin: !root ? 'unknown' : origins.size > 1 ? 'mixed' : [...origins][0],
-      href: settingHref(setting.route, setting.id), unavailableReason: settingUnavailable(setting, context), advanced: setting.advanced };
+      changed, hasDefault, kind,
+      href: settingHref(setting.route, setting.id),
+      unavailableReason: settingUnavailable(setting, context),
+      advanced: setting.advanced,
+    };
   });
 }

@@ -60,3 +60,15 @@ it('invalidates confirmed policy when preferences become unreadable', async () =
   expect(s.confirmedValues()).toBeUndefined();
   expect(s.readFileError()).toBeDefined();
 });
+
+it('defaults the render slider link on and persists an explicit opt-out', async () => {
+  vi.useFakeTimers();
+  const s = await load('{}');
+  expect(s.values().renderResolutionLinked).toBe(true);
+  const saved = s.save({ ...s.values(), renderResolutionLinked: false });
+  await vi.advanceTimersByTimeAsync(100);
+  expect(await saved).toBe(true);
+  expect(JSON.parse(disk.content).renderResolutionLinked).toBe(false);
+  await s.loadSetting();
+  expect(s.values().renderResolutionLinked).toBe(false);
+});
