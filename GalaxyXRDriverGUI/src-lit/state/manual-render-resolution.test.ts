@@ -132,4 +132,22 @@ describe('linked render resolution', () => {
     expect(stored.galaxyXr.renderHeight).toBe(3840);
     expect(stored.renderResolutionError()).toBeTruthy();
   });
+
+  it('resets the linked pair to the native default regardless of the current ratio', () => {
+    const gs = state({ nativeIdentity: true, renderWidth: 5051, renderHeight: 5459 });
+    gs.resetRenderResolution();
+    expect(gs.galaxyXr.renderWidth).toBe(3552);
+    expect(gs.galaxyXr.renderHeight).toBe(3840);
+    expect(gs.renderResolutionError()).toBeUndefined();
+  });
+
+  it('repairs a stored invalid pair on reset', () => {
+    const gs = state({ nativeIdentity: true, renderWidth: 0, renderHeight: -1 });
+    expect(gs.galaxyXr.renderWidth).toBe(0);
+    expect(gs.renderResolutionError()).toBeTruthy();
+    gs.resetRenderResolution();
+    expect(gs.galaxyXr.renderWidth).toBe(3552);
+    expect(gs.galaxyXr.renderHeight).toBe(3840);
+    expect(gs.renderResolutionError()).toBeUndefined();
+  });
 });

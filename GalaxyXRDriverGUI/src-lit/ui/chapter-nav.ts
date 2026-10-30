@@ -11,7 +11,7 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { t } from '../locale/i18n';
-import { sectionHref, type Route } from '../domain/navigation';
+import { ROUTE_LABELS, sectionHref, type Route } from '../domain/navigation';
 import { findOutlineItem, type ChapterView, type OutlineItem } from '../domain/page-outline';
 
 @customElement('app-chapter-nav')
@@ -54,7 +54,19 @@ export class ChapterNav extends LitElement {
       background: var(--colorNeutralBackground2);
       border-inline-end: 1px solid var(--colorNeutralStroke2);
     }
-    .brand { width: 28px; height: 28px; object-fit: contain; flex: 0 0 auto; }
+    .brand-link {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 4px 0;
+      border-radius: 4px;
+      text-decoration: none;
+    }
+    .brand-link:hover { background: var(--colorNeutralBackground1Hover); }
+    .brand-link:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: -2px; }
+    .brand { display: block; width: 28px; height: 28px; object-fit: contain; }
     .spine-toggle {
       flex: 1;
       width: 100%;
@@ -160,16 +172,6 @@ export class ChapterNav extends LitElement {
       font-size: 0.84rem;
       line-height: 1.2;
     }
-    .chapter-link::after {
-      content: '';
-      position: absolute;
-      left: 4px; top: 50%;
-      width: 5px; height: 5px;
-      border-radius: 50%;
-      background: var(--colorNeutralStroke1);
-      transform: translateY(-50%);
-    }
-    .chapter-row.active .chapter-link::after { background: var(--colorBrandBackground); }
     .chapter-link:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: -2px; }
     .chapter-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
     .chapter-disclosure {
@@ -293,6 +295,8 @@ export class ChapterNav extends LitElement {
   @property({ type: String }) activeSection = '';
   @property({ type: Boolean }) busy = false;
   @property({ type: Boolean, reflect: true }) open = true;
+  /** Landing page for the brand icon: Driver Settings or Setup (see defaultRoute). */
+  @property({ type: String }) homeRoute: Route = 'driver-settings';
 
   private expandedRoute?: Route;
 
@@ -341,6 +345,16 @@ export class ChapterNav extends LitElement {
     if (this.busy || route !== this.activeRoute) return;
     this.expandedRoute = this.expandedRoute === route ? undefined : route;
     this.requestUpdate();
+  };
+
+  private readonly onHomeClick = (event: MouseEvent): void => {
+    if (this.busy) { event.preventDefault(); return; }
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    // Reuse the page-row path: the shell applies the installation guard, the
+    // section reset, scroll-to-top and focus, including on the home page.
+    this.expandedRoute = undefined;
+    this.dispatchEvent(new CustomEvent<Route>('chapter-select', { detail: this.homeRoute, bubbles: true, composed: true }));
   };
 
   private readonly onSectionClick = (event: MouseEvent, route: Route, id: string): void => {
@@ -427,10 +441,16 @@ export class ChapterNav extends LitElement {
   }
 
   render() {
+    const homeLabel = t('Go to {page}', { page: t(ROUTE_LABELS[this.homeRoute]) });
     return html`
       <div class="frame">
         <div class="spine">
-          <img class="brand" src="icons/headset_galaxy_xr_ready_2x.png" alt="Galaxy XR Companion">
+          <a class="brand-link" href=${`#/${this.homeRoute}`}
+            aria-label=${homeLabel} title=${homeLabel}
+            aria-disabled=${this.busy ? 'true' : nothing} tabindex=${this.busy ? '-1' : nothing}
+            @click=${this.onHomeClick}>
+            <img class="brand" src="icons/headset_galaxy_xr_ready_2x.png" alt="">
+          </a>
           <button class="spine-toggle" type="button" aria-expanded=${String(this.open)}
             aria-controls=${this.open ? 'navigator-panel' : nothing}
             title=${t(this.open ? 'Close navigator' : 'Open navigator')}

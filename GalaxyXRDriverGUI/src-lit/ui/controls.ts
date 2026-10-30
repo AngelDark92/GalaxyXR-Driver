@@ -521,6 +521,22 @@ export class AppNumber extends LitElement {
 const SLIDER_VALUE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
 
 /**
+ * Fluent paints a tick after every step whenever its `step` attribute is set
+ * (slider.styles.js in the pinned 3.1.3 package). Those marks read as a scale
+ * only when the band has a few steps; a dense band such as the 16..8192 px
+ * render slider (511 steps) turns the track into noise. Fluent has no switch
+ * for the marks, so a dense band sets a 200% repeat period: the 1px mark then
+ * falls outside the track and the track renders solid.
+ */
+export const MAX_SLIDER_STEP_MARKERS = 24;
+
+export function sliderStepMarkerStyle(min: number, max: number, step: number): string | undefined {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(step) || step <= 0 || max <= min) return undefined;
+  const steps = Math.floor((max - min) / step + 1e-9);
+  return steps > MAX_SLIDER_STEP_MARKERS ? '--step-rate: 200%;' : undefined;
+}
+
+/**
  * app-slider — forwards Fluent's interaction changes without treating display
  * synchronization or normalization as edits to the stored setting.
  *
@@ -655,6 +671,7 @@ export class AppSlider extends LitElement {
 
   render() {
     return html`<fluent-slider
+      style=${sliderStepMarkerStyle(this.min, this.max, this.step) ?? nothing}
       ?disabled=${this.disabled}
       aria-label=${accessibleLabel(this)}
       @pointerdown=${this.startInteraction}

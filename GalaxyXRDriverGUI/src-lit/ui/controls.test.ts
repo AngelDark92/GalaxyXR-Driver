@@ -144,7 +144,7 @@ function harness() {
       },
     };
   }
-  return { AppSelect: module.exports.AppSelect, Dropdown, armed, release, slider };
+  return { AppSelect: module.exports.AppSelect, sliderStepMarkerStyle: module.exports.sliderStepMarkerStyle, Dropdown, armed, release, slider };
 }
 
 describe('Fluent control synchronization', () => {
@@ -311,5 +311,42 @@ describe('Fluent control synchronization', () => {
     expect(emittedOf(adapter, 'commit')).toEqual([]);
     expect(armed('window')).toEqual([]);
     expect(armed('document')).toEqual([]);
+  });
+});
+
+describe('Fluent slider step markers', () => {
+  it('keeps the marks only for a band with a few steps', () => {
+    const { sliderStepMarkerStyle } = harness();
+    // Resolution and bitrate bands: hundreds of steps, marks are noise.
+    expect(sliderStepMarkerStyle(16, 8192, 16)).toBe('--step-rate: 200%;');
+    expect(sliderStepMarkerStyle(0, 1500, 25)).toBe('--step-rate: 200%;');
+    expect(sliderStepMarkerStyle(0, 100, 1)).toBe('--step-rate: 200%;');
+    // Coarse bands keep Fluent's own mark spacing.
+    expect(sliderStepMarkerStyle(0, 100, 5)).toBeUndefined();
+    expect(sliderStepMarkerStyle(0, 50, 5)).toBeUndefined();
+    expect(sliderStepMarkerStyle(0, 10, 1)).toBeUndefined();
+    // Degenerate bands have nothing to mark.
+    expect(sliderStepMarkerStyle(0, 100, Number.NaN)).toBeUndefined();
+    expect(sliderStepMarkerStyle(100, 100, 1)).toBeUndefined();
+    expect(sliderStepMarkerStyle(0, 100, 0)).toBeUndefined();
+  });
+
+  it('binds the marker override only on a dense rendered slider', () => {
+    const dense = harness().slider(3552, 16, 8192, 16);
+    const sparse = harness().slider(50, 0, 100, 5);
+    const styleOf = (adapter: { render: () => { strings: string[]; values: unknown[] } }) => {
+      const { strings, values } = adapter.render();
+      const index = strings.findIndex(text => text.endsWith('style='));
+      return index < 0 ? undefined : values[index];
+    };
+    expect(styleOf(dense.adapter)).toBe('--step-rate: 200%;');
+    expect(styleOf(sparse.adapter)).toBeUndefined();
+  });
+
+  it('pins the installed Fluent step-marker contract the override targets', () => {
+    const styles = readFileSync(new URL(
+      'node_modules/@fluentui/web-components/dist/esm/slider/slider.styles.js', guiRoot), 'utf8');
+    expect(styles).toContain(':host([step]) .track::after');
+    expect(styles).toContain('var(--step-rate)');
   });
 });

@@ -6,7 +6,7 @@ import type { AppContext } from '../app-context';
 import { applyTheme } from '../ui/theme';
 import { applyUiScale } from '../ui/ui-scale';
 import { interactiveStyles } from '../ui/shared-styles';
-import { driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, permittedRoute, visibleRoutes, sectionHref, settingHref, ROUTE_LABELS, type Route } from '../domain/navigation';
+import { defaultRoute, driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, permittedRoute, visibleRoutes, sectionHref, settingHref, ROUTE_LABELS, type Route } from '../domain/navigation';
 import { CHAPTER_OUTLINES, findOutlineItem, flattenOutline, visibleOutline, type ChapterView, type OutlineContext } from '../domain/page-outline';
 import { settingPresentation } from '../domain/settings-presentation';
 import { close_bitrate_monitor, publish_bitrate_monitor_theme } from '../platform/tauri';
@@ -408,6 +408,7 @@ export class AppShell extends LitElement {
     return html`
       <app-chapter-nav .chapters=${chapters} .activeRoute=${activeRoute}
         .activeSection=${this.activeSection} .busy=${busy}
+        .homeRoute=${defaultRoute(this.driverAvailable)}
         @chapter-select=${this.onChapterSelect} @section-select=${this.onSectionSelect}></app-chapter-nav>
       <div class="main">
         ${busy ? html`<fluent-message-bar class="status" intent="info" role="status"><fluent-spinner slot="icon" size="tiny" aria-hidden="true"></fluent-spinner>${this.ctx.lifecycle.quitting() ? t('Saving settings before quitting…') : this.ctx.sds.installingDriver() ? t('Updating driver or settings. Please wait…') : t('Checking installation and saved settings…')}</fluent-message-bar>` : nothing}

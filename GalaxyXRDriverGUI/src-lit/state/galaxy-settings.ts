@@ -802,6 +802,20 @@ export class GalaxySettingsBase {
     this.save();
   }
 
+  /**
+   * Restore the native render-target pair (3552 × 3840) in one write. While the
+   * sliders are linked, width, height and the long-edge slider are one setting,
+   * so every one of their resets lands here.
+   */
+  resetRenderResolution(): void {
+    const defaults = driverDefaults.galaxyXr;
+    const config = this.galaxyXr;
+    config.renderWidth = defaults?.renderWidth ?? 3552;
+    config.renderHeight = defaults?.renderHeight ?? 3840;
+    this.refreshRenderResolutionError();
+    this.save();
+  }
+
   get galaxyXr(): GalaxyXrConfig {
     if (this.rootSetting) {
       if (!this.rootSetting.galaxyXr) {

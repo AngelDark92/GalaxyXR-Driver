@@ -112,6 +112,15 @@ export class DriverSettingsPage extends BasePage {
       const linked = galaxy.renderResolutionLinked;
       const renderValid = galaxy.renderResolutionValid;
       const linkedEdge = renderLongEdge(gx.renderWidth, gx.renderHeight) ?? 3840;
+      // While linked, both axes and the long-edge slider are one setting: any
+      // of their resets restores the native pair instead of one axis. Unlinked,
+      // each axis keeps its own default and the link row resets the preference.
+      const widthDefault = driverDefaults.galaxyXr?.renderWidth ?? 3552;
+      const heightDefault = driverDefaults.galaxyXr?.renderHeight ?? 3840;
+      const resolutionReset = {
+        can: gx.renderWidth !== widthDefault || gx.renderHeight !== heightDefault,
+        on: () => { galaxy.resetRenderResolution(); this.requestUpdate(); },
+      };
       body.push(
         ...(advanced ? [settingFieldRow('galaxyXr.nativeIdentity', html`<app-switch .checked=${!!gx.nativeIdentity} @change=${(e: CustomEvent) => { void this.changeIdentitySetting('nativeIdentity', e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>`, {
           tip: t("Keep this on so SteamVR identifies the headset as Galaxy XR and uses its device icons. Turning it off can show Unknown or the identity provided by a patched Steam Link app instead. Restart SteamVR after changing it.\n\nEnabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link; a patched APK may report a different headset. The vrlink Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity.\n\nValue: galaxyXr.nativeIdentity (settings.json). Driver side — sets OpenVR model/manufacturer and device-icon properties; identity changes need a SteamVR restart."),
@@ -122,14 +131,14 @@ export class DriverSettingsPage extends BasePage {
         settingFieldRow('galaxyXr.renderWidth', html`
           <div class="range-control">
             ${numberControl('galaxyXr.renderWidth', {
-              value: gx.renderWidth ?? 3552,
+              value: gx.renderWidth ?? widthDefault,
               ctx: controlContext,
               disabled: !gx.nativeResolution,
               onCommit: value => { galaxy.setRenderDimension('renderWidth', value); this.requestUpdate(); },
             })}
             ${linked ? nothing : html`<div class="range-track">
               ${sliderControl('galaxyXr.renderWidth', {
-                value: gx.renderWidth ?? 3552,
+                value: gx.renderWidth ?? widthDefault,
                 disabled: !gx.nativeResolution,
                 onChange: value => { galaxy.setRenderDimension('renderWidth', value); this.requestUpdate(); },
               })}
@@ -137,19 +146,19 @@ export class DriverSettingsPage extends BasePage {
             </div>`}
           </div>`, {
           tip: t('Type a whole number from 1 to 16384 pixels per eye. The slider covers 16 to 8192 px. Requires a SteamVR restart.'),
-          reset: { can: gx.renderWidth !== 3552, on: () => { galaxy.setRenderDimension('renderWidth', 3552); this.requestUpdate(); } },
+          reset: linked ? resolutionReset : { can: gx.renderWidth !== widthDefault, on: () => { galaxy.setRenderDimension('renderWidth', widthDefault); this.requestUpdate(); } },
         }),
         settingFieldRow('galaxyXr.renderHeight', html`
           <div class="range-control">
             ${numberControl('galaxyXr.renderHeight', {
-              value: gx.renderHeight ?? 3840,
+              value: gx.renderHeight ?? heightDefault,
               ctx: controlContext,
               disabled: !gx.nativeResolution,
               onCommit: value => { galaxy.setRenderDimension('renderHeight', value); this.requestUpdate(); },
             })}
             ${linked ? nothing : html`<div class="range-track">
               ${sliderControl('galaxyXr.renderHeight', {
-                value: gx.renderHeight ?? 3840,
+                value: gx.renderHeight ?? heightDefault,
                 disabled: !gx.nativeResolution,
                 onChange: value => { galaxy.setRenderDimension('renderHeight', value); this.requestUpdate(); },
               })}
@@ -157,7 +166,7 @@ export class DriverSettingsPage extends BasePage {
             </div>`}
           </div>`, {
           tip: t('Type a whole number from 1 to 16384 pixels per eye. The slider covers 16 to 8192 px. Requires a SteamVR restart.'),
-          reset: { can: gx.renderHeight !== 3840, on: () => { galaxy.setRenderDimension('renderHeight', 3840); this.requestUpdate(); } },
+          reset: linked ? resolutionReset : { can: gx.renderHeight !== heightDefault, on: () => { galaxy.setRenderDimension('renderHeight', heightDefault); this.requestUpdate(); } },
         }),
         settingFieldRow('renderResolutionLinked', html`
           <div class="link-control">
@@ -175,7 +184,7 @@ export class DriverSettingsPage extends BasePage {
             </div>` : nothing}
           </div>`, {
           tip: t('Link the render width and height sliders. Linked by default, one slider scales both axes proportionally and shows the longer edge in pixels; the current width and height set the ratio. The slider stops at 8192 px, while the number fields still accept 1 to 16384 px. Unlinked, each axis has its own slider. The link preference is saved in gui-settings.json. Changing the render size requires a SteamVR restart.\n\nValue: renderResolutionLinked (gui-settings.json) with galaxyXr.renderWidth and renderHeight (settings.json). SteamVR side — renderWidth, renderHeight, overrideRenderWidth and overrideRenderHeight in steamvr.vrsettings.'),
-          reset: { can: !linked, on: () => this.setRenderResolutionLink(true) },
+          reset: linked ? resolutionReset : { can: !linked, on: () => this.setRenderResolutionLink(true) },
         }),
         ...(advanced ? [settingFieldRow('galaxyXr.vrlinkHeadsetProfile', html`<app-switch .checked=${!!gx.vrlinkHeadsetProfile} @change=${(e: CustomEvent) => { void this.changeIdentitySetting('vrlinkHeadsetProfile', e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>`, {
           tip: t("Keep this on to keep settings copies under the supported Steam Link headset identities. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.\n\nEnabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also mirrors those settings and capability requests to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection. Recognized Quest Pro and PICO 4 Pro identities select VRLink's built-in capabilities; this SteamVR build bypasses their per-model capability sections. Profile copies alone therefore do not prove that capability requests were consumed. Off releases journal-owned tuning copies and preserves the original-model capability destination (xrvst2ue fallback); an active SDR 10-bit baseline can still request capabilities there. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.\n\nValue: galaxyXr.vrlinkHeadsetProfile (settings.json). SteamVR side — journal-mirrors the vrlink tuning sections in steamvr.vrsettings."),
