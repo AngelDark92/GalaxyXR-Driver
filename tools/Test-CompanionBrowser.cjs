@@ -303,29 +303,31 @@ function fixture() {
       });
       assert.ok(deepest <= 2, `${route} renders ${deepest} stacked cards`);
     };
-    assert.equal(await page.locator('#tab-debug').count(), 0);
+    assert.equal(await page.locator('#page-debug').count(), 0);
     assert.equal(await page.evaluate(() => appContext.galaxy.debugMode), false);
     const selectedBeforeDebug = await debugSelections();
     await openRoute('app-settings');
     await page.locator('[data-setting-id="debugMode"] fluent-switch').click();
     await page.waitForFunction(() => appContext.galaxy.debugMode);
     await page.evaluate(() => appContext.dss.flush());
-    await page.locator('#tab-debug').waitFor();
+    await page.locator('#page-debug').waitFor();
     assert.equal(await page.evaluate(() => appContext.appSetting.values().advanceMode), false);
     await openRoute('debug');
     const debug = page.locator('app-debug-page');
     assert.deepEqual(await debug.locator('.section-group.source > .section-group-label').allTextContents(),
-      ['Monitoring', 'Image Processing', 'Controllers', 'Encoder']);
+      ['Monitoring', 'Bitrate monitor', 'Image Processing', 'Diagnostics', 'Controllers', 'Diagnostics', 'Encoder', 'Diagnostics']);
     await debug.locator('#open-bitrate-monitor').waitFor();
     assert.equal(await debug.locator('.section-group.source > .section-group-label').evaluateAll(labels =>
       labels.every(label => label.tagName === 'DIV' && !label.hasAttribute('aria-expanded'))), true);
-    const imageDiagnostics = debug.locator('.section-title').filter({ hasText: 'Diagnostics' }).first();
-    await imageDiagnostics.click();
-    await debug.locator('[data-setting-id="streamFrame.hitchDiag"]').waitFor({ state: 'detached' });
-    await imageDiagnostics.click();
+    // 2026-10-30: only depth-0 cards collapse; nested Diagnostics is a static group.
+    assert.equal(await debug.locator('.section-title').filter({ hasText: 'Diagnostics' }).count(), 0);
+    assert.equal(await debug.locator('.section-group.source.nested .section-group-label')
+      .filter({ hasText: 'Diagnostics' }).count(), 3);
+    const imageDiagnostics = debug.locator('.section-group.source.nested').filter({ hasText: 'Diagnostics' }).first();
+    assert.equal(await imageDiagnostics.getAttribute('role'), 'group');
     await debug.locator('[data-setting-id="streamFrame.hitchDiag"]').waitFor();
     assert.deepEqual(await debugSelections(), selectedBeforeDebug);
-    results.push('Debug defaults hidden, opens from App preferences independently of Advanced Mode, and groups collapsible diagnostics under plain source labels');
+    results.push('Debug defaults hidden, opens from App Preferences independently of Advanced Mode, and shows diagnostics under static source groups');
 
     await page.reload();
     await page.waitForFunction(() => window.appContext?.sds.driverState() === 'installed');
@@ -440,13 +442,13 @@ function fixture() {
     for (const route of ['driver-settings', 'stream-frame', 'debug', 'distortion-profile', 'app-settings', 'setup', 'about']) {
       await openRoute(route);
       await assertCardDepth(route);
-      assert.equal(await page.locator(`app-${route}-page .section-group.advanced > .section-group-label`).evaluateAll(labels =>
+      assert.equal(await page.locator(`app-${route}-page .section-group > .section-group-label`).evaluateAll(labels =>
         labels.every(label => label.tagName === 'DIV' && !label.hasAttribute('aria-expanded'))), true);
     }
     await openRoute('driver-settings');
-    assert.ok(await page.locator('app-driver-settings-page .section-group.advanced').count() > 0);
+    assert.equal(await page.locator('app-driver-settings-page #section-controllers-advanced').count(), 1);
     await openRoute('stream-frame');
-    assert.ok(await page.locator('app-stream-frame-page .section-group.advanced').count() > 0);
+    assert.equal(await page.locator('app-stream-frame-page #section-advanced').count(), 1);
     results.push('All seven pages keep at most two real nested cards with Advanced controls open; Debug captured at wide/narrow widths in both themes');
 
     await openRoute('debug');
@@ -455,14 +457,14 @@ function fixture() {
       await appContext.dss.flush();
     });
     await page.locator('app-app-settings-page').getByRole('heading', { level: 1 }).waitFor();
-    assert.equal(await page.locator('#tab-debug').count(), 0);
+    assert.equal(await page.locator('#page-debug').count(), 0);
     assert.equal(await page.locator('app-debug-page').count(), 0);
     assert.equal(new URL(page.url()).hash, '#/app-settings');
     assert.deepEqual(await debugSelections(), selectedBeforeDebug);
     await page.reload();
     await page.waitForFunction(() => window.appContext?.sds.driverState() === 'installed');
     assert.equal(await page.evaluate(() => appContext.galaxy.debugMode), false);
-    assert.equal(await page.locator('#tab-debug').count(), 0);
+    assert.equal(await page.locator('#page-debug').count(), 0);
     assert.deepEqual(await debugSelections(), selectedBeforeDebug);
     for (const hash of ['#/debug?setting=streamFrame.hitchDiag', '#/stream-frame?setting=streamFrame.hitchDiag']) {
       const beforeGuardedLink = await mutations();
@@ -471,7 +473,7 @@ function fixture() {
       await page.locator('app-app-settings-page').getByRole('heading', { level: 1 }).waitFor();
       await page.locator('app-shell fluent-message-bar').filter({ hasText: 'Enable Debug Mode in App Settings to show diagnostic controls.' }).waitFor();
       assert.equal(new URL(page.url()).hash, '#/app-settings');
-      assert.equal(await page.locator('#tab-debug').count(), 0);
+      assert.equal(await page.locator('#page-debug').count(), 0);
       assert.equal(await mutations(), beforeGuardedLink);
     }
     await page.locator('[data-setting-id="debugMode"] fluent-switch').click();
