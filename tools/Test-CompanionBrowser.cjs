@@ -319,15 +319,16 @@ function fixture() {
     await debug.locator('#open-bitrate-monitor').waitFor();
     assert.equal(await debug.locator('.section-card > .card-heading .section-title').evaluateAll(titles =>
       titles.every(title => title.tagName === 'BUTTON' && title.hasAttribute('aria-expanded'))), true);
-    // 2026-10-30: only depth-0 cards collapse; nested Diagnostics/Bitrate monitor are static fieldsets.
-    assert.deepEqual(await debug.locator('.section-group.nested > .section-group-label').allTextContents(),
+    // 2026-10-30: only depth-0 cards collapse; Bitrate monitor and Diagnostics
+    // are static source groups inside their card bodies, not nested fieldsets.
+    assert.deepEqual(await debug.locator('.section-body > .section-group > .section-group-label').allTextContents(),
       ['Bitrate monitor', 'Diagnostics', 'Diagnostics', 'Diagnostics']);
-    assert.equal(await debug.locator('.section-group.nested > .section-group-label').evaluateAll(labels =>
+    assert.equal(await debug.locator('.section-body > .section-group > .section-group-label').evaluateAll(labels =>
       labels.every(label => label.tagName === 'DIV' && !label.hasAttribute('aria-expanded'))), true);
     assert.equal(await debug.locator('.section-title').filter({ hasText: 'Diagnostics' }).count(), 0);
-    assert.equal(await debug.locator('.section-group.nested .section-group-label')
+    assert.equal(await debug.locator('.section-body > .section-group > .section-group-label')
       .filter({ hasText: 'Diagnostics' }).count(), 3);
-    const imageDiagnostics = debug.locator('.section-group.nested').filter({ hasText: 'Diagnostics' }).first();
+    const imageDiagnostics = debug.locator('.section-body > .section-group').filter({ hasText: 'Diagnostics' }).first();
     assert.equal(await imageDiagnostics.getAttribute('role'), 'group');
     await debug.locator('[data-setting-id="streamFrame.hitchDiag"]').waitFor();
     assert.deepEqual(await debugSelections(), selectedBeforeDebug);
