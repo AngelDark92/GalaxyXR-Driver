@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.16.0-dev.3] - 2026-10-30
+
+### Features
+
+- implement linked render resolution reset and enhance navigation components (`76ee8cb`)
+
 ## [1.16.0-dev.2] - 2026-10-30
 
 ### Fixes
