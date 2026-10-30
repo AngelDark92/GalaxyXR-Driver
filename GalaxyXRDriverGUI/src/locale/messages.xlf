@@ -1094,7 +1094,7 @@
         <source>Exact Covariance Model (Experimental)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-0ad5815853141ab2" datatype="html">
-        <source>Experimental: Simulate Oculus Touch</source>
+        <source>Retired: Controller Layout Simulation</source>
       </trans-unit>
       <trans-unit id="fluent-fix-70b0716396277909" datatype="html">
         <source>Eye Alignment</source>
@@ -1616,7 +1616,7 @@
         <source>Steam Link Debug Overlay</source>
       </trans-unit>
       <trans-unit id="fluent-fix-53f595c13ea3a4a1" datatype="html">
-        <source>Mirror to Steam Link Aliases</source>
+        <source>Galaxy XR Headset Profile</source>
       </trans-unit>
       <trans-unit id="setup-layout-7c8218244501762b" datatype="html">
         <source>A standalone SteamVR vendor driver for the Samsung Galaxy XR over Steam Link. It gives the headset and its controllers their native identity, models and bindings in SteamVR, corrects controller tracking and throw velocity, and adds the ability to process the streamed image (color, sharpening, distortion correction) before it is encoded.</source>
@@ -1659,7 +1659,7 @@ Recorded SteamVR changes are restored to their previous values (or removed to us
 A recovery backup is created before any file is changed. You can clean before installing. After installing or cleaning, start SteamVR from Setup to initialize and verify the driver.</source>
       </trans-unit>
       <trans-unit id="setup-layout-cleanup-note-20260922" datatype="html">
-        <source>Close SteamVR first. Resets the driver settings of the Driver Settings, Image Settings and Distortion Profile tabs to defaults and cleans recognized old identity settings, including the Quest Pro and PICO 4 Pro profiles used by patched Steam Link. App preferences, such as the color scheme, are kept. Recorded SteamVR overrides are restored safely; unrelated SteamVR preferences, room setup, bindings, driver enable/block choices and saved profile files are kept. A recovery backup is made first. Available even before installing the driver.</source>
+        <source>Close SteamVR first. Resets the driver settings of the Driver Settings, Image Settings and Distortion Profile tabs to defaults and cleans recognized old identity settings, including the Quest Pro and PICO 4 Pro profile sections left by older Steam Link builds. App preferences, such as the color scheme, are kept. Recorded SteamVR overrides are restored safely; unrelated SteamVR preferences, room setup, bindings, driver enable/block choices and saved profile files are kept. A recovery backup is made first. Available even before installing the driver.</source>
       </trans-unit>
       <trans-unit id="setup-layout-c27e7bcd7dcbc754" datatype="html">
         <source>Driver enablement is unknown. Run the installation and settings check on the Setup page.</source>
@@ -1670,17 +1670,17 @@ A recovery backup is created before any file is changed. You can clean before in
       <trans-unit id="mirrored-vrlink-native-resolution-20260923" datatype="html">
         <source>Ask SteamVR to render at the Galaxy XR's native per-eye size. This improves the requested resolution but can increase GPU load. Restart SteamVR to apply it.
 
-Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With vrlink Headset Profile On, the same values are also copied to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.</source>
+Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With Galaxy XR Headset Profile On, the same values are also copied to vrlink_xrvst2ue. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.</source>
       </trans-unit>
       <trans-unit id="mirrored-vrlink-profile-20260923" datatype="html">
-        <source>Keep this on to keep settings copies under the supported Steam Link headset identities. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.
+        <source>Keep this on to keep a settings copy under the Galaxy XR headset identity. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.
 
-Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also mirrors those settings and capability requests to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection. Recognized Quest Pro and PICO 4 Pro identities select VRLink's built-in capabilities; this SteamVR build bypasses their per-model capability sections. Profile copies alone therefore do not prove that capability requests were consumed. Off releases journal-owned tuning copies and preserves the original-model capability destination (xrvst2ue fallback); an active SDR 10-bit baseline can still request capabilities there. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.</source>
+Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also writes a copy of those settings and the capability requests to vrlink_xrvst2ue before connection. Off releases journal-owned tuning copies and leaves capability requests in the original-model destination (xrvst2ue). A profile copy is a request, not proof that VRLink consumed it; verify the connection log. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.</source>
       </trans-unit>
       <trans-unit id="mirrored-vrlink-baseline-20260923" datatype="html">
-        Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. Turn the baseline off before enabling enhancements again. Restart SteamVR and reconnect after changing it.
+        <source>Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. Turn the baseline off before enabling enhancements again. Restart SteamVR and reconnect after changing it.
 
-        The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_&lt;original model&gt; destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.</source>
+        The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is written to vrlink_xrvst2ue with Galaxy XR Headset Profile On; otherwise it uses the original-model vrlink_&lt;original model&gt; destination. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.</source>
       </trans-unit>
       <trans-unit id="sdr10-opt-in-273e6bb8a7648ff4" datatype="html">
         <source>Send the stream as 10-bit SDR. On by default; a saved Off stays Off. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.
@@ -1689,7 +1689,7 @@ Turning it on also disables the custom shader target for this headset, which wou
 
 Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit).</source>
       </trans-unit>
-      <trans-unit id="sdr10-opt-in-c581735f6a6cfd97"
+      <trans-unit id="sdr10-opt-in-c581735f6a6cfd97">
         <source>SDR 10-bit and Image Enhancements are both on. Image quality may be reduced.</source>
       </trans-unit>
       <trans-unit id="sdr10-opt-in-87befbfd1ebca350" datatype="html">
@@ -2271,7 +2271,7 @@ Use the calibration grid to inspect alignment, then turn calibration off before 
         <source>This resets color, sharpening, lens correction and other image-processing adjustments to their defaults. It also turns off the custom shader for this headset. Your controller, tracking and stream-quality settings are kept. Turning the baseline off later will not restore the previous picture adjustments. Back up your settings or export your lens profile first. Continue?</source>
       </trans-unit>
       <trans-unit id="companion-20260926-e88d83f957e7b451" datatype="html">
-        <source>This setting is normally left on. Turning it off can make SteamVR show Unknown or the headset identity supplied by a patched Steam Link app instead of Galaxy XR. Restart SteamVR afterwards. Continue?</source>
+        <source>This setting is normally left on. Turning it off can make SteamVR show Unknown or the headset identity supplied by Steam Link instead of Galaxy XR. Restart SteamVR afterwards. Continue?</source>
       </trans-unit>
       <trans-unit id="companion-20260926-ed3caf4b478c27ea" datatype="html">
         <source>This setting is not available in this version.</source>
@@ -2945,7 +2945,7 @@ Value: streamFrame.eyeGaze.overlayWarped (settings.json). Driver side — draws 
       <trans-unit id="2381294401" datatype="html">
         <source>Ask SteamVR to render at the Galaxy XR's native per-eye size. This improves the requested resolution but can increase GPU load. Restart SteamVR to apply it.
 
-Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With vrlink Headset Profile On, the same values are also copied to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.
+Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With Galaxy XR Headset Profile On, the same values are also copied to vrlink_xrvst2ue. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.
 
 Value: galaxyXr.nativeResolution (settings.json). SteamVR side — writes renderWidth, renderHeight, overrideRenderWidth and overrideRenderHeight into the vrlink section of steamvr.vrsettings.</source>
       </trans-unit>
@@ -3086,7 +3086,7 @@ Value: streamFrame.cas.enable + streamFrame.postPack.enable/casEnable (settings.
       <trans-unit id="1797307847" datatype="html">
         <source>Correct a mismatch between full-range and limited-range video levels. Off by default; turn it on only if the headset shows washed-out blacks or crushed shadows. The reset arrow restores Off; it requires the NVIDIA encoder adjustment path.
 
-Steam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.
+Steam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the Galaxy XR client (xrvst2ue). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.
 
 Value: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range.</source>
       </trans-unit>
@@ -3200,16 +3200,16 @@ Draws the angular grid at fixed WORLD azimuth/elevation instead of head-locked l
 Value: streamFrame.eyeGaze.gridWorldLocked (settings.json). Driver side — world-locked placement of the angular grid.</source>
       </trans-unit>
       <trans-unit id="3093830680" datatype="html">
-        <source>Keep this on so SteamVR identifies the headset as Galaxy XR and uses its device icons. Turning it off can show Unknown or the identity provided by a patched Steam Link app instead. Restart SteamVR after changing it.
+        <source>Keep this on so SteamVR identifies the headset as Galaxy XR and uses its device icons. Turning it off can show Unknown or the identity reported by Steam Link instead. Restart SteamVR after changing it.
 
-Enabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link; a patched APK may report a different headset. The vrlink Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity.
+Enabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link. The Galaxy XR Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity.
 
 Value: galaxyXr.nativeIdentity (settings.json). Driver side — sets OpenVR model/manufacturer and device-icon properties; identity changes need a SteamVR restart.</source>
       </trans-unit>
       <trans-unit id="3871973304" datatype="html">
-        <source>Keep this on to keep settings copies under the supported Steam Link headset identities. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.
+        <source>Keep this on to keep a settings copy under the Galaxy XR headset identity. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.
 
-Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also mirrors those settings and capability requests to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection. Recognized Quest Pro and PICO 4 Pro identities select VRLink's built-in capabilities; this SteamVR build bypasses their per-model capability sections. Profile copies alone therefore do not prove that capability requests were consumed. Off releases journal-owned tuning copies and preserves the original-model capability destination (xrvst2ue fallback); an active SDR 10-bit baseline can still request capabilities there. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.
+Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also writes a copy of those settings and the capability requests to vrlink_xrvst2ue before connection. Off releases journal-owned tuning copies and leaves capability requests in the original-model destination (xrvst2ue). A profile copy is a request, not proof that VRLink consumed it; verify the connection log. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.
 
 Value: galaxyXr.vrlinkHeadsetProfile (settings.json). SteamVR side — journal-mirrors the vrlink tuning sections in steamvr.vrsettings.</source>
       </trans-unit>

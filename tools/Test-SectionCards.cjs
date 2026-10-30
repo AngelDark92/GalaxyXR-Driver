@@ -163,6 +163,7 @@ const ts=process.env.FLUENT_TEST_TYPESCRIPT?require(process.env.FLUENT_TEST_TYPE
     ctx:{galaxy:{sections:Object.assign(()=>revealState,{set:next=>{revealState=next;}})}},
     shadowRoot:{getElementById:id=>{assert.equal(id,'section-advanced');return revealTarget;}},
     updateComplete:Promise.resolve(),
+    requestUpdate:()=>{},
     jumpToSection:h.BasePage.prototype.jumpToSection,
   };
   await h.BasePage.prototype.revealSection.call(revealPage,'advanced',['heading:Image Processing']);
@@ -174,7 +175,14 @@ const ts=process.env.FLUENT_TEST_TYPESCRIPT?require(process.env.FLUENT_TEST_TYPE
     assert.equal(revealBlur,true);
   });
 }
-test('Shared styles use a page container and quiet nested groups',()=>{assert.match(h.fieldStyles.cssText,/container-type: inline-size/);assert.match(h.fieldStyles.cssText,/\.section-group\.nested\s*\{[^}]*border-inline-start: 1px solid/);assert.match(h.fieldStyles.cssText,/\.section-group\.nested > \.section-group-label\s*\{[^}]*background: none/);assert.match(h.fieldStyles.cssText,/@container page \(max-width: 720px\)/);assert.match(h.fieldStyles.cssText,/\.section-card \.field \.title::after \{ display: none/);});
+test('Shared styles use a page container, card rows and fieldset nested groups',()=>{assert.match(h.fieldStyles.cssText,/container-type: inline-size/);assert.match(h.fieldStyles.cssText,/\.field\s*\{[^}]*border: 1px solid var\(--colorNeutralStroke2/);assert.match(h.fieldStyles.cssText,/\.field \+ \.field \{ margin-top: 8px; \}/);assert.doesNotMatch(h.fieldStyles.cssText,/\.field \.title::after/);assert.match(h.fieldStyles.cssText,/\.section-body \.section-group:not\(\.nested\) > \.section-group-label\s*\{[^}]*text-transform: none/);assert.match(h.fieldStyles.cssText,/\.section-group\.nested\s*\{[^}]*border: 1px solid/);assert.match(h.fieldStyles.cssText,/\.section-group\.nested > \.section-group-label\s*\{[^}]*text-transform: none/);assert.doesNotMatch(h.fieldStyles.cssText,/\.section-group\.nested\.source/);assert.doesNotMatch(h.fieldStyles.cssText,/\.section-group-label::before/);assert.match(h.fieldStyles.cssText,/@container page \(max-width: 720px\)/);});
+test('Debug primary sections are card headings and diagnostics are nested groups',()=>{
+  const source=fs.readFileSync(root+'/src-lit/features/debug-page.ts','utf8');
+  for(const id of ['debug-monitoring','debug-image','debug-controllers','debug-encoder'])
+    assert.match(source,new RegExp(`sectionHeading\\(t\\('[^']+'\\), 0, '${id}'\\)`),id);
+  assert.doesNotMatch(source,/sectionGroup\(t\('(Monitoring|Image Processing|Controllers|Encoder)'\), 0, 'source'/);
+  assert.equal((source.match(/sectionGroup\(t\('(Bitrate monitor|Diagnostics)'\), 1, 'source'/g)??[]).length,4);
+});
  console.log(`${count} section-card checks passed using ${mode}.`);
  if(process.env.SECTION_CARD_FIXTURE){let markup=flatten(cards).replace(/\?hidden=false/g,'').replace(/\?hidden=true/g,'hidden').replace(/@click=\s*/g,'');fs.writeFileSync(process.env.SECTION_CARD_FIXTURE,`<!doctype html><html><head><meta charset="utf-8"><style>:root{--colorNeutralForeground1:#242424;--colorNeutralBackground1:#fff;--colorNeutralBackground2:#fafafa;--colorNeutralBackground3:#f5f5f5;--colorNeutralStroke2:#d1d1d1;--colorNeutralStroke1:#c7c7c7;--colorBrandStroke1:#0f6cbd;--colorNeutralStrokeAccessible:#616161;}body{margin:0;padding:16px;font:16px system-ui;background:var(--colorNeutralBackground2);color:var(--colorNeutralForeground1)}input{max-width:140px} ${h.fieldStyles.cssText}</style></head><body><p>Layout-only fixture: production grouping helper and CSS; native controls substitute for Fluent controls.</p>${markup}</body></html>`);}
 })().catch(e=>{console.error(e);process.exitCode=1;});

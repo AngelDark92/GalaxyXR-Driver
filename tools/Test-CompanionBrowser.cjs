@@ -314,20 +314,24 @@ function fixture() {
     assert.equal(await page.evaluate(() => appContext.appSetting.values().advanceMode), false);
     await openRoute('debug');
     const debug = page.locator('app-debug-page');
-    assert.deepEqual(await debug.locator('.section-group.source > .section-group-label').allTextContents(),
-      ['Monitoring', 'Bitrate monitor', 'Image Processing', 'Diagnostics', 'Controllers', 'Diagnostics', 'Encoder', 'Diagnostics']);
+    assert.deepEqual(await debug.locator('.section-card > .card-heading .section-label').allTextContents(),
+      ['Monitoring', 'Image Processing', 'Controllers', 'Encoder']);
     await debug.locator('#open-bitrate-monitor').waitFor();
-    assert.equal(await debug.locator('.section-group.source > .section-group-label').evaluateAll(labels =>
+    assert.equal(await debug.locator('.section-card > .card-heading .section-title').evaluateAll(titles =>
+      titles.every(title => title.tagName === 'BUTTON' && title.hasAttribute('aria-expanded'))), true);
+    // 2026-10-30: only depth-0 cards collapse; nested Diagnostics/Bitrate monitor are static fieldsets.
+    assert.deepEqual(await debug.locator('.section-group.nested > .section-group-label').allTextContents(),
+      ['Bitrate monitor', 'Diagnostics', 'Diagnostics', 'Diagnostics']);
+    assert.equal(await debug.locator('.section-group.nested > .section-group-label').evaluateAll(labels =>
       labels.every(label => label.tagName === 'DIV' && !label.hasAttribute('aria-expanded'))), true);
-    // 2026-10-30: only depth-0 cards collapse; nested Diagnostics is a static group.
     assert.equal(await debug.locator('.section-title').filter({ hasText: 'Diagnostics' }).count(), 0);
-    assert.equal(await debug.locator('.section-group.source.nested .section-group-label')
+    assert.equal(await debug.locator('.section-group.nested .section-group-label')
       .filter({ hasText: 'Diagnostics' }).count(), 3);
-    const imageDiagnostics = debug.locator('.section-group.source.nested').filter({ hasText: 'Diagnostics' }).first();
+    const imageDiagnostics = debug.locator('.section-group.nested').filter({ hasText: 'Diagnostics' }).first();
     assert.equal(await imageDiagnostics.getAttribute('role'), 'group');
     await debug.locator('[data-setting-id="streamFrame.hitchDiag"]').waitFor();
     assert.deepEqual(await debugSelections(), selectedBeforeDebug);
-    results.push('Debug defaults hidden, opens from App Preferences independently of Advanced Mode, and shows diagnostics under static source groups');
+    results.push('Debug defaults hidden, opens from App Preferences independently of Advanced Mode, and shows collapsible primary cards with diagnostics fieldsets');
 
     await page.reload();
     await page.waitForFunction(() => window.appContext?.sds.driverState() === 'installed');

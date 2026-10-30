@@ -127,20 +127,24 @@ export const CHAPTER_OUTLINES: Record<Route, readonly OutlineItem[]> = {
   debug: [
     {
       id: 'debug-monitoring', label: 'Monitoring', when: hasSettings,
-      children: [{ id: 'debug-bitrate', label: 'Bitrate monitor' }],
+      open: ['heading:debug-monitoring'],
+      children: [{ id: 'debug-bitrate', label: 'Bitrate monitor', open: ['heading:debug-monitoring'] }],
     },
     {
       id: 'debug-image', label: 'Image Processing', when: hasSettings,
-      children: [{ id: 'debug-image-diagnostics', label: 'Diagnostics' }],
+      open: ['heading:debug-image'],
+      children: [{ id: 'debug-image-diagnostics', label: 'Diagnostics', open: ['heading:debug-image'] }],
     },
     {
       id: 'debug-controllers', label: 'Controllers', when: hasSettings,
-      children: [{ id: 'debug-controller-diagnostics', label: 'Diagnostics' }],
+      open: ['heading:debug-controllers'],
+      children: [{ id: 'debug-controller-diagnostics', label: 'Diagnostics', open: ['heading:debug-controllers'] }],
     },
     {
       id: 'debug-encoder', label: 'Encoder',
       when: ctx => hasSettings(ctx) && ctx.vendor && !!ctx.settings?.nvencTap,
-      children: [{ id: 'debug-encoder-diagnostics', label: 'Diagnostics' }],
+      open: ['heading:debug-encoder'],
+      children: [{ id: 'debug-encoder-diagnostics', label: 'Diagnostics', open: ['heading:debug-encoder'] }],
     },
   ],
 

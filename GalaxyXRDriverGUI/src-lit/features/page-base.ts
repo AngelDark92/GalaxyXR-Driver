@@ -9,6 +9,7 @@ import { css } from 'lit';
 import type { AppContext } from '../app-context';
 import { t } from '../locale/i18n';
 import { interactiveStyles } from '../ui/shared-styles';
+import { fieldNotice, type FieldNotice } from '../ui/presentation';
 import { settingPresentation, settingUnavailable } from '../domain/settings-presentation';
 import { controlSpec, inertReasons, type ControlContext } from '../domain/control-specs';
 
@@ -23,29 +24,39 @@ export const fieldStyles = css`
   /* The page is a size container: when the docked navigator opens or closes,
      the page's own width changes and these queries reflow the rows. */
   :host { container-type: inline-size; container-name: page; }
+  /* 2026-10-30 (owner design): each row is its own card. No table lines,
+     no vertical divider; the control sits at the trailing edge. */
   .field {
     position: relative;
     display: grid;
     flex-shrink: 0;
     grid-template-columns: minmax(13rem, 22rem) minmax(0, 1fr);
-    gap: 0 0.5rem; padding: 0.5rem 0;
-    min-height: 3rem;
-    border-bottom: 1px solid var(--colorNeutralStroke1, rgba(0, 0, 0, 0.15));
+    gap: 0 0.5rem;
+    padding: 12px 14px;
+    min-height: 56px;
+    border: 1px solid var(--colorNeutralStroke2, #d1d1d1);
+    border-radius: 8px;
+    background: var(--colorNeutralBackground1, #fff);
   }
-  .field:last-child { border-bottom: none; }
+  .field + .field { margin-top: 8px; }
+  .field:has(> .note) {
+    margin-top: 0; padding: 0.5rem 0; min-height: 0;
+    border: 0; border-radius: 0; background: none;
+  }
+  .field:has(> .title):hover { background: var(--colorNeutralBackground1Hover); }
   /* 2026-10-16: rows are not selectable - only the control in the second
      column is interactive. user-select:none covers the whole row and the
      focus highlight paints only for keyboard/deep-link focus (:focus-visible),
      so a mouse click on the row neither selects text nor looks "selected". */
   .field { user-select: none; }
   .field :is(input, textarea, select, [contenteditable]) { -webkit-user-select: text; user-select: text; }
-  .field[data-setting-id]:focus-visible, .field[data-setting-id].revealed { outline: 2px solid var(--colorBrandStroke1); outline-offset: 3px; border-radius: 4px; background: var(--colorNeutralBackground3); }
+  .field[data-setting-id]:focus-visible, .field[data-setting-id].revealed { outline: 2px solid var(--colorBrandStroke1); outline-offset: 3px; border-radius: 8px; background: var(--colorNeutralBackground3); }
   .field .title {
     display: flex;
     align-items: center;
     position: relative;
     user-select: none;
-    padding-right: 1rem;
+    padding-right: 0.5rem;
     gap: 0.25rem;
     font-size: 0.9rem;
     line-height: 1.25;
@@ -54,19 +65,63 @@ export const fieldStyles = css`
     width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%;
     background: var(--colorBrandBackground, #0f6cbd);
   }
-  .inert-note {
-    flex: 1 0 100%; width: 100%;
-    color: var(--colorPaletteDarkOrangeForeground1, #a85000);
-    font-size: 0.8rem; line-height: 1.35;
+  /* 2026-10-30 (owner design): row-owned notices live inside the same card,
+     below a divider, and read as a compact toast instead of a page banner.
+     Auto-placement keeps the stack in row 2 of the two-column card and row 3
+     of the one-column card used by .section-card below 720px. */
+  .field-notices {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--colorNeutralStroke2, #e0e0e0);
   }
-  .field .title::after {
-    content: '';
-    top: 10%;
-    height: 80%;
-    border-right: 1px solid var(--colorNeutralStroke1, rgba(0, 0, 0, 0.15));
-    position: absolute;
-    right: 0.5rem;
+  .field-notice {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--colorNeutralStroke2, #e0e0e0);
+    border-radius: 6px;
+    background: var(--colorNeutralBackground2, #f5f5f5);
+    font-size: 0.8rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
   }
+  .field-notice__icon { width: 16px; height: 16px; flex: 0 0 16px; margin-top: 1px; }
+  .field-notice__text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .field-notice__title { font-weight: 600; line-height: 1.35; }
+  .field-notice__body { color: var(--colorNeutralForeground2, #605e5c); line-height: 1.45; }
+  .field-notice__body a { text-decoration: underline; }
+  .field-notice__actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+  .field-notice--info {
+    background: var(--colorNeutralBackground1, #fff);
+    border-inline-start: 3px solid var(--colorBrandStroke1, #0f6cbd);
+  }
+  .field-notice--info .field-notice__icon { color: var(--colorBrandForeground1, #0f6cbd); }
+  .field-notice--warning {
+    background: var(--colorPaletteDarkOrangeBackground1, #fdf6f0);
+    border-color: var(--colorPaletteDarkOrangeBorder1, #e8a06a);
+    border-inline-start: 3px solid var(--colorPaletteDarkOrangeBorderActive, #a85000);
+  }
+  .field-notice--warning .field-notice__icon { color: var(--colorPaletteDarkOrangeForeground1, #a85000); }
+  .field-notice--error {
+    background: var(--colorPaletteRedBackground1, #fdf3f4);
+    border-color: var(--colorPaletteRedBorder1, #e37d80);
+    border-inline-start: 3px solid var(--colorPaletteRedBorderActive, #c50f1f);
+  }
+  .field-notice--error .field-notice__icon { color: var(--colorPaletteRedForeground1, #c50f1f); }
+  .field-notice--success {
+    background: var(--colorPaletteGreenBackground1, #f1faf1);
+    border-color: var(--colorPaletteGreenBorder1, #9fd89f);
+    border-inline-start: 3px solid var(--colorPaletteGreenBorderActive, #0e5503);
+  }
+  .field-notice--success .field-notice__icon { color: var(--colorPaletteGreenForeground1, #0e5503); }
+  .field-notice--compact .field-notice__icon { width: 14px; height: 14px; flex-basis: 14px; }
+  .field-notice--compact .field-notice__title { font-weight: 400; }
   .field .section-title {
     display: flex;
     align-items: center;
@@ -102,7 +157,7 @@ export const fieldStyles = css`
   .field .note { grid-column: span 2; padding: 0.5rem 1rem; font-size: 95%; opacity: 0.85; }
   .field .note p { margin: 0.5rem; }
   .field .value { width: 10%; }
-  .field .control { min-width: 0; display: flex; align-items: center; flex: 1 1 auto; gap: 0.5rem; flex-wrap: wrap; }
+  .field .control { min-width: 0; display: flex; align-items: center; justify-content: flex-end; flex: 1 1 auto; gap: 0.5rem; flex-wrap: wrap; }
   .field .control .wide { flex: 1 1 auto; min-width: 0; }
   .field .control > * { max-width: 100%; }
   .chevron { display: inline-block; width: 1em; flex: 0 0 auto; text-align: center; transition: transform 150ms ease; }
@@ -111,8 +166,9 @@ export const fieldStyles = css`
   @keyframes card-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
   @container page (max-width: 700px) {
     .field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-    .field .title::after { display: none; }
     .field .section-title, .field .note { grid-column: 1; }
+    .field-notice { padding: 7px 9px; }
+    .field-notice__actions { flex-basis: 100%; }
   }
   .section-card { margin: 1rem 0; border: 1px solid var(--colorNeutralStroke2);
     border-inline-start: 4px solid var(--colorBrandStroke1); border-radius: 8px;
@@ -123,15 +179,15 @@ export const fieldStyles = css`
     text-align: start; justify-content: flex-start; font-size: 1.05rem; font-weight: 700; }
   .section-card > .card-heading .collapsible:hover { background: var(--colorNeutralBackground1Hover); }
   .section-card > .card-heading .collapsible:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: -3px; }
-  .section-body { padding: 4px 16px 12px 22px; min-width: 0; }
+  .section-body { --card-body-pad-x: 14px; padding: 12px var(--card-body-pad-x) 16px; min-width: 0; }
   .section-body[hidden] { display: none; }
   /* 2026-10-30: only depth-0 sections are collapsible cards. Every nested
-     section is a group: a banded heading with a brand rule and dot, not a
-     button and not a row. Depth indentation carries the book hierarchy. */
-  .section-group { margin: 16px 0 6px; min-width: 0; }
-  .section-group.level-1 { margin-inline-start: 10px; }
-  .section-group.level-2 { margin-inline-start: 22px; }
-  .section-group.level-3 { margin-inline-start: 34px; }
+     section is a group: a banded heading with a brand rule, not a button and
+     not a row. Depth indentation carries the book hierarchy. */
+  .section-group { --group-indent: 0px; margin: 16px 0 8px; min-width: 0; }
+  .section-group.level-1 { --group-indent: 10px; margin-inline-start: 10px; }
+  .section-group.level-2 { --group-indent: 22px; margin-inline-start: 22px; }
+  .section-group.level-3 { --group-indent: 34px; margin-inline-start: 34px; }
   .section-group-label {
     display: flex; align-items: center; gap: 8px;
     margin: 0; padding: 6px 10px;
@@ -145,42 +201,64 @@ export const fieldStyles = css`
     letter-spacing: 0.06em; line-height: 1.25; text-transform: uppercase;
     user-select: none;
   }
-  .section-group-label::before {
-    content: ''; width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%;
-    background: var(--colorBrandBackground, #0f6cbd);
-  }
   .section-group.source > .section-group-label {
     border-inline-start-color: var(--colorNeutralStrokeAccessible, #616161);
   }
-  .section-group.source > .section-group-label::before { background: var(--colorNeutralForeground3, #616161); }
-  /* 2026-10-30: a group inside another group is a subhead, not a second
-     band. The outer band carries the section; the inner one gets a tree
-     guide and a larger uppercase label without a filled header. */
+  /* 2026-10-30 (owner design): a major group inside a card is a full-bleed
+     delimiter bar in the card-header family: background3, bold sentence
+     case, no chevron/collapse/brand edge. It spans to the card edges beside
+     the card's own blue rule, so it clearly delimits without becoming an
+     inner card. */
+  .section-body .section-group:not(.nested) > .section-group-label {
+    margin-block: 0 8px;
+    margin-inline-start: calc(-1 * (var(--card-body-pad-x, 14px) + var(--group-indent, 0px)));
+    margin-inline-end: calc(-1 * var(--card-body-pad-x, 14px));
+    padding-block: 10px;
+    padding-inline-start: calc(var(--card-body-pad-x, 14px) + var(--group-indent, 0px) + 14px);
+    padding-inline-end: calc(var(--card-body-pad-x, 14px) + 14px);
+    border: 0;
+    border-block: 1px solid var(--colorNeutralStroke2, #d1d1d1);
+    border-radius: 0;
+    background: var(--colorNeutralBackground3, #141414);
+    color: var(--colorNeutralForeground1, #fff);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.25;
+    text-transform: none;
+  }
+  /* 2026-10-30: a group inside another group is a fieldset, not a second
+     band. The border and the legend-style sentence-case label carry the
+     child level; rows keep the flat field separators. Source groups are
+     diagnostic labels, so they keep the quiet indented subhead instead. */
   .section-group.nested {
-    margin-top: 10px;
-    padding-inline-start: 12px;
-    border-inline-start: 1px solid var(--colorNeutralStroke2, #d1d1d1);
+    margin-top: 14px;
+    margin-inline-start: 0;
+    padding: 0 12px 10px;
+    border: 1px solid var(--colorNeutralStroke2, #d1d1d1);
+    border-radius: 8px;
+    background: var(--colorNeutralBackground1, #fff);
   }
   .section-group.nested > .section-group-label {
-    margin-top: 0;
-    padding: 7px 0 5px;
-    border-inline-start: 0;
+    position: relative;
+    top: -9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: auto;
+    margin: 0;
+    padding: 0 8px;
+    border: 0;
     border-radius: 0;
-    background: none;
+    background: var(--colorNeutralBackground1, #fff);
     color: var(--colorNeutralForeground1, #242424);
-    font-size: 0.92rem;
+    font-size: 0.95rem;
     font-weight: 600;
-    letter-spacing: 0.09em;
+    letter-spacing: 0;
     line-height: 1.25;
+    text-transform: none;
   }
-  .section-group.nested > .section-group-label::before {
-    width: 4px; height: 4px; flex-basis: 4px;
-    background: var(--colorNeutralForeground3, #616161);
-  }
-  .section-group.nested > .section-group-label::after {
-    content: ''; flex: 1; height: 1px; margin-inline-start: 2px;
-    background: var(--colorNeutralStroke2, #d1d1d1);
-  }
+  .section-group.nested > .section-group-label::after { content: none; }
   .section-group:focus-visible, .section-card:focus-visible {
     outline: 2px solid var(--colorBrandStroke1, #0f6cbd); outline-offset: 2px;
   }
@@ -190,10 +268,9 @@ export const fieldStyles = css`
   .section-group > .field:first-of-type { border-top: 0; }
   .section-card .field { grid-template-columns: minmax(12rem, 22rem) minmax(0, 1fr); }
   @container page (max-width: 720px) {
-    .section-body { padding-inline: 12px; }
+    .section-body { --card-body-pad-x: 12px; padding-inline: var(--card-body-pad-x); }
     .section-body > .section-card { margin-inline-start: 6px; }
     .section-card .field { grid-template-columns: 1fr; }
-    .section-card .field .title::after { display: none; }
     .section-card .field .note { grid-column: 1; }
   }
   .primary-color { color: var(--colorBrandForeground1, #1a73e8); }
@@ -340,6 +417,10 @@ export class BasePage extends LitElement {
       }
       if (changed) {
         this.ctx.galaxy.sections.set(current as unknown as ReturnType<typeof this.ctx.galaxy.sections>);
+        // 2026-10-30: the store notifies subscribers on a microtask, which can
+        // land after the current update drains; request our own redraw so the
+        // opened card body exists before the anchor is queried below.
+        this.requestUpdate();
         await this.updateComplete;
       }
     }
@@ -372,6 +453,19 @@ export interface FieldReset {
   on: () => void;
 }
 
+export interface FieldRowOptions {
+  tip?: string;
+  reset?: FieldReset;
+  wide?: boolean;
+  settingId?: string;
+  /** Setting key used only to derive the row's saved-but-not-applied notice. */
+  noticeKey?: string;
+  /** Control context used to evaluate the row's gates. */
+  ctx?: ControlContext;
+  /** Explicit row-owned notices, rendered after the control row. */
+  notices?: FieldNotice[];
+}
+
 /**
  * One settings row, matching the old .field grid (22rem title | control).
  * Section headers and notes span both columns, as before.
@@ -379,9 +473,17 @@ export interface FieldReset {
 export function fieldRow(
   title: string | TemplateResult,
   control: TemplateResult,
-  opts?: { tip?: string; reset?: FieldReset; wide?: boolean; settingId?: string }
+  opts?: FieldRowOptions
 ): TemplateResult {
-  return html`<div class="field" id=${opts?.settingId ? `setting-${opts.settingId}` : nothing}
+  const noticeKey = opts?.noticeKey ?? opts?.settingId;
+  const spec = noticeKey ? controlSpec(noticeKey) : undefined;
+  const inert = spec && opts?.ctx ? inertReasons(spec, opts.ctx) : [];
+  const notices: FieldNotice[] = [
+    ...(opts?.notices ?? []),
+    ...inert.map(reason => ({ intent: 'warning' as const, title: t(reason), compact: true })),
+  ];
+  const heading = typeof title === 'string' ? title : undefined;
+  return html`<div class="field${notices.length ? ' has-notice' : ''}" id=${opts?.settingId ? `setting-${opts.settingId}` : nothing}
     data-setting-id=${opts?.settingId ?? nothing} tabindex=${opts?.settingId ? '-1' : nothing}>
     <div class="title">
       ${opts?.reset?.can ? html`<i class="changed-dot" aria-hidden="true"></i>` : nothing}
@@ -390,6 +492,9 @@ export function fieldRow(
       ${opts?.reset ? html`<app-reset .canReset=${opts.reset.can} @resetClick=${opts.reset.on}></app-reset>` : html``}
     </div>
     <div class="control ${opts?.wide ? 'wide' : ''}">${control}</div>
+    ${notices.length ? html`<div class="field-notices" role="group" aria-label=${heading ?? nothing}>
+      ${notices.map(notice => fieldNotice(notice))}
+    </div>` : nothing}
   </div>`;
 }
 
@@ -414,13 +519,11 @@ export interface NumberControlOptions {
 export function numberControl(key: string, opts: NumberControlOptions): TemplateResult {
   const spec = controlSpec(key);
   if (!spec || spec.kind !== 'number') throw new Error(`Unknown numeric control spec: ${key}`);
-  const inert = inertReasons(spec, opts.ctx);
   return html`<app-number .spec=${spec} .ctx=${opts.ctx} .value=${opts.value}
     .label=${opts.label ?? ''} .disabled=${!!opts.disabled} .wide=${!!opts.wide}
     .commitOn=${'blur'}
     @change=${(event: CustomEvent<number>) => { if (Number.isFinite(event.detail)) opts.onCommit?.(event.detail); }}
-    @invalid=${(event: CustomEvent<{ message: string }>) => opts.onInvalid?.(event.detail.message)}></app-number>${inert.length
-      ? html`<span class="inert-note">${inert.map(reason => t(reason)).join(' ')}</span>` : nothing}`;
+    @invalid=${(event: CustomEvent<{ message: string }>) => opts.onInvalid?.(event.detail.message)}></app-number>`;
 }
 
 export interface ChoiceControlOptions {
@@ -447,13 +550,11 @@ export function choiceControl(key: string, opts: ChoiceControlOptions): Template
     });
   }
   const onChange = (event: CustomEvent<string | number>) => opts.onCommit(event.detail);
-  const control = spec.segmented
+  return spec.segmented
     ? html`<app-choice .value=${opts.value} .options=${options} .label=${opts.label ?? ''}
         .disabled=${!!opts.disabled} @change=${onChange}></app-choice>`
     : html`<app-select .value=${String(opts.value)} .options=${options} .label=${opts.label ?? ''}
         .disabled=${!!opts.disabled} @change=${onChange}></app-select>`;
-  const inert = inertReasons(spec, opts.ctx);
-  return html`${control}${inert.length ? html`<span class="inert-note">${inert.map(reason => t(reason)).join(' ')}</span>` : nothing}`;
 }
 
 export interface SliderControlOptions {
@@ -465,7 +566,7 @@ export interface SliderControlOptions {
 
 /** Companion slider for rows whose spec declares a guidance band. Renders
  *  nothing when the spec has none, so adding a slider stays a spec decision.
- *  The row's numberControl owns the "saved, not applied" note, so the slider
+ *  The owning row renders the "saved, not applied" notice, so the slider
  *  does not repeat it. */
 export function sliderControl(key: string, opts: SliderControlOptions): TemplateResult {
   const spec = controlSpec(key);
@@ -506,10 +607,10 @@ export function vectorControl(opts: VectorControlOptions): TemplateResult {
 
 /** One catalog label is used by the rendered control and its check result. */
 export function settingFieldRow(id: string, control: TemplateResult,
-  opts?: { tip?: string; reset?: FieldReset; wide?: boolean }): TemplateResult {
+  opts?: FieldRowOptions): TemplateResult {
   const setting = settingPresentation(id);
   if (!setting) throw new Error(`Unknown setting presentation: ${id}`);
-  return fieldRow(t(setting.label), control, { ...opts, settingId: id });
+  return fieldRow(t(setting.label), control, { ...opts, settingId: id, noticeKey: opts?.noticeKey ?? id });
 }
 
 export function noteRow(text: string | TemplateResult): TemplateResult {

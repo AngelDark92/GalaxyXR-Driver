@@ -8,7 +8,7 @@ import { customElement } from 'lit/decorators.js';
 import { css } from 'lit';
 import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionHeading, sectionGroup, fieldStyles, numberControl, choiceControl, sliderControl } from './page-base';
 import { t } from '../locale/i18n';
-import { pageIntro, statusMessage } from '../ui/presentation';
+import { pageIntro, statusMessage, type FieldNotice } from '../ui/presentation';
 import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
 import { spacewarpStatus } from '../domain/spacewarp-status';
 import { isForcedHalfRate, modeForForceSwitch, spacewarpPublication } from '../domain/spacewarp-modes';
@@ -265,6 +265,11 @@ if (galaxy.calibrationActive()) {
 if (vendor) {
         const codecDef = codecEncoderDefaults[settings.nvencCodec ?? 0] ?? codecEncoderDefaults[0];
         parts.push(sectionHeading(t('Stream Quality'), 0, 'stream-quality'));
+        const tileWidthNotices: FieldNotice[] = [];
+        if (settings.nvencCodec === 1 && galaxy.streamQualityValues.width > 1024) {
+          tileWidthNotices.push({ intent: 'warning', title: t('H.264 tile width above 1024'),
+            body: t('Steam Link negotiates H.264 at 1024 × 4096. A tile width above 1024 requests a taller four-tile frame and will fail to encode. Your stored value is kept and shown here; reset Tile Width to use 1024.') });
+        }
           parts.push(fieldRow(t('Tile Width'), html`
       <span class="preset-buttons">
         ${[1024, 1536, 2048].filter(value => value <= (settings.nvencCodec === 1 ? 1024 : 2048)).map(value => html`<fluent-button
@@ -275,13 +280,10 @@ if (vendor) {
         <span class="stored-chip">${t('Stored: {value} px', { value: galaxy.streamQualityValues.width })}</span>
       ` : nothing}
           `, {
+  notices: tileWidthNotices,
   tip: t("Tile width is a preset class sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. The selected codec caps the tile: H.264 1024, HEVC/AV1 2048, because tile × 4 must fit the encoder's height. A stored value outside the presets is kept and shown here; choose a preset to replace it. Requires a SteamVR restart.\n\nValue: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap's tile answers."),
   reset: { can: galaxy.streamQualityValues.width != codecDef.streamFormatWidth, on: () => { galaxy.setStreamQualityValue('width', codecDef.streamFormatWidth); save(); } }
           }));
-          if (settings.nvencCodec === 1 && galaxy.streamQualityValues.width > 1024) {
-            parts.push(statusMessage('warning', t('H.264 tile width above 1024'),
-              t('Steam Link negotiates H.264 at 1024 × 4096. A tile width above 1024 requests a taller four-tile frame and will fail to encode. Your stored value is kept and shown here; reset Tile Width to use 1024.')));
-          }
           parts.push(fieldRow(t('Max Bitrate (Mbit/s)'), html`
       <div class="range-control">
         ${numberControl('galaxyXr.customBandwidthMbit', {
@@ -497,14 +499,16 @@ if (galaxy.imageEnhancementsEnabled) {
   tip: t("Reduce jagged edges with a post-processing filter. The quality mode does more work than the fast mode and may cost performance.\n\nFXAA applied BEFORE CAS so sharpening enhances resolved edges instead of amplifying jagged staircases. Best for titles with heavy edge shimmer (specular geometry, foliage, thin railings); slightly softens fine text - leave off for text-heavy apps. Fast: integrated into the main pass; CAS sharpens raw neighbors around the AA-resolved center (can faintly re-jag very strong edges at high CAS strength). Quality: a separate FXAA pre-pass, so CAS sees fully resolved edges - costs one extra full-frame pass and VRAM for an intermediate texture; falls back to Fast automatically (with a log line) if the pass shader or intermediate is unavailable. Check 'pixel shader ready (... fxaa: yes, fxaaPass: yes)' in the log after updating.\n\nValue: streamFrame.fxaa (settings.json). Driver side — FXAA pass applied before CAS."),
   reset: { can: settings.fxaa != defaults.fxaa, on: () => { galaxy.reset('fxaa'); } }
           }));
+          const casNotices: FieldNotice[] = galaxy.casMode === 'postpack' && !settings.nvencTap
+            ? [{ intent: 'info', title: t('Post-pack sharpening needs NVENC Tap'),
+                body: t('Enable NVENC Tap in Encoder, or choose Pre-encode sharpening.') }]
+            : [];
           parts.push(settingFieldRow('cas-sharpening', html`
       <app-select .width=${300} .value=${galaxy.casMode} .options=${[{ value: 'off', label: 'Off' }, { value: 'postpack', label: 'Post-pack — on the encoded frame (recommended)' }, { value: 'preencode', label: 'Pre-encode — full-resolution pass (AMD / tap off)' }]} @change=${(e: CustomEvent) => { galaxy.casMode = e.detail; save(); }}></app-select>
           `, {
+  notices: casNotices,
   tip: t("Choose where contrast-adaptive sharpening is applied. The modes use different processing paths; avoid adding the same sharpening twice.\n\nContrast adaptive sharpening. POST-PACK (recommended, NVIDIA + NVENC Tap): runs on the frame the encoder actually sends - the foveated transport image - with separate strengths for the gaze region and the periphery; the periphery is sharpened after Steam Link downscales it, so it survives to the panel, at ~0.04 ms per frame. PRE-ENCODE: the older full-resolution pass on the eye textures; only for AMD GPUs or with the NVENC Tap off. Never run both.\n\nValue: streamFrame.cas.enable + streamFrame.postPack.enable/casEnable (settings.json). Driver + encoder sides — post-pack sharpening runs on the encoded frame through the tap; pre-encode is the full-resolution driver pass.")
           }));
-if (galaxy.casMode === 'postpack' && !settings.nvencTap) {
-            parts.push(statusMessage('info', t('Post-pack sharpening needs NVENC Tap'), t('Enable NVENC Tap in Encoder, or choose Pre-encode sharpening.')));
-}
 if (galaxy.casMode === 'postpack') {
             parts.push(fieldRow(t('Center Sharpness'), html`
       ${numberControl('streamFrame.postPack.foveaStrength', { value: settings.postPack.foveaStrength, ctx: controlContext, onCommit: value => { settings.postPack.foveaStrength = value; save(); } })}
@@ -602,14 +606,18 @@ if (settings.stationaryDimming.enable) {
 if (vendor && settings) {
         const ofxr = this.ofxrPreferences();
         const ofxrStatus = this.ofxrStatus;
+        const ofxrRuntimeNotice: FieldNotice = {
+          intent: 'info',
+          title: t('Optical Flow requires the Companion to stay running'),
+          body: t('Keep the Companion open, minimized, or running in the system tray while playing. Enable Start with Windows in App Settings to restore saved Optical Flow at sign-in. Quitting the Companion stops Optical Flow.'),
+          action: html`<a href="#/app-settings">${t('Open App Settings')}</a>`,
+        };
         parts.push(sectionHeading(t('Optical Flow'), 0, 'optical-flow'));
-        parts.push(statusMessage('info', t('Optical Flow requires the Companion to stay running'),
-          t('Keep the Companion open, minimized, or running in the system tray while playing. Enable Start with Windows in App Settings to restore saved Optical Flow at sign-in. Quitting the Companion stops Optical Flow.'),
-          html`<a href="#/app-settings">${t('Open App Settings')}</a>`));
         parts.push(settingFieldRow('ofxr.enabled', html`
       <app-switch .checked=${this.ctx.ofxr.isArmed()} ?disabled=${this.ctx.ofxr.changing() || (!this.ctx.ofxr.isArmed() && !ofxrCanArm(ofxrStatus))} title=${this.ofxrError ?? t(ofxrDisabledReason(ofxrStatus) ?? '')} @change=${(e: CustomEvent) => { void this.setOfxrEnabled(e.detail); }}></app-switch>
       ${this.ofxrError ? html`<span class="mode-error" role="alert">${this.ofxrError}</span>` : ''}
             `, {
+  notices: [ofxrRuntimeNotice],
   tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, quitting the Companion disarms it; minimizing or closing to the tray keeps it running. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
             }));
         parts.push(settingFieldRow('ofxr.mode', html`
@@ -640,6 +648,7 @@ if (vendor && settings) {
         onCommit: value => { void this.updateOfxr({ maxLogMb: value }); },
       })}
             `, {
+  ctx: controlContext,
   tip: t("Maximum size of the flight log before it rolls over.\n\nValue: ofxr.maxLogMb (gui-settings.json). Companion side — writes max_file_mb.")
             }));
         parts.push(settingFieldRow('ofxr.flushEachEvent', html`
@@ -902,6 +911,8 @@ if (settings.nvencTap) {
         onCommit: value => { settings.nvencLowDelayKfScale = value; save(); },
       })}
                 `, {
+  noticeKey: 'streamFrame.nvencLowDelayKfScale',
+  ctx: controlContext,
   tip: t("With Force CBR, request the keyframe-to-P-frame size ratio (0–255, NVENC byte field). NVENC documents this ratio for CBR with a single-frame VBV buffer. It is not a hard keyframe size limit or a transport limit. The optimized recommendation is 2. Unsupported requests fail without rewriting the value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — requested low-delay keyframe ratio under CBR."),
   reset: { can: settings.nvencLowDelayKfScale != codecDef.lowDelayKfScale, on: () => { settings.nvencLowDelayKfScale = codecDef.lowDelayKfScale; save(); } }
                 }));
@@ -912,6 +923,8 @@ if (settings.nvencTap) {
         onCommit: value => { settings.nvencSplitMode = Number(value); save(); },
       })}
                 `, {
+  noticeKey: 'streamFrame.nvencSplitMode',
+  ctx: controlContext,
   tip: t("0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencSplitMode (settings.json). Encoder side — multi-engine split; nonzero opens the API 12.1 encoder session."),
   reset: { can: settings.nvencSplitMode != codecDef.splitMode, on: () => { settings.nvencSplitMode = codecDef.splitMode; save(); } }
                 }));
@@ -939,7 +952,7 @@ if (settings.nvencTap) {
                 parts.push(settingFieldRow('streamFrame.postPack.limitedRange', html`
       <app-switch .checked=${!!settings.postPack.limitedRange} @change=${(e: CustomEvent) => { settings.postPack.limitedRange = e.detail; settings.postPack.enable = settings.postPack.enable || settings.postPack.limitedRange; save(); }}></app-switch>
                 `, {
-  tip: t("Correct a mismatch between full-range and limited-range video levels. Off by default; turn it on only if the headset shows washed-out blacks or crushed shadows. The reset arrow restores Off; it requires the NVIDIA encoder adjustment path.\n\nSteam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.\n\nValue: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range."),
+  tip: t("Correct a mismatch between full-range and limited-range video levels. Off by default; turn it on only if the headset shows washed-out blacks or crushed shadows. The reset arrow restores Off; it requires the NVIDIA encoder adjustment path.\n\nSteam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the Galaxy XR client (xrvst2ue). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.\n\nValue: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range."),
   reset: { can: settings.postPack.limitedRange != false, on: () => { settings.postPack.limitedRange = false; save(); } }
                 }));
 
@@ -1001,7 +1014,7 @@ if (vendor) {
               parts.push(settingFieldRow('galaxyXr.simulateTouch', html`
       <app-switch .checked=${!!galaxyXr.simulateTouch} @change=${(e: CustomEvent) => { galaxyXr.simulateTouch = e.detail; save(); }}></app-switch>
               `, {
-  tip: "Try presenting a compatible Oculus Touch controller identity to games. This is experimental, can change bindings, and requires a SteamVR restart.\n\nIdentity experiment. Adds an Oculus Touch layout above Valve Index in the controller remapping, so games that ship Touch bindings auto-remap with Touch simulation (the game applies its Touch hand offsets) instead of Index. Meant to be tested with gripConvention off in settings.json, since Samsung's raw pose is Touch-convention. Off = Index remains the fallback. Requires a SteamVR restart."
+  tip: "Retired controller-layout experiment. Leave it Off; it is kept only so older settings files remain compatible.\n\nRetired experiment. The switch is retained in the Graveyard so older settings do not break; it presents an alternate controller layout to games and can change bindings. Requires a SteamVR restart."
               }));
               parts.push(fieldRow(t('Controller Mesh Offset X (cm)'), html`
       ${numberControl('galaxyXr.meshOffsetXCm', { value: galaxyXr.meshOffsetXCm ?? 0, ctx: controlContext, onCommit: value => { galaxyXr.meshOffsetXCm = value; save(); } })}
@@ -1074,6 +1087,7 @@ if (vendor) {
       <app-select .value=${settings.deriveDiagVelocity} .options=${[{ value: 'off', label: 'Normal velocity' }, { value: 'zero', label: 'Report zero (test)' }]} @change=${(e: CustomEvent) => { settings.deriveDiagVelocity = e.detail; save(); }}></app-select>
       <app-switch .checked=${!!settings.deriveLatchPoseAssist} @change=${(e: CustomEvent) => { settings.deriveLatchPoseAssist = e.detail; save(); }}></app-switch>
             `, {
+  ctx: controlContext,
   tip: "Send zero controller velocity to isolate problems caused by reported motion. This diagnostic mode can break throwing and should be off for normal play.\n\nHelps decide if a game uses vecVelocity or computes the velocity itself. Report zero for ~2 minutes: if throws still fly, the game ignores reported velocity. Turn off after testing.",
   reset: { can: settings.deriveDiagVelocity != defaults.deriveDiagVelocity || settings.deriveLatchPoseAssist != defaults.deriveLatchPoseAssist, on: () => { galaxy.reset('deriveDiagVelocity'); galaxy.reset('deriveLatchPoseAssist'); } }
             }));
@@ -1084,6 +1098,8 @@ if (vendor) {
       <span>Slope</span>
       ${numberControl('streamFrame.kalmanDirLeadWMs', { value: settings.kalmanDirLeadWMs, ctx: controlContext, onCommit: value => { settings.kalmanDirLeadWMs = value; save(); } })}
             `, {
+  noticeKey: 'streamFrame.kalmanDirLeadBaseMs',
+  ctx: controlContext,
   tip: "Try an experimental correction that anticipates changes in motion direction. Leave it off unless you are measuring the result.\n\nThe fixed Direction Lead above is tuned for the average throw, but the hardest wrist whips (25+ rad/s) lag the filter more, so a single value under-corrects exactly your most violent throws - the last remaining direction tail. When enabled, the lead grows smoothly with your wrist speed: base + slope x rotation speed, OVERRIDING the manual Td while on. Defaults (5 + 0.3/rads): an ordinary throw gets ~8ms, a hard whip ~14ms. No thresholds, nothing switches - gentle throws are essentially unchanged. Success looks like the rare 12-24 degree hard-whip releases dropping to the ~5 degree baseline with everything else identical.",
   reset: { can: settings.kalmanDirLeadAdaptive != defaults.kalmanDirLeadAdaptive || settings.kalmanDirLeadBaseMs != defaults.kalmanDirLeadBaseMs || settings.kalmanDirLeadWMs != defaults.kalmanDirLeadWMs, on: () => { galaxy.reset('kalmanDirLeadAdaptive'); galaxy.reset('kalmanDirLeadBaseMs'); galaxy.reset('kalmanDirLeadWMs'); } }
             }));
@@ -1100,6 +1116,8 @@ if (vendor) {
       <span>Blend</span>
       ${numberControl('streamFrame.kalmanGripBlend', { value: settings.kalmanGripBlend, ctx: controlContext, onCommit: value => { settings.kalmanGripBlend = value; save(); } })}
             `, {
+  noticeKey: 'streamFrame.kalmanGripBlend',
+  ctx: controlContext,
   tip: "Account for rotation around a wrist or grip point when estimating controller motion. This is an advanced alignment-dependent adjustment.\n\nThe estimator honestly reports the tracked origin's velocity; during a wrist snap that includes the origin's tangential speed around your hand (w x r) - physics, not filter error, and the measured cause of combined linear+wrist throws bending off while pure linear and pure flick throws feel right. When enabled, reported velocity is transported to the grip point: v + blend x (w x r). Set r via the in-headset Aligner's GRIP capture (hold the palm still, swirl a pure wrist cone with the trigger held) or type it below. With r set but Enable OFF the driver runs shadow-only: PEAKDIAG logs gOut/gDirOff/wr showing what compensation WOULD have reported - verify a session like that first. Leave OFF for games/engines that already transport velocity to their own attach point (they would double-apply). Blend 1 = full physics; below 1 under-corrects deliberately.",
   reset: { can: settings.kalmanGripEnable != defaults.kalmanGripEnable || settings.kalmanGripBlend != defaults.kalmanGripBlend, on: () => { galaxy.reset('kalmanGripEnable'); galaxy.reset('kalmanGripBlend'); } }
             }));
@@ -1117,6 +1135,8 @@ if (vendor) {
       <span>Rz</span>
       ${numberControl('streamFrame.kalmanGripRightCm.z', { value: settings.kalmanGripRightCm.z, ctx: controlContext, onCommit: value => { settings.kalmanGripRightCm.z = value; save(); } })}
             `, {
+  noticeKey: 'streamFrame.kalmanGripLeftCm.x',
+  ctx: controlContext,
   tip: "Set the point around which each controller rotates. Use measurements from the alignment workflow rather than guessing large offsets.\n\nPer-hand vector from the tracked origin to the hand's rotation center, in the controller's local frame. The Aligner's GRIP capture solves this automatically (it is the same least-squares pivot solve as the tip capture, aimed at your wrist instead of a desk) and saving from the Aligner writes these fields. Typical magnitude a few cm; values are ignored (compensator inert) below 0.1cm or above 30cm. Field data 2026-08-14: per-throw inversion of the direction error clusters at |r| ~ 5cm.",
   reset: { can: settings.kalmanGripLeftCm.x != defaults.kalmanGripLeftCm.x || settings.kalmanGripLeftCm.y != defaults.kalmanGripLeftCm.y || settings.kalmanGripLeftCm.z != defaults.kalmanGripLeftCm.z || settings.kalmanGripRightCm.x != defaults.kalmanGripRightCm.x || settings.kalmanGripRightCm.y != defaults.kalmanGripRightCm.y || settings.kalmanGripRightCm.z != defaults.kalmanGripRightCm.z, on: () => { galaxy.reset('kalmanGripLeftCm'); galaxy.reset('kalmanGripRightCm'); } }
             }));
@@ -1185,6 +1205,8 @@ if (vendor) {
         onCommit: value => { settings.nvencVuiFullRange = Number(value); save(); },
       })}
             `, {
+  noticeKey: 'streamFrame.nvencVuiFullRange',
+  ctx: controlContext,
   tip: "Override video color-range metadata. Leave automatic unless diagnosing a known mismatch; incompatible client handling can darken the image.\n\n-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated - the client mishandles explicit tags, so these stay inert until the APK changes. A full-range value conflicting with active post-pack limited-range output is refused visibly in the driver log and the Stream Frame evidence row."
             }));
             parts.push(fieldRow(t('NVENC (retired): VUI Matrix'), html`
@@ -1194,6 +1216,8 @@ if (vendor) {
         onCommit: value => { settings.nvencVuiMatrix = Number(value); save(); },
       })}
             `, {
+  noticeKey: 'streamFrame.nvencVuiMatrix',
+  ctx: controlContext,
   tip: "Colour matrix coefficients written into the stream's VUI. -1 leaves the streamer's tag. HEVC/H.264 only; the AV1 path does not write these tags."
             }));
             parts.push(fieldRow(t('NVENC (retired): VUI Primaries'), html`
@@ -1203,6 +1227,8 @@ if (vendor) {
         onCommit: value => { settings.nvencVuiPrimaries = Number(value); save(); },
       })}
             `, {
+  noticeKey: 'streamFrame.nvencVuiPrimaries',
+  ctx: controlContext,
   tip: "Colour primaries written into the stream's VUI. -1 leaves the streamer's tag. HEVC/H.264 only; the client mishandles explicit tags."
             }));
             parts.push(fieldRow(t('NVENC (retired): VUI Transfer'), html`
@@ -1212,6 +1238,8 @@ if (vendor) {
         onCommit: value => { settings.nvencVuiTransfer = Number(value); save(); },
       })}
             `, {
+  noticeKey: 'streamFrame.nvencVuiTransfer',
+  ctx: controlContext,
   tip: "Transfer characteristics written into the stream's VUI. -1 leaves the streamer's tag. HEVC/H.264 only; the client mishandles explicit tags."
             }));
             parts.push(fieldRow(t('vrlink (retired): Encode Width'), html`
@@ -1254,6 +1282,8 @@ if (vendor) {
       <span>S</span>
       ${numberControl('streamFrame.kalmanGazeMinSpeed', { value: settings.kalmanGazeMinSpeed, ctx: controlContext, onCommit: value => { settings.kalmanGazeMinSpeed = value; save(); } })}
             `, {
+  noticeKey: 'streamFrame.kalmanGazeMaxDeg',
+  ctx: controlContext,
   tip: "Try using gaze information to help estimate throwing direction. This is experimental, needs reliable eye tracking, and can change normal throws.\n\nUses your eye tracking to fix the last class of bad throws: you look at the target before your hand lets go, so your gaze knows the intended direction even when the release samples the hand's snap-back. Above the minimum speed, the reported throw direction is bent toward where you're looking - by strength fraction of the angle, never more than the max bend cap. Direction only: throw power and spin are untouched, the rendered hand is untouched, and if eye data is missing or stale for even 100ms it silently does nothing. Start at 0.4-0.6; the 'gaze aim assist ENGAGED' log line confirms it's live. 0 = off. TEST MODE: values above 1 shrink the disagreement needed for full gaze takeover - G=10 with max bend 180 locks every throw straight onto your gaze, for verifying the whole pipeline.",
   reset: { can: settings.kalmanGazeAssist != defaults.kalmanGazeAssist || settings.kalmanGazeMaxDeg != defaults.kalmanGazeMaxDeg || settings.kalmanGazeMinSpeed != defaults.kalmanGazeMinSpeed, on: () => { galaxy.reset('kalmanGazeAssist'); galaxy.reset('kalmanGazeMaxDeg'); galaxy.reset('kalmanGazeMinSpeed'); } }
             }));
@@ -1291,6 +1321,8 @@ if (vendor) {
       <span>sH</span>
       ${numberControl('streamFrame.deriveSmoothSpeedHigh', { value: settings.deriveSmoothSpeedHigh, ctx: controlContext, onCommit: value => { settings.deriveSmoothSpeedHigh = value; save(); } })}
             `, {
+  noticeKey: 'streamFrame.deriveSmoothTauSlowMs',
+  ctx: controlContext,
   tip: "Adjust the motion filter's smoothing automatically with speed. This changes the trade-off between steady slow motion and responsive fast motion.\n\nSpeed-adaptive smoothing for the Derive velocity mode, live reloaded. The filter time constant slides from tau slow (held still: kills trembling) to tau fast (throw speeds: near raw so the peak survives) as effective speed crosses low..high. Lower tau fast raises the reported peak but passes more raw noise at release; if throw directions misbehave, prefer the Split Direction toggles below over pushing tau fast toward zero.",
   reset: { can: settings.deriveSmoothTauSlowMs != defaults.deriveSmoothTauSlowMs || settings.deriveSmoothTauFastMs != defaults.deriveSmoothTauFastMs || settings.deriveSmoothSpeedLow != defaults.deriveSmoothSpeedLow || settings.deriveSmoothSpeedHigh != defaults.deriveSmoothSpeedHigh, on: () => { galaxy.reset('deriveSmoothTauSlowMs'); galaxy.reset('deriveSmoothTauFastMs'); galaxy.reset('deriveSmoothSpeedLow'); galaxy.reset('deriveSmoothSpeedHigh'); } }
             }));
@@ -1305,18 +1337,22 @@ if (vendor) {
       <span>sH</span>
       ${numberControl('streamFrame.deriveSmoothAngSpeedHigh', { value: settings.deriveSmoothAngSpeedHigh, ctx: controlContext, onCommit: value => { settings.deriveSmoothAngSpeedHigh = value; save(); } })}
             `, {
+  noticeKey: 'streamFrame.deriveSmoothAngTauSlowMs',
+  ctx: controlContext,
   tip: "Use a separate smoothing strength for rotational motion. This lets rotation and straight-line movement be tuned independently.\n\nGives the angular (spin) channel its own speed-adaptive smoothing instead of sharing the linear channel's filter. Field data shows the shared filter under-serves spin: reported angular speed swings about +-40% around raw. Defaults are chosen to be nearly behavior neutral on enable, so tune from there: raise tau fast to calm spin jitter, lower speed high if wrist-flick throws lose their snap. Angular speeds are in rad/s (a firm wrist flick peaks around 10-20).",
   reset: { can: settings.deriveSmoothAngSeparate != defaults.deriveSmoothAngSeparate || settings.deriveSmoothAngTauSlowMs != defaults.deriveSmoothAngTauSlowMs || settings.deriveSmoothAngTauFastMs != defaults.deriveSmoothAngTauFastMs || settings.deriveSmoothAngSpeedLow != defaults.deriveSmoothAngSpeedLow || settings.deriveSmoothAngSpeedHigh != defaults.deriveSmoothAngSpeedHigh, on: () => { galaxy.reset('deriveSmoothAngSeparate'); galaxy.reset('deriveSmoothAngTauSlowMs'); galaxy.reset('deriveSmoothAngTauFastMs'); galaxy.reset('deriveSmoothAngSpeedLow'); galaxy.reset('deriveSmoothAngSpeedHigh'); } }
             }));
             parts.push(settingFieldRow('streamFrame.deriveSplitDirLinear', html`
       <app-switch .checked=${!!settings.deriveSplitDirLinear} @change=${(e: CustomEvent) => { settings.deriveSplitDirLinear = e.detail; save(); }}></app-switch>
             `, {
+  ctx: controlContext,
   tip: "Use a separate smoothing strength for straight-line motion direction. It only affects filter modes that split speed from direction.\n\nExperimental fix for throws flying in random directions with Derive mode. Keeps the smoothed velocity MAGNITUDE but takes the DIRECTION from a speed-weighted average of the raw estimates over a short window, so the fastest (most reliable) samples pin the release direction. Toggle one channel at a time for a clean A/B; the log line 'VelocityFix: split-dir active' confirms it engaged.",
   reset: { can: settings.deriveSplitDirLinear != defaults.deriveSplitDirLinear, on: () => { galaxy.reset('deriveSplitDirLinear'); } }
             }));
             parts.push(settingFieldRow('streamFrame.deriveSplitDirAngular', html`
       <app-switch .checked=${!!settings.deriveSplitDirAngular} @change=${(e: CustomEvent) => { settings.deriveSplitDirAngular = e.detail; save(); }}></app-switch>
             `, {
+  ctx: controlContext,
   tip: "Use a separate smoothing strength for rotation direction. It only affects filter modes that split rotation speed from direction.\n\nSame split treatment for angular velocity (spin direction at release). Independent from the linear toggle so A/B tests stay single-variable.",
   reset: { can: settings.deriveSplitDirAngular != defaults.deriveSplitDirAngular, on: () => { galaxy.reset('deriveSplitDirAngular'); } }
             }));
@@ -1324,6 +1360,8 @@ if (vendor) {
       ${numberControl('streamFrame.deriveLatchAngMinSpeed', { value: settings.deriveLatchAngMinSpeed, ctx: controlContext, onCommit: value => { settings.deriveLatchAngMinSpeed = value; save(); } })}
       <app-select .value=${settings.derivePreFilter} .options=${[{ value: 'off', label: 'Off (raw input)' }, { value: 'median3', label: 'Median of 3 (recommended)' }]} @change=${(e: CustomEvent) => { settings.derivePreFilter = e.detail; save(); }}></app-select>
             `, {
+  noticeKey: 'streamFrame.deriveLatchAngMinSpeed',
+  ctx: controlContext,
   tip: "Choose the minimum spin speed needed before the experimental spin latch takes effect. Keep the default unless testing that mode.\n\nAngular min speed: the spin channel's own latch gate - wrist snaps above this replay their peak spin at release, gentler rotation stays live (6 is a deliberate flick; casual regrabs sit far below). Input prefilter median3: cleans single-frame network position spikes BEFORE velocity is derived, at one sample of lag - the recommended fix for jitter tails and twitchy held objects. Off restores raw input for A/B.",
   reset: { can: settings.deriveLatchAngMinSpeed != defaults.deriveLatchAngMinSpeed || settings.derivePreFilter != defaults.derivePreFilter, on: () => { galaxy.reset('deriveLatchAngMinSpeed'); galaxy.reset('derivePreFilter'); } }
             }));
@@ -1331,6 +1369,8 @@ if (vendor) {
       ${numberControl('streamFrame.derivePreSmoothMs', { value: settings.derivePreSmoothMs, ctx: controlContext, onCommit: value => { settings.derivePreSmoothMs = value; save(); } })}
       <app-select .value=${settings.derivePreSmoothScope} .options=${[{ value: 'direction', label: 'Direction only (recommended)' }, { value: 'both', label: 'Both direction and speed' }]} @change=${(e: CustomEvent) => { settings.derivePreSmoothScope = e.detail; save(); }}></app-select>
             `, {
+  noticeKey: 'streamFrame.derivePreSmoothMs',
+  ctx: controlContext,
   tip: "Choose which parts of motion data receive the optional pre-filter. Different scopes can change both responsiveness and noise.\n\nSmooths the raw tracking stream BEFORE anything is derived from it, with adjustable strength (0 = off; try 10-25; capped at 100). Scope 'Direction only' cleans what the throw direction and rendered-hand prediction see while speed is still derived from the exact positions - the recommended way to calm jittery hands without losing throw power. 'Both' also feeds the smoothed stream to the speed derivation: maximum calm, slight peak lag. Works alongside the median-of-3 spike filter.",
   reset: { can: settings.derivePreSmoothMs != defaults.derivePreSmoothMs || settings.derivePreSmoothScope != defaults.derivePreSmoothScope, on: () => { galaxy.reset('derivePreSmoothMs'); galaxy.reset('derivePreSmoothScope'); } }
             }));
@@ -1355,6 +1395,8 @@ if (vendor) {
       <span>S</span>
       ${numberControl('streamFrame.deriveLatchMinSpeed', { value: settings.deriveLatchMinSpeed, ctx: controlContext, onCommit: value => { settings.deriveLatchMinSpeed = value; save(); } })}
             `, {
+  noticeKey: 'streamFrame.deriveLatchWindowMs',
+  ctx: controlContext,
   tip: "Retain a recent speed peak briefly around release in the legacy filter. This can change throw strength and may exaggerate a noisy peak.\n\nFixes throws that come out weak or die mid-air: field data shows the input release event often trails the hand motion, so about a quarter of throws sample the velocity AFTER the hand already slowed. When on, the moment your trigger/grip release arrives, the output replays the strongest recent motion (window below) for the hold duration - full strength for the first half, fading after. Normal throws that release at the peak are unaffected. The three numbers: peak window ms / hold ms / minimum speed to engage (m/s).",
   reset: { can: settings.deriveReleaseLatch != defaults.deriveReleaseLatch, on: () => { galaxy.reset('deriveReleaseLatch'); } }
             }));
@@ -1364,6 +1406,8 @@ if (vendor) {
       <span>P</span>
       ${numberControl('streamFrame.deriveDirWeightPow', { value: settings.deriveDirWeightPow, ctx: controlContext, onCommit: value => { settings.deriveDirWeightPow = value; save(); } })}
             `, {
+  noticeKey: 'streamFrame.deriveDirWindowMs',
+  ctx: controlContext,
   tip: "Choose how older samples are weighted when averaging motion direction. Recent-sample weighting reacts faster but may be less steady.\n\nWindow: how far back the direction average looks (clamped 5-200 in the driver). Shorter follows wrist snaps tighter but averages less noise. Weight power: how strongly fast samples dominate (speed^power weighting); 2 is a good default, higher approaches 'direction of the single fastest sample', 0 is an unweighted average.",
   reset: { can: settings.deriveDirWindowMs != defaults.deriveDirWindowMs || settings.deriveDirWeightPow != defaults.deriveDirWeightPow, on: () => { galaxy.reset('deriveDirWindowMs'); galaxy.reset('deriveDirWeightPow'); } }
             }));

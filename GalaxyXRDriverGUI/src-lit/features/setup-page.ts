@@ -54,7 +54,7 @@ export class SetupPage extends BasePage {
     await this.ctx.startup.refresh();
   }
 
-  private renderSetup(): TemplateResult {
+  private renderSetup(): TemplateResult[] {
     const { sds, startup, aus, dis } = this.ctx;
     const version = sds.driverInstalled();
     const installed = !!version;
@@ -72,7 +72,8 @@ export class SetupPage extends BasePage {
     const desiredRoot = customRoot || this.ctx.sds.defaultDriverRoot();
     const currentRoot = this.ctx.sds.driverRegisteredPath();
     const locationMismatch = installed && !!currentRoot && !!desiredRoot && !this.sameManagedRoot(currentRoot, desiredRoot);
-    return html`
+    return [
+      html`
       <div class="step-grid">
         <article class="step-card">
           <div class="step-heading"><h3>${t('1. Install the driver')}</h3>
@@ -108,9 +109,9 @@ export class SetupPage extends BasePage {
             <fluent-button ?disabled=${busy} @click=${() => this.checkSettings()}>${t('Check driver now')}</fluent-button>
           </div>` : nothing}
         </article>
-      </div>
-      ${sectionHeading(t('Advanced'), 0, 'setup-advanced')}
-      ${fieldRow(t('Driver install location'), html`
+      </div>`,
+      sectionHeading(t('Advanced'), 0, 'setup-advanced'),
+      fieldRow(t('Driver install location'), html`
         <div class="install-root">
           <span>${customRoot ? t('Custom: {path}', { path: customRoot }) : t('Default: {path}', { path: defaultRoot })}</span>
           <div class="setup-actions">
@@ -120,15 +121,15 @@ export class SetupPage extends BasePage {
         </div>
       `, {
         tip: t("Choose the parent folder for versioned driver packages. The default is recommended. The driver is installed in a GalaxyXRNative versioned subfolder. A custom location must be an absolute folder on a local fixed drive; network, removable, cloud-synced, temporary and reparse-point folders are not supported. The saved location applies only after you install or reinstall the driver. Changing it does not move the current installation.\n\nValue: driverInstallRoot (gui-settings.json). GUI-only install preference; empty means the default."),
-      })}
-      ${currentRoot ? noteRow(t('Current installation: {path}', { path: currentRoot })) : nothing}
-      ${locationMismatch ? statusMessage('warning', t('Install location saved for the next reinstall'),
-        t('The current installation stays at {path}. Use Reinstall driver to apply the new location.', { path: currentRoot! })) : nothing}
-      ${installed ? html`<p class="secondary">${t('After verification, check the picture and controller tracking in your headset.')}</p>` : nothing}
-      ${!sds.steamVRinstalled() || (installed && (!sds.systemReady() || enabled === false))
-        ? html`<app-driver-troubleshooter .ctx=${this.ctx}></app-driver-troubleshooter>` : nothing}
-      ${installed ? html`<app-driver-enable-banner .ctx=${this.ctx}></app-driver-enable-banner>` : nothing}
-      <fluent-accordion class="check-details"><fluent-accordion-item>
+      }),
+      ...(currentRoot ? [noteRow(t('Current installation: {path}', { path: currentRoot }))] : []),
+      ...(locationMismatch ? [statusMessage('warning', t('Install location saved for the next reinstall'),
+        t('The current installation stays at {path}. Use Reinstall driver to apply the new location.', { path: currentRoot! }))] : []),
+      ...(installed ? [html`<p class="secondary">${t('After verification, check the picture and controller tracking in your headset.')}</p>`] : []),
+      ...(!sds.steamVRinstalled() || (installed && (!sds.systemReady() || enabled === false))
+        ? [html`<app-driver-troubleshooter .ctx=${this.ctx}></app-driver-troubleshooter>`] : []),
+      ...(installed ? [html`<app-driver-enable-banner .ctx=${this.ctx}></app-driver-enable-banner>`] : []),
+      html`<fluent-accordion class="check-details"><fluent-accordion-item>
         <span slot="heading">${t('Runtime tools and details')}</span>
         ${fieldRow(t('Restart Compositor'), html`<fluent-button ?disabled=${busy || !installed}
           @click=${() => sds.restartCompositor()}>${t('Restart Compositor')}</fluent-button>`, {
@@ -137,7 +138,8 @@ export class SetupPage extends BasePage {
         <p class="secondary"><strong>${t('Last reported driver version (not live verification)')}:</strong> ${dis.values()?.driverVersion ?? t('No runtime information')}</p>
         ${sds.driverVersionMismatch() ? statusMessage('warning', t('Version mismatch'), t('Restart SteamVR to load the installed driver version.')) : nothing}
         ${sds.driverCheckError() ? html`<p class="technical">${sds.driverCheckError()}</p>` : nothing}
-      </fluent-accordion-item></fluent-accordion>`;
+      </fluent-accordion-item></fluent-accordion>`,
+    ];
   }
 
   private renderSettingsCheck(): TemplateResult {
@@ -359,7 +361,7 @@ export class SetupPage extends BasePage {
     return html`${pageIntro(t('Setup'), t('Set up Galaxy XR for SteamVR, tune tracking, and adjust the streamed image.'))}
       ${this.sectionCardsFor([
         sectionHeading(t('Set up your headset'), 0, 'setup-headset'),
-        this.renderSetup(),
+        ...this.renderSetup(),
         sectionHeading(t('Settings check'), 0, 'setup-check'),
         this.renderSettingsCheck(),
         sectionHeading(t('Restore or remove'), 0, 'setup-restore'),

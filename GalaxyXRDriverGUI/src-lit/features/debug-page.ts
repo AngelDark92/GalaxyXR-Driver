@@ -2,7 +2,7 @@
 // Advanced Mode. Debug Mode gates diagnostics at the driver boundary (2026-10-01).
 import { html, css, type TemplateResult } from 'lit';
 import { customElement } from 'lit/decorators.js';
-import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionGroup, fieldStyles, numberControl } from './page-base';
+import { BasePage, settingFieldRow, fieldRow, noteRow, sectionHeading, sectionGroup, fieldStyles, numberControl } from './page-base';
 import { t } from '../locale/i18n';
 import { pageIntro } from '../ui/presentation';
 import { open_bitrate_monitor } from '../platform/tauri';
@@ -37,7 +37,6 @@ export class DebugPage extends BasePage {
     const settings = galaxy.settings;
     const defaults = galaxy.defaults;
     const galaxyXr = galaxy.galaxyXr;
-    const sections = galaxy.sections();
     const save = () => { galaxy.save(); this.requestUpdate(); };
     const controlContext = {
       codec: settings.nvencCodec ?? 0,
@@ -53,7 +52,7 @@ export class DebugPage extends BasePage {
       ofxrLogging: !!this.ctx.ofxr.preferences().logging,
     };
     const parts: TemplateResult[] = [pageIntro(t('Debug'), t('Diagnostic overlays, logging, and encoder tuning.'))];
-    parts.push(sectionGroup(t('Monitoring'), 0, 'source', 'debug-monitoring'));
+    parts.push(sectionHeading(t('Monitoring'), 0, 'debug-monitoring'));
     parts.push(sectionGroup(t('Bitrate monitor'), 1, 'source', 'debug-bitrate'));
 
       parts.push(fieldRow(t('Window'), html`
@@ -64,7 +63,7 @@ export class DebugPage extends BasePage {
       parts.push(noteRow(t('The monitor samples only while its window is open. Closing or hiding the window stops every sampler.')));
       if (this.bitrateWindowError) parts.push(noteRow(html`<span class="window-error">${this.bitrateWindowError}</span>`));
 
-    parts.push(sectionGroup(t('Image Processing'), 0, 'source', 'debug-image'));
+    parts.push(sectionHeading(t('Image Processing'), 0, 'debug-image'));
     parts.push(sectionGroup(t('Diagnostics'), 1, 'source', 'debug-image-diagnostics'));
 
       parts.push(settingFieldRow('streamFrame.blackFloor.rampBar', html`
@@ -94,7 +93,7 @@ export class DebugPage extends BasePage {
         reset: { can: settings.eyeGaze.debugRing != defaults.eyeGaze.debugRing, on: () => { galaxy.reset('eyeGaze'); } }
       }));
 
-    parts.push(sectionGroup(t('Controllers'), 0, 'source', 'debug-controllers'));
+    parts.push(sectionHeading(t('Controllers'), 0, 'debug-controllers'));
     parts.push(sectionGroup(t('Diagnostics'), 1, 'source', 'debug-controller-diagnostics'));
 
       parts.push(settingFieldRow('streamFrame.poseLogging', html`
@@ -111,7 +110,7 @@ export class DebugPage extends BasePage {
       }));
 
     if (galaxy.vendor && settings.nvencTap) {
-      parts.push(sectionGroup(t('Encoder'), 0, 'source', 'debug-encoder'));
+      parts.push(sectionHeading(t('Encoder'), 0, 'debug-encoder'));
       parts.push(sectionGroup(t('Diagnostics'), 1, 'source', 'debug-encoder-diagnostics'));
 
         parts.push(settingFieldRow('galaxyXr.vrlinkDebugOverlay', html`

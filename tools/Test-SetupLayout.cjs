@@ -230,17 +230,18 @@ async function test(name, fn) {
   for (const options of [{ installed: false }, {}, { upgrade: true }, { state: 'checking' }, { installed: false, state: 'unknown' }, { enabled: false }, { steamvr: false, installed: false }]) {
     await test(`Single install control and correct card ownership: ${JSON.stringify(options)}`, () => {
       const { template } = render(SetupPage, context(options));
-      const sections = cards(template); assert.equal(sections.length, 3);
+      const sections = cards(template); assert.equal(sections.length, 4);
       assert.match(markup(template), /<header class="page-intro"><h1>Setup<\/h1>/);
       assert.match(markup(template), /Set up Galaxy XR for SteamVR/);
       assert.match(markup(sections[0]), /Set up your headset/); assert.match(markup(sections[0]), /Installed Driver Version/);
-      assert.match(markup(sections[0]), /Restart Compositor/);
-      assert.match(markup(sections[1]), /Settings check/);
-      assert.match(markup(sections[2]), /Restore or remove/); assert.match(markup(sections[2]), /Restore defaults/);
+      assert.match(markup(sections[1]), /Advanced/); assert.match(markup(sections[1]), /Driver install location/);
+      assert.match(markup(sections[1]), /Restart Compositor/);
+      assert.match(markup(sections[2]), /Settings check/);
+      assert.match(markup(sections[3]), /Restore or remove/); assert.match(markup(sections[3]), /Restore defaults/);
       const labels = buttonLabels(template);
       assert.equal(labels.filter(label => /^(Install Driver|Reinstall driver|Install 1\.2\.3)$/.test(label)).length, 1);
       assert.equal(labels.filter(label => label === 'Uninstall driver').length, 1, 'Uninstall remains available for residual settings');
-      assert.equal(buttonLabels(sections[2]).filter(label => label === 'Uninstall driver').length, 1);
+      assert.equal(buttonLabels(sections[3]).filter(label => label === 'Uninstall driver').length, 1);
       assert.doesNotMatch(markup(sections[0]), /Uninstall driver/);
       assert.doesNotMatch(markup(template), /App Version|Donation Links|Source Code and Releases/);
     });

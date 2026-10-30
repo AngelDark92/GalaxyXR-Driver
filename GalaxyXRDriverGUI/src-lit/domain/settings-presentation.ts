@@ -35,7 +35,7 @@ headset('galaxyXr.renderWidth', 'Render Width per Eye', { kind: 'value' });
 headset('galaxyXr.renderHeight', 'Render Height per Eye', { kind: 'value' });
 // GUI-only preference for the proportional render sliders (2026-10-30).
 headset('renderResolutionLinked', 'Render Resolution Sliders', { source: 'gui-settings.json' });
-headset('galaxyXr.vrlinkHeadsetProfile', 'Mirror to Steam Link Aliases', { advanced: true });
+headset('galaxyXr.vrlinkHeadsetProfile', 'Galaxy XR Headset Profile', { advanced: true });
 headset('galaxyXr.sdr10Baseline', '10-Bit SDR Mode');
 const controllers = group('driver-settings', ['Controllers'], ['controllers'], false, 'vendor');
 group('driver-settings', ['Controllers'], ['controllers'])('galaxyXr.controllerBypass', 'Disable All Controller Features');
@@ -124,7 +124,7 @@ encoderDebug('streamFrame.nvencVerbose', 'Encoder Verbose Log');
 const retired = group('stream-frame', ['Graveyard (retired experiments)'], ['graveyard'], true, 'graveyard');
 retired('streamFrame.kalmanCaReportAccel', 'Kalman CA: Report Acceleration');
 retired('controllers.aligner.enable', 'Controller Aligner (in-headset)');
-retired('galaxyXr.simulateTouch', 'Experimental: Simulate Oculus Touch', { vendorOnly: true });
+retired('galaxyXr.simulateTouch', 'Retired: Controller Layout Simulation', { vendorOnly: true });
 retired('streamFrame.eyeGaze.probeCapture', 'Probe Capture (scoring run)');
 retired('streamFrame.skipColorWhileDashboardOpen', 'Skip Color While Dashboard Open');
 retired('streamFrame.eyeGaze.calibDot', 'Fixation Dot (VOR probe)');

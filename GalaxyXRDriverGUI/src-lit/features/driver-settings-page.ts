@@ -7,7 +7,7 @@ import { customElement } from 'lit/decorators.js';
 import { css } from 'lit';
 import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionGroup, fieldStyles, numberControl, sliderControl, vectorControl } from './page-base';
 import { t, tHtml } from '../locale/i18n';
-import { pageIntro, statusMessage } from '../ui/presentation';
+import { pageIntro, statusMessage, type FieldNotice } from '../ui/presentation';
 import { driverDefaults } from '../domain/driver-defaults';
 import { renderLongEdge } from '../state/galaxy-settings';
 import '../ui/controls';
@@ -42,7 +42,7 @@ export class DriverSettingsPage extends BasePage {
     // saved false values remain respected; hiding advanced controls never resets them.
     if (!enabled && gx[key] !== false) {
       const confirmed = await this.ctx.dialog.confirm(t('Turn off Galaxy XR recognition?'),
-        t('This setting is normally left on. Turning it off can make SteamVR show Unknown or the headset identity supplied by a patched Steam Link app instead of Galaxy XR. Restart SteamVR afterwards. Continue?'), t('Turn off'), 'danger');
+        t('This setting is normally left on. Turning it off can make SteamVR show Unknown or the headset identity supplied by Steam Link instead of Galaxy XR. Restart SteamVR afterwards. Continue?'), t('Turn off'), 'danger');
       if (!confirmed) {
         // The adapter has already toggled locally; explicitly restore it on Cancel.
         control.checked = !!gx[key];
@@ -121,9 +121,17 @@ export class DriverSettingsPage extends BasePage {
         can: gx.renderWidth !== widthDefault || gx.renderHeight !== heightDefault,
         on: () => { galaxy.resetRenderResolution(); this.requestUpdate(); },
       };
+      const recognitionNotice: FieldNotice = {
+        intent: 'warning',
+        title: t('Keep Galaxy XR recognition enabled'),
+        body: t('Turning off either identity option can make SteamVR show another headset or Unknown. Restart SteamVR after a change.'),
+      };
+      const nativeIdentityNotices = !gx.nativeIdentity ? [recognitionNotice] : [];
+      const profileNotices = gx.nativeIdentity && (advanced || !gx.vrlinkHeadsetProfile) ? [recognitionNotice] : [];
       body.push(
         ...(advanced ? [settingFieldRow('galaxyXr.nativeIdentity', html`<app-switch .checked=${!!gx.nativeIdentity} @change=${(e: CustomEvent) => { void this.changeIdentitySetting('nativeIdentity', e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>`, {
-          tip: t("Keep this on so SteamVR identifies the headset as Galaxy XR and uses its device icons. Turning it off can show Unknown or the identity provided by a patched Steam Link app instead. Restart SteamVR after changing it.\n\nEnabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link; a patched APK may report a different headset. The vrlink Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity.\n\nValue: galaxyXr.nativeIdentity (settings.json). Driver side — sets OpenVR model/manufacturer and device-icon properties; identity changes need a SteamVR restart."),
+          notices: nativeIdentityNotices,
+          tip: t("Keep this on so SteamVR identifies the headset as Galaxy XR and uses its device icons. Turning it off can show Unknown or the identity reported by Steam Link instead. Restart SteamVR after changing it.\n\nEnabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link. The Galaxy XR Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity.\n\nValue: galaxyXr.nativeIdentity (settings.json). Driver side — sets OpenVR model/manufacturer and device-icon properties; identity changes need a SteamVR restart."),
         })] : []),
         settingFieldRow('galaxyXr.nativeResolution', html`<app-switch .checked=${!!gx.nativeResolution} @change=${(e: CustomEvent) => { gx.nativeResolution = e.detail; save(); }}></app-switch>`, {
           tip: t('Choose the render target size in pixels per eye at SteamVR 100% resolution. The native default is 3552 × 3840. Higher values increase GPU load. Requires a SteamVR restart. SteamVR Auto, global resolution and per-game scaling still apply; use Custom 100% to compare the requested size. Turning this off restores the previous resolution while keeping your manual values. Refresh rate and stream encoding size are separate settings. Advanced VRLink resolution overrides take priority.'),
@@ -187,14 +195,29 @@ export class DriverSettingsPage extends BasePage {
           reset: linked ? resolutionReset : { can: !linked, on: () => this.setRenderResolutionLink(true) },
         }),
         ...(advanced ? [settingFieldRow('galaxyXr.vrlinkHeadsetProfile', html`<app-switch .checked=${!!gx.vrlinkHeadsetProfile} @change=${(e: CustomEvent) => { void this.changeIdentitySetting('vrlinkHeadsetProfile', e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>`, {
-          tip: t("Keep this on to keep settings copies under the supported Steam Link headset identities. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.\n\nEnabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also mirrors those settings and capability requests to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection. Recognized Quest Pro and PICO 4 Pro identities select VRLink's built-in capabilities; this SteamVR build bypasses their per-model capability sections. Profile copies alone therefore do not prove that capability requests were consumed. Off releases journal-owned tuning copies and preserves the original-model capability destination (xrvst2ue fallback); an active SDR 10-bit baseline can still request capabilities there. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.\n\nValue: galaxyXr.vrlinkHeadsetProfile (settings.json). SteamVR side — journal-mirrors the vrlink tuning sections in steamvr.vrsettings."),
+          notices: profileNotices,
+          tip: t("Keep this on to keep a settings copy under the Galaxy XR headset identity. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.\n\nEnabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also writes a copy of those settings and the capability requests to vrlink_xrvst2ue before connection. Off releases journal-owned tuning copies and leaves capability requests in the original-model destination (xrvst2ue). A profile copy is a request, not proof that VRLink consumed it; verify the connection log. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.\n\nValue: galaxyXr.vrlinkHeadsetProfile (settings.json). SteamVR side — journal-mirrors the vrlink tuning sections in steamvr.vrsettings."),
         })] : []),
       );
       if (galaxy.renderResolutionError()) {
         body.push(statusMessage('error', t('Invalid render resolution'), galaxy.renderResolutionError()!));
       }
-      if (advanced || !gx.nativeIdentity || !gx.vrlinkHeadsetProfile) {
+      if (!advanced && (!gx.nativeIdentity || !gx.vrlinkHeadsetProfile)) {
+        // The identity rows are hidden outside Advanced mode, so the warning
+        // has no visible card to live in. Keep it at section level for that case.
         body.push(statusMessage('warning', t('Keep Galaxy XR recognition enabled'), t('Turning off either identity option can make SteamVR show another headset or Unknown. Restart SteamVR after a change.')));
+      }
+      const baselineNotices: FieldNotice[] = [];
+      if (settings.nvencCodec === 1) {
+        baselineNotices.push({ intent: 'info', title: t('H.264 is always 8-bit'),
+          body: t('The 10-bit request is not applied to the H.264 codec. AV1 and HEVC honor it.') });
+      } else if (galaxy.baselineRequested) {
+        baselineNotices.push({ intent: 'info', title: t('SDR 10-bit baseline is on'),
+          body: t('Restart SteamVR and reconnect to apply the 10-bit request.') });
+        if (galaxy.sdr10BaselineConflict()) {
+          baselineNotices.push({ intent: 'warning', title: t('Custom shader conflicts with the baseline'),
+            body: t('Turn off the custom shader for this headset, then enable the baseline again to clear the conflict.') });
+        }
       }
       body.push(
         // 2026-10-17 (owner directive): H.264 cannot carry 10-bit, so while
@@ -207,6 +230,7 @@ export class DriverSettingsPage extends BasePage {
           .checked=${galaxy.baselineRequested && settings.nvencCodec !== 1}
           .disabled=${galaxy.imageModeChanging() || settings.nvencCodec === 1}
           @change=${(e: CustomEvent<boolean>) => { void this.changeBaseline(e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>`, {
+          notices: baselineNotices,
           tip: t("Send the stream as 10-bit SDR. On by default. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off. Switching back to HEVC or AV1 turns it on again; a saved Off on HEVC or AV1 is restored to On by the next codec switch.\n\nTurning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit)."),
           reset: {
             can: settings.nvencCodec !== 1 && !!galaxy.baselineRequested !== (driverDefaults.galaxyXr?.sdr10Baseline ?? true),
@@ -214,17 +238,6 @@ export class DriverSettingsPage extends BasePage {
           },
         }),
       );
-      if (settings.nvencCodec === 1) {
-        // 2026-10-17 (owner directive): the baseline toggle is forced Off
-        // and disabled while H.264 is selected; this banner is its visible
-        // reason and stays up in every baseline state.
-        body.push(statusMessage('info', t('H.264 is always 8-bit'), t('The 10-bit request is not applied to the H.264 codec. AV1 and HEVC honor it.')));
-      } else if (galaxy.baselineRequested) {
-        body.push(statusMessage('info', t('SDR 10-bit baseline is on'), t('Restart SteamVR and reconnect to apply the 10-bit request.')));
-        if (galaxy.sdr10BaselineConflict()) {
-          body.push(statusMessage('warning', t('Custom shader conflicts with the baseline'), t('Turn off the custom shader for this headset, then enable the baseline again to clear the conflict.')));
-        }
-      }
       if (galaxy.imageModeError()) body.push(statusMessage('error', t('Image mode could not be changed'), galaxy.imageModeError()!));
     }
 
@@ -389,6 +402,8 @@ export class DriverSettingsPage extends BasePage {
               <span>S</span>${numberControl('streamFrame.kalmanMagScale', { value: settings.kalmanMagScale, ctx: controlContext, label: t('Throw strength scale'), onCommit: value => { settings.kalmanMagScale = value; save(); } })}
               <span>Sa</span>${numberControl('streamFrame.kalmanAngMagScale', { value: settings.kalmanAngMagScale, ctx: controlContext, label: t('Throw spin scale'), onCommit: value => { settings.kalmanAngMagScale = value; save(); } })}
             `, {
+              noticeKey: 'streamFrame.kalmanMagAccel',
+              ctx: controlContext,
               tip: t("Scale the controller speeds sent to games. 1 leaves the speed unchanged; other values can change throwing strength and rotational movement.\n\nFixes weak throws at low Accel without giving up the calm direction. S/Sa globally scale reported speed. Leave at 1 unless a specific title needs it.\n\nValue: streamFrame.kalmanMagSource, kalmanMagAccel, kalmanMagScale, kalmanAngMagScale (settings.json). Driver side — scaling of the reported speed and spin."),
               reset: {
                 can: settings.kalmanMagSource != defaults.kalmanMagSource || settings.kalmanMagAccel != defaults.kalmanMagAccel || settings.kalmanMagScale != defaults.kalmanMagScale || settings.kalmanAngMagScale != defaults.kalmanAngMagScale,
@@ -454,6 +469,8 @@ export class DriverSettingsPage extends BasePage {
               }),
               fieldRow(t('Repeat Distrust Strength'), html`${numberControl('streamFrame.kalmanDupRScale', { value: settings.kalmanDupRScale, ctx: controlContext, onCommit: value => { settings.kalmanDupRScale = value; save(); } })}
               ${sliderControl('streamFrame.kalmanDupRScale', { value: settings.kalmanDupRScale, onChange: value => { settings.kalmanDupRScale = value; save(); } })}`, {
+                noticeKey: 'streamFrame.kalmanDupRScale',
+                ctx: controlContext,
                 tip: t("Set how little the filter trusts a repeated tracking sample. Larger values make duplicate samples have less influence.\n\nOnly used when duplicate handling is Soft. A repeated sample is a true position of unknown age, so its honest uncertainty at hand speed is far above the sensor floor; this multiplies the measurement noise for detected repeats. 1 behaves exactly like Off; the default of 3 halves motion jitter with no measured cost; 6 and above re-create Coast's rejected snap character. Repeats sustained past the run cap are always accepted at full weight.\n\nValue: streamFrame.kalmanDupRScale (settings.json). Driver side — measurement-noise multiplier for repeated samples (Soft mode only)."),
                 reset: { can: settings.kalmanDupRScale != defaults.kalmanDupRScale, on: () => galaxy.reset('kalmanDupRScale') },
               }),

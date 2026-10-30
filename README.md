@@ -18,7 +18,7 @@ This driver has to work in tandem with the latest patched Steam Link releases fo
 ## What it does
 
 **Headset**
-- Native Galaxy XR identity in SteamVR: model name, manufacturer, icons — no more generic vrlink HMD or Quest Pro.
+- Native Galaxy XR identity in SteamVR: model name, manufacturer, icons.
 - Manual render resolution: independently editable width and height per eye, defaulting to the native 3552 × 3840. Non-square sizes above 4096 pixels remain rectangular.
 - Stream quality controls for the vrlink encoder: tile width and bandwidth, with per-codec defaults.
 
