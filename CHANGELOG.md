@@ -6,6 +6,19 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [1.16.0] - 2026-10-31
+
+### Features
+
+- Major interface rework (`448f74a`)
+- implement linked render resolution reset and enhance navigation components (`76ee8cb`)
+- enhance status icons and add field notice component (`1eb3107`)
+
+### Fixes
+
+- build: update CI consumers after interface rework (`bb1eef4`)
+- ci: query card-body groups in companion browser test (`3cd24e3`)
+
 ## [1.16.0-dev.5] - 2026-10-30
 
 ### Fixes
