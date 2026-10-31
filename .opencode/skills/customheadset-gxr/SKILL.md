@@ -17,6 +17,7 @@ Select one workflow only:
 
 - Keep Galaxy XR and neutral builds, legacy MeganeX 8K / Dream Air paths, runtime identities and AppData contracts intact.
 - A setting crosses `Config.h`, `ConfigLoader.cpp`, `domain/types.ts`, `driver-defaults.ts`, `GalaxySettingsBase`, the page, the runtime consumer, source XLIFF, tests and docs. Defaults must match; no unused control.
+- Every numeric setting has one declarative control spec covering the seven constraint kinds: closed set, sentinel, capability bound, context gate, cross-field ordering, precision, degenerate guard. Pages render from the spec; a raw `app-number` with hand-written `min`/`max`/`step` is a defect. See [control contracts](references/control-contracts.md).
 - A semantics change needs mirrored dated migrations in `ConfigLoader.cpp` and `galaxy-settings.ts`; upgrade exact old defaults only and preserve user tuning.
 - SteamVR writes stay journal-owned. `ThirdParty/` is read-only. New GUI strings use `t(...)` and the source XLIFF.
 - Do not bypass the settings-authority rules in `AGENTS.md`, including codec switching, reset behavior and visible failures.

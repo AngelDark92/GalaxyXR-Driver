@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROUTES, driverAvailable, parseRoute, parseSettingTarget, settingHref, permittedRoute, visibleRoutes, type InstallationState } from './navigation';
+import { ROUTES, driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, sectionHref, settingHref, permittedRoute, visibleRoutes, type InstallationState } from './navigation';
 
 describe('stable tab order and the always-visible Setup page', () => {
   it('round-trips a stable setting target and still enforces installation routes', () => {
@@ -9,6 +9,17 @@ describe('stable tab order and the always-visible Setup page', () => {
     expect(permittedRoute(parseRoute(hash, false), false)).toBe('setup');
     expect(parseSettingTarget('#/stream-frame')).toBeUndefined();
     expect(parseSettingTarget('#/stream-frame?setting=%22%3E')).toBeUndefined();
+  });
+
+  it('round-trips a stable section target for the Contents card', () => {
+    const hash = sectionHref('stream-frame', 'optical-flow');
+    expect(hash).toBe('#/stream-frame?section=optical-flow');
+    expect(parseRoute(hash, true)).toBe('stream-frame');
+    expect(parseSectionTarget(hash)).toBe('optical-flow');
+    expect(parseSettingTarget(hash)).toBeUndefined();
+    expect(parseSectionTarget('#/stream-frame')).toBeUndefined();
+    expect(parseSectionTarget('#/stream-frame?section=%22%3E')).toBeUndefined();
+    expect(parseSectionTarget('#/driver-settings?section=controller-fix')).toBe('controller-fix');
   });
   it('keeps the canonical tab order', () => {
     expect([...ROUTES]).toEqual(['driver-settings', 'stream-frame', 'debug', 'distortion-profile', 'app-settings', 'setup', 'about']);

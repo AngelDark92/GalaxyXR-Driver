@@ -5,6 +5,7 @@ import { BasePage, fieldRow, noteRow, sectionHeading, fieldStyles } from './page
 import { pageIntro, statusIcon, statusMessage } from '../ui/presentation';
 import { t } from '../locale/i18n';
 import { galaxyXRDriverName } from '../environment';
+import { formatCheckValue, formatSettingValue, isInternalCheck, SETTINGS_PRESENTATION } from '../domain/settings-presentation';
 import { open } from '@tauri-apps/plugin-dialog';
 import '../ui/controls';
 import './system-ready';
@@ -45,7 +46,7 @@ export class SetupPage extends BasePage {
     .step-card.attention { border-color: var(--colorPaletteRedBorder1, var(--colorNeutralStroke2)); background: var(--colorPaletteRedBackground2, var(--colorNeutralBackground1)); }
     .action-card h3 { display: flex; align-items: center; gap: 8px; }
     .action-card .status-icon { width: 20px; height: 20px; }
-    @media (max-width: 850px) { .step-grid, .maintenance-grid { grid-template-columns: 1fr; } }
+    @container page (max-width: 850px) { .step-grid, .maintenance-grid { grid-template-columns: 1fr; } }
   `];
 
   private async checkSettings(): Promise<void> {
@@ -53,7 +54,7 @@ export class SetupPage extends BasePage {
     await this.ctx.startup.refresh();
   }
 
-  private renderSetup(): TemplateResult {
+  private renderSetup(): TemplateResult[] {
     const { sds, startup, aus, dis } = this.ctx;
     const version = sds.driverInstalled();
     const installed = !!version;
@@ -71,7 +72,8 @@ export class SetupPage extends BasePage {
     const desiredRoot = customRoot || this.ctx.sds.defaultDriverRoot();
     const currentRoot = this.ctx.sds.driverRegisteredPath();
     const locationMismatch = installed && !!currentRoot && !!desiredRoot && !this.sameManagedRoot(currentRoot, desiredRoot);
-    return html`
+    return [
+      html`
       <div class="step-grid">
         <article class="step-card">
           <div class="step-heading"><h3>${t('1. Install the driver')}</h3>
@@ -107,9 +109,9 @@ export class SetupPage extends BasePage {
             <fluent-button ?disabled=${busy} @click=${() => this.checkSettings()}>${t('Check driver now')}</fluent-button>
           </div>` : nothing}
         </article>
-      </div>
-      ${sectionHeading(t('Advanced'), 0, 'setup-advanced')}
-      ${fieldRow(t('Driver install location'), html`
+      </div>`,
+      sectionHeading(t('Advanced'), 0, 'setup-advanced'),
+      fieldRow(t('Driver install location'), html`
         <div class="install-root">
           <span>${customRoot ? t('Custom: {path}', { path: customRoot }) : t('Default: {path}', { path: defaultRoot })}</span>
           <div class="setup-actions">
@@ -119,15 +121,15 @@ export class SetupPage extends BasePage {
         </div>
       `, {
         tip: t("Choose the parent folder for versioned driver packages. The default is recommended. The driver is installed in a GalaxyXRNative versioned subfolder. A custom location must be an absolute folder on a local fixed drive; network, removable, cloud-synced, temporary and reparse-point folders are not supported. The saved location applies only after you install or reinstall the driver. Changing it does not move the current installation.\n\nValue: driverInstallRoot (gui-settings.json). GUI-only install preference; empty means the default."),
-      })}
-      ${currentRoot ? noteRow(t('Current installation: {path}', { path: currentRoot })) : nothing}
-      ${locationMismatch ? statusMessage('warning', t('Install location saved for the next reinstall'),
-        t('The current installation stays at {path}. Use Reinstall driver to apply the new location.', { path: currentRoot! })) : nothing}
-      ${installed ? html`<p class="secondary">${t('After verification, check the picture and controller tracking in your headset.')}</p>` : nothing}
-      ${!sds.steamVRinstalled() || (installed && (!sds.systemReady() || enabled === false))
-        ? html`<app-driver-troubleshooter .ctx=${this.ctx}></app-driver-troubleshooter>` : nothing}
-      ${installed ? html`<app-driver-enable-banner .ctx=${this.ctx}></app-driver-enable-banner>` : nothing}
-      <fluent-accordion class="check-details"><fluent-accordion-item>
+      }),
+      ...(currentRoot ? [noteRow(t('Current installation: {path}', { path: currentRoot }))] : []),
+      ...(locationMismatch ? [statusMessage('warning', t('Install location saved for the next reinstall'),
+        t('The current installation stays at {path}. Use Reinstall driver to apply the new location.', { path: currentRoot! }))] : []),
+      ...(installed ? [html`<p class="secondary">${t('After verification, check the picture and controller tracking in your headset.')}</p>`] : []),
+      ...(!sds.steamVRinstalled() || (installed && (!sds.systemReady() || enabled === false))
+        ? [html`<app-driver-troubleshooter .ctx=${this.ctx}></app-driver-troubleshooter>`] : []),
+      ...(installed ? [html`<app-driver-enable-banner .ctx=${this.ctx}></app-driver-enable-banner>`] : []),
+      html`<fluent-accordion class="check-details"><fluent-accordion-item>
         <span slot="heading">${t('Runtime tools and details')}</span>
         ${fieldRow(t('Restart Compositor'), html`<fluent-button ?disabled=${busy || !installed}
           @click=${() => sds.restartCompositor()}>${t('Restart Compositor')}</fluent-button>`, {
@@ -136,13 +138,18 @@ export class SetupPage extends BasePage {
         <p class="secondary"><strong>${t('Last reported driver version (not live verification)')}:</strong> ${dis.values()?.driverVersion ?? t('No runtime information')}</p>
         ${sds.driverVersionMismatch() ? statusMessage('warning', t('Version mismatch'), t('Restart SteamVR to load the installed driver version.')) : nothing}
         ${sds.driverCheckError() ? html`<p class="technical">${sds.driverCheckError()}</p>` : nothing}
-      </fluent-accordion-item></fluent-accordion>`;
+      </fluent-accordion-item></fluent-accordion>`,
+    ];
   }
 
   private renderSettingsCheck(): TemplateResult {
     const report = this.ctx.checks.report();
     const busy = this.ctx.checks.checking() || this.ctx.sds.installingDriver() || this.ctx.startup.launching();
     const originLabels = { stored: 'Saved value', default: 'Default value', mixed: 'Saved and default values', unknown: 'Unknown' } as const;
+    const catalogKeys = new Set(SETTINGS_PRESENTATION.flatMap(setting => setting.keys));
+    const changedSettings = (report?.settings ?? []).filter(setting => setting.changed);
+    const otherChanged = (report?.checks ?? []).filter(check =>
+      check.changed && !isInternalCheck(check) && !catalogKeys.has(check.key));
     return html`
       <div class="check-toolbar">
         <div><p>${t('Read back saved settings and locate each control.')}</p>
@@ -157,29 +164,53 @@ export class SetupPage extends BasePage {
           <fluent-badge appearance="tint" color=${report.errors.length ? 'warning' : 'informative'}>${report.errors.length ? t('Needs attention') : t('Check complete')}</fluent-badge>
           <span class="secondary">${t('Last check')}: ${new Date(report.checkedAt).toLocaleString()}</span>
           <span class="secondary">${t('Driver enabled in SteamVR')}: ${report.driverEnabled === undefined ? t('Unknown') : report.driverEnabled ? t('On') : t('Off')}</span>
+          <span class="secondary">${changedSettings.length + otherChanged.length} ${t('settings changed from default')}</span>
         </div>
         ${report.errors.length || report.warnings.length ? statusMessage('warning', t('Some checks need attention'), t('Open Technical details to review unreadable settings and other notices.')) : nothing}
         <div class="check-table-scroll"><table>
-          <thead><tr><th>${t('Location')}</th><th>${t('Saved state')}</th><th>${t('Value source')}</th><th>${t('Action')}</th></tr></thead>
+          <thead><tr><th>${t('Location')}</th><th>${t('Saved state')}</th><th>${t('Default')}</th><th>${t('Changed from default')}</th><th>${t('Value source')}</th><th>${t('Action')}</th></tr></thead>
           <tbody>${(report.settings ?? []).map(setting => html`<tr>
             <td class="location">${setting.location.map((part, index) => html`${index ? html`<span class="separator" aria-hidden="true">→</span>` : nothing}<span class=${index === setting.location.length - 1 ? 'leaf' : ''}>${t(part)}</span>`)}
               ${setting.unavailableReason ? html`<small>${t(setting.unavailableReason)}</small>` : nothing}
             </td>
-            <td><fluent-badge appearance="outline" color="informative">${t(setting.state)}</fluent-badge></td>
+            <td>${setting.kind === 'value'
+              ? html`<span>${t(setting.state)}</span>`
+              : html`<fluent-badge appearance="outline" color="informative">${t(setting.state)}</fluent-badge>`}</td>
+            <td>${setting.defaultState !== undefined
+              ? html`<span>${t(setting.defaultState)}</span>`
+              : setting.hasDefault
+                ? html`<span class="secondary" aria-hidden="true">—</span>`
+                : html`<span class="secondary">${t('No default')}</span>`}</td>
+            <td><fluent-badge appearance="tint" color=${setting.changed ? 'warning' : 'success'}>${setting.changed ? t('Changed') : t('Default')}</fluent-badge></td>
             <td>${t(originLabels[setting.origin])}</td>
             <td>${setting.unavailableReason ? html`<span class="secondary">${t('Unavailable')}</span>` : html`<a href=${setting.href}>${t('Show setting')}</a>`}</td>
           </tr>`)}</tbody>
         </table></div>
+        ${otherChanged.length ? html`
+          <h3>${t('Other changed values')}</h3>
+          <p class="secondary">${t('Saved values without a dedicated control row.')}</p>
+          <div class="check-table-scroll"><table>
+            <thead><tr><th>${t('Setting')}</th><th>${t('Saved state')}</th><th>${t('Default')}</th><th>${t('File')}</th></tr></thead>
+            <tbody>${otherChanged.map(check => html`<tr>
+              <td><code>${check.key}</code></td>
+              <td>${t(formatCheckValue(check))}</td>
+              <td>${check.hasDefault ? t(formatSettingValue(check.defaultValue)) : html`<span class="secondary">${t('No default')}</span>`}</td>
+              <td>${check.source}</td>
+            </tr>`)}</tbody>
+          </table></div>
+        ` : nothing}
         <fluent-accordion class="check-details"><fluent-accordion-item>
           <span slot="heading">${t('Technical details')}</span>
-          <p class="secondary">${report.checks.length} ${t('boolean settings checked')}. ${t('Saved configuration does not verify live hardware behavior.')}</p>
+          <p class="secondary">${report.checks.length} ${t('settings checked')}. ${t('Saved configuration does not verify live hardware behavior.')}</p>
           ${report.errors.map(error => html`<p class="technical">${error}</p>`)}
           ${report.warnings.map(warning => html`<p class="technical">${warning}</p>`)}
           <div class="check-table-scroll"><table>
-            <thead><tr><th>${t('File')}</th><th>${t('Setting')}</th><th>${t('State')}</th><th>${t('Value source')}</th></tr></thead>
+            <thead><tr><th>${t('File')}</th><th>${t('Setting')}</th><th>${t('State')}</th><th>${t('Default')}</th><th>${t('Changed from default')}</th><th>${t('Value source')}</th></tr></thead>
             <tbody>${report.checks.map(check => html`<tr>
               <td>${check.source}</td><td><code>${check.key}</code></td>
-              <td>${check.enabled ? t('On') : t('Off')}</td>
+              <td>${t(formatCheckValue(check))}</td>
+              <td>${check.hasDefault ? t(formatSettingValue(check.defaultValue)) : html`<span class="secondary">${t('No default')}</span>`}</td>
+              <td>${check.changed ? t('Changed') : t('Default')}</td>
               <td>${check.origin === 'stored' ? t('Saved value') : t('Default value')}</td>
             </tr>`)}</tbody>
           </table></div>
@@ -329,11 +360,11 @@ export class SetupPage extends BasePage {
     const cleanupBlocked = busy || startup.status()?.steamvrRunning !== false;
     return html`${pageIntro(t('Setup'), t('Set up Galaxy XR for SteamVR, tune tracking, and adjust the streamed image.'))}
       ${this.sectionCardsFor([
-        sectionHeading(t('Set up your headset')),
-        this.renderSetup(),
-        sectionHeading(t('Settings check')),
+        sectionHeading(t('Set up your headset'), 0, 'setup-headset'),
+        ...this.renderSetup(),
+        sectionHeading(t('Settings check'), 0, 'setup-check'),
         this.renderSettingsCheck(),
-        sectionHeading(t('Restore or remove')),
+        sectionHeading(t('Restore or remove'), 0, 'setup-restore'),
         ...(startup.status()?.steamvrRunning !== false ? [
           statusMessage('info', t('Close SteamVR first'), startup.status()?.steamvrRunning
             ? t('Restore defaults and uninstall are available when SteamVR is closed.')

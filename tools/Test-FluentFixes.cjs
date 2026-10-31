@@ -160,7 +160,7 @@ if (require.main === module) {
   });
   await test('Read-back covers every driver boolean in both On and Off states',async()=>{
     const h=harness(),c=await h.app();let count=0;
-    for(const state of [false,true]){const values=structuredClone(c.dss.values());const fill=o=>{for(const [k,v] of Object.entries(o)){if(typeof v==='boolean'){o[k]=state;count++;}else if(v&&typeof v==='object'&&!Array.isArray(v))fill(v);}};fill(values);h.fixture.put(h.fixture.data+'/settings.json',values);const before=h.fixture.calls.length;const r=await c.checks.refresh();const checks=r.checks.filter(x=>x.source==='settings.json');assert.ok(checks.length>70);assert.ok(checks.every(x=>x.enabled===state));await tick();assert.equal(h.fixture.calls.length,before);}
+    for(const state of [false,true]){const values=structuredClone(c.dss.values());const fill=o=>{for(const [k,v] of Object.entries(o)){if(typeof v==='boolean'){o[k]=state;count++;}else if(v&&typeof v==='object'&&!Array.isArray(v))fill(v);}};fill(values);h.fixture.put(h.fixture.data+'/settings.json',values);const before=h.fixture.calls.length;const r=await c.checks.refresh();const checks=r.checks.filter(x=>x.source==='settings.json'&&x.kind==='boolean');assert.ok(checks.length>70);assert.ok(checks.every(x=>x.enabled===state));await tick();assert.equal(h.fixture.calls.length,before);}
     console.log('  verified boolean states:',count);c.dispose();
   });
   await test('Unreadable and malformed settings never overwrite the backing file',async()=>{

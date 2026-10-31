@@ -33,7 +33,7 @@ const ts=process.env.FLUENT_TEST_TYPESCRIPT?require(process.env.FLUENT_TEST_TYPE
  test('Child controls are nested inside a second card, not flat siblings',()=>assert.equal(children(children(roots[0])[1])[0],childRow));
  test('Kalman advanced fields retain ownership in a plain labeled group',()=>{
    const group=children(children(roots[0])[1])[1];assert.equal(children(group)[0],deepRow);
-   assert.match(flatten(group),/class="section-group advanced"/);assert.match(flatten(group),/Kalman Advanced Settings/);
+   assert.match(flatten(group),/class="section-group level-2 group nested"/);assert.match(flatten(group),/Kalman Advanced Settings/);
    assert.doesNotMatch(flatten(group),/section-card|aria-expanded|chevron/);assert.equal(handlers(group).length,0);
  });
  test('Controllers Advanced belongs beside Controller Fix and owns its offset fields',()=>{
@@ -42,16 +42,16 @@ const ts=process.env.FLUENT_TEST_TYPESCRIPT?require(process.env.FLUENT_TEST_TYPE
    assert.equal(children(children(advanced)[1])[0],offsetRow);
    assert.doesNotMatch(flatten(controllerChildren[1]),/Controller Bypass|Rotation Offset/);
  });
- test('Inline ownership groups never add a third nested card',()=>assert.equal(maxCardDepth(cards),2));
+ test('Inline ownership groups never add a nested card',()=>assert.equal(maxCardDepth(cards),1));
  test('Excess card hierarchy becomes a plain visible group',()=>{
    const nested=h.sectionCards([h.sectionRow('One',true,0,()=>clicks++),h.sectionRow('Two',true,1,()=>clicks++),h.sectionRow('Three',false,2,()=>clicks++),deepRow]);
-   assert.equal(maxCardDepth(nested),2);assert.match(flatten(nested),/class="section-group source"/);
-   assert.match(flatten(nested),/Prediction strength/);assert.equal(handlers(nested).length,2);
+   assert.equal(maxCardDepth(nested),1);assert.match(flatten(nested),/class="section-group level-2 group nested"/);
+   assert.match(flatten(nested),/Prediction strength/);assert.equal(handlers(nested).length,1);
  });
  test('Source labels group diagnostics without introducing a card or collapse action',()=>{
    const source=h.sectionCards([h.sectionGroup('Controllers',0,'source'),deepRow]);
    assert.equal(maxCardDepth(source),0);assert.equal(handlers(source).length,0);
-   assert.match(flatten(source),/class="section-group source"/);assert.match(flatten(source),/Prediction strength/);
+   assert.match(flatten(source),/class="section-group level-0 source/);assert.match(flatten(source),/Prediction strength/);
  });
  test('Image Processing owns its Color section',()=>assert.equal(children(children(roots[1])[0])[0],imageRow));
  test('Header rendering never calls feature actions or saves settings',()=>assert.equal(clicks,0));
@@ -148,7 +148,41 @@ const ts=process.env.FLUENT_TEST_TYPESCRIPT?require(process.env.FLUENT_TEST_TYPE
    const cards=h.sectionCards([h.sectionHeading('Translated encoder',0,'encoder'),imageRow],{sections:{'heading:encoder':false},onToggle:()=>{}});
    assert.match(flatten(cards),/aria-expanded=false/);assert.doesNotMatch(flatten(cards),/Brightness/);
  });
- test('Shared styles indent complete child cards and collapse cleanly on narrow screens',()=>{assert.match(h.fieldStyles.cssText,/\.section-body\s*\{[^}]*padding: 4px 16px 12px 22px/);assert.match(h.fieldStyles.cssText,/\.section-body > \.section-card\s*\{[^}]*margin: 12px 0 8px 12px/);assert.match(h.fieldStyles.cssText,/\.section-card \.field \.title::after \{ display: none/);});
+ {
+  let revealState={'heading:Image Processing':false};
+  let revealFocused='',revealScrolled=false,revealRevealed=false,revealBlur=false;
+  const revealTarget={
+    hasAttribute:()=>true,
+    setAttribute(){},
+    focus:()=>{revealFocused='section-advanced';},
+    scrollIntoView:()=>{revealScrolled=true;},
+    classList:{add:name=>{if(name==='revealed')revealRevealed=true;},remove:()=>{revealRevealed=false;}},
+    addEventListener:event=>{revealBlur=event==='blur';},
+  };
+  const revealPage={
+    ctx:{galaxy:{sections:Object.assign(()=>revealState,{set:next=>{revealState=next;}})}},
+    shadowRoot:{getElementById:id=>{assert.equal(id,'section-advanced');return revealTarget;}},
+    updateComplete:Promise.resolve(),
+    requestUpdate:()=>{},
+    jumpToSection:h.BasePage.prototype.jumpToSection,
+  };
+  await h.BasePage.prototype.revealSection.call(revealPage,'advanced',['heading:Image Processing']);
+  test('Reveal section opens only its parent cards and focuses the target',()=>{
+    assert.equal(revealState['heading:Image Processing'],true);
+    assert.equal(revealFocused,'section-advanced');
+    assert.equal(revealScrolled,true);
+    assert.equal(revealRevealed,true);
+    assert.equal(revealBlur,true);
+  });
+}
+test('Shared styles use a page container, card rows and fieldset nested groups',()=>{assert.match(h.fieldStyles.cssText,/container-type: inline-size/);assert.match(h.fieldStyles.cssText,/\.field\s*\{[^}]*border: 1px solid var\(--colorNeutralStroke2/);assert.match(h.fieldStyles.cssText,/\.field \+ \.field \{ margin-top: 8px; \}/);assert.doesNotMatch(h.fieldStyles.cssText,/\.field \.title::after/);assert.match(h.fieldStyles.cssText,/\.section-body \.section-group:not\(\.nested\) > \.section-group-label\s*\{[^}]*text-transform: none/);assert.match(h.fieldStyles.cssText,/\.section-group\.nested\s*\{[^}]*border: 1px solid/);assert.match(h.fieldStyles.cssText,/\.section-group\.nested > \.section-group-label\s*\{[^}]*text-transform: none/);assert.doesNotMatch(h.fieldStyles.cssText,/\.section-group\.nested\.source/);assert.doesNotMatch(h.fieldStyles.cssText,/\.section-group-label::before/);assert.match(h.fieldStyles.cssText,/@container page \(max-width: 720px\)/);});
+test('Debug primary sections are card headings and diagnostics are nested groups',()=>{
+  const source=fs.readFileSync(root+'/src-lit/features/debug-page.ts','utf8');
+  for(const id of ['debug-monitoring','debug-image','debug-controllers','debug-encoder'])
+    assert.match(source,new RegExp(`sectionHeading\\(t\\('[^']+'\\), 0, '${id}'\\)`),id);
+  assert.doesNotMatch(source,/sectionGroup\(t\('(Monitoring|Image Processing|Controllers|Encoder)'\), 0, 'source'/);
+  assert.equal((source.match(/sectionGroup\(t\('(Bitrate monitor|Diagnostics)'\), 1, 'source'/g)??[]).length,4);
+});
  console.log(`${count} section-card checks passed using ${mode}.`);
  if(process.env.SECTION_CARD_FIXTURE){let markup=flatten(cards).replace(/\?hidden=false/g,'').replace(/\?hidden=true/g,'hidden').replace(/@click=\s*/g,'');fs.writeFileSync(process.env.SECTION_CARD_FIXTURE,`<!doctype html><html><head><meta charset="utf-8"><style>:root{--colorNeutralForeground1:#242424;--colorNeutralBackground1:#fff;--colorNeutralBackground2:#fafafa;--colorNeutralBackground3:#f5f5f5;--colorNeutralStroke2:#d1d1d1;--colorNeutralStroke1:#c7c7c7;--colorBrandStroke1:#0f6cbd;--colorNeutralStrokeAccessible:#616161;}body{margin:0;padding:16px;font:16px system-ui;background:var(--colorNeutralBackground2);color:var(--colorNeutralForeground1)}input{max-width:140px} ${h.fieldStyles.cssText}</style></head><body><p>Layout-only fixture: production grouping helper and CSS; native controls substitute for Fluent controls.</p>${markup}</body></html>`);}
 })().catch(e=>{console.error(e);process.exitCode=1;});

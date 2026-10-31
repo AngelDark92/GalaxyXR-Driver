@@ -2,12 +2,12 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { driverDefaults } from './driver-defaults';
 import { ofxrDefaults } from './ofxr';
-import { inspectBooleanSettings } from './settings-inspection';
+import { inspectBooleanSettings, inspectSettings } from './settings-inspection';
 import { classifyBoolean, presentSettings, SETTINGS_PRESENTATION, settingPresentation, settingUnavailable } from './settings-presentation';
 import { setLocale } from '../locale/i18n';
 import type { AppSetting } from './types';
 
-const app: AppSetting = { advanceMode: false, colorScheme: 'dark', minimizeToTray: true, uiScale: 100, closeButtonAction: 'ask', updateMode: 'rewrite', devUpdates: false, driverVerified: false, driverInstallRoot: '', ofxr: { ...ofxrDefaults } };
+const app: AppSetting = { advanceMode: false, renderResolutionLinked: true, colorScheme: 'dark', minimizeToTray: true, uiScale: 100, closeButtonAction: 'ask', updateMode: 'rewrite', devUpdates: false, driverVerified: false, driverInstallRoot: '', ofxr: { ...ofxrDefaults } };
 const context = () => ({ settings: structuredClone(driverDefaults), app: { ...app }, driverInstalled: true, vendor: true });
 
 describe('human-readable settings inspection', () => {
@@ -38,10 +38,36 @@ describe('human-readable settings inspection', () => {
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
   });
 
-  it('keeps numeric render-resolution rows out of the boolean check report', () => {
+  it('presents choice rows with their real state instead of boolean Off', () => {
+    const c = context();
+    c.settings.streamFrame!.nvencCodec = 1;
+    c.settings.streamFrame!.spacewarpMode = 1;
+    const checks = inspectSettings(c.settings, {
+      streamFrame: { nvencCodec: 1, spacewarpMode: 1 },
+    }, driverDefaults, 'settings.json');
+    const rows = presentSettings(checks, c);
+    expect(rows.find(row => row.id === 'streamFrame.nvencCodec')).toMatchObject({
+      kind: 'value', state: 'H.264', changed: true, hasDefault: true,
+    });
+    expect(rows.find(row => row.id === 'streamFrame.spacewarpMode')).toMatchObject({
+      kind: 'value', state: 'On', changed: true, hasDefault: true,
+    });
+  });
+
+  it('includes numeric render-resolution rows as value rows', () => {
     const rows = presentSettings([], context());
-    expect(rows.some(row => row.id === 'galaxyXr.renderWidth')).toBe(false);
-    expect(rows.some(row => row.id === 'galaxyXr.renderHeight')).toBe(false);
+    const width = rows.find(row => row.id === 'galaxyXr.renderWidth')!;
+    const height = rows.find(row => row.id === 'galaxyXr.renderHeight')!;
+    expect(width.kind).toBe('value');
+    expect(width.state).toBe('3552 px');
+    expect(height.state).toBe('3840 px');
+  });
+
+  it('presents the render slider link as a GUI preference', () => {
+    const row = presentSettings([], context()).find(entry => entry.id === 'renderResolutionLinked')!;
+    expect(row.location).toEqual(['Driver Settings', 'Headset', 'Render Resolution Sliders']);
+    expect(row.source).toBe('gui-settings.json');
+    expect(row.state).toBe('On');
   });
 
   it('presents the Optical Flow card as vendor-gated gui-settings.json controls', () => {
@@ -50,7 +76,7 @@ describe('human-readable settings inspection', () => {
     expect(row.location).toEqual(['Image Settings', 'Optical Flow', 'Enable Optical Flow']);
     expect(row.state).toBe('Off');
     const ofxrEntries = SETTINGS_PRESENTATION.filter(entry => entry.id.startsWith('ofxr.'));
-    expect(ofxrEntries).toHaveLength(7);
+    expect(ofxrEntries).toHaveLength(8);
     expect(ofxrEntries.every(entry => entry.source === 'gui-settings.json' && entry.gate === 'vendor')).toBe(true);
     expect(settingUnavailable(settingPresentation('ofxr.enabled')!, { ...c, vendor: false })).toMatch(/Galaxy XR build/);
     const checks = inspectBooleanSettings({ ofxr: { enabled: true, logging: false } }, {}, 'gui-settings.json');

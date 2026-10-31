@@ -165,7 +165,7 @@ export class AppSettingsPage extends BasePage {
       `, { tip: t('Show the Debug tab and allow its selected diagnostic overlays and logging. Turning this off stops diagnostic effects while keeping their saved selections. Black-point correction and encoder compatibility/rate tuning remain active. Requires a SteamVR restart and reconnect for the Steam Link debug overlay.') }),
     ];
     if (appSetting.values().advanceMode || this.revealAdvanced) {
-      body.push(sectionGroup(t('Update install'), 1));
+      body.push(sectionGroup(t('Update install'), 1, 'group', 'app-update-install'));
       body.push(fieldRow(t('Update Install Style'), html`
         <app-select .value=${appSetting.values().updateMode} .options=${[
           { value: 'replace', label: t('Replace') }, { value: 'rewrite', label: t('Rewrite') },

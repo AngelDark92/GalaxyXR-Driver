@@ -717,7 +717,7 @@ describe('calibration lifecycle', () => {
 
   it('creates the calib block lazily on first blackout toggle', () => {
     const { gs } = buildHarness({});
-    expect(gs.settings!.calib).toBeUndefined();
+    expect(gs.settings!.calib).toEqual({ blackout: false, eye: -1, patternBrightness: 1, captureMode: false, pattern: -1, patternBits: 10 });
     gs.setBlackout(true);
     expect(gs.settings!.calib).toEqual({ blackout: true, eye: -1, patternBrightness: 1, captureMode: false, pattern: -1, patternBits: 10 });
     gs.setBlackout(false);
@@ -1111,11 +1111,12 @@ describe('per-codec encoder defaults', () => {
     expect(harness.gs.galaxyXr.customBandwidthMbit).toBe(500);
   });
 
-  it('turns the SDR 10-bit baseline off when switching to H.264 and leaves it off on switch-away', async () => {
-    // 2026-10-17 (owner directive): H.264 cannot carry 10-bit. Selecting it
-    // writes sdr10Baseline false only; the retired consent key and the
-    // explicit advanced 10-bit capability request stay user-owned and
-    // untouched, and switching away never silently re-enables the baseline.
+  it('turns the SDR 10-bit baseline off for H.264 and back on for HEVC or AV1', async () => {
+    // 2026-10-30 (owner directive): H.264 cannot carry 10-bit, so selecting
+    // it writes sdr10Baseline false. Switching back to HEVC or AV1 restores
+    // the baseline on, because the Off belongs to the H.264 capability, not
+    // to a permanent user preference. The explicit advanced 10-bit capability
+    // request (profileSupports10bit) stays user-owned and untouched.
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, sdr10Baseline: true, sdr10AllowEnhancements: true, profileSupports10bit: true },
       streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 0 },
@@ -1132,7 +1133,14 @@ describe('per-codec encoder defaults', () => {
     gs.settings!.nvencCodec = 0;
     gs.applyCodecEncoderDefaults(0);
     expect(saved).toHaveLength(2);
-    expect(gs.galaxyXr.sdr10Baseline).toBe(false); // never silently re-enabled
+    expect(gs.galaxyXr.sdr10Baseline).toBe(true);
+    gs.settings!.nvencCodec = 2;
+    gs.applyCodecEncoderDefaults(2);
+    expect(saved).toHaveLength(3);
+    expect(gs.galaxyXr.sdr10Baseline).toBe(true);
+    gs.settings!.nvencCodec = 1;
+    gs.applyCodecEncoderDefaults(1);
+    expect(gs.galaxyXr.sdr10Baseline).toBe(false);
   });
 
   it('preserves unsupported encoder inputs until runtime can report validation errors', async () => {
@@ -1187,6 +1195,9 @@ describe('per-codec encoder defaults', () => {
     expect(av1Split).toBe(1);
     expect(hevcSplit).toBe(1);
     expect(hevcBandwidth).toBe(350);
+    expect(codecEncoderDefaults[0].sdr10Baseline).toBe(true);
+    expect(codecEncoderDefaults[1].sdr10Baseline).toBe(false);
+    expect(codecEncoderDefaults[2].sdr10Baseline).toBe(true);
     expect(codecEncoderDefaults[1].forceCbr).toBe(false);
     expect(codecEncoderDefaults[1].vbvFrames).toBe(1);
     expect(codecEncoderDefaults[1].splitMode).toBe(1); // split bits are skipped for codec 1 in the tap, but the key still opens the 12.1 session

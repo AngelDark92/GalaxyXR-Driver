@@ -1094,7 +1094,7 @@
         <source>Exact Covariance Model (Experimental)</source>
       </trans-unit>
       <trans-unit id="fluent-fix-0ad5815853141ab2" datatype="html">
-        <source>Experimental: Simulate Oculus Touch</source>
+        <source>Retired: Controller Layout Simulation</source>
       </trans-unit>
       <trans-unit id="fluent-fix-70b0716396277909" datatype="html">
         <source>Eye Alignment</source>
@@ -1616,7 +1616,7 @@
         <source>Steam Link Debug Overlay</source>
       </trans-unit>
       <trans-unit id="fluent-fix-53f595c13ea3a4a1" datatype="html">
-        <source>Mirror to Steam Link Aliases</source>
+        <source>Galaxy XR Headset Profile</source>
       </trans-unit>
       <trans-unit id="setup-layout-7c8218244501762b" datatype="html">
         <source>A standalone SteamVR vendor driver for the Samsung Galaxy XR over Steam Link. It gives the headset and its controllers their native identity, models and bindings in SteamVR, corrects controller tracking and throw velocity, and adds the ability to process the streamed image (color, sharpening, distortion correction) before it is encoded.</source>
@@ -1659,7 +1659,7 @@ Recorded SteamVR changes are restored to their previous values (or removed to us
 A recovery backup is created before any file is changed. You can clean before installing. After installing or cleaning, start SteamVR from Setup to initialize and verify the driver.</source>
       </trans-unit>
       <trans-unit id="setup-layout-cleanup-note-20260922" datatype="html">
-        <source>Close SteamVR first. Resets the driver settings of the Driver Settings, Image Settings and Distortion Profile tabs to defaults and cleans recognized old identity settings, including the Quest Pro and PICO 4 Pro profiles used by patched Steam Link. App preferences, such as the color scheme, are kept. Recorded SteamVR overrides are restored safely; unrelated SteamVR preferences, room setup, bindings, driver enable/block choices and saved profile files are kept. A recovery backup is made first. Available even before installing the driver.</source>
+        <source>Close SteamVR first. Resets the driver settings of the Driver Settings, Image Settings and Distortion Profile tabs to defaults and cleans recognized old identity settings, including the Quest Pro and PICO 4 Pro profile sections left by older Steam Link builds. App preferences, such as the color scheme, are kept. Recorded SteamVR overrides are restored safely; unrelated SteamVR preferences, room setup, bindings, driver enable/block choices and saved profile files are kept. A recovery backup is made first. Available even before installing the driver.</source>
       </trans-unit>
       <trans-unit id="setup-layout-c27e7bcd7dcbc754" datatype="html">
         <source>Driver enablement is unknown. Run the installation and settings check on the Setup page.</source>
@@ -1670,17 +1670,17 @@ A recovery backup is created before any file is changed. You can clean before in
       <trans-unit id="mirrored-vrlink-native-resolution-20260923" datatype="html">
         <source>Ask SteamVR to render at the Galaxy XR's native per-eye size. This improves the requested resolution but can increase GPU load. Restart SteamVR to apply it.
 
-Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With vrlink Headset Profile On, the same values are also copied to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.</source>
+Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With Galaxy XR Headset Profile On, the same values are also copied to vrlink_xrvst2ue. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.</source>
       </trans-unit>
       <trans-unit id="mirrored-vrlink-profile-20260923" datatype="html">
-        <source>Keep this on to keep settings copies under the supported Steam Link headset identities. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.
+        <source>Keep this on to keep a settings copy under the Galaxy XR headset identity. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.
 
-Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also mirrors those settings and capability requests to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection. Recognized Quest Pro and PICO 4 Pro identities select VRLink's built-in capabilities; this SteamVR build bypasses their per-model capability sections. Profile copies alone therefore do not prove that capability requests were consumed. Off releases journal-owned tuning copies and preserves the original-model capability destination (xrvst2ue fallback); an active SDR 10-bit baseline can still request capabilities there. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.</source>
+Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also writes a copy of those settings and the capability requests to vrlink_xrvst2ue before connection. Off releases journal-owned tuning copies and leaves capability requests in the original-model destination (xrvst2ue). A profile copy is a request, not proof that VRLink consumed it; verify the connection log. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.</source>
       </trans-unit>
       <trans-unit id="mirrored-vrlink-baseline-20260923" datatype="html">
-        Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. Turn the baseline off before enabling enhancements again. Restart SteamVR and reconnect after changing it.
+        <source>Request a neutral 10-bit SDR picture. Enabling this resets image-processing adjustments to their defaults and turns Image Enhancements off. Switch Image Enhancements off in App Settings before enabling the baseline. Turn the baseline off before enabling enhancements again. Restart SteamVR and reconnect after changing it.
 
-        The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is mirrored to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro with vrlink Headset Profile On, otherwise it uses the previous vrlink_&lt;original model&gt; destination. Recognized Quest Pro and PICO 4 Pro identities use VRLink's built-in capabilities instead of these per-model requests. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.</source>
+        The reset covers color/brightness, sharpening, FXAA, dither, black-floor correction, distortion curves/maps, eye alignment, dimming, calibration and video-color metadata. Controller motion, tracking, stream quality, bitrate and encoder presets are not reset. The custom shader target for this headset is turned off to avoid a conflicting color path. Previous picture adjustments are not restored when the baseline is disabled; export or back up first. The same capability request is written to vrlink_xrvst2ue with Galaxy XR Headset Profile On; otherwise it uses the original-model vrlink_&lt;original model&gt; destination. Stream tuning is separately written to driver_vrlink. Each section's original values are tracked independently by the recovery journal. A request does not prove the live codec: restart/reconnect and check driver_vrlink.txt for Using 10bit mode: 1.</source>
       </trans-unit>
       <trans-unit id="sdr10-opt-in-273e6bb8a7648ff4" datatype="html">
         <source>Send the stream as 10-bit SDR. On by default; a saved Off stays Off. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off.
@@ -1689,7 +1689,7 @@ Turning it on also disables the custom shader target for this headset, which wou
 
 Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit).</source>
       </trans-unit>
-      <trans-unit id="sdr10-opt-in-c581735f6a6cfd97"
+      <trans-unit id="sdr10-opt-in-c581735f6a6cfd97">
         <source>SDR 10-bit and Image Enhancements are both on. Image quality may be reduced.</source>
       </trans-unit>
       <trans-unit id="sdr10-opt-in-87befbfd1ebca350" datatype="html">
@@ -2271,7 +2271,7 @@ Use the calibration grid to inspect alignment, then turn calibration off before 
         <source>This resets color, sharpening, lens correction and other image-processing adjustments to their defaults. It also turns off the custom shader for this headset. Your controller, tracking and stream-quality settings are kept. Turning the baseline off later will not restore the previous picture adjustments. Back up your settings or export your lens profile first. Continue?</source>
       </trans-unit>
       <trans-unit id="companion-20260926-e88d83f957e7b451" datatype="html">
-        <source>This setting is normally left on. Turning it off can make SteamVR show Unknown or the headset identity supplied by a patched Steam Link app instead of Galaxy XR. Restart SteamVR afterwards. Continue?</source>
+        <source>This setting is normally left on. Turning it off can make SteamVR show Unknown or the headset identity supplied by Steam Link instead of Galaxy XR. Restart SteamVR afterwards. Continue?</source>
       </trans-unit>
       <trans-unit id="companion-20260926-ed3caf4b478c27ea" datatype="html">
         <source>This setting is not available in this version.</source>
@@ -2945,7 +2945,7 @@ Value: streamFrame.eyeGaze.overlayWarped (settings.json). Driver side — draws 
       <trans-unit id="2381294401" datatype="html">
         <source>Ask SteamVR to render at the Galaxy XR's native per-eye size. This improves the requested resolution but can increase GPU load. Restart SteamVR to apply it.
 
-Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With vrlink Headset Profile On, the same values are also copied to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.
+Requests 3552 × 3840 per eye without forcing a refresh rate. Your selected refresh rate, including 75 Hz, is preserved. renderWidth, renderHeight, overrideRenderWidth, and overrideRenderHeight are written to driver_vrlink, where VRLink reads the tuning settings. With Galaxy XR Headset Profile On, the same values are also copied to vrlink_xrvst2ue. Previous refresh-rate overrides are restored only when still journal-owned and unchanged; explicit displayFrequency extra keys remain under your control. Each section's original values are journaled independently. Turning this off restores only unchanged journal-owned resolution values; external edits are preserved.
 
 Value: galaxyXr.nativeResolution (settings.json). SteamVR side — writes renderWidth, renderHeight, overrideRenderWidth and overrideRenderHeight into the vrlink section of steamvr.vrsettings.</source>
       </trans-unit>
@@ -3086,7 +3086,7 @@ Value: streamFrame.cas.enable + streamFrame.postPack.enable/casEnable (settings.
       <trans-unit id="1797307847" datatype="html">
         <source>Correct a mismatch between full-range and limited-range video levels. Off by default; turn it on only if the headset shows washed-out blacks or crushed shadows. The reset arrow restores Off; it requires the NVIDIA encoder adjustment path.
 
-Steam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the xrvst2ue-identity APK (no effect on the older Quest-Pro-identity build). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.
+Steam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the Galaxy XR client (xrvst2ue). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.
 
 Value: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range.</source>
       </trans-unit>
@@ -3200,16 +3200,16 @@ Draws the angular grid at fixed WORLD azimuth/elevation instead of head-locked l
 Value: streamFrame.eyeGaze.gridWorldLocked (settings.json). Driver side — world-locked placement of the angular grid.</source>
       </trans-unit>
       <trans-unit id="3093830680" datatype="html">
-        <source>Keep this on so SteamVR identifies the headset as Galaxy XR and uses its device icons. Turning it off can show Unknown or the identity provided by a patched Steam Link app instead. Restart SteamVR after changing it.
+        <source>Keep this on so SteamVR identifies the headset as Galaxy XR and uses its device icons. Turning it off can show Unknown or the identity reported by Steam Link instead. Restart SteamVR after changing it.
 
-Enabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link; a patched APK may report a different headset. The vrlink Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity.
+Enabled by default. Sets OpenVR model/manufacturer and named device-icon properties to the Galaxy XR identity and resources. With this disabled the native identity shim does not replace the identity reported by Steam Link. The Galaxy XR Headset Profile is a separate switch. Explicit saved Off values are preserved. Restart SteamVR after changing identity.
 
 Value: galaxyXr.nativeIdentity (settings.json). Driver side — sets OpenVR model/manufacturer and device-icon properties; identity changes need a SteamVR restart.</source>
       </trans-unit>
       <trans-unit id="3871973304" datatype="html">
-        <source>Keep this on to keep settings copies under the supported Steam Link headset identities. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.
+        <source>Keep this on to keep a settings copy under the Galaxy XR headset identity. Stream tuning is written to driver_vrlink with this switch on or off. Requires a SteamVR restart.
 
-Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also mirrors those settings and capability requests to vrlink_xrvst2ue, vrlink_Oculus Quest Pro and vrlink_PICO 4 Pro before connection. Recognized Quest Pro and PICO 4 Pro identities select VRLink's built-in capabilities; this SteamVR build bypasses their per-model capability sections. Profile copies alone therefore do not prove that capability requests were consumed. Off releases journal-owned tuning copies and preserves the original-model capability destination (xrvst2ue fallback); an active SDR 10-bit baseline can still request capabilities there. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.
+Enabled by default. Stream size and bandwidth, render overrides, diagnostics, and supported extra vrlink keys always use driver_vrlink. On also writes a copy of those settings and the capability requests to vrlink_xrvst2ue before connection. Off releases journal-owned tuning copies and leaves capability requests in the original-model destination (xrvst2ue). A profile copy is a request, not proof that VRLink consumed it; verify the connection log. Each destination keeps its own recovery record. Driver enable/block keys and SteamVR global settings retain their required sections. Restart/reconnect and inspect driver_vrlink.txt to verify effective settings.
 
 Value: galaxyXr.vrlinkHeadsetProfile (settings.json). SteamVR side — journal-mirrors the vrlink tuning sections in steamvr.vrsettings.</source>
       </trans-unit>
@@ -4394,6 +4394,870 @@ For Galaxy XR, the request axis always ends at 350 Mbit/s and the target axis en
 The graph shows positive-request, steady-state targets, not measured encoded output or wire rates. The five-frame request filter and zero or missing request fallback are not drawn. The graph follows edits immediately, is locked while SteamVR runs, hides with the Companion tray lifecycle and closes when the Companion quits.
 
 Value: streamFrame.nvencBitrateCurve + streamFrame.nvencBitrateCurvePoints (settings.json).</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-001" datatype="html">
+        <source>0 = automatic nominal frame rate; -1 = leave upstream GOP unchanged. Positive values are applied exactly. Automatic requires a nonzero frame rate (Force FPS or the caller's rate).</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-002" datatype="html">
+        <source>0 = automatic nominal frame rate; -1 = leave upstream IDR unchanged. Positive values are applied exactly. Automatic requires a nonzero frame rate (Force FPS or the caller's rate).</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-003" datatype="html">
+        <source>Adjust midtone brightness without using the overall brightness control. The neutral pipeline value is 2.2. Gamma of the output. 2.2 is neutral, lower brightens midtones. The driver does not clamp this value; 0 or a negative gamma is not usable, so the field refuses it. Value: streamFrame.gamma (settings.json). Driver side — output gamma; 2.2 neutral.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-004" datatype="html">
+        <source>Automatic uses CAVLC above 200 Mbit/s. CABAC and CAVLC force the selected coder.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-005" datatype="html">
+        <source>Center</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-006" datatype="html">
+        <source>Center QP offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-007" datatype="html">
+        <source>Color multiplier, blue</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-008" datatype="html">
+        <source>Color multiplier, green</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-009" datatype="html">
+        <source>Color multiplier, red</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-010" datatype="html">
+        <source>Dimming delay</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-011" datatype="html">
+        <source>Dimming fade</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-012" datatype="html">
+        <source>Enter a number.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-013" datatype="html">
+        <source>Enter a value.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-014" datatype="html">
+        <source>NVENC (retired): VUI Full Range</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-015" datatype="html">
+        <source>NVENC (retired): VUI Matrix</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-016" datatype="html">
+        <source>NVENC (retired): VUI Primaries</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-017" datatype="html">
+        <source>NVENC (retired): VUI Transfer</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-018" datatype="html">
+        <source>NVENC slice mode: macroblocks, bytes, rows or slice count.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-019" datatype="html">
+        <source>Periphery</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-020" datatype="html">
+        <source>Periphery QP offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-021" datatype="html">
+        <source>Reserve part of the Max Bitrate budget as VBR peak headroom. The requested average is capped at Max Bitrate / (1 + this percentage); the encoder maximum remains Max Bitrate. Inert under Force CBR, where the budget is both the constant average and the maximum. 0 lets the average use the whole budget. This is a rate-control reservation, not a hard encoded-output cap; oversized frames remain a measured-transport risk. Value: streamFrame.nvencMaxBitrateHeadroomPct (settings.json). Encoder side — VBR average cap reserved below the Max Bitrate peak.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-022" datatype="html">
+        <source>Set the reference-frame count (0 to 16). Unsupported requests fail instead of falling back.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-023" datatype="html">
+        <source>Smooth the transition between center and edge sharpening. Use this when a visible boundary appears around the sharp region. Fraction of the fovea tile over which its sharpening ramps down to the periphery strength at the tile border, so the seam where the headset composites the cut-out over the stretched periphery is not a sharpness step. 0 = hard edge. The native contract accepts 0 to 1; the slider covers the tested 0 to 0.5 band. Value: streamFrame.postPack.edgeFalloff (settings.json). Encoder side — ramp width of the center-to-edge sharpening transition.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-024" datatype="html">
+        <source>Spend more encoding quality on the center of the image than on the edges. This advanced option can change artifacts in different areas. Moves bits within the same bitrate: a QP offset per block, negative for the gaze cut-out tile (finer, more bits) and positive for the periphery tile (coarser, fewer bits), blended over the same edge falloff as the sharpening. 0 / 0 = off. Small values (-2 / 2, -3 / 3) work; large ones starve the whole frame. The ramp shape and fovea-tile parity come from the Edge Falloff and fovea-top controls (shown with CAS in post-process mode) — one value drives both the sharpening and the encoder QP ramp. The native range is -128..127; the slider covers the tested band. Value: streamFrame.nvencQpFovea + nvencQpPeriphery (settings.json). Encoder side — per-block QP offsets that move bits to the gaze tile.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-025" datatype="html">
+        <source>Steam Link negotiates H.264 at 1024 × 4096. A tile width above 1024 requests a taller four-tile frame and will fail to encode. Your stored value is kept and shown here; reset Tile Width to use 1024.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-026" datatype="html">
+        <source>Tile width is sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. The selected codec caps the tile: H.264 1024, HEVC/AV1 2048, because tile × 4 must fit the encoder's height. Requires a SteamVR restart. Value: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap's tile answers.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l001" datatype="html">
+        <source>0 — Identity</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l002" datatype="html">
+        <source>1 — BT.709</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l003" datatype="html">
+        <source>10 — BT.2020 constant</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l004" datatype="html">
+        <source>10 — Log 316</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l005" datatype="html">
+        <source>10 — SMPTE 428</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l006" datatype="html">
+        <source>11 — DCI-P3</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l007" datatype="html">
+        <source>11 — IEC 61966-2-4</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l008" datatype="html">
+        <source>11 — SMPTE 2085</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l009" datatype="html">
+        <source>12 — BT.1361</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l010" datatype="html">
+        <source>12 — Chroma-derived NCL</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l011" datatype="html">
+        <source>12 — Display P3</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l012" datatype="html">
+        <source>13 — Chroma-derived CL</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l013" datatype="html">
+        <source>13 — sRGB</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l014" datatype="html">
+        <source>14 — BT.2020 10-bit</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l015" datatype="html">
+        <source>14 — ICtCp</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l016" datatype="html">
+        <source>15 — BT.2020 12-bit</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l017" datatype="html">
+        <source>16 — PQ</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l018" datatype="html">
+        <source>17 — SMPTE 428</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l019" datatype="html">
+        <source>18 — HLG</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l020" datatype="html">
+        <source>2 strips</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l021" datatype="html">
+        <source>22 — EBU 3213-E</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l022" datatype="html">
+        <source>3 strips</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l023" datatype="html">
+        <source>4 — BT.470M</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l024" datatype="html">
+        <source>4 — FCC</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l025" datatype="html">
+        <source>4 — Gamma 2.2</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l026" datatype="html">
+        <source>4 strips</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l027" datatype="html">
+        <source>5 — BT.470BG</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l028" datatype="html">
+        <source>5 — Gamma 2.8</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l029" datatype="html">
+        <source>6 — SMPTE 170M</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l030" datatype="html">
+        <source>7 — SMPTE 240M</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l031" datatype="html">
+        <source>8 — Film</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l032" datatype="html">
+        <source>8 — Linear</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l033" datatype="html">
+        <source>8 — YCgCo</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l034" datatype="html">
+        <source>9 — BT.2020</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l035" datatype="html">
+        <source>9 — BT.2020 non-constant</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l036" datatype="html">
+        <source>9 — Log 100</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l037" datatype="html">
+        <source>Analog (continuous)</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l038" datatype="html">
+        <source>Auto</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l039" datatype="html">
+        <source>Automatic</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l040" datatype="html">
+        <source>Automatic (by engine count)</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l041" datatype="html">
+        <source>Automatic (nominal frame rate)</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l042" datatype="html">
+        <source>Band ring opacity</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l043" datatype="html">
+        <source>Bandwidth override</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l044" datatype="html">
+        <source>Bitrate constancy</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l045" datatype="html">
+        <source>Bitrate headroom</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l046" datatype="html">
+        <source>Black point</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l047" datatype="html">
+        <source>Bytes</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l048" datatype="html">
+        <source>CABAC</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l049" datatype="html">
+        <source>CAS strength</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l050" datatype="html">
+        <source>CAS strength, left eye</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l051" datatype="html">
+        <source>CAS strength, right eye</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l052" datatype="html">
+        <source>CAVLC</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l053" datatype="html">
+        <source>Center quality boost</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l054" datatype="html">
+        <source>Center sharpness</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l055" datatype="html">
+        <source>Center-edge blend</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l056" datatype="html">
+        <source>Color multiplier B</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l057" datatype="html">
+        <source>Color multiplier G</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l058" datatype="html">
+        <source>Color multiplier R</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l059" datatype="html">
+        <source>Contrast midpoint</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l060" datatype="html">
+        <source>Correction gain</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l061" datatype="html">
+        <source>Driver-selected strips</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l062" datatype="html">
+        <source>Edge sharpness</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l063" datatype="html">
+        <source>Encoder bitrate override</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l064" datatype="html">
+        <source>Encoder multipass</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l065" datatype="html">
+        <source>Encoder quality preset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l066" datatype="html">
+        <source>Flight log size limit</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l067" datatype="html">
+        <source>Follow Max Bitrate</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l068" datatype="html">
+        <source>Follow the pacer bandwidth</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l069" datatype="html">
+        <source>Frame sync timeout</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l070" datatype="html">
+        <source>Full</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l071" datatype="html">
+        <source>Gaze prediction</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l072" datatype="html">
+        <source>Grid angular spacing</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l073" datatype="html">
+        <source>H.264 entropy mode</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l074" datatype="html">
+        <source>H.264 GOP frames</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l075" datatype="html">
+        <source>H.264 IDR frames</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l076" datatype="html">
+        <source>H.264 initial VBV delay</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l077" datatype="html">
+        <source>H.264 reference frames</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l078" datatype="html">
+        <source>H.264 slice mode</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l079" datatype="html">
+        <source>H.264 slice value</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l080" datatype="html">
+        <source>Keyframe size budget</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l081" datatype="html">
+        <source>Leave the base curve unchanged</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l082" datatype="html">
+        <source>Leave upstream GOP unchanged</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l083" datatype="html">
+        <source>Leave upstream IDR unchanged</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l084" datatype="html">
+        <source>Limited</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l085" datatype="html">
+        <source>Macroblocks</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l086" datatype="html">
+        <source>Max bitrate</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l087" datatype="html">
+        <source>Multi-engine encoding</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l088" datatype="html">
+        <source>No center offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l089" datatype="html">
+        <source>No periphery offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l090" datatype="html">
+        <source>Optical centre X, left</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l091" datatype="html">
+        <source>Optical centre X, right</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l092" datatype="html">
+        <source>Optical centre Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l093" datatype="html">
+        <source>P1 — fastest</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l094" datatype="html">
+        <source>P2</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l095" datatype="html">
+        <source>P3</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l096" datatype="html">
+        <source>P4</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l097" datatype="html">
+        <source>P5</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l098" datatype="html">
+        <source>P6</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l099" datatype="html">
+        <source>P7 — best quality</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l100" datatype="html">
+        <source>Periphery quality offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l101" datatype="html">
+        <source>Render height per eye</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l102" datatype="html">
+        <source>Render width per eye</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l103" datatype="html">
+        <source>Rows</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l104" datatype="html">
+        <source>Slice count</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l105" datatype="html">
+        <source>Tested low-latency default</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l106" datatype="html">
+        <source>Tile width</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l107" datatype="html">
+        <source>Tuner adjust rate</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l108" datatype="html">
+        <source>Tuner step size</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l109" datatype="html">
+        <source>Tuning band feather</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l110" datatype="html">
+        <source>Tuning band inner radius</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l111" datatype="html">
+        <source>Tuning band outer radius</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l112" datatype="html">
+        <source>Use the whole budget</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l113" datatype="html">
+        <source>VBV encoder buffer budget</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l114" datatype="html">
+        <source>Video codec</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l115" datatype="html">
+        <source>VUI full range</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l116" datatype="html">
+        <source>VUI matrix</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l117" datatype="html">
+        <source>VUI primaries</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l118" datatype="html">
+        <source>VUI transfer</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-a1" datatype="html"><source>Eye alignment leftH</source></trans-unit>
+      <trans-unit id="companion-20261030-a2" datatype="html"><source>Eye alignment leftV</source></trans-unit>
+      <trans-unit id="companion-20261030-a3" datatype="html"><source>Eye alignment rightH</source></trans-unit>
+      <trans-unit id="companion-20261030-a4" datatype="html"><source>Eye alignment rightV</source></trans-unit>
+      <trans-unit id="companion-20261030-l001" datatype="html">
+        <source>Acceleration decay time</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l002" datatype="html">
+        <source>Aim trim X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l003" datatype="html">
+        <source>Aim trim Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l004" datatype="html">
+        <source>Aim trim Z</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l005" datatype="html">
+        <source>Controller model scale</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l006" datatype="html">
+        <source>Grip touch threshold</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l007" datatype="html">
+        <source>Kalman acceleration noise</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l008" datatype="html">
+        <source>Kalman angular noise</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l009" datatype="html">
+        <source>Kalman CA angular jerk</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l010" datatype="html">
+        <source>Kalman CA jerk noise</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l011" datatype="html">
+        <source>Kalman CA orientation noise</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l012" datatype="html">
+        <source>Kalman CA position noise</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l013" datatype="html">
+        <source>Kalman CA speed decay</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l014" datatype="html">
+        <source>Kalman CA speed jerk</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l015" datatype="html">
+        <source>Kalman lead</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l016" datatype="html">
+        <source>Kalman orientation noise</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l017" datatype="html">
+        <source>Kalman position noise</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l018" datatype="html">
+        <source>Kalman speed noise</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l019" datatype="html">
+        <source>Repeat distrust strength</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l020" datatype="html">
+        <source>Throw spin scale</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l021" datatype="html">
+        <source>Throw strength scale</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l022" datatype="html">
+        <source>Tracking-loss coasting</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-001" datatype="html">
+        <source>Band feather</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-002" datatype="html">
+        <source>Controller position offset X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-003" datatype="html">
+        <source>Controller position offset Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-004" datatype="html">
+        <source>Controller position offset Z</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-005" datatype="html">
+        <source>Controller rotation offset X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-006" datatype="html">
+        <source>Controller rotation offset Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-007" datatype="html">
+        <source>Controller rotation offset Z</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-008" datatype="html">
+        <source>Game Link position offset X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-009" datatype="html">
+        <source>Game Link position offset Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-010" datatype="html">
+        <source>Game Link position offset Z</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-011" datatype="html">
+        <source>Game Link rotation offset X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-012" datatype="html">
+        <source>Game Link rotation offset Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-013" datatype="html">
+        <source>Game Link rotation offset Z</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-014" datatype="html">
+        <source>Inner radius</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-015" datatype="html">
+        <source>Left hand position offset X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-016" datatype="html">
+        <source>Left hand position offset Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-017" datatype="html">
+        <source>Left hand position offset Z</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-018" datatype="html">
+        <source>Left hand rotation offset X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-019" datatype="html">
+        <source>Left hand rotation offset Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-020" datatype="html">
+        <source>Left hand rotation offset Z</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-021" datatype="html">
+        <source>Outer radius</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-022" datatype="html">
+        <source>Right hand position offset X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-023" datatype="html">
+        <source>Right hand position offset Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-024" datatype="html">
+        <source>Right hand position offset Z</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-025" datatype="html">
+        <source>Right hand rotation offset X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-026" datatype="html">
+        <source>Right hand rotation offset Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-027" datatype="html">
+        <source>Right hand rotation offset Z</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-001" datatype="html">
+        <source>Codec</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-002" datatype="html">
+        <source>Controller position offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-003" datatype="html">
+        <source>Controller rotation offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-004" datatype="html">
+        <source>Frame</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-005" datatype="html">
+        <source>Game Link position offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-006" datatype="html">
+        <source>Game Link rotation offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-007" datatype="html">
+        <source>Left hand position offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-008" datatype="html">
+        <source>Left hand rotation offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-009" datatype="html">
+        <source>Rate control</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-010" datatype="html">
+        <source>Right hand position offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-011" datatype="html">
+        <source>Right hand rotation offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-012" datatype="html">
+        <source>Sections</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-013" datatype="html">
+        <source>Split</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-001" datatype="html">
+        <source>Conflicting settings</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-x1" datatype="html"><source>Min QP must not exceed Max QP.</source></trans-unit>
+      <trans-unit id="companion-20261030-x2" datatype="html"><source>VUI full range conflicts with the lifted-blacks fix.</source></trans-unit>
+      <trans-unit id="companion-20261030-x3" datatype="html"><source>The tuning band inner radius must be below the outer radius.</source></trans-unit>
+      <trans-unit id="companion-20261030-x4" datatype="html"><source>The shadow-lift floor must be below the knee.</source></trans-unit>
+      <trans-unit id="companion-20261030-l001" datatype="html">
+        <source>Adaptive direction lead base</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l002" datatype="html">
+        <source>Adaptive direction lead slope</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l003" datatype="html">
+        <source>Adaptive measurement trust limit</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l004" datatype="html">
+        <source>Angular direction smoothing</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l005" datatype="html">
+        <source>Backoff recovery coefficient</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l006" datatype="html">
+        <source>Controller mesh offset</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l007" datatype="html">
+        <source>Derive angular speed high</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l008" datatype="html">
+        <source>Derive angular speed low</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l009" datatype="html">
+        <source>Derive angular tau fast</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l010" datatype="html">
+        <source>Derive angular tau slow</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l011" datatype="html">
+        <source>Derive smoothing tau fast</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l012" datatype="html">
+        <source>Derive smoothing tau slow</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l013" datatype="html">
+        <source>Derive speed high</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l014" datatype="html">
+        <source>Derive speed low</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l015" datatype="html">
+        <source>Direction lead (retired)</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l016" datatype="html">
+        <source>Direction smoothing</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l017" datatype="html">
+        <source>Duplicate-coast cap</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l018" datatype="html">
+        <source>Encode width (retired)</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l019" datatype="html">
+        <source>Freeze coast turn</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l020" datatype="html">
+        <source>Gaze aim assist max bend</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l021" datatype="html">
+        <source>Gaze aim assist min speed</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l022" datatype="html">
+        <source>Gaze aim assist strength</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l023" datatype="html">
+        <source>Gaze FOV tangent X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l024" datatype="html">
+        <source>Gaze FOV tangent Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l025" datatype="html">
+        <source>Grip-point blend</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l026" datatype="html">
+        <source>Hand anchor pitch</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l027" datatype="html">
+        <source>Hand anchor roll</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l028" datatype="html">
+        <source>Hand anchor translation</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l029" datatype="html">
+        <source>Hand anchor yaw</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l030" datatype="html">
+        <source>Input pre-smoothing</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l031" datatype="html">
+        <source>Latch angular min speed</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l032" datatype="html">
+        <source>Max video queue latency</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l033" datatype="html">
+        <source>NVENC AQ strength</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l034" datatype="html">
+        <source>NVENC max QP</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l035" datatype="html">
+        <source>NVENC min QP</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l036" datatype="html">
+        <source>NVENC min QP, intra</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l037" datatype="html">
+        <source>Position-freeze velocity decay</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l038" datatype="html">
+        <source>Release latch hold</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l039" datatype="html">
+        <source>Release latch min speed</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l040" datatype="html">
+        <source>Release latch window</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l041" datatype="html">
+        <source>Release rewind</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l042" datatype="html">
+        <source>Rewind hold</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l043" datatype="html">
+        <source>Shadow-lift floor</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l044" datatype="html">
+        <source>Shadow-lift knee</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l045" datatype="html">
+        <source>Skeleton hand offset X</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l046" datatype="html">
+        <source>Skeleton hand offset Y</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l047" datatype="html">
+        <source>Skeleton hand offset Z</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l048" datatype="html">
+        <source>Smoothed reporting lag</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l049" datatype="html">
+        <source>Split direction weight power</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l050" datatype="html">
+        <source>Split direction window</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-l051" datatype="html">
+        <source>Streamer default</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-i1" datatype="html"><source>Turn on Force CBR to apply this.</source></trans-unit>
+      <trans-unit id="companion-20261030-i2" datatype="html"><source>H.264 only; the saved value is kept.</source></trans-unit>
+      <trans-unit id="companion-20261030-i3" datatype="html"><source>H.264 does not apply split encoding; the saved choice is kept.</source></trans-unit>
+      <trans-unit id="companion-20261030-i4" datatype="html"><source>AV1 does not write VUI tags; the saved value is kept.</source></trans-unit>
+      <trans-unit id="companion-20261030-i5" datatype="html"><source>Turn on Grip-Point Velocity Compensator to apply this.</source></trans-unit>
+      <trans-unit id="companion-20261030-i6" datatype="html"><source>Turn on Adaptive Direction Lead to apply this.</source></trans-unit>
+      <trans-unit id="companion-20261030-i7" datatype="html"><source>Raise Gaze Aim Assist above 0 to apply this.</source></trans-unit>
+      <trans-unit id="companion-20261030-i8" datatype="html"><source>Only the retired Derive mode applies this.</source></trans-unit>
+      <trans-unit id="companion-20261030-i9" datatype="html"><source>Select the fast estimator to apply this.</source></trans-unit>
+      <trans-unit id="companion-20261030-i10" datatype="html"><source>Select Soft duplicate handling to apply this.</source></trans-unit>
+      <trans-unit id="companion-20261030-i11" datatype="html"><source>Turn on the Bridge flight recorder to apply this.</source></trans-unit>
+      <trans-unit id="companion-20261030-r1" datatype="html">
+        <source>Render Resolution Sliders</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-r2" datatype="html">
+        <source>Link sliders</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-r3" datatype="html">
+        <source>Unlink sliders</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-r4" datatype="html">
+        <source>Long edge</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-r5" datatype="html">
+        <source>8192 px</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-r6" datatype="html">
+        <source>Type a whole number from 1 to 16384 pixels per eye. The slider covers 16 to 8192 px. Requires a SteamVR restart.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-r7" datatype="html">
+        <source>Link the render width and height sliders. Linked by default, one slider scales both axes proportionally and shows the longer edge in pixels; the current width and height set the ratio. The slider stops at 8192 px, while the number fields still accept 1 to 16384 px. Unlinked, each axis has its own slider. The link preference is saved in gui-settings.json. Changing the render size requires a SteamVR restart.
+
+Value: renderResolutionLinked (gui-settings.json) with galaxyXr.renderWidth and renderHeight (settings.json). SteamVR side — renderWidth, renderHeight, overrideRenderWidth and overrideRenderHeight in steamvr.vrsettings.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n1" datatype="html">
+        <source>Contents</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n2" datatype="html">
+        <source>Chapters</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n3" datatype="html">
+        <source>Chapter</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n4" datatype="html">
+        <source>Close contents</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n5" datatype="html">
+        <source>Contents for {chapter}</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n6" datatype="html">
+        <source>No sections in this chapter.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n7" datatype="html">
+        <source>This section is not available in this version.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n8" datatype="html">
+        <source>Navigator</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n9" datatype="html">
+        <source>Pages</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n10" datatype="html">
+        <source>On this page</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n11" datatype="html">
+        <source>Close navigator</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n12" datatype="html">
+        <source>Open navigator</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n13" datatype="html">
+        <source>Show sections for {page}</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n14" datatype="html">
+        <source>Hide sections for {page}</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n15" datatype="html">
+        <source>No sections on this page.</source>
+      </trans-unit>
+      <trans-unit id="companion-20261030-n16" datatype="html">
+        <source>Go to {page}</source>
       </trans-unit>
     </body>
   </file>

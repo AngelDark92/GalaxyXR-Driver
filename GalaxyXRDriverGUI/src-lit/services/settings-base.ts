@@ -47,6 +47,11 @@ export abstract class JsonSettingServiceBase<T> {
   private stopDefaults?: () => void;
   private disposed = false;
   public get filePath(): string { return this._filePath; }
+  /** Snapshot of the authoritative defaults currently backing this service.
+   * Used by Setup's read-only settings check; callers must not mutate it. */
+  public effectiveDefaults(): T | undefined {
+    return this.defaults === undefined ? undefined : structuredClone(this.defaults);
+  }
   protected migrateLoadedValues(values: T): T { return values; }
   protected normalizeStoredValues(values: unknown): unknown { return values; }
 

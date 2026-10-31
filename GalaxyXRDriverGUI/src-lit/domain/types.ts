@@ -490,6 +490,11 @@ export type AppSetting = {
   colorScheme: 'system' | 'dark' | 'light';
   updateMode: 'replace' | 'rewrite';
   advanceMode: boolean;
+  // Render slider link (2026-10-30): GUI-only layout preference for the
+  // Driver Settings render sliders. Linked, one proportional slider edits
+  // both axes; unlinked, each axis has its own slider. It never changes the
+  // stored render dimensions by itself.
+  renderResolutionLinked: boolean;
   // Interface scale (2026-10-19): WebView2 page zoom for the whole Companion
   // window, stored as integer percent so the slider, the readout and the
   // applied zoom factor never disagree. GUI-only, 100 by default.

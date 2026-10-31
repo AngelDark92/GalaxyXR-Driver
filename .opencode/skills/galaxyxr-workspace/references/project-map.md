@@ -16,6 +16,7 @@ current files before making a behavioral claim.
 | Shared settings semantics | `GalaxyXRDriverGUI/src-lit/state/galaxy-settings.ts` (`GalaxySettingsBase`) | Pages delegate defaults, migrations, reset/import/save here. Migrations inspect stored/raw values before merged defaults; preserve save-failure rollback. |
 | File persistence | `GalaxyXRDriverGUI/src-lit/services/driver-setting.ts`, `settings-base.ts`, `src-lit/platform/writer.ts` | `DriverSettingService`, `JsonSettingServiceBase`, debounced writes, error handling, retired-key pruning and watching. Read-only inspection must not migrate/save. |
 | GUI-only settings | `GalaxyXRDriverGUI/src-lit/services/app-setting.ts` | `gui-settings.json`; keep presentation settings separate from native settings. |
+| Numeric control contracts | `GalaxyXRDriverGUI/src-lit/domain/control-specs.ts` | One spec per numeric keys.json key: range, step, unit, integer, sentinels, codec/capability/context/ordering. Pages render from it; the coverage test rejects an undeclared numeric control. |
 | Runtime polling | `GalaxyXRDriverGUI/src-lit/services/driver-info.ts`, `pulling.ts`, `driver-startup.ts` | Info is telemetry; stale/missing data must not silently re-enable settings. |
 
 For a new setting, follow the full chain in `AGENTS.md`. For semantic changes,

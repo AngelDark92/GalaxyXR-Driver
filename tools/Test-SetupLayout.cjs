@@ -39,7 +39,7 @@ const lit = {
   css: (strings, ...values) => ({ cssText: strings.reduce((s, v, i) => s + v + (values[i]?.cssText ?? values[i] ?? ''), '') }),
 };
 const sandbox = vm.createContext({
-  console, window: windowMock, document: { visibilityState: 'visible' },
+  console, window: windowMock, document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} },
   performance, queueMicrotask, structuredClone, URL, URLSearchParams,
   setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
   clearTimeout(id) { timers.delete(id); },
@@ -121,12 +121,21 @@ function context(options = {}) {
       clear: () => { calls.push('clear'); ctx.checks.report.set(undefined); },
       refresh: async () => calls.push('check-refresh'),
     },
+    windowsStartup: {
+      status: signal({ supported: true, state: 'absent', registeredPath: null }),
+      enabled: signal(!!options.startWithWindows), changing: signal(false), error: signal(undefined),
+      setEnabled: async enabled => { calls.push({ startup: enabled }); return true; },
+    },
+    lifecycle: {
+      quitting: signal(false), changing: signal(false), error: signal(undefined),
+    },
     aus: {
       updateInfo: signal(options.noVersion ? undefined : { currentVersion: '1.2.3', fetchSuccess: !options.failedUpdate,
         updateAvailable: !!options.update, installAvailable: !!options.upgrade, url: 'https://example.invalid/releases' }),
       checkUpdate: async () => calls.push('update'),
     },
     dis: { values: signal(installed ? { driverVersion: '1.2.3' } : undefined) },
+    ofxr: { error: signal(undefined) },
     dss: signals({ values: signal({}), readFileError: signal(undefined), writeFileError: signal(undefined) }),
     appSetting: signals({ values: signal({ colorScheme: 'light', advanceMode: false, driverVerified: !!options.verified }),
       save: async value => { calls.push('app-save'); ctx.appSetting.values.set(value); return true; },
@@ -168,12 +177,13 @@ function buttonLabels(template) {
   return [...markup(template).matchAll(/<(?:fluent-)?button\b[^>]*>([\s\S]*?)<\/(?:fluent-)?button>/g)]
     .map(m => m[1].replace(/<[^>]+>/g, '').trim());
 }
-function enhancementSwitch(template) {
+function enhancementSwitch(template, parentText = '') {
   if (Array.isArray(template)) {
-    for (const value of template) { const found = enhancementSwitch(value); if (found) return found; }
+    for (const value of template) { const found = enhancementSwitch(value, parentText); if (found) return found; }
   } else if (template?.strings) {
-    if (template.strings[0].includes('<app-switch')) return template;
-    return enhancementSwitch(template.values);
+    const text = parentText + markup(template);
+    if (template.strings.some(part => part.includes('<app-switch')) && text.includes('Image Enhancements')) return template;
+    return enhancementSwitch(template.values, text);
   }
 }
 function switchProperty(template, property) {
@@ -220,17 +230,18 @@ async function test(name, fn) {
   for (const options of [{ installed: false }, {}, { upgrade: true }, { state: 'checking' }, { installed: false, state: 'unknown' }, { enabled: false }, { steamvr: false, installed: false }]) {
     await test(`Single install control and correct card ownership: ${JSON.stringify(options)}`, () => {
       const { template } = render(SetupPage, context(options));
-      const sections = cards(template); assert.equal(sections.length, 3);
+      const sections = cards(template); assert.equal(sections.length, 4);
       assert.match(markup(template), /<header class="page-intro"><h1>Setup<\/h1>/);
       assert.match(markup(template), /Set up Galaxy XR for SteamVR/);
       assert.match(markup(sections[0]), /Set up your headset/); assert.match(markup(sections[0]), /Installed Driver Version/);
-      assert.match(markup(sections[0]), /Restart Compositor/);
-      assert.match(markup(sections[1]), /Settings check/);
-      assert.match(markup(sections[2]), /Restore or remove/); assert.match(markup(sections[2]), /Restore defaults/);
+      assert.match(markup(sections[1]), /Advanced/); assert.match(markup(sections[1]), /Driver install location/);
+      assert.match(markup(sections[1]), /Restart Compositor/);
+      assert.match(markup(sections[2]), /Settings check/);
+      assert.match(markup(sections[3]), /Restore or remove/); assert.match(markup(sections[3]), /Restore defaults/);
       const labels = buttonLabels(template);
       assert.equal(labels.filter(label => /^(Install Driver|Reinstall driver|Install 1\.2\.3)$/.test(label)).length, 1);
       assert.equal(labels.filter(label => label === 'Uninstall driver').length, 1, 'Uninstall remains available for residual settings');
-      assert.equal(buttonLabels(sections[2]).filter(label => label === 'Uninstall driver').length, 1);
+      assert.equal(buttonLabels(sections[3]).filter(label => label === 'Uninstall driver').length, 1);
       assert.doesNotMatch(markup(sections[0]), /Uninstall driver/);
       assert.doesNotMatch(markup(template), /App Version|Donation Links|Source Code and Releases/);
     });
@@ -336,15 +347,14 @@ async function test(name, fn) {
     assert.match(markup(template), /System not ready/); assert.match(markup(template), /href="#\/setup"/);
     assert.ok(!buttonLabels(template).includes('Install Driver'));
   });
-  await test('Setup renders in the shell before and after installation', () => {
+  await test('Setup renders in the docked shell before and after installation', () => {
     for (const installed of [false, true]) {
       const shell = new AppShell(); shell.ctx = context({ installed }); shell.route = 'setup';
-      const text = markup(shell.render()); assert.match(text, /app-setup-page/);
-      assert.match(text, /activeid="tab-setup"/);
-      const tabs = [...text.matchAll(/<fluent-tab\b[^>]* id="([^"]+)"/g)].map(match => match[1]);
-      assert.ok(tabs.includes('tab-setup'));
-      if (installed) assert.deepEqual(tabs, ['tab-driver-settings', 'tab-stream-frame', 'tab-debug', 'tab-distortion-profile', 'tab-app-settings', 'tab-setup', 'tab-about']); // fixture leaves galaxy.debugMode unset (proxy default reads truthy), so the Debug tab is visible while installed
-      else assert.deepEqual(tabs, ['tab-app-settings', 'tab-setup', 'tab-about']);
+      const text = markup(shell.render());
+      assert.match(text, /app-setup-page/);
+      assert.match(text, /<app-chapter-nav/);
+      assert.doesNotMatch(text, /fluent-tablist|tab-setup/);
+      assert.match(text, /id="panel-setup"/);
     }
   });
   await test('Setup is explicitly retained in the production element registry', () => {
