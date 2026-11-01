@@ -6,6 +6,16 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [2.0.0-dev.2] - 2026-11-01
+
+### Features
+
+- Add Hybrid Fovea Display Plan documentation outlining stages and implementation details (`5714fe4`)
+
+### Fixes
+
+- Stream Fix and Improve hybrid fovea handling and logging for better diagnostics (`822840f`)
+
 ## [2.0.0-dev.1] - 2026-11-01
 
 ### Reworks
