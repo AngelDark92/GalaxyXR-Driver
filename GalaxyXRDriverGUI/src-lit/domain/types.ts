@@ -11,6 +11,30 @@ export type DistortionProfileConfig = {
 /**
  * See the c++ documentation for documentation on what the settings are for
  */
+export type HybridConfig = {
+  enabled: boolean;
+  foveaCodec: number;
+  baseCodec: number;
+  guardDegrees: number;
+  ring0Degrees: number; ring1Degrees: number; ring2Degrees: number; ring3Degrees: number; ring4Degrees: number;
+  featherPx: number;
+  ring0Block: number; ring1Block: number; ring2Block: number; ring3Block: number; ring4Block: number;
+  ring0Density: number; ring1Density: number; ring2Density: number; ring3Density: number; ring4Density: number;
+  maxFoveaBytes: number;
+  requireReadyPeer: boolean;
+};
+
+export type HybridStatus = {
+  state: string;
+  reason: string; backend?: string; patchCount: number; foveaBytes: number; encodeMs: number;
+  canvasW?: number; canvasH?: number; plannedBytes?: number; cropW?: number; cropH?: number;
+  capturePath?: string; baseBitrateMbit?: number; baseForceCbr?: boolean; streamFps?: number;
+  frames?: number; encodeFailures?: number; degradedFrames?: number;
+  joinedFrames?: number; lateFrames?: number; staleFovea?: number; unmappedFrames?: number;
+  // The video's own fovea tiles are cleared while the hybrid runs; kept counts failed clears.
+  videoFoveaCleared?: number; videoFoveaKept?: number;
+};
+
 export type Settings = {
 	debugMode: boolean,
   generalHeadset: GeneralHeadsetConfig,
@@ -18,6 +42,7 @@ export type Settings = {
   streamFrame?: StreamFrameConfig,
   galaxyXr?: GalaxyXrConfig,
   controllers?: ControllersConfig,
+  hybrid?: HybridConfig;
   forceTracking: boolean,
   takeCompositorScreenshots: boolean,
   watchDistortionProfiles: boolean,
@@ -557,6 +582,7 @@ export type DriverInfo = {
     lastPictureStatus?: number;
     pictureError?: string;
   };
+  hybridStatus?: HybridStatus;
   spacewarp?: {
     enabled: boolean;
     hookInstalled: boolean;

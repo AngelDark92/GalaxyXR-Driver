@@ -45,6 +45,8 @@ Config driverConfig;
 Config driverConfigOld;
 std::mutex driverConfigLock;
 std::string driverVersion = "SpacewarpToggleTest";
+// ConfigLoader publishes hybrid settings; the hybrid fovea is not under test here.
+void ApplyHybridDriverConfig() {}
 int logCalls = 0;
 std::vector<std::string> logHistory; // every line; state-transition asserts look here
 void DriverLog(const char* format, ...){

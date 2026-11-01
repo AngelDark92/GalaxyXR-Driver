@@ -84,6 +84,7 @@ The full setup, feature and troubleshooting notes live in the [setup and image p
 - [Setup and image processing guide](Docs/StreamFrame.md): install, recommended configuration, feature notes, distortion correction by eye, troubleshooting from `vrserver.txt`.
 - [OFXR Bridge builds](Docs/OFXRBridge.md): installing a downloaded fork, shared vs build-specific settings, and the verified layer contract.
 - [Camera-based distortion tuning](Docs/TunerUsage.md): measuring lens correction with a fisheye camera, the sweep and overlay tools, mirroring one eye onto the other.
+- [Hybrid fovea (experimental)](Docs/HybridFovea.md): the ASTC/PyroWave gaze-following fovea layer, how it works, its verification record and what still blocks it on the headset.
 - [Portable build cleanup](Docs/PortableBuildCleanup.md): local builds and reclaiming generated files.
 - [Release workflow](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md): how releases are built and published.
 

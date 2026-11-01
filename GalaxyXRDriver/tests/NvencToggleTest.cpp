@@ -20,6 +20,7 @@ FARPROC WINAPI FakeExport(HMODULE, LPCSTR);
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <thread>
 
 Config driverConfig;
 std::atomic<int> logCalls{0};
@@ -1400,6 +1401,40 @@ void CheckOffPassthrough(void* encoder){
 	const auto unsupportedList = list;
 	NvencTapShims::CreateInstance(&list);
 	Check(memcmp(&list, &unsupportedList, sizeof(list)) == 0, "OFF preserves unsupported API table");
+	// Hybrid fovea wanted with the tap off: submit and lock are wrapped (unlock/destroy too
+	// when present), initialization and reconfiguration only observed; the version and every
+	// encoder control stay the caller's.
+	list = originalList;
+	NvencTap::Get().SetHybridHookWanted(true);
+	Check(NvencTapShims::CreateInstance(&list) == NV_ENC_SUCCESS, "OFF + hybrid: function list creation succeeds");
+	Check(list.version == originalList.version, "OFF + hybrid: API version untouched");
+	{
+		NV_ENC_CONFIG observed = {}; observed.version = Tag111(7, true);
+		observed.rcParams.averageBitRate = 31000000;
+		NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag111(5, true);
+		init.encodeGUID = NV_ENC_CODEC_AV1_GUID; init.encodeWidth = 1536; init.encodeHeight = 6144;
+		init.encodeConfig = &observed;
+		const auto savedInit = init;
+		const auto savedConfig = observed;
+		void* observedEncoder = reinterpret_cast<void*>(static_cast<uintptr_t>(0x6160));
+		Check(list.nvEncInitializeEncoder(observedEncoder, &init) == NV_ENC_SUCCESS && seenInitVersion == Tag111(5, true)
+			&& memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&observed, &savedConfig, sizeof(observed)) == 0,
+			"OFF + hybrid: initialization is forwarded with the caller's exact bytes");
+		Check(SessionCodecOf(observedEncoder) == 2, "OFF + hybrid: the accepted session codec is observed");
+		nextInitStatus = NV_ENC_ERR_INVALID_PARAM;
+		NV_ENC_INITIALIZE_PARAMS rejected = savedInit; rejected.encodeGUID = NV_ENC_CODEC_HEVC_GUID;
+		Check(list.nvEncInitializeEncoder(observedEncoder, &rejected) == NV_ENC_ERR_INVALID_PARAM
+			&& SessionCodecOf(observedEncoder) == 2, "OFF + hybrid: a rejected initialization leaves the accepted codec");
+		{ std::lock_guard<std::mutex> guard(upgradedLock); sessionCodecs.erase(observedEncoder); }
+	}
+	Check(list.nvEncEncodePicture != originalList.nvEncEncodePicture && list.nvEncLockBitstream != originalList.nvEncLockBitstream,
+		"OFF + hybrid: submit and lock carry the envelope seam");
+	Check(list.nvEncRegisterResource == &NvencTapShims::RegisterResource && list.nvEncMapInputResource == &NvencTapShims::MapInputResource,
+		"OFF + hybrid: resource bookkeeping lets the map shim clear the video fovea tiles");
+	NvencTap::Get().SetHybridHookWanted(false);
+	list = originalList;
+	NvencTapShims::CreateInstance(&list);
+	Check(memcmp(&list, &originalList, sizeof(list)) == 0, "OFF without hybrid preserves the API table again");
 	const auto before = NvencTap::Get().GetStats();
 	const int logsBefore = logCalls;
 	const int capsBefore = capsCalls;
@@ -1471,6 +1506,82 @@ void CreateFunctionList(){
 	list.version = Tag111(2);
 	Check(NvencTapShims::CreateInstance(&list) == NV_ENC_SUCCESS, "function list creation succeeds");
 	Check(list.version == Tag111(2), "function list caller version restored");
+}
+
+// 2026-11-01: the hybrid fovea is independent of the tap's encoder overrides. An encoder
+// created while the tap was on keeps the full shims; turning the tap off must not stop its
+// submissions from joining their fovea or its access units from being wrapped.
+NVENCSTATUS NVENCAPI HybridAuLock(void*, NV_ENC_LOCK_BITSTREAM* p){
+	static uint8_t au[64];
+	std::memset(au, 0x11, sizeof(au));
+	if(p){ p->bitstreamBufferPtr = au; p->bitstreamSizeInBytes = sizeof(au); }
+	return NV_ENC_SUCCESS;
+}
+NVENCSTATUS NVENCAPI HybridAuUnlock(void*, NV_ENC_OUTPUT_PTR){ return NV_ENC_SUCCESS; }
+
+void CheckHybridAfterTapOff(){
+	Configure(false, 1);
+	gxh1::Producer& producer = gxh1::Producer::Get();
+	gxh1::ProducerConfig config;
+	config.enabled = true; config.foveaCodec = 1; config.baseCodec = 1;
+	config.requireReadyPeer = false; config.allowCpuAstcReference = true;
+	producer.Configure(config, 1);
+	NvencTap::Get().SetHybridHookWanted(true);
+	const uint64_t frameId = 500;
+	gxh1::FrameMeta meta;
+	meta.eyeW = 128; meta.eyeH = 128;
+	for(int eye = 0; eye < 2; ++eye){
+		meta.gazeValid[eye] = true; meta.gazeX[eye] = 64.0f; meta.gazeY[eye] = 64.0f;
+		meta.tan[eye][0] = -1.0f; meta.tan[eye][1] = 1.0f; meta.tan[eye][2] = -1.0f; meta.tan[eye][3] = 1.0f;
+	}
+	auto produce = [&](uint64_t id){
+		meta.frameId = id;
+		std::string reason;
+		const uint64_t framesBefore = producer.Snapshot().frames;
+		if(!producer.BeginFrame(meta, &reason)){ return false; }
+		const gxh1::FoveaPlan* plan = producer.InflightPlan();
+		std::vector<uint8_t> canvas(static_cast<size_t>(plan->canvasW) * plan->canvasH * 4u, 0x80);
+		for(int eye = 0; eye < 2; ++eye){ producer.SubmitEye(eye, canvas.data(), plan->canvasW * 4u, plan->canvasW, plan->canvasH); }
+		for(int attempt = 0; attempt < 6000 && producer.Snapshot().frames == framesBefore; ++attempt){
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		}
+		producer.NoteScenePresent(id);
+		return producer.Snapshot().frames > framesBefore;
+	};
+	const auto savedLock = origLockBitstream;
+	const auto savedUnlock = origUnlockBitstream;
+	const NVENCSTATUS savedEncodeStatus = encodeDriverStatus;
+	origLockBitstream = HybridAuLock; origUnlockBitstream = HybridAuUnlock; encodeDriverStatus = NV_ENC_SUCCESS;
+	void* encoder = reinterpret_cast<void*>(static_cast<uintptr_t>(0x5150));
+	NV_ENC_OUTPUT_PTR out = reinterpret_cast<NV_ENC_OUTPUT_PTR>(static_cast<uintptr_t>(0x5151));
+	auto submitAndLock = [&](NV_ENC_LOCK_BITSTREAM& lock){
+		NV_ENC_PIC_PARAMS pic = {}; pic.version = NV_ENC_PIC_PARAMS_VER;
+		pic.inputBuffer = reinterpret_cast<NV_ENC_INPUT_PTR>(static_cast<uintptr_t>(0x5152)); pic.outputBitstream = out;
+		lock = {}; lock.version = NV_ENC_LOCK_BITSTREAM_VER; lock.outputBitstream = out;
+		return NvencTapShims::EncodePicture(encoder, &pic) == NV_ENC_SUCCESS && NvencTapShims::LockBitstream(encoder, &lock) == NV_ENC_SUCCESS;
+	};
+	auto wrapped = [](const NV_ENC_LOCK_BITSTREAM& lock){
+		return lock.bitstreamBufferPtr && lock.bitstreamSizeInBytes > 64 && std::memcmp(lock.bitstreamBufferPtr, "GXH1", 4) == 0;
+	};
+	// The session really runs AV1 while HEVC was admitted (the tap was enabled with AV1 saved
+	// after this encoder started): the envelope must not relabel the bytes.
+	SetSessionCodec(encoder, 2);
+	NV_ENC_LOCK_BITSTREAM lock = {};
+	Check(produce(frameId), "tap OFF + hybrid: fovea produced");
+	Check(submitAndLock(lock) && !wrapped(lock) && producer.Snapshot().reason == "base_codec_live_mismatch",
+		"hybrid: an access unit of another codec than admitted is sent base-only with a visible reason");
+	Check(NvencTapShims::UnlockBitstream(encoder, out) == NV_ENC_SUCCESS, "hybrid: unwrapped unlock forwarded");
+	SetSessionCodec(encoder, 0);
+	Check(produce(frameId + 1), "tap OFF + hybrid: second fovea produced");
+	Check(submitAndLock(lock), "tap OFF + hybrid: submit and lock forwarded");
+	Check(wrapped(lock), "tap OFF on a tap-created encoder: the access unit still carries its own fovea");
+	Check(producer.Snapshot().joinedFrames >= 1, "tap OFF + hybrid: the join is counted");
+	Check(NvencTapShims::UnlockBitstream(encoder, out) == NV_ENC_SUCCESS && pendingWrapCount.load() == 0,
+		"tap OFF + hybrid: unlock releases the envelope");
+	{ std::lock_guard<std::mutex> guard(upgradedLock); sessionCodecs.erase(encoder); }
+	origLockBitstream = savedLock; origUnlockBitstream = savedUnlock; encodeDriverStatus = savedEncodeStatus;
+	NvencTap::Get().SetHybridHookWanted(false);
+	producer.Configure(gxh1::ProducerConfig{}, 1);
 }
 
 void CheckExistingSessionAfterOff(void* encoder){
@@ -1849,6 +1960,7 @@ void CheckFirstInitializationFailure(){
 // the explicit fake-loader concurrency case below; no live DLL is loaded.
 namespace NvencPostPack {
 bool Process(void*, uint32_t){ std::abort(); }
+bool BlankFovea(void*){ std::abort(); }
 NvencPostPackStats GetStats(){ std::abort(); }
 void ResetIntervalStats(){ std::abort(); }
 }
@@ -1915,6 +2027,7 @@ int main(){
 	CreateFunctionList();
 	Check(listVersions == std::vector<uint32_t>{Tag111(2)}, "ON to OFF stops new function-list upgrades");
 	CheckExistingSessionAfterOff(upgraded);
+	CheckHybridAfterTapOff();
 	NV_ENC_CAPS_PARAM stockCaps = {};
 	stockCaps.version = Tag111(1);
 	int stockValue = 0;

@@ -58,6 +58,9 @@ struct FrameProcessSettings{
 	double gazeRawDirY = 0;
 	double gazeRawDirZ = -1;
 	double gazeAgeMs = 0;
+	// scene frame id shared by the hybrid fovea capture and the NVENC submission of this
+	// frame (0 = not assigned); the producer joins base and fovea on it
+	uint64_t hybridSceneFrame = 0;
 	// world-locked fixation dot direction in head space for the current
 	// frame's render pose (computed in SubmitLayer from mHmdPose), and the
 	// head angular velocity between successive submitted poses (deg/s)
@@ -132,6 +135,13 @@ public:
 		const vr::VRTextureBounds_t &leftBounds, const vr::VRTextureBounds_t &rightBounds,
 		vr::SharedTextureHandle_t syncTexture, const FrameProcessSettings &settings);
 
+	// hybrid fovea capture for a frame the eye pass does not process (Image Enhancements
+	// off or an identity pass). Takes the frame's keyed mutex like ProcessSceneLayer and only
+	// copies; it never writes the layer. No-op unless the hybrid producer is capturing.
+	void CaptureHybridSceneLayer(vr::SharedTextureHandle_t leftEye, vr::SharedTextureHandle_t rightEye,
+		const vr::VRTextureBounds_t &leftBounds, const vr::VRTextureBounds_t &rightBounds,
+		vr::SharedTextureHandle_t syncTexture, const FrameProcessSettings &settings);
+
 	// drop cached opened resources for a destroyed swap texture handle
 	void EvictTexture(vr::SharedTextureHandle_t handle);
 	// drop everything (e.g. DestroyAllSwapTextureSets); cheap, caches repopulate
@@ -146,6 +156,15 @@ private:
 	// submit a single Texture2DArray shared by both eyes (unity single-pass
 	// instanced: slice 0 = left, slice 1 = right); 0 for plain textures.
 	bool ProcessEye(ID3D11Texture2D* texture, const vr::VRTextureBounds_t &bounds, int eye, int slice, const FrameProcessSettings &settings);
+	// hand this frame's encoded eye content to the hybrid producer (caller holds the
+	// frame's keyed mutex and the processor lock)
+	void CaptureHybrid(ID3D11Texture2D* left, ID3D11Texture2D* right, UINT leftSlices,
+		const vr::VRTextureBounds_t &leftBounds, const vr::VRTextureBounds_t &rightBounds,
+		const FrameProcessSettings &settings);
+	// texture/slice ProcessEye wrote for each eye this frame (the zero-copy shadow or the
+	// layer itself); null when the eye was not processed
+	ID3D11Texture2D* hybridSource[2] = {nullptr, nullptr};
+	int hybridSlice[2] = {0, 0};
 	// shared array-layer handles already announced in the log (once each)
 	std::set<uint64_t> loggedArrayTextures;
 
@@ -331,6 +350,9 @@ public:
 	bool ProcessSceneLayer(vr::SharedTextureHandle_t, vr::SharedTextureHandle_t,
 		const vr::VRTextureBounds_t &, const vr::VRTextureBounds_t &,
 		vr::SharedTextureHandle_t, const FrameProcessSettings &){ return false; }
+	void CaptureHybridSceneLayer(vr::SharedTextureHandle_t, vr::SharedTextureHandle_t,
+		const vr::VRTextureBounds_t &, const vr::VRTextureBounds_t &,
+		vr::SharedTextureHandle_t, const FrameProcessSettings &){}
 	void EvictTexture(vr::SharedTextureHandle_t){}
 	void EvictAll(){}
 };

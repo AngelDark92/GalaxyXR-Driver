@@ -20,6 +20,7 @@ bool hasLoggedConfigFileNotFound = false;
 std::string testFolder;
 std::string GetConfigFolder() { return testFolder; }
 void DriverLog(const char*, ...) {}
+void ApplyHybridDriverConfig() {}
 #include "ParseConfig.generated.h"
 std::map<std::string, int> writes;
 std::vector<std::string> restores;

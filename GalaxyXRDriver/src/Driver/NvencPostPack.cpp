@@ -214,23 +214,32 @@ TexCache* EnsureCache(ID3D11Texture2D* tex){
 	if(!(d.BindFlags & D3D11_BIND_RENDER_TARGET)){ Disable("packed texture has no RENDER_TARGET bind", (HRESULT)d.BindFlags); return nullptr; }
 	TexCache &c = cache[cacheCount];
 	c = TexCache{}; c.src = tex; c.w = d.Width; c.h = d.Height; c.fmt = d.Format;
-	D3D11_TEXTURE2D_DESC sd = d; sd.BindFlags = D3D11_BIND_SHADER_RESOURCE; sd.MiscFlags = 0; sd.Usage = D3D11_USAGE_DEFAULT; sd.CPUAccessFlags = 0;
-	HRESULT hr = device->CreateTexture2D(&sd, nullptr, &c.scratch);
-	if(FAILED(hr)){ Disable("CreateTexture2D scratch", hr); return nullptr; }
-	D3D11_SHADER_RESOURCE_VIEW_DESC sv = {}; sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; sv.Texture2D.MipLevels = 1;
-	sv.Format = fY; hr = device->CreateShaderResourceView(c.scratch, &sv, &c.srvY);
-	if(FAILED(hr)){ Disable("CreateShaderResourceView Y", hr); return nullptr; }
-	sv.Format = fC; hr = device->CreateShaderResourceView(c.scratch, &sv, &c.srvC);
-	if(FAILED(hr)){ Disable("CreateShaderResourceView C", hr); return nullptr; }
 	D3D11_RENDER_TARGET_VIEW_DESC rv = {}; rv.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-	rv.Format = fY; hr = device->CreateRenderTargetView(tex, &rv, &c.rtvY);
+	rv.Format = fY; HRESULT hr = device->CreateRenderTargetView(tex, &rv, &c.rtvY);
 	if(FAILED(hr)){ Disable("CreateRenderTargetView Y", hr); return nullptr; }
 	rv.Format = fC; hr = device->CreateRenderTargetView(tex, &rv, &c.rtvC);
 	if(FAILED(hr)){ Disable("CreateRenderTargetView C", hr); return nullptr; }
 	cacheCount++;
-	DriverLog("NvencPostPack: packed frame %ux%u %s (tile %u, %u tiles); scratch + plane views ready", d.Width, d.Height,
+	DriverLog("NvencPostPack: packed frame %ux%u %s (tile %u, %u tiles); plane views ready", d.Width, d.Height,
 		d.Format == DXGI_FORMAT_NV12 ? "NV12" : "P010", d.Width, d.Width ? d.Height / d.Width : 0);
 	return &c;
+}
+
+// The CAS source copy is needed only by Process; the hybrid fovea clear writes the plane
+// views directly, so a hybrid stream with the post-pack off never allocates frame-sized copies.
+bool EnsureScratch(TexCache &c){
+	if(c.scratch){ return true; }
+	D3D11_TEXTURE2D_DESC d = {}; c.src->GetDesc(&d);
+	D3D11_TEXTURE2D_DESC sd = d; sd.BindFlags = D3D11_BIND_SHADER_RESOURCE; sd.MiscFlags = 0; sd.Usage = D3D11_USAGE_DEFAULT; sd.CPUAccessFlags = 0;
+	HRESULT hr = device->CreateTexture2D(&sd, nullptr, &c.scratch);
+	if(FAILED(hr)){ Disable("CreateTexture2D scratch", hr); return false; }
+	const bool nv12 = c.fmt == DXGI_FORMAT_NV12;
+	D3D11_SHADER_RESOURCE_VIEW_DESC sv = {}; sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; sv.Texture2D.MipLevels = 1;
+	sv.Format = nv12 ? DXGI_FORMAT_R8_UNORM : DXGI_FORMAT_R16_UNORM; hr = device->CreateShaderResourceView(c.scratch, &sv, &c.srvY);
+	if(FAILED(hr)){ Disable("CreateShaderResourceView Y", hr); return false; }
+	sv.Format = nv12 ? DXGI_FORMAT_R8G8_UNORM : DXGI_FORMAT_R16G16_UNORM; hr = device->CreateShaderResourceView(c.scratch, &sv, &c.srvC);
+	if(FAILED(hr)){ Disable("CreateShaderResourceView C", hr); return false; }
+	return true;
 }
 
 } // namespace
@@ -238,6 +247,50 @@ TexCache* EnsureCache(ID3D11Texture2D* tex){
 void NvencPostPack::SetConfig(const NvencPostPackConfig &c){
 	std::lock_guard<std::mutex> g(lock);
 	cfg = c;
+}
+
+bool NvencPostPack::BlankFovea(void* texPtr){
+	std::lock_guard<std::mutex> g(lock);
+	if(stats.disabled || !texPtr){ return false; }
+	ID3D11Texture2D* tex = nullptr;
+	if(FAILED(((IUnknown*)texPtr)->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&tex)) || !tex){ return false; }
+	bool ok = false;
+	do {
+		if(!EnsureDevice(tex)){ break; }
+		TexCache* c = EnsureCache(tex);
+		if(!c || c->w == 0 || c->h != c->w * 4u){ break; }
+		ID3D11DeviceContext1* dctx1 = nullptr;
+		if(FAILED(dctx->QueryInterface(__uuidof(ID3D11DeviceContext1), (void**)&dctx1)) || !dctx1){ break; }
+		// Fovea tiles by the same parity rule as the post-pack shader and the QP map. The
+		// timing block (bottom-left of the last tile, one AV1 superblock covers every codec's
+		// pinned block) is cut out of the clear when the last tile is a fovea tile.
+		const LONG W = (LONG)c->w;
+		const LONG kTiming = 64;
+		D3D11_RECT luma[3] = {};
+		D3D11_RECT chroma[3] = {};
+		UINT count = 0;
+		for(LONG tile = 0; tile < 4; tile++){
+			if(((tile & 1) == 0) != cfg.foveaTop){ continue; }
+			const LONG y0 = tile * W, y1 = y0 + W;
+			if(tile == 3){
+				luma[count] = {kTiming, y0, W, y1}; chroma[count] = {kTiming / 2, y0 / 2, W / 2, y1 / 2}; count++;
+				luma[count] = {0, y0, kTiming, y1 - kTiming}; chroma[count] = {0, y0 / 2, kTiming / 2, (y1 - kTiming) / 2}; count++;
+			}else{
+				luma[count] = {0, y0, W, y1}; chroma[count] = {0, y0 / 2, W / 2, y1 / 2}; count++;
+			}
+		}
+		const float grey[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+		dctx1->ClearView(c->rtvY, grey, luma, count);
+		dctx1->ClearView(c->rtvC, grey, chroma, count);
+		dctx1->Release();
+		ID3D11CommandList* cl = nullptr;
+		if(FAILED(dctx->FinishCommandList(FALSE, &cl)) || !cl){ break; }
+		ctx->ExecuteCommandList(cl, TRUE);
+		cl->Release();
+		ok = true;
+	} while(false);
+	tex->Release();
+	return ok;
 }
 
 NvencPostPackStats NvencPostPack::GetStats(){ std::lock_guard<std::mutex> g(lock); return stats; }
@@ -258,7 +311,7 @@ bool NvencPostPack::Process(void* texPtr, uint32_t nvencBufferFormat){
 	do {
 		if(!EnsureDevice(tex)){ break; }
 		TexCache* c = EnsureCache(tex);
-		if(!c){ break; }
+		if(!c || !EnsureScratch(*c)){ break; }
 		// source copy (the plane RTV and SRV cannot alias the same texture)
 		dctx->CopyResource(c->scratch, tex);
 		// constants

@@ -1695,6 +1695,38 @@ struct CustomShaderConfig{
 };
 
 
+// Experimental hybrid fovea transport. Flat section: every value is
+// user-owned and only structurally clamped on load. There is no dated
+// migration because the section is brand new and has no prior semantics.
+struct HybridConfig {
+	bool enabled = false;              // master switch; false means the driver never allocates or wraps anything
+	int foveaCodec = 0;                // 0 = off, 1 = ASTC, 2 = PyroWave
+	int baseCodec = 0;                 // 0 = the stream's running codec; 1 = require HEVC, 2 = require AV1 (mismatch rejects)
+	double guardDegrees = 2.0;         // angular guard added to every ring bound
+	double ring0Degrees = 5.0;         // annulus 0 outer bound (degrees from gaze ray)
+	double ring1Degrees = 10.0;
+	double ring2Degrees = 20.0;
+	double ring3Degrees = 35.0;
+	double ring4Degrees = 45.0;        // outer canvas bound
+	int featherPx = 8;                 // composite feather inside the canvas edge
+	int ring0Block = 4;                // ASTC footprint per annulus (4..12)
+	int ring1Block = 6;
+	int ring2Block = 8;
+	int ring3Block = 10;
+	int ring4Block = 12;
+	// Sampling density per annulus relative to the source (0.1..1). Below 1 the ring is
+	// low-pass resampled before ASTC coding, or its finest wavelet bands are not sent
+	// (PyroWave). Defaults follow the ring table of the 2026-10-20 ASTC plan.
+	double ring0Density = 1.0;
+	double ring1Density = 1.0;
+	double ring2Density = 0.75;
+	double ring3Density = 0.5;
+	double ring4Density = 0.25;
+	int maxFoveaBytes = 2097152;       // hard per-frame ceiling for all compressed patches
+	bool requireReadyPeer = true;      // fail closed when the client has not acknowledged readiness
+};
+
+
 class Config{
 public:
 	// 2026-10-01: diagnostics require an explicit master opt-in; selections are retained.
@@ -1833,6 +1865,7 @@ public:
 	// shader replacement only runs while the dashboard is open.
 	StreamFrameConfig streamFrame = {};
 	GalaxyXrConfig galaxyXr = {};
+	HybridConfig hybrid = {};
 	
 	// streamed controller pose adjustments
 	ControllersConfig controllers = {};

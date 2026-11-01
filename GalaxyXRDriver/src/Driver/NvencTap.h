@@ -360,12 +360,33 @@ public:
 
 	// idempotent, self-throttled (1/s), safe to call every frame
 	void TryInstall();
+	// Hybrid fovea: the envelope needs the submit/lock seam even when the tap's encoder
+	// overrides are off. While wanted, the hook is installed and an encoder created with the
+	// tap off gets only the four pass-through calls the envelope uses. Like the tap, the
+	// hook reaches encoders created after it is installed (the next headset connection).
+	// The caller runs TryInstall afterwards. Initialization and reconfiguration are observed
+	// (never modified) so the envelope declares the codec the session really accepted.
+	void SetHybridHookWanted(bool wanted);
+	// Session codec NVENC last accepted on any hooked encoder (0 HEVC, 1 H.264, 2 AV1), or -1
+	// before the first accepted initialization.
+	int LastAcceptedSessionCodec() const;
 	bool Installed() const { return installed.load(std::memory_order_relaxed); }
 
 	// snapshot the live config for the shims (called from our threads;
 	// shims run on vrlink's encode thread and read under the same mutex)
 	void SetConfig(const NvencTapConfig &cfg);
 	NvencTapConfig GetConfig();
+	// Lock-free-enough snapshot for per-frame consumers: copies only the two fields the
+	// hybrid path needs, so a per-frame check never copies the preset merge / curve data.
+	struct ConfigSnapshot {
+		bool enabled = false;
+		int codec = 0;
+		int tileWidth = 0;    // applied stream tile W (W x 4W atlas)
+		int bitrateMbit = 0;  // applied base budget
+		bool forceCbr = false;
+		int forceFps = 0;
+	};
+	ConfigSnapshot GetConfigSnapshot();
 	// 2026-10-16 open-time parity: false until the first SetConfig publish.
 	// Before it the shims consult the caps shim's settings.json probe for the
 	// open/function-list upgrade decisions and the caps answers as well.

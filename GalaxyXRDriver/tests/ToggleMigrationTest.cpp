@@ -20,6 +20,9 @@ bool hasLoggedConfigFileNotFound = false;
 std::string testFolder;
 std::string GetConfigFolder() { return testFolder; }
 void DriverLog(const char*, ...) {}
+// The extracted production ParseConfig applies the hybrid snapshot on reload; this harness
+// does not link the glue (D3D/NVENC), so the call is a no-op here.
+void ApplyHybridDriverConfig() {}
 #include "ParseConfig.generated.h"
 int checks = 0, failures = 0;
 void Check(bool condition, const char* label) {

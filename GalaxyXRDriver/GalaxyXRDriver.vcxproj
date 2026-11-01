@@ -40,6 +40,16 @@
     <ClInclude Include="src\Driver\Hooking\InterfaceHookInjector.h" />
     <ClInclude Include="src\Headsets\GalaxyXR.h" />
     <ClInclude Include="src\Headsets\VrlinkCapabilities.h" />
+    <ClInclude Include="src\Hybrid\Gxh1Protocol.h" />
+    <ClInclude Include="src\Hybrid\Gxh1Codec.h" />
+    <ClInclude Include="src\Hybrid\FoveaPlanner.h" />
+    <ClInclude Include="src\Hybrid\AstcSubset.h" />
+    <ClInclude Include="src\Hybrid\PyroWaveCpu.h" />
+    <ClInclude Include="src\Hybrid\HybridProducer.h" />
+    <ClInclude Include="src\Hybrid\AstcBatchEncoder.h" />
+    <ClInclude Include="src\Driver\AstcGpuEncoder.h" />
+    <ClInclude Include="src\Driver\HybridCapture.h" />
+    <ClInclude Include="src\Driver\HybridConfigGlue.h" />
     <ClInclude Include="src\HiddenArea\HiddenArea.h" />
   </ItemGroup>
   <ItemGroup>
@@ -84,6 +94,15 @@
     <ClCompile Include="src\Headsets\GalaxyXR.cpp" />
     <ClCompile Include="src\Helpers\DisplayHelper.cpp" />
     <ClCompile Include="src\Helpers\EyeTrackingOutput.cpp" />
+    <ClCompile Include="src\Hybrid\Gxh1Codec.cpp" />
+    <ClCompile Include="src\Hybrid\FoveaPlanner.cpp" />
+    <ClCompile Include="src\Hybrid\AstcSubset.cpp" />
+    <ClCompile Include="src\Hybrid\PyroWaveCpu.cpp" />
+    <ClCompile Include="src\Hybrid\HybridProducer.cpp" />
+    <ClCompile Include="src\Hybrid\AstcBatchEncoder.cpp" />
+    <ClCompile Include="src\Driver\AstcGpuEncoder.cpp" />
+    <ClCompile Include="src\Driver\HybridCapture.cpp" />
+    <ClCompile Include="src\Driver\HybridConfigGlue.cpp" />
     <ClCompile Include="src\HiddenArea\HiddenArea.cpp" />
   </ItemGroup>
   <ItemGroup>

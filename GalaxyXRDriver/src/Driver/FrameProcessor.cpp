@@ -6,8 +6,12 @@
 #include "VrlinkTap.h"
 #include "AswAutoMode.h"
 #include "NvencPostPack.h"
+#include "HybridCapture.h"
 #include "../Config/StreamTiers.h"
 #include "../Headsets/GalaxyXR.h"
+#include "../Hybrid/HybridProducer.h"
+
+#include <chrono>
 
 // shared head-direction -> per-eye viewport uv mapping. this is the exact
 // math the gaze debug ring uses (verified against the runtime's foveation
@@ -1690,7 +1694,92 @@ bool FrameProcessor::ProcessEye(ID3D11Texture2D* texture, const vr::VRTextureBou
 		box.back = 1;
 		context->CopySubresourceRegion(texture, layerSub, box.left, box.top, 0, scratchOut, 0, &box);
 	}
+	// the texture vrlink's copy reads for this eye (zero-copy redirects it to the shadow)
+	if(eye >= 0 && eye < 2){
+		hybridSource[eye] = v3Active ? shadow->tex[shadow->index] : texture;
+		hybridSlice[eye] = slice;
+	}
 	return true;
+}
+
+void FrameProcessor::CaptureHybrid(ID3D11Texture2D* left, ID3D11Texture2D* right, UINT leftSlices,
+	const vr::VRTextureBounds_t &leftBounds, const vr::VRTextureBounds_t &rightBounds,
+	const FrameProcessSettings &settings){
+	gxh1::Producer& producer = gxh1::Producer::Get();
+	if(!producer.WantsCapture() || !left){
+		return;
+	}
+	HybridCaptureRequest request;
+	// Same eye routing as the eye pass: a texture array carries both eyes as slices.
+	const bool arrayLayer = leftSlices >= 2 && (right == left || !right);
+	ID3D11Texture2D* layer[2] = { left, arrayLayer ? left : (right ? right : left) };
+	const int layerSlice[2] = { 0, arrayLayer ? 1 : 0 };
+	for(int eye = 0; eye < 2; ++eye){
+		request.source[eye] = hybridSource[eye] ? hybridSource[eye] : layer[eye];
+		request.slice[eye] = hybridSource[eye] ? hybridSlice[eye] : layerSlice[eye];
+		const vr::VRTextureBounds_t &bounds = eye == 0 ? leftBounds : rightBounds;
+		request.tileU0[eye] = bounds.uMin < bounds.uMax ? bounds.uMin : bounds.uMax;
+		request.tileU1[eye] = bounds.uMin < bounds.uMax ? bounds.uMax : bounds.uMin;
+		request.tileV0[eye] = bounds.vMin < bounds.vMax ? bounds.vMin : bounds.vMax;
+		request.tileV1[eye] = bounds.vMin < bounds.vMax ? bounds.vMax : bounds.vMin;
+		// Rings are sized in view angle, which needs the real per-eye frustum; without it
+		// (or without fresh gaze) the producer disables the rings for this frame.
+		double u = 0.5, v = 0.5;
+		const bool mapped = settings.gazeValid && settings.gazeProjValid &&
+			MapHeadDirToEyeUv(settings, eye, settings.gazeDirX, settings.gazeDirY, settings.gazeDirZ, u, v);
+		request.gazeValid[eye] = mapped;
+		request.gazeU[eye] = static_cast<float>(u);
+		request.gazeV[eye] = static_cast<float>(v);
+		for(int i = 0; i < 4; ++i){
+			request.tan[eye][i] = settings.gazeProj[eye][i];
+		}
+	}
+	request.frameId = settings.hybridSceneFrame;
+	request.ptsNs = static_cast<uint64_t>(
+		std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count());
+	HybridCaptureFrame(device, context, request);
+}
+
+void FrameProcessor::CaptureHybridSceneLayer(vr::SharedTextureHandle_t leftEye, vr::SharedTextureHandle_t rightEye,
+	const vr::VRTextureBounds_t &leftBounds, const vr::VRTextureBounds_t &rightBounds,
+	vr::SharedTextureHandle_t syncTexture, const FrameProcessSettings &settings){
+	if(!gxh1::Producer::Get().WantsCapture()){
+		return;
+	}
+	std::lock_guard<std::mutex> guard(lock);
+	if(!EnsureDevice()){
+		return;
+	}
+	ID3D11Texture2D* sync = OpenShared(syncTexture);
+	if(!sync){
+		return;
+	}
+	IDXGIKeyedMutex* mutex = nullptr;
+	if(FAILED(sync->QueryInterface(__uuidof(IDXGIKeyedMutex), (void**)&mutex)) || !mutex){
+		return;
+	}
+	int timeout = settings.config.syncTimeoutMs;
+	if(timeout < 1){ timeout = 1; }
+	if(timeout > 100){ timeout = 100; }
+	// The same acquire/release the eye pass performs; a timeout only skips the fovea.
+	if(mutex->AcquireSync(0, (DWORD)timeout) != S_OK){
+		mutex->Release();
+		return;
+	}
+	ID3D11Texture2D* left = OpenShared(leftEye);
+	ID3D11Texture2D* right = OpenShared(rightEye);
+	UINT leftSlices = 1;
+	if(left){
+		D3D11_TEXTURE2D_DESC leftDesc = {};
+		left->GetDesc(&leftDesc);
+		leftSlices = leftDesc.ArraySize;
+	}
+	hybridSource[0] = hybridSource[1] = nullptr;
+	CaptureHybrid(left, right, leftSlices, leftBounds, rightBounds, settings);
+	context->Flush();
+	mutex->ReleaseSync(0);
+	mutex->Release();
 }
 
 void FrameProcessor::UpdateEncoderSettings(const FrameProcessSettings &settings){
@@ -1982,6 +2071,7 @@ bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::Sh
 	}
 
 	bool ok = true;
+	hybridSource[0] = hybridSource[1] = nullptr;
 	ID3D11Texture2D* left = OpenShared(leftEye);
 	ID3D11Texture2D* right = OpenShared(rightEye);
 	// single-pass-instanced apps (Demeo, Beat Saber, ...) submit ONE
@@ -2009,6 +2099,9 @@ bool FrameProcessor::ProcessSceneLayer(vr::SharedTextureHandle_t leftEye, vr::Sh
 		}
 	}
 
+	// Hybrid fovea capture of the content vrlink encodes this frame (the shadow the eye
+	// pass drew, or the layer). Off-path: one cached bool load and return.
+	CaptureHybrid(left, right, leftSlices, leftBounds, rightBounds, settings);
 	// submit our commands to the GPU before releasing the mutex. without this the
 	// commands sit in the immediate context (this device never presents, so it
 	// almost never kicks on its own), ReleaseSync signals before any of our work,

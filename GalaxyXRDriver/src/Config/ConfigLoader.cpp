@@ -12,6 +12,8 @@
 #include "DebugModePolicy.h"
 #include "ControllerMasterPolicy.h"
 #include "GameLinkLayoutPolicy.h"
+#include "../Hybrid/HybridProducer.h"
+#include "../Driver/HybridConfigGlue.h"
 #include "../Distortion/DistortionProfileConstructor.h"
 #ifdef _WIN32
 #include "Windows.h"
@@ -1466,6 +1468,36 @@ void ConfigLoader::ParseConfig(){
 				newConfig.streamFrame.zeroCopy = streamFrameData["zeroCopy"].get<bool>();
 			}
 		}
+		// Experimental hybrid fovea section. Values are read only when the JSON type
+		// matches and are preserved exactly as written: validation lives in
+		// gxh1::Producer::Configure, which rejects an unsupported combination with a
+		// visible reason instead of silently clamping the user's request.
+		if(data["hybrid"].is_object()){
+			json hybridData = data["hybrid"];
+			HybridConfig &hybrid = newConfig.hybrid;
+			if(hybridData["enabled"].is_boolean()){ hybrid.enabled = hybridData["enabled"].get<bool>(); }
+			if(hybridData["foveaCodec"].is_number_integer()){ hybrid.foveaCodec = hybridData["foveaCodec"].get<int>(); }
+			if(hybridData["baseCodec"].is_number_integer()){ hybrid.baseCodec = hybridData["baseCodec"].get<int>(); }
+			if(hybridData["guardDegrees"].is_number()){ hybrid.guardDegrees = hybridData["guardDegrees"].get<double>(); }
+			if(hybridData["ring0Degrees"].is_number()){ hybrid.ring0Degrees = hybridData["ring0Degrees"].get<double>(); }
+			if(hybridData["ring1Degrees"].is_number()){ hybrid.ring1Degrees = hybridData["ring1Degrees"].get<double>(); }
+			if(hybridData["ring2Degrees"].is_number()){ hybrid.ring2Degrees = hybridData["ring2Degrees"].get<double>(); }
+			if(hybridData["ring3Degrees"].is_number()){ hybrid.ring3Degrees = hybridData["ring3Degrees"].get<double>(); }
+			if(hybridData["ring4Degrees"].is_number()){ hybrid.ring4Degrees = hybridData["ring4Degrees"].get<double>(); }
+			if(hybridData["featherPx"].is_number_integer()){ hybrid.featherPx = hybridData["featherPx"].get<int>(); }
+			if(hybridData["ring0Block"].is_number_integer()){ hybrid.ring0Block = hybridData["ring0Block"].get<int>(); }
+			if(hybridData["ring1Block"].is_number_integer()){ hybrid.ring1Block = hybridData["ring1Block"].get<int>(); }
+			if(hybridData["ring2Block"].is_number_integer()){ hybrid.ring2Block = hybridData["ring2Block"].get<int>(); }
+			if(hybridData["ring3Block"].is_number_integer()){ hybrid.ring3Block = hybridData["ring3Block"].get<int>(); }
+			if(hybridData["ring4Block"].is_number_integer()){ hybrid.ring4Block = hybridData["ring4Block"].get<int>(); }
+			if(hybridData["ring0Density"].is_number()){ hybrid.ring0Density = hybridData["ring0Density"].get<double>(); }
+			if(hybridData["ring1Density"].is_number()){ hybrid.ring1Density = hybridData["ring1Density"].get<double>(); }
+			if(hybridData["ring2Density"].is_number()){ hybrid.ring2Density = hybridData["ring2Density"].get<double>(); }
+			if(hybridData["ring3Density"].is_number()){ hybrid.ring3Density = hybridData["ring3Density"].get<double>(); }
+			if(hybridData["ring4Density"].is_number()){ hybrid.ring4Density = hybridData["ring4Density"].get<double>(); }
+			if(hybridData["maxFoveaBytes"].is_number_integer()){ hybrid.maxFoveaBytes = hybridData["maxFoveaBytes"].get<int>(); }
+			if(hybridData["requireReadyPeer"].is_boolean()){ hybrid.requireReadyPeer = hybridData["requireReadyPeer"].get<bool>(); }
+		}
 		if(data["controllers"].is_object()){
 			json controllersData = data["controllers"];
 			const char* axes[3] = {"x", "y", "z"};
@@ -1763,6 +1795,10 @@ void ConfigLoader::ParseConfig(){
 			newConfig.debugGeneration = driverConfig.debugGeneration + (gxr::DebugModeChanged(driverConfig, newConfig) ? 1 : 0);
 			driverConfig = newConfig;
 		}
+		// Unconditional hybrid lifecycle: this runs on every settings publication, outside
+		// the config lock, independent of the optional eye-processing path and of the NVENC
+		// tap being enabled. It is a hashed no-op unless the hybrid snapshot changed.
+		ApplyHybridDriverConfig();
 	}catch(const std::exception& e){
 		DriverLog("Failed to parse config file: %s", e.what());
 		return;
@@ -1896,9 +1932,81 @@ void ConfigLoader::WriteInfo(){
 		return;
 	}
 	Config defaultSettings = {};
+	Config currentSettings;
+	{
+		std::lock_guard<std::mutex> configLock(driverConfigLock);
+		currentSettings = driverConfig;
+	}
 	std::map<std::string,int> emptyObject = {};
 	ordered_json data = {
 		{"about", "This file is not for configuration. It provides info from the driver for other utilities to use."},
+		// Effective (runtime) hybrid values. No dated migration exists for this
+		// new section; the GUI diffs these against defaultSettings.hybrid.
+		{"hybrid", {
+			{"enabled", currentSettings.hybrid.enabled},
+			{"foveaCodec", currentSettings.hybrid.foveaCodec},
+			{"baseCodec", currentSettings.hybrid.baseCodec},
+			{"guardDegrees", currentSettings.hybrid.guardDegrees},
+			{"ring0Degrees", currentSettings.hybrid.ring0Degrees},
+			{"ring1Degrees", currentSettings.hybrid.ring1Degrees},
+			{"ring2Degrees", currentSettings.hybrid.ring2Degrees},
+			{"ring3Degrees", currentSettings.hybrid.ring3Degrees},
+			{"ring4Degrees", currentSettings.hybrid.ring4Degrees},
+			{"featherPx", currentSettings.hybrid.featherPx},
+			{"ring0Block", currentSettings.hybrid.ring0Block},
+			{"ring1Block", currentSettings.hybrid.ring1Block},
+			{"ring2Block", currentSettings.hybrid.ring2Block},
+			{"ring3Block", currentSettings.hybrid.ring3Block},
+			{"ring4Block", currentSettings.hybrid.ring4Block},
+			{"ring0Density", currentSettings.hybrid.ring0Density},
+			{"ring1Density", currentSettings.hybrid.ring1Density},
+			{"ring2Density", currentSettings.hybrid.ring2Density},
+			{"ring3Density", currentSettings.hybrid.ring3Density},
+			{"ring4Density", currentSettings.hybrid.ring4Density},
+			{"maxFoveaBytes", currentSettings.hybrid.maxFoveaBytes},
+			{"requireReadyPeer", currentSettings.hybrid.requireReadyPeer},
+		}},
+		// Producer state, read-only. "state" is one of off, waiting_peer, active,
+		// degraded or rejected; Companion renders it verbatim and never infers success.
+		{"hybridStatus", [&] {
+			const gxh1::ProducerStatus status = gxh1::Producer::Get().Snapshot();
+			const char* stateName = "off";
+			switch (status.state) {
+			case gxh1::ProducerState::Off: stateName = "off"; break;
+			case gxh1::ProducerState::WaitingPeer: stateName = "waiting_peer"; break;
+			case gxh1::ProducerState::Active: stateName = "active"; break;
+			case gxh1::ProducerState::Degraded: stateName = "degraded"; break;
+			case gxh1::ProducerState::Rejected: stateName = "rejected"; break;
+			}
+			return json{
+				{"state", stateName},
+				{"reason", status.reason},
+				{"backend", status.backend},
+				{"patchCount", status.patchCount},
+				{"foveaBytes", status.foveaBytes},
+				{"canvasW", status.canvasW},
+				{"canvasH", status.canvasH},
+				{"plannedBytes", status.plannedBytes},
+				{"cropW", status.cropW},
+				{"cropH", status.cropH},
+				{"capturePath", status.capturePath},
+				{"baseBitrateMbit", status.baseBitrateMbit},
+				{"baseForceCbr", status.baseForceCbr},
+				{"streamFps", status.streamFps},
+				{"encodeMs", status.encodeMs},
+				{"frames", status.frames},
+				{"encodeFailures", status.encodeFailures},
+				{"degradedFrames", status.degradedFrames},
+				{"joinedFrames", status.joinedFrames},
+				{"lateFrames", status.lateFrames},
+				{"staleFovea", status.staleFovea},
+				{"unmappedFrames", status.unmappedFrames},
+				{"lastFrameId", status.lastFrameId},
+				{"baseCodec", status.baseCodec},
+				{"videoFoveaCleared", status.videoFoveaCleared},
+				{"videoFoveaKept", status.videoFoveaKept},
+			};
+		}()},
 		{"defaultSettings", {
 			{"debugMode", defaultSettings.debugMode},
 			{"galaxyXr", {
@@ -2254,6 +2362,30 @@ void ConfigLoader::WriteInfo(){
 			{"takeCompositorScreenshots", defaultSettings.takeCompositorScreenshots},
 			{"onlyHandlePrivateFunctionality", defaultSettings.onlyHandlePrivateFunctionality},
 			// {"watchDistortionProfiles", defaultSettings.watchDistortionProfiles}
+			{"hybrid", {
+				{"enabled", defaultSettings.hybrid.enabled},
+				{"foveaCodec", defaultSettings.hybrid.foveaCodec},
+				{"baseCodec", defaultSettings.hybrid.baseCodec},
+				{"guardDegrees", defaultSettings.hybrid.guardDegrees},
+				{"ring0Degrees", defaultSettings.hybrid.ring0Degrees},
+				{"ring1Degrees", defaultSettings.hybrid.ring1Degrees},
+				{"ring2Degrees", defaultSettings.hybrid.ring2Degrees},
+				{"ring3Degrees", defaultSettings.hybrid.ring3Degrees},
+				{"ring4Degrees", defaultSettings.hybrid.ring4Degrees},
+				{"featherPx", defaultSettings.hybrid.featherPx},
+				{"ring0Block", defaultSettings.hybrid.ring0Block},
+				{"ring1Block", defaultSettings.hybrid.ring1Block},
+				{"ring2Block", defaultSettings.hybrid.ring2Block},
+				{"ring3Block", defaultSettings.hybrid.ring3Block},
+				{"ring4Block", defaultSettings.hybrid.ring4Block},
+				{"ring0Density", defaultSettings.hybrid.ring0Density},
+				{"ring1Density", defaultSettings.hybrid.ring1Density},
+				{"ring2Density", defaultSettings.hybrid.ring2Density},
+				{"ring3Density", defaultSettings.hybrid.ring3Density},
+				{"ring4Density", defaultSettings.hybrid.ring4Density},
+				{"maxFoveaBytes", defaultSettings.hybrid.maxFoveaBytes},
+				{"requireReadyPeer", defaultSettings.hybrid.requireReadyPeer},
+			}},
 		}},
 		{"builtInDistortionProfiles", emptyObject},
 		{"resolution", {

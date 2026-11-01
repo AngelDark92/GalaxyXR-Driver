@@ -1,4 +1,5 @@
 #include "../src/Driver/FrameProcessor.h"
+#include "../src/Driver/HybridCapture.h"
 #include "../src/Driver/NvencTap.h"
 #include "../src/Driver/NvencPostPack.h"
 #include "../src/Driver/VrlinkTap.h"
@@ -129,6 +130,11 @@ void NvencPostPack::SetConfig(const NvencPostPackConfig& value) { lastPostPack =
 // real VrlinkTap install/publish path never runs in this harness.
 VrlinkTap& VrlinkTap::Get() { static VrlinkTap tap; return tap; }
 void VrlinkTap::SetConfig(bool, int) { ++vrlinkTapUpdates; }
+void VrlinkTap::SetEffectiveMode(int) {}
+// The CAS harness compiles the production FrameProcessor without the hybrid GPU/D3D
+// translation units; these entry points are referenced but never executed here.
+void ApplyHybridDriverConfig() {}
+void HybridCaptureFrame(ID3D11Device*, ID3D11DeviceContext*, const HybridCaptureRequest&) {}
 int GalaxyXR_EffectiveBandwidthMbit() { ++bandwidthCalls; return 432; }
 int GalaxyXR_EffectiveTileWidth() { ++tileCalls; return 1536; }
 

@@ -8,6 +8,8 @@
 #include "../../../ThirdParty/nvenc/nvEncodeAPI.h"
 #include "../Config/Config.h"
 #include "../Config/StreamTiers.h"
+#include "../Hybrid/HybridProducer.h"
+#include "HybridConfigGlue.h"
 #include <chrono>
 #include <set>
 #include <map>
@@ -42,6 +44,7 @@ struct NvencTapShims {
 	static NVENCSTATUS NVENCAPI RegisterResource(void* encoder, NV_ENC_REGISTER_RESOURCE* params);
 	static NVENCSTATUS NVENCAPI EncodePicture(void* encoder, NV_ENC_PIC_PARAMS* params);
 	static NVENCSTATUS NVENCAPI LockBitstream(void* encoder, NV_ENC_LOCK_BITSTREAM* params);
+	static NVENCSTATUS NVENCAPI UnlockBitstream(void* encoder, NV_ENC_OUTPUT_PTR bitstreamBuffer);
 	// session upgrade (11.1 -> 12.1) re-tagging shims
 	static NVENCSTATUS NVENCAPI OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS* params, void** encoder);
 	static NVENCSTATUS NVENCAPI DestroyEncoder(void* encoder);
@@ -71,6 +74,7 @@ PNVENCRECONFIGUREENCODER origReconfigureEncoder = nullptr;
 PNVENCREGISTERRESOURCE origRegisterResource = nullptr;
 PNVENCENCODEPICTURE origEncodePicture = nullptr;
 PNVENCLOCKBITSTREAM origLockBitstream = nullptr;
+PNVENCUNLOCKBITSTREAM origUnlockBitstream = nullptr;
 // not shimmed, only captured: used by the preset merge to ask the driver
 // for the canonical config of the target preset (see NvencTapConfig::presetMerge)
 PNVENCGETENCODEPRESETCONFIGEX origGetPresetConfigEx = nullptr;
@@ -613,10 +617,12 @@ int CodecOfGuid(const GUID &g){
 	if(IsHevc(g)){ return 0; }
 	return -1;
 }
+std::atomic<int> lastAcceptedCodec{-1};  // most recent accepted session codec, any encoder
 void SetSessionCodec(void* encoder, int codec){
 	if(!encoder || codec < 0){ return; }
 	std::lock_guard<std::mutex> g(upgradedLock);
 	sessionCodecs[encoder] = codec;
+	lastAcceptedCodec.store(codec, std::memory_order_relaxed);
 }
 int SessionCodecOf(void* encoder){
 	if(!encoder){ return -1; }
@@ -1721,10 +1727,66 @@ NVENCSTATUS NVENCAPI NvencTapShims::UnmapInputResource(void* encoder, NV_ENC_INP
 	return st;
 }
 
+// ---- hybrid base/fovea join (GXH1) ----
+// Each submitted output buffer remembers the scene frame the producer was told about just
+// before vrlink's Present handed it over. The lock shim wraps an access unit only with the
+// fovea captured from that same scene frame. Recorded only while hybrid capture is active.
+namespace {
+// Set from the hybrid settings; read on every wrapped submit (one relaxed load).
+std::atomic<bool> hybridHookWanted{false};
+std::mutex hybridSubmitLock;
+struct HybridSubmit { void* encoder = nullptr; NV_ENC_OUTPUT_PTR out = nullptr; uint64_t sceneFrame = 0; };
+HybridSubmit hybridSubmits[16];
+size_t hybridSubmitHead = 0;
+
+void NoteHybridSubmit(void* encoder, NV_ENC_OUTPUT_PTR out){
+	if(!hybridHookWanted.load(std::memory_order_relaxed)){ return; }
+	gxh1::Producer& producer = gxh1::Producer::Get();
+	// A wrapped encoder is submitting: capture has somewhere to deliver its fovea.
+	producer.NoteSeamAlive();
+	if(!out || !producer.WantsCapture()){ return; }
+	const uint64_t sceneFrame = producer.CurrentSceneFrame();
+	std::lock_guard<std::mutex> g(hybridSubmitLock);
+	for(HybridSubmit &entry : hybridSubmits){
+		if(entry.encoder == encoder && entry.out == out){ entry.sceneFrame = sceneFrame; return; }
+	}
+	hybridSubmits[hybridSubmitHead] = { encoder, out, sceneFrame };
+	hybridSubmitHead = (hybridSubmitHead + 1) % 16;
+}
+
+// 0 when the access unit's submission was not recorded (no join is possible).
+uint64_t TakeHybridSubmit(void* encoder, NV_ENC_OUTPUT_PTR out){
+	std::lock_guard<std::mutex> g(hybridSubmitLock);
+	for(HybridSubmit &entry : hybridSubmits){
+		if(entry.encoder == encoder && entry.out == out){
+			const uint64_t sceneFrame = entry.sceneFrame;
+			entry = HybridSubmit{};
+			return sceneFrame;
+		}
+	}
+	return 0;
+}
+
+// A finished encoder session ends the stream: its submissions can never be locked, and the
+// next stream starts a new epoch so its first envelope resets the client.
+void ForgetHybridEncoder(void* encoder){
+	{
+		std::lock_guard<std::mutex> g(hybridSubmitLock);
+		for(HybridSubmit &entry : hybridSubmits){
+			if(entry.encoder == encoder){ entry = HybridSubmit{}; }
+		}
+	}
+	if(hybridHookWanted.load(std::memory_order_relaxed)){ gxh1::Producer::Get().OnStreamBoundary(); }
+}
+}  // namespace
+
 NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARAMS* params){
 	const NvencTapConfig qcfg = NvencTap::Get().GetConfig();
 	// 2026-09-30: OFF keeps only the ABI adapter required by live 12.1 sessions.
 	if(!qcfg.enabled){
+		// The hybrid fovea does not depend on the tap's overrides: an encoder created while
+		// the tap was on keeps joining after it is turned off.
+		if(params && params->inputBuffer){ NoteHybridSubmit(encoder, params->outputBitstream); }
 		NVENCSTATUS status;
 		if(params && Upgraded(encoder) && Is111(params->version)){
 			// explicit 11.1 -> 12.1 field copy (see CopyPicParams111To121)
@@ -1752,6 +1814,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 		return NV_ENC_ERR_INVALID_PARAM;
 	}
 	{ std::lock_guard<std::mutex> g(statsLock); stats.encodeCalls++; }
+	if(params && params->inputBuffer){ NoteHybridSubmit(encoder, params->outputBitstream); }
 	// connection-boundary probe (2026-10-19): a reconfigure that arrives when
 	// this timestamp is older than splitReconnectIdleSeconds is the resumed
 	// connection's first NVENC call (see the reconnect arm in ReconfigureEncoder)
@@ -1904,6 +1967,215 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 	return st;
 }
 
+// ---- hybrid fovea envelope wrap (GXH1) ----
+// The base AU NVENC handed back is copied into an owned envelope buffer; the buffer stays
+// alive until nvEncUnlockBitstream releases the matching pointer, which is why an unlock
+// shim is required. Nothing is allocated when the producer is inactive or no complete
+// fovea unit is ready for this frame.
+namespace {
+std::mutex wrapLock;
+struct PendingWrap {
+	std::vector<uint8_t> data;
+	void* originalData = nullptr;
+	void* encoder = nullptr;
+	NV_ENC_OUTPUT_PTR handle = nullptr;
+};
+// Keyed by the NVENC output-buffer handle that nvEncUnlockBitstream() receives, together
+// with the encoder, because the handle is what the unlock call actually carries. The map
+// entry owns the replacement bytes until the real unlock succeeds.
+std::map<std::pair<void*, NV_ENC_OUTPUT_PTR>, PendingWrap> pendingWraps;
+// Fallback index for callers that pass the CPU pointer returned by lock instead of the
+// output handle (the NVENC contract uses the handle, but this keeps the shim safe either
+// way). Values are the map key.
+std::map<void*, std::pair<void*, NV_ENC_OUTPUT_PTR>> pendingByData;
+constexpr size_t kMaxPendingWraps = 8;
+// Entries in pendingWraps. Lets the unlock shim forward ordinary sessions without taking
+// wrapLock: zero whenever hybrid wrapping has never happened or every wrap was unlocked.
+std::atomic<size_t> pendingWrapCount{0};
+// NVENC buffer format of the most recent mapped input, used only for the envelope's
+// telemetry field (the base AU itself is never converted).
+std::atomic<uint32_t> lastInputFormat{NV_ENC_BUFFER_FORMAT_NV12};
+
+void MaybeWrapHybrid(void* encoder, NV_ENC_LOCK_BITSTREAM* params) {
+	if (!params || !params->bitstreamBufferPtr || params->bitstreamSizeInBytes == 0) return;
+	gxh1::Producer& producer = gxh1::Producer::Get();
+	if (!producer.WantsCapture()) return;
+	const uint64_t sceneFrame = TakeHybridSubmit(encoder, params->outputBitstream);
+	// The envelope may only declare the codec this encoder session really accepted (1 HEVC,
+	// 2 AV1, 3 H.264, 0 never observed), not a setting; a mismatch is sent base-only.
+	const int sessionCodec = SessionCodecOf(encoder);
+	const uint8_t liveBase = sessionCodec == 0 ? 1 : sessionCodec == 2 ? 2 : sessionCodec == 1 ? 3 : 0;
+	if (!producer.AcceptsLiveBase(liveBase)) return;
+	gxh1::EncodedFrame frame;
+	if (!producer.TakeReady(sceneFrame, frame)) return;
+	{
+		std::lock_guard<std::mutex> g(wrapLock);
+		if (pendingWraps.size() >= kMaxPendingWraps) return;  // never leak an unbounded map
+	}
+	std::vector<uint8_t> wrapped;
+	gxh1::EnvelopeHeader header{};
+	if (!producer.WrapAccessUnit(reinterpret_cast<const uint8_t*>(params->bitstreamBufferPtr),
+	                             params->bitstreamSizeInBytes,
+	                             (lastInputFormat.load(std::memory_order_relaxed) &
+	                              NV_ENC_BUFFER_FORMAT_YUV420_10BIT) != 0
+	                                 ? gxh1::kBaseFormatP010
+	                                 : gxh1::kBaseFormatNv12,
+	                             frame, wrapped, header)) {
+		return;
+	}
+	const uint32_t wrappedSize = static_cast<uint32_t>(wrapped.size());
+	void* original = params->bitstreamBufferPtr;
+	PendingWrap pending;
+	pending.data = std::move(wrapped);
+	pending.originalData = original;
+	pending.encoder = encoder;
+	pending.handle = params->outputBitstream;
+	void* ours = pending.data.data();
+	// Commit under the producer's generation gate: a reconfigure/disable between TakeReady
+	// and this line must not wrap an ordinary AU with an old fovea.
+	const bool committed = producer.CommitIfCurrent(frame.frameId, [&]() {
+		std::lock_guard<std::mutex> g(wrapLock);
+		// One entry per output handle: a second lock of the same handle before its unlock
+		// is a caller error, and skipping the wrap keeps the base AU untouched.
+		if (pendingWraps.size() >= kMaxPendingWraps) return;
+		const auto key = std::make_pair(encoder, params->outputBitstream);
+		if (!pendingWraps.emplace(key, std::move(pending)).second) return;
+		pendingByData[ours] = key;
+		pendingWrapCount.store(pendingWraps.size(), std::memory_order_release);
+		params->bitstreamBufferPtr = ours;
+		params->bitstreamSizeInBytes = wrappedSize;
+	});
+	if (!committed) return;
+}
+}  // namespace
+
+// ---- hybrid-only hook (tap overrides off) ----
+// Pass-through submit/lock/unlock/destroy: no API upgrade, no encoder setting, no statistics.
+// The base access unit is wrapped exactly as on the tap path.
+namespace {
+NVENCSTATUS NVENCAPI HybridOnlyEncodePicture(void* encoder, NV_ENC_PIC_PARAMS* params){
+	if(params && params->inputBuffer){ NoteHybridSubmit(encoder, params->outputBitstream); }
+	return origEncodePicture(encoder, params);
+}
+
+// Observe-only: the accepted session codec labels the envelope; parameters are never touched.
+NVENCSTATUS NVENCAPI HybridOnlyInitializeEncoder(void* encoder, NV_ENC_INITIALIZE_PARAMS* params){
+	const NVENCSTATUS status = origInitializeEncoder(encoder, params);
+	if(status == NV_ENC_SUCCESS && params){ SetSessionCodec(encoder, CodecOfGuid(params->encodeGUID)); }
+	return status;
+}
+
+NVENCSTATUS NVENCAPI HybridOnlyReconfigureEncoder(void* encoder, NV_ENC_RECONFIGURE_PARAMS* params){
+	const NVENCSTATUS status = origReconfigureEncoder(encoder, params);
+	if(status == NV_ENC_SUCCESS && params){ SetSessionCodec(encoder, CodecOfGuid(params->reInitEncodeParams.encodeGUID)); }
+	return status;
+}
+
+NVENCSTATUS NVENCAPI HybridOnlyLockBitstream(void* encoder, NV_ENC_LOCK_BITSTREAM* params){
+	const NVENCSTATUS status = origLockBitstream(encoder, params);
+	if(status == NV_ENC_SUCCESS){ MaybeWrapHybrid(encoder, params); }
+	return status;
+}
+
+NVENCSTATUS NVENCAPI HybridOnlyDestroyEncoder(void* encoder);
+
+// While the hybrid fovea runs, the video's own fovea tiles are cleared before NVENC maps
+// the packed frame: no fallback hides a missing hybrid fovea. Caller holds resLock.
+void MaybeBlankVideoFovea(NV_ENC_MAP_INPUT_RESOURCE* params){
+	if(!hybridHookWanted.load(std::memory_order_relaxed) || !params || !params->registeredResource){ return; }
+	gxh1::Producer& producer = gxh1::Producer::Get();
+	if(!producer.WantsCapture()){ return; }
+	void* tex = nullptr; uint32_t fmt = 0;
+	if(!LookupUnmappedTexture(params->registeredResource, &tex, &fmt)){ return; }
+	lastInputFormat.store(fmt, std::memory_order_relaxed);
+	producer.NoteVideoFoveaBlank(NvencPostPack::BlankFovea(tex));
+}
+
+// Wraps a freshly created function list for the hybrid only.
+NVENCSTATUS CreateInstanceHybridOnly(NV_ENCODE_API_FUNCTION_LIST* list){
+	const NVENCSTATUS status = origCreateInstance(list);
+	if(status != NV_ENC_SUCCESS || !list){ return status; }
+	if(list->nvEncInitializeEncoder && list->nvEncInitializeEncoder != &HybridOnlyInitializeEncoder){
+		origInitializeEncoder = list->nvEncInitializeEncoder;
+		list->nvEncInitializeEncoder = &HybridOnlyInitializeEncoder;
+	}
+	if(list->nvEncReconfigureEncoder && list->nvEncReconfigureEncoder != &HybridOnlyReconfigureEncoder){
+		origReconfigureEncoder = list->nvEncReconfigureEncoder;
+		list->nvEncReconfigureEncoder = &HybridOnlyReconfigureEncoder;
+	}
+	if(list->nvEncEncodePicture && list->nvEncEncodePicture != &HybridOnlyEncodePicture){
+		origEncodePicture = list->nvEncEncodePicture;
+		list->nvEncEncodePicture = &HybridOnlyEncodePicture;
+	}
+	if(list->nvEncLockBitstream && list->nvEncLockBitstream != &HybridOnlyLockBitstream){
+		origLockBitstream = list->nvEncLockBitstream;
+		list->nvEncLockBitstream = &HybridOnlyLockBitstream;
+	}
+	if(list->nvEncUnlockBitstream && list->nvEncUnlockBitstream != &NvencTapShims::UnlockBitstream){
+		origUnlockBitstream = list->nvEncUnlockBitstream;
+		list->nvEncUnlockBitstream = &NvencTapShims::UnlockBitstream;
+	}
+	if(list->nvEncDestroyEncoder && list->nvEncDestroyEncoder != &HybridOnlyDestroyEncoder){
+		origDestroyEncoder = list->nvEncDestroyEncoder;
+		list->nvEncDestroyEncoder = &HybridOnlyDestroyEncoder;
+	}
+	// Resource bookkeeping (pass-through while the tap is off) lets the map shim find the
+	// packed input to clear the video's fovea tiles.
+	if(list->nvEncRegisterResource && list->nvEncRegisterResource != &NvencTapShims::RegisterResource){
+		origRegisterResource = list->nvEncRegisterResource;
+		list->nvEncRegisterResource = &NvencTapShims::RegisterResource;
+	}
+	if(list->nvEncUnregisterResource && list->nvEncUnregisterResource != &NvencTapShims::UnregisterResource){
+		origUnregisterResource = list->nvEncUnregisterResource;
+		list->nvEncUnregisterResource = &NvencTapShims::UnregisterResource;
+	}
+	if(list->nvEncMapInputResource && list->nvEncMapInputResource != &NvencTapShims::MapInputResource){
+		origMapInputResource = list->nvEncMapInputResource;
+		list->nvEncMapInputResource = &NvencTapShims::MapInputResource;
+	}
+	if(list->nvEncUnmapInputResource && list->nvEncUnmapInputResource != &NvencTapShims::UnmapInputResource){
+		origUnmapInputResource = list->nvEncUnmapInputResource;
+		list->nvEncUnmapInputResource = &NvencTapShims::UnmapInputResource;
+	}
+	DriverLog("NvencTap: hybrid fovea seam wrapped (submit/lock/unlock/destroy only; encoder overrides off)");
+	return status;
+}
+}  // namespace
+
+NVENCSTATUS NVENCAPI NvencTapShims::UnlockBitstream(void* encoder, NV_ENC_OUTPUT_PTR bitstreamBuffer){
+	// The argument is the NVENC output-buffer handle, not the CPU pointer that lock
+	// returned, so ownership is keyed by (encoder, handle). The real unlock always runs
+	// with the real handle; the replacement bytes are released afterwards. A caller that
+	// passes the replacement pointer instead is resolved through the fallback index.
+	if(pendingWrapCount.load(std::memory_order_acquire) == 0){
+		return origUnlockBitstream(encoder, bitstreamBuffer);
+	}
+	std::lock_guard<std::mutex> g(wrapLock);
+	auto key = std::make_pair(encoder, bitstreamBuffer);
+	auto it = pendingWraps.find(key);
+	if(it == pendingWraps.end()){
+		auto dataIt = pendingByData.find(reinterpret_cast<void*>(bitstreamBuffer));
+		if(dataIt != pendingByData.end()){
+			key = dataIt->second;
+			it = pendingWraps.find(key);
+		}
+	}
+	if(it == pendingWraps.end()){
+		return origUnlockBitstream(encoder, bitstreamBuffer);
+	}
+	PendingWrap pending = std::move(it->second);
+	pendingWraps.erase(it);
+	pendingByData.erase(pending.data.data());
+	const NVENCSTATUS status = origUnlockBitstream(encoder, key.second);
+	if(status != NV_ENC_SUCCESS){
+		// Keep the bytes alive for a retry: the caller still owns a locked buffer.
+		pendingByData[pending.data.data()] = key;
+		pendingWraps.emplace(key, std::move(pending));
+	}
+	pendingWrapCount.store(pendingWraps.size(), std::memory_order_release);
+	return status;
+}
+
 NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BITSTREAM* params){
 	NVENCSTATUS st;
 	if(params && Upgraded(encoder) && Is111(params->version)){
@@ -1920,7 +2192,8 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 	}else{
 		st = origLockBitstream(encoder, params);
 	}
-	if(!NvencTap::Get().GetConfig().enabled || st != NV_ENC_SUCCESS || !params){ return st; }
+	if(st != NV_ENC_SUCCESS || !params){ return st; }
+	if(!NvencTap::Get().GetConfig().enabled){ MaybeWrapHybrid(encoder, params); return st; }
 	lockCalls.fetch_add(1);
 	lockLastSize.store(params->bitstreamSizeInBytes);
 	if(firstLockLogged.fetch_add(1) < 1){
@@ -2013,6 +2286,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 		DriverLog("NvencTap: new largest encoded output buffer: %u bytes (%.2f MiB) picType=%u%s frameIdx=%u avgQP=%u slices=%u",
 			n, n / 1048576.0, (unsigned)params->pictureType, idr ? " IDR/I" : "", params->frameIdx, params->frameAvgQP, params->numSlices);
 	}
+	MaybeWrapHybrid(encoder, params);
 	return st;
 }
 
@@ -2043,9 +2317,37 @@ NVENCSTATUS NVENCAPI NvencTapShims::OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSI
 	PublishFailure(nullptr, OpenDecisionConfig(), st, "NVENC rejected the required API 12.1 session upgrade. No older-API fallback was attempted.");
 	return st;
 }
+namespace {
+// Replacement envelopes of a destroyed encoder can never be unlocked any more.
+void DropHybridWraps(void* encoder){
+	std::lock_guard<std::mutex> guard(wrapLock);
+	for(auto it = pendingWraps.begin(); it != pendingWraps.end();){
+		if(it->first.first == encoder){
+			pendingByData.erase(it->second.data.data());
+			it = pendingWraps.erase(it);
+		} else { ++it; }
+	}
+	pendingWrapCount.store(pendingWraps.size(), std::memory_order_release);
+}
+
+NVENCSTATUS NVENCAPI HybridOnlyDestroyEncoder(void* encoder){
+	const NVENCSTATUS status = origDestroyEncoder(encoder);
+	if(status == NV_ENC_SUCCESS){
+		{ std::lock_guard<std::mutex> guard(upgradedLock); sessionCodecs.erase(encoder); }
+		DropHybridWraps(encoder);
+		ForgetHybridEncoder(encoder);
+	}
+	return status;
+}
+}  // namespace
+
 NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
 	const NVENCSTATUS status = origDestroyEncoder(encoder);
 	if(status != NV_ENC_SUCCESS){ return status; }
+	// A destroyed encoder cannot own a locked output buffer any more; drop any replacement
+	// envelopes instead of keeping their memory until process exit.
+	DropHybridWraps(encoder);
+	ForgetHybridEncoder(encoder);
 	{ std::lock_guard<std::mutex> guard(upgradedLock); upgradedSessions.erase(encoder); sessionCodecs.erase(encoder); }
 	// a destroyed handle must not leave a stale encode stamp behind: a later
 	// session at a recycled handle would read the dead session's gap and arm a
@@ -2162,6 +2464,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::MapInputResource(void* encoder, NV_ENC_MAP_I
 		// Keep ownership while OFF: re-enabling must never sharpen an
 		// input mapped through an alias while processing was disabled.
 		std::lock_guard<std::mutex> g(resLock);
+		MaybeBlankVideoFovea(params);
 		NVENCSTATUS st = origMapInputResource(encoder, params);
 		if(st == NV_ENC_SUCCESS && params && params->mappedResource
 			&& registered.count(params->registeredResource)){
@@ -2174,8 +2477,12 @@ NVENCSTATUS NVENCAPI NvencTapShims::MapInputResource(void* encoder, NV_ENC_MAP_I
 	// NVENC maps the texture; modifying a mapped input is undefined behavior.
 	if(params && params->registeredResource){
 		void* tex = nullptr; uint32_t fmt = 0;
-		if(LookupUnmappedTexture(params->registeredResource, &tex, &fmt)){ NvencPostPack::Process(tex, fmt); }
+		if(LookupUnmappedTexture(params->registeredResource, &tex, &fmt)){
+			NvencPostPack::Process(tex, fmt);
+			lastInputFormat.store(fmt, std::memory_order_relaxed);
+		}
 	}
+	MaybeBlankVideoFovea(params);
 	NVENCSTATUS st = origMapInputResource(encoder, params);
 	if(st == NV_ENC_SUCCESS && params && params->mappedResource){
 		mappedToReg[params->mappedResource] = params->registeredResource;
@@ -2199,7 +2506,11 @@ NVENCSTATUS NVENCAPI NvencTapShims::CreateInstance(NV_ENCODE_API_FUNCTION_LIST* 
 	// 2026-10-16: pre-publish, the wrap decision consults the same
 	// settings.json probe as the open decisions (OpenDecisionConfig); the
 	// published snapshot is authoritative from the first SetConfig on.
-	if(!OpenDecisionConfig().enabled){ return origCreateInstance(list); }
+	if(!OpenDecisionConfig().enabled){
+		// Tap overrides off: only the hybrid fovea may still need the submit/lock seam.
+		if(!hybridHookWanted.load(std::memory_order_relaxed)){ return origCreateInstance(list); }
+		return CreateInstanceHybridOnly(list);
+	}
 	// present the function list as 12.1 when an upgrade is wanted: same
 	// size (12.1 only appends pointers into 11.1's reserved tail), and it
 	// keeps the runtime's view of this client consistent with the session
@@ -2235,6 +2546,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::CreateInstance(NV_ENCODE_API_FUNCTION_LIST* 
 	WRAP(nvEncRegisterResource, RegisterResource, origRegisterResource);
 	WRAP(nvEncEncodePicture, EncodePicture, origEncodePicture);
 	WRAP(nvEncLockBitstream, LockBitstream, origLockBitstream);
+	WRAP(nvEncUnlockBitstream, UnlockBitstream, origUnlockBitstream);
 	WRAP(nvEncOpenEncodeSessionEx, OpenEncodeSessionEx, origOpenEncodeSessionEx);
 	WRAP(nvEncDestroyEncoder, DestroyEncoder, origDestroyEncoder);
 	WRAP(nvEncGetEncodeCaps, GetEncodeCaps, origGetEncodeCaps);
@@ -2277,6 +2589,17 @@ NvencTapConfig NvencTap::GetConfig(){
 	std::lock_guard<std::mutex> g(cfgLock);
 	return cfg;
 }
+NvencTap::ConfigSnapshot NvencTap::GetConfigSnapshot(){
+	std::lock_guard<std::mutex> g(cfgLock);
+	ConfigSnapshot snapshot;
+	snapshot.enabled = cfg.enabled;
+	snapshot.codec = cfg.codec;
+	snapshot.tileWidth = cfg.effectiveTileWidth;
+	snapshot.bitrateMbit = cfg.bitrateMbit;
+	snapshot.forceCbr = cfg.forceCbr;
+	snapshot.forceFps = cfg.forceFps;
+	return snapshot;
+}
 NvencTapRuntimeState NvencTap::GetRuntimeState(){
 	std::lock_guard<std::mutex> installationGuard(installationLock);
 	const NvencTapConfig config = GetConfig();
@@ -2298,9 +2621,17 @@ NvencTapStats NvencTap::GetStats(){
 	return stats;
 }
 
+void NvencTap::SetHybridHookWanted(bool wanted){
+	hybridHookWanted.store(wanted, std::memory_order_relaxed);
+}
+
+int NvencTap::LastAcceptedSessionCodec() const{
+	return lastAcceptedCodec.load(std::memory_order_relaxed);
+}
+
 void NvencTap::TryInstall(){
 	std::lock_guard<std::mutex> installationGuard(installationLock);
-	if(!GetConfig().enabled){ return; }
+	if(!GetConfig().enabled && !hybridHookWanted.load(std::memory_order_relaxed)){ return; }
 	if(installed.load(std::memory_order_relaxed) || failedPermanently.load(std::memory_order_relaxed)){ return; }
 	double now = NowSecondsNv();
 	if(now - lastAttempt < 1.0){ return; }

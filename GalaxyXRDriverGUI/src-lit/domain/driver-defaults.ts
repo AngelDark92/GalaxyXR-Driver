@@ -451,6 +451,30 @@ const nativeDefaults = {
   },
   "takeCompositorScreenshots": false,
   "onlyHandlePrivateFunctionality": false,
+  "hybrid": {
+    "enabled": false,
+    "foveaCodec": 0,
+    "baseCodec": 0,
+    "guardDegrees": 2.0,
+    "ring0Degrees": 5.0,
+    "ring1Degrees": 10.0,
+    "ring2Degrees": 20.0,
+    "ring3Degrees": 35.0,
+    "ring4Degrees": 45.0,
+    "featherPx": 8,
+    "ring0Block": 4,
+    "ring1Block": 6,
+    "ring2Block": 8,
+    "ring3Block": 10,
+    "ring4Block": 12,
+    "ring0Density": 1.0,
+    "ring1Density": 1.0,
+    "ring2Density": 0.75,
+    "ring3Density": 0.5,
+    "ring4Density": 0.25,
+    "maxFoveaBytes": 2097152,
+    "requireReadyPeer": true
+  },
   "watchDistortionProfiles": true
 };
 

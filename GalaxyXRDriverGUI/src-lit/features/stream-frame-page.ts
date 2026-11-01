@@ -17,6 +17,7 @@ import { ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 import { codecEncoderDefaults } from '../state/galaxy-settings';
 import { crossFieldIssues } from '../domain/control-specs';
+import { foveaSummary } from '../domain/hybrid-fovea';
 import { BITRATE_CURVE_FAMILIES } from '../domain/bitrate-curve';
 import { open } from '@tauri-apps/plugin-dialog';
 import '../ui/controls';
@@ -284,6 +285,11 @@ if (vendor) {
   tip: t("Tile width is a preset class sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. The selected codec caps the tile: H.264 1024, HEVC/AV1 2048, because tile × 4 must fit the encoder's height. A stored value outside the presets is kept and shown here; choose a preset to replace it. Requires a SteamVR restart.\n\nValue: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap's tile answers."),
   reset: { can: galaxy.streamQualityValues.width != codecDef.streamFormatWidth, on: () => { galaxy.setStreamQualityValue('width', codecDef.streamFormatWidth); save(); } }
           }));
+          {
+            // Tile Width is also the fovea: show what it buys at the current render size.
+            const fovea = galaxy.foveaReadout();
+            if (fovea) parts.push(noteRow(foveaSummary(fovea)));
+          }
           parts.push(fieldRow(t('Max Bitrate (Mbit/s)'), html`
       <div class="range-control">
         ${numberControl('galaxyXr.customBandwidthMbit', {

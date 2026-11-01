@@ -175,6 +175,9 @@ export const INTERNAL_BOOLEAN_KEYS = [
   'customShader.enableFilterForOverlay', 'customShader.enableFilterForDashboard', 'forceTracking',
   'streamFrame.distortion.enable', 'streamFrame.pupilSwim.enable',
   'streamFrame.reconLogger', 'streamFrame.zeroCopy', 'streamFrame.graveyardEnable',
+  // Hybrid booleans are shown on the experimental card but are not part of the
+  // settingFieldRow catalog yet; their state is published through hybridStatus.
+  'hybrid.enabled', 'hybrid.requireReadyPeer',
   'takeCompositorScreenshots', 'onlyHandlePrivateFunctionality', 'watchDistortionProfiles',
 ] as const;
 export function classifyBoolean(check: Pick<SettingCheck, 'source' | 'key'>): 'control' | 'internal' | 'unknown' {

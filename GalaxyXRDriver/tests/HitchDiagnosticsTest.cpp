@@ -52,6 +52,10 @@ void ReconLogger::ResetSuppression() { ++reconResets; }
 int GalaxyXR_EffectiveTileWidth() { return 1536; }
 int GalaxyXR_EffectiveBandwidthMbit() { return 432; }
 
+// The extracted production prefix applies the hybrid config snapshot; this harness does
+// not link the glue (D3D/NVENC), so the call is a no-op here.
+void ApplyHybridDriverConfig() {}
+
 // The runner extracts the actual production function prefix verbatim, ending
 // immediately before device/shader creation, then appends only return false.
 #include "HitchFrameStart.generated.h"

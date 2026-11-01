@@ -52,6 +52,12 @@ namespace NvencPostPack {
 	// process the packed frame before NVENC maps it. returns false if
 	// nothing was done (disabled, unsupported, error).
 	bool Process(void* d3d11Texture2D, uint32_t nvencBufferFormat);
+	// Hybrid fovea: clear both fovea tiles (per `foveaTop`) of the W x 4W packed frame to
+	// flat mid grey before NVENC maps it. The hybrid layer replaces them, a flat tile costs
+	// the encoder almost nothing, and a missing hybrid fovea shows as grey instead of being
+	// hidden by the video's own. vrlink's bottom-left timing block is never touched. Returns
+	// false when the frame is not a writable NV12/P010 4-tile atlas (nothing is written).
+	bool BlankFovea(void* d3d11Texture2D);
 	NvencPostPackStats GetStats();
 	void ResetIntervalStats();
 }

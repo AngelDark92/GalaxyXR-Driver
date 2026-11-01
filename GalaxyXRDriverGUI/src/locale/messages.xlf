@@ -5259,6 +5259,81 @@ Value: renderResolutionLinked (gui-settings.json) with galaxyXr.renderWidth and 
       <trans-unit id="companion-20261030-n16" datatype="html">
         <source>Go to {page}</source>
       </trans-unit>
+      <trans-unit id="hybrid-20261031-01" datatype="html"><source>Hybrid Fovea (Experimental)</source></trans-unit>
+      <trans-unit id="hybrid-20261031-02" datatype="html"><source>Experimental</source></trans-unit>
+      <trans-unit id="hybrid-20261031-03" datatype="html"><source>Replaces Steam Link's own fovea tile with ASTC or PyroWave patches around the gaze point. Off by default.</source></trans-unit>
+      <trans-unit id="hybrid-20261031-04" datatype="html"><source>Both ASTC and PyroWave are lossy codecs. A base-codec mismatch is rejected rather than auto-switched.</source></trans-unit>
+      <trans-unit id="hybrid-20261031-05" datatype="html"><source>Enable hybrid fovea</source></trans-unit>
+      <trans-unit id="hybrid-20261031-06" datatype="html"><source>Fovea method</source></trans-unit>
+      <trans-unit id="hybrid-20261031-07" datatype="html"><source>Base codec</source></trans-unit>
+      <trans-unit id="hybrid-20261031-08" datatype="html"><source>Guard angle</source></trans-unit>
+      <trans-unit id="hybrid-20261031-09" datatype="html"><source>Annulus outer bounds (degrees): 0 – 5 – 10 – 20 – 35 – 45 — strictly increasing</source></trans-unit>
+      <trans-unit id="hybrid-20261031-10" datatype="html"><source>Ring 0 outer</source></trans-unit>
+      <trans-unit id="hybrid-20261031-11" datatype="html"><source>Ring 1 outer</source></trans-unit>
+      <trans-unit id="hybrid-20261031-12" datatype="html"><source>Ring 2 outer</source></trans-unit>
+      <trans-unit id="hybrid-20261031-13" datatype="html"><source>Ring 3 outer</source></trans-unit>
+      <trans-unit id="hybrid-20261031-14" datatype="html"><source>Ring 4 outer</source></trans-unit>
+      <trans-unit id="hybrid-20261031-15" datatype="html"><source>Ring 0 block</source></trans-unit>
+      <trans-unit id="hybrid-20261031-16" datatype="html"><source>Ring 1 block</source></trans-unit>
+      <trans-unit id="hybrid-20261031-17" datatype="html"><source>Ring 2 block</source></trans-unit>
+      <trans-unit id="hybrid-20261031-18" datatype="html"><source>Ring 3 block</source></trans-unit>
+      <trans-unit id="hybrid-20261031-19" datatype="html"><source>Ring 4 block</source></trans-unit>
+      <trans-unit id="hybrid-20261031-20" datatype="html"><source>Feather</source></trans-unit>
+      <trans-unit id="hybrid-20261031-21" datatype="html"><source>Byte budget</source></trans-unit>
+      <trans-unit id="hybrid-20261031-22" datatype="html"><source>Estimated ASTC cost: {bytes} bytes (16 bytes per block, estimated; measured per frame at runtime)</source></trans-unit>
+      <trans-unit id="hybrid-20261101-01" datatype="html"><source>Status: {state} — {reason}; backend {backend}, {patchCount} patches, {foveaBytes} bytes, encode {encodeMs} ms</source></trans-unit>
+      <trans-unit id="hybrid-20261031-25" datatype="html"><source>Status: no driver report yet</source></trans-unit>
+      <trans-unit id="hybrid-20261101-32" datatype="html"><source>Saved and applied live; stays on for later streams. The first time it is enabled during a stream it starts with the next headset connection. Base "Same as stream" uses the codec the stream runs (HEVC by default); H.264 streams are rejected visibly.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-31" datatype="html"><source>Same as stream</source></trans-unit>
+      <trans-unit id="hybrid-20261101-33" datatype="html"><source>While the hybrid runs, the video's fovea tiles are cleared to grey before encoding: there is no video fallback, so a missing or broken hybrid fovea shows at once as grey. The headset compositor for the hybrid layer is not built yet, so a running hybrid currently shows a grey fovea.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-34" datatype="html"><source>To change it: Tile Width (Image Settings &gt; Stream Quality) sets the fovea size and the periphery sharpness; Render Width/Height per Eye (Driver Settings &gt; Headset) sets the pixels per degree everywhere, so a larger render makes the same tile cover fewer degrees. Both need a SteamVR restart. The ring settings below are live and spend bytes only inside this tile.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-35" datatype="html"><source>Stream fovea: {w} x {w} px per eye at native density ({pct}% of the {ew} x {eh} eye render). Angles appear once the headset reports its field of view.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-36" datatype="html"><source>Stream fovea: {w} x {w} px per eye at native density ({pct}% of the {ew} x {eh} eye render), about {dx}° x {dy}° at {ppd} px/deg. Periphery: the whole eye view in {w} x {w}, about {pppd} px/deg.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-37" datatype="html"><source>Ring {i}: {inner}-{outer}° with guard, {b}x{b}, density {d}: {ppd} px/deg, {bpp} ASTC bits per pixel</source></trans-unit>
+      <trans-unit id="hybrid-20261101-38" datatype="html"><source>Ring {i}: {inner}-{outer}° with guard, {b}x{b}, density {d}: {bpp} ASTC bits per pixel</source></trans-unit>
+      <trans-unit id="hybrid-20261101-39" datatype="html"><source>(reaches the fovea tile edge)</source></trans-unit>
+      <trans-unit id="hybrid-20261101-40" datatype="html"><source>(outside the fovea tile with a centred gaze: no effect)</source></trans-unit>
+      <trans-unit id="hybrid-20261101-41" datatype="html"><source>Video fovea tiles cleared on {cleared} frames; clear failed (video fovea still sent) on {kept}.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-03" datatype="html"><source>PyroWave codes each eye as one image instead of ring patches: a ring's block size sets its quantizer step relative to 4x4, so 8x8 quantizes twice as coarsely as the core.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-04" datatype="html"><source>Readiness is enforced by the driver; the bench override is a driver-side setting only and is never exposed here.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-05" datatype="html"><source>Frames with their own fovea: {joined}; sent base-only: {degraded} (fovea late {late}, unmapped {unmapped}); encode failures {failures}</source></trans-unit>
+      <trans-unit id="hybrid-20261101-12" datatype="html"><source>Latest plan: {w}x{h} canvas per eye, {bytes} ASTC bytes per frame (PyroWave is rate-controlled to the budget)</source></trans-unit>
+      <trans-unit id="hybrid-20261101-13" datatype="html"><source>Planning is limited to the stream fovea tile: {w}x{h} px per eye (Steam Link background layers carry the rest). Capture: {path}.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-14" datatype="html"><source>Wire: fovea about {fovea} Mbit/s plus your base budget of {base} Mbit/s at {fps} fps.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-15" datatype="html"><source>Without Force CBR the base follows vrlink's adaptive request, which also counts the fovea bytes and can lower the base when the fovea grows. Force CBR keeps the base at your budget.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-20" datatype="html"><source>Ring density is the sampling density relative to the game image (1 = native). Below 1 the ring is low-pass resampled before ASTC coding and stretched back on the headset; PyroWave leaves out the wavelet detail above it.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-21" datatype="html"><source>Ring 0 density</source></trans-unit>
+      <trans-unit id="hybrid-20261101-22" datatype="html"><source>Ring 1 density</source></trans-unit>
+      <trans-unit id="hybrid-20261101-23" datatype="html"><source>Ring 2 density</source></trans-unit>
+      <trans-unit id="hybrid-20261101-24" datatype="html"><source>Ring 3 density</source></trans-unit>
+      <trans-unit id="hybrid-20261101-25" datatype="html"><source>Ring 4 density</source></trans-unit>
+      <trans-unit id="hybrid-20261101-26" datatype="html"><source>Hybrid ring 0 density</source></trans-unit>
+      <trans-unit id="hybrid-20261101-27" datatype="html"><source>Hybrid ring 1 density</source></trans-unit>
+      <trans-unit id="hybrid-20261101-28" datatype="html"><source>Hybrid ring 2 density</source></trans-unit>
+      <trans-unit id="hybrid-20261101-29" datatype="html"><source>Hybrid ring 3 density</source></trans-unit>
+      <trans-unit id="hybrid-20261101-30" datatype="html"><source>Hybrid ring 4 density</source></trans-unit>
+      <trans-unit id="hybrid-20261101-06" datatype="html"><source>4x4</source></trans-unit>
+      <trans-unit id="hybrid-20261101-07" datatype="html"><source>5x5</source></trans-unit>
+      <trans-unit id="hybrid-20261101-08" datatype="html"><source>6x6</source></trans-unit>
+      <trans-unit id="hybrid-20261101-09" datatype="html"><source>8x8</source></trans-unit>
+      <trans-unit id="hybrid-20261101-10" datatype="html"><source>10x10</source></trans-unit>
+      <trans-unit id="hybrid-20261101-11" datatype="html"><source>12x12</source></trans-unit>
+      <trans-unit id="hybrid-20261031-28" datatype="html"><source>Hybrid guard angle</source></trans-unit>
+      <trans-unit id="hybrid-20261031-29" datatype="html"><source>Hybrid ring 0 outer</source></trans-unit>
+      <trans-unit id="hybrid-20261031-30" datatype="html"><source>Hybrid ring 1 outer</source></trans-unit>
+      <trans-unit id="hybrid-20261031-31" datatype="html"><source>Hybrid ring 2 outer</source></trans-unit>
+      <trans-unit id="hybrid-20261031-32" datatype="html"><source>Hybrid ring 3 outer</source></trans-unit>
+      <trans-unit id="hybrid-20261031-33" datatype="html"><source>Hybrid ring 4 outer</source></trans-unit>
+      <trans-unit id="hybrid-20261031-34" datatype="html"><source>Hybrid feather</source></trans-unit>
+      <trans-unit id="hybrid-20261031-35" datatype="html"><source>Hybrid ring 0 block</source></trans-unit>
+      <trans-unit id="hybrid-20261031-36" datatype="html"><source>Hybrid ring 1 block</source></trans-unit>
+      <trans-unit id="hybrid-20261031-37" datatype="html"><source>Hybrid ring 2 block</source></trans-unit>
+      <trans-unit id="hybrid-20261031-38" datatype="html"><source>Hybrid ring 3 block</source></trans-unit>
+      <trans-unit id="hybrid-20261031-39" datatype="html"><source>Hybrid ring 4 block</source></trans-unit>
+      <trans-unit id="hybrid-20261031-40" datatype="html"><source>Hybrid byte budget</source></trans-unit>
+      <trans-unit id="hybrid-20261031-41" datatype="html"><source>Annulus bounds must be strictly increasing.</source></trans-unit>
+      <trans-unit id="hybrid-20261031-42" datatype="html"><source>Hybrid fovea codec</source></trans-unit>
+      <trans-unit id="hybrid-20261031-43" datatype="html"><source>Hybrid base codec</source></trans-unit>
     </body>
   </file>
 </xliff>

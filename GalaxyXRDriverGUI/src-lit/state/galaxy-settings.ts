@@ -18,6 +18,7 @@ import type { Settings, StreamFrameConfig, ControllersConfig, GalaxyXrConfig, Ha
 import { vendor } from '../environment';
 import { t } from '../locale/i18n';
 import { baselineRequested, imageEnhancementsEnabled, changePictureMode } from '../domain/image-mode';
+import { foveaReadout, type FoveaReadout } from '../domain/hybrid-fovea';
 import {
   DEFAULT_BITRATE_CURVE_POINTS, bitrateCurveFivePointsValid, bitrateCurvePointsForFamily,
   bitrateCurvePointsValid, bitrateCurveSixPointsValid, normalizeBitrateCurvePoints,
@@ -239,6 +240,16 @@ export class GalaxySettingsBase {
   controllerSettings?: ControllersConfig;
   controllerDefaults: ControllersConfig = defaultControllers();
   settings?: StreamFrameConfig;
+  get hybrid(): import('../domain/types').HybridConfig { const d=(driverDefaults as any).hybrid ?? { enabled:false,foveaCodec:0,baseCodec:0,guardDegrees:2,ring0Degrees:5,ring1Degrees:10,ring2Degrees:20,ring3Degrees:35,ring4Degrees:45,featherPx:8,ring0Block:4,ring1Block:6,ring2Block:8,ring3Block:10,ring4Block:12,ring0Density:1,ring1Density:1,ring2Density:0.75,ring3Density:0.5,ring4Density:0.25,maxFoveaBytes:2097152,requireReadyPeer:true }; if(!this.rootSetting) return structuredClone(d); if(!this.rootSetting.hybrid) this.rootSetting.hybrid=structuredClone(d); return this.rootSetting.hybrid!; }
+  hybridDefaults(): import('../domain/types').HybridConfig { return structuredClone((driverDefaults as any).hybrid ?? { enabled:false,foveaCodec:0,baseCodec:0,guardDegrees:2,ring0Degrees:5,ring1Degrees:10,ring2Degrees:20,ring3Degrees:35,ring4Degrees:45,featherPx:8,ring0Block:4,ring1Block:6,ring2Block:8,ring3Block:10,ring4Block:12,ring0Density:1,ring1Density:1,ring2Density:0.75,ring3Density:0.5,ring4Density:0.25,maxFoveaBytes:2097152,requireReadyPeer:true }); }
+  estimateHybridBytes(): number { const h=this.rootSetting?.hybrid; if(!h) return 0; const w=this.galaxyXr.renderWidth??3552; const ht=this.galaxyXr.renderHeight??3840; const area=w*ht; // rough: fraction of screen per ring annulus proportional to ring degree squared
+    const rings=[h.ring0Degrees,h.ring1Degrees,h.ring2Degrees,h.ring3Degrees,h.ring4Degrees]; const blocks=[h.ring0Block,h.ring1Block,h.ring2Block,h.ring3Block,h.ring4Block];
+    let bytes=0; let prev=0; for(let i=0;i<5;i++){ const r=rings[i]??0; const frac = r>0 ? (r*r - prev*prev)/(45*45) : 0; prev=r; const px=area*frac; const b=blocks[i]??4; const d=[h.ring0Density,h.ring1Density,h.ring2Density,h.ring3Density,h.ring4Density][i]??1; const blocksCount = px * d * d / (b*b); bytes += blocksCount*16; } return Math.round(bytes); }
+  hybridStatus(): import('../domain/types').HybridStatus | undefined { return (this.dis.values() as any)?.hybridStatus; }
+  // The stream fovea from the values the driver crops with: the effective Tile Width and the
+  // configured render size; angles need the FOV the driver reports once a headset is up.
+  foveaReadout(): FoveaReadout | undefined { const g=this.galaxyXr; const res=this.dis.values()?.resolution; return foveaReadout(this.streamQualityValues.width, g.renderWidth ?? driverDefaults.galaxyXr?.renderWidth ?? 3552, g.renderHeight ?? driverDefaults.galaxyXr?.renderHeight ?? 3840, res?.fovX, res?.fovY, this.rootSetting?.hybrid ?? this.hybridDefaults()); }
+  resetHybrid(key: keyof import('../domain/types').HybridConfig){ if(!this.rootSetting?.hybrid) return; const d=this.hybridDefaults(); (this.rootSetting.hybrid as any)[key]=structuredClone((d as any)[key]); this.save(); }
   defaults: StreamFrameConfig = defaultStreamFrame();
   readonly imageModeChanging = signal(false);
   readonly imageModeError = signal('');
@@ -517,6 +528,10 @@ export class GalaxySettingsBase {
           rawSf.velocityFixMode = 'kalmanCA';
           queueMicrotask(() => this.save());
         }
+        // Hybrid fovea: merge with driver defaults, preserve user values
+        const hybridDefaults = (driverDefaults as any).hybrid ?? { enabled: false, foveaCodec: 0, baseCodec: 0, guardDegrees: 2.0, ring0Degrees: 5.0, ring1Degrees: 10.0, ring2Degrees: 20.0, ring3Degrees: 35.0, ring4Degrees: 45.0, featherPx: 8, ring0Block: 4, ring1Block: 6, ring2Block: 8, ring3Block: 10, ring4Block: 12, ring0Density: 1.0, ring1Density: 1.0, ring2Density: 0.75, ring3Density: 0.5, ring4Density: 0.25, maxFoveaBytes: 2097152, requireReadyPeer: true };
+        this.rootSetting.hybrid = fillDefaults(this.rootSetting.hybrid, structuredClone(hybridDefaults));
+
         this.rootSetting.streamFrame = fillDefaults(this.rootSetting.streamFrame, defaultStreamFrame());
         // 2026-10-16 (owner policy): the per-codec load stamp is retired —
         // user-entered values are authoritative for every codec, so nothing
@@ -567,6 +582,7 @@ export class GalaxySettingsBase {
       } else {
         // A failed disk read is unknown, never the last page's stale On state.
         this.settings = undefined;
+        // hybrid is getter-only, no need to clear
         this.controllerSettings = undefined;
         if (this.streamQualityNotice()) this.streamQualityNotice.set(undefined);
       }

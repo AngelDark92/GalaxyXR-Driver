@@ -90,13 +90,23 @@ $executable = Join-Path $outputDirectory 'CasActivationTest.exe'
 $processorObject = Join-Path $outputDirectory 'FrameProcessor.obj'
 $testObject = Join-Path $outputDirectory 'CasActivationTest.obj'
 $gateObject = Join-Path $outputDirectory 'EyeActivity.obj'
+# The production FrameProcessor references the hybrid producer; compile the pure hybrid
+# sources so the harness links them instead of stubbing their public API.
+$hybridDir = Join-Path $repoRoot 'GalaxyXRDriver/src/Hybrid'
+$hybridObjects = @()
+foreach ($name in @('HybridProducer.cpp', 'FoveaPlanner.cpp', 'Gxh1Codec.cpp', 'AstcSubset.cpp', 'PyroWaveCpu.cpp', 'AstcBatchEncoder.cpp')) {
+    $object = Join-Path $outputDirectory ($name -replace '\.cpp$', '.obj')
+    & cl.exe /nologo /std:c++17 /EHsc /O2 /MT /Gy /c "/I$headers" "/I$jsonHeaders" (Join-Path $hybridDir $name) "/Fo$object"
+    if ($LASTEXITCODE -ne 0) { throw "Hybrid source compilation failed: $name" }
+    $hybridObjects += $object
+}
 # Compile the actual production translation unit. /Gy and /OPT:REF discard GPU
 # methods; link-time substitutes capture only the dispatcher's external calls.
 & cl.exe /nologo /std:c++17 /EHsc /O2 /MT /Gy /c "/I$headers" "/I$jsonHeaders" $processorPath "/Fo$processorObject"
 if ($LASTEXITCODE -ne 0) { throw "Production FrameProcessor compilation failed: $LASTEXITCODE" }
 & cl.exe /nologo /std:c++17 /EHsc /O2 /MT /Gy /c "/I$headers" "/I$jsonHeaders" $gateSource "/Fo$gateObject"
 if ($LASTEXITCODE -ne 0) { throw "Eye activity compilation failed: $LASTEXITCODE" }
-& cl.exe /nologo /std:c++17 /EHsc /O2 /MT /Gy "/I$headers" "/I$jsonHeaders" $source $processorObject $gateObject "/Fo$testObject" "/Fe$executable" /link /OPT:REF
+& cl.exe /nologo /std:c++17 /EHsc /O2 /MT /Gy "/I$headers" "/I$jsonHeaders" $source $processorObject $gateObject $hybridObjects "/Fo$testObject" "/Fe$executable" /link /OPT:REF
 if ($LASTEXITCODE -ne 0) { throw "CAS activation test compilation/link failed: $LASTEXITCODE" }
 & $executable
 if ($LASTEXITCODE -ne 0) { throw "CAS activation tests failed: $LASTEXITCODE" }

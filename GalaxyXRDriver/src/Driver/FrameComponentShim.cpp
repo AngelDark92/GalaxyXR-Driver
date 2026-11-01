@@ -4,7 +4,9 @@
 #include "NvencTap.h"
 #include "DeviceProvider.h"
 #include "ZeroCopy.h"
+#include "HybridConfigGlue.h"
 #include "../Config/ConfigLoader.h"
+#include "../Hybrid/HybridProducer.h"
 #include <chrono>
 #include <cmath>
 #include <algorithm>
@@ -218,6 +220,8 @@ void DirectModeComponentShim::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]
 		// stays constant across frames.
 		if(active && processAtSubmit && lastSyncTexture != 0){
 			MaybeLogSwimProbe(settings);
+			// same scene frame id the Present below publishes for the NVENC join
+			settings.hybridSceneFrame = frameCount + 1;
 			processor.ProcessSceneLayer(sceneLeft, sceneRight, sceneLeftBounds, sceneRightBounds, lastSyncTexture, settings);
 			haveSceneLayer = false;
 		}
@@ -1884,15 +1888,27 @@ void DirectModeComponentShim::Present(vr::SharedTextureHandle_t syncTexture){
 		}
 	}
 	lastSyncTexture = syncTexture;
+	// hybrid fovea: admission follows the per-frame NVENC tap state; free while disabled
+	ApplyHybridDriverConfigPerFrame();
+	const uint64_t hybridSceneFrame = frameCount + 1;
 	// process the scene layer before the driver consumes it
 	if(haveSceneLayer){
 		FrameProcessSettings settings;
 		bool processAtSubmit = false;
-		if(GetActiveSettings(settings, processAtSubmit) && !processAtSubmit){
+		const bool active = GetActiveSettings(settings, processAtSubmit);
+		settings.hybridSceneFrame = hybridSceneFrame;
+		if(active && !processAtSubmit){
 			MaybeLogSwimProbe(settings);
 			processor.ProcessSceneLayer(sceneLeft, sceneRight, sceneLeftBounds, sceneRightBounds, syncTexture, settings);
+		}else if(!active){
+			// no eye pass this frame: the hybrid capture runs on its own (no-op unless capturing)
+			processor.CaptureHybridSceneLayer(sceneLeft, sceneRight, sceneLeftBounds, sceneRightBounds, syncTexture, settings);
 		}
 		haveSceneLayer = false;
+	}
+	// the NVENC submission vrlink makes for this Present is joined with this frame's fovea
+	if(gxh1::Producer::Get().WantsCapture()){
+		gxh1::Producer::Get().NoteScenePresent(hybridSceneFrame);
 	}
 	layersThisFrame = 0;
 	frameCount++;

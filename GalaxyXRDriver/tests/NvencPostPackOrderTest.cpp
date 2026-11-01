@@ -56,6 +56,8 @@ MH_STATUS WINAPI MH_Initialize(){ std::abort(); }
 MH_STATUS WINAPI MH_CreateHook(LPVOID, LPVOID, LPVOID*){ std::abort(); }
 MH_STATUS WINAPI MH_EnableHook(LPVOID){ std::abort(); }
 NvencPostPackStats NvencPostPack::GetStats(){ std::abort(); }
+// The hybrid fovea is never active in this harness, so the map shim never clears tiles.
+bool NvencPostPack::BlankFovea(void*){ std::abort(); }
 void NvencPostPack::ResetIntervalStats(){ std::abort(); }
 bool NvencPostPack::Process(void* texture, uint32_t format){
 	calls += 'P';

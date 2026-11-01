@@ -41,7 +41,8 @@ inline bool IsVrlinkCapabilityKey(const std::string& key) {
 // the section, so they follow the same active/inactive routing as the capability keys.
 inline bool IsVrlinkProfileIdentityKey(const std::string& key) {
     return key == "manufacturerName" || key == "modelNumber" || key == "trackingSystemName"
-        || key == "controllerType" || key == "resourceRoot" || key == "inputProfilePath";
+        || key == "controllerType" || key == "resourceRoot" || key == "inputProfilePath"
+        || key == "serialNumber";
 }
 inline bool IsVrlinkTuningKey(const std::string& key) {
     return key == "encodeWidth" || key == "streamFormatWidth" || key == "automaticStreamFormatWidth"

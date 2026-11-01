@@ -830,6 +830,37 @@ export const graveyardSpecs: ControlSpec[] = [
   number({ key: 'streamFrame.deriveDirWeightPow', min: 0, max: 6, step: 0.5, authority: none, label: 'Split direction weight power' }),
 ];
 
+// ---- Hybrid fovea (experimental) ---------------------------------------------
+
+const hybridAuthority = 'ConfigLoader.cpp hybrid structural clamp';
+
+export const hybridSpecs: ControlSpec[] = [
+  number({ key: 'hybrid.guardDegrees', min: 0, max: 30, step: 0.1, unit: 'deg', slider: { min: 0, max: 30, step: 0.1, neutral: 2 }, authority: hybridAuthority, label: 'Hybrid guard angle' }),
+  number({ key: 'hybrid.ring0Degrees', min: 1, max: 89, step: 0.5, unit: 'deg', slider: { min: 1, max: 89, step: 0.5 }, authority: hybridAuthority, label: 'Hybrid ring 0 outer' }),
+  number({ key: 'hybrid.ring1Degrees', min: 1, max: 89, step: 0.5, unit: 'deg', slider: { min: 1, max: 89, step: 0.5 }, authority: hybridAuthority, label: 'Hybrid ring 1 outer' }),
+  number({ key: 'hybrid.ring2Degrees', min: 1, max: 89, step: 0.5, unit: 'deg', slider: { min: 1, max: 89, step: 0.5 }, authority: hybridAuthority, label: 'Hybrid ring 2 outer' }),
+  number({ key: 'hybrid.ring3Degrees', min: 1, max: 89, step: 0.5, unit: 'deg', slider: { min: 1, max: 89, step: 0.5 }, authority: hybridAuthority, label: 'Hybrid ring 3 outer' }),
+  number({ key: 'hybrid.ring4Degrees', min: 1, max: 89, step: 0.5, unit: 'deg', slider: { min: 1, max: 89, step: 0.5 }, authority: hybridAuthority, label: 'Hybrid ring 4 outer' }),
+  ...[0, 1, 2, 3, 4].map(ring => number({ key: `hybrid.ring${ring}Density`, min: 0.1, max: 1, step: 0.05, slider: { min: 0.1, max: 1, step: 0.05, neutral: 1 }, authority: hybridAuthority, label: `Hybrid ring ${ring} density` })),
+  number({ key: 'hybrid.featherPx', min: 0, max: 64, step: 1, unit: 'px', integer: true, slider: { min: 0, max: 64, step: 1, neutral: 8 }, authority: hybridAuthority, label: 'Hybrid feather' }),
+  number({ key: 'hybrid.maxFoveaBytes', min: 0, max: 16777216, step: 1, integer: true, slider: { min: 0, max: 4194304, step: 65536 }, sentinels: [{ value: 0, label: 'Reject all payloads' }], authority: hybridAuthority, label: 'Hybrid byte budget' }),
+];
+
+// ASTC block footprints exist only for these square sizes (no 7x7, 9x9 or 11x11). The
+// driver rejects anything else visibly, so the control offers the legal set and shows a
+// stored illegal value as unsupported instead of rounding it.
+const hybridFootprints = [4, 5, 6, 8, 10, 12].map(value => ({ value, label: `${value}x${value}` }));
+
+export const hybridChoiceSpecs: ControlSpec[] = [
+  choice({ key: 'hybrid.foveaCodec', label: 'Hybrid fovea codec', segmented: true, options: [{ value: 0, label: 'Off' }, { value: 1, label: 'ASTC' }, { value: 2, label: 'PyroWave' }], authority: hybridAuthority }),
+  choice({ key: 'hybrid.baseCodec', label: 'Hybrid base codec', segmented: true, options: [{ value: 0, label: 'Same as stream' }, { value: 1, label: 'HEVC' }, { value: 2, label: 'AV1' }], authority: hybridAuthority }),
+  choice({ key: 'hybrid.ring0Block', label: 'Hybrid ring 0 block', options: hybridFootprints, authority: hybridAuthority }),
+  choice({ key: 'hybrid.ring1Block', label: 'Hybrid ring 1 block', options: hybridFootprints, authority: hybridAuthority }),
+  choice({ key: 'hybrid.ring2Block', label: 'Hybrid ring 2 block', options: hybridFootprints, authority: hybridAuthority }),
+  choice({ key: 'hybrid.ring3Block', label: 'Hybrid ring 3 block', options: hybridFootprints, authority: hybridAuthority }),
+  choice({ key: 'hybrid.ring4Block', label: 'Hybrid ring 4 block', options: hybridFootprints, authority: hybridAuthority }),
+];
+
 // ---- Debug -----------------------------------------------------------------
 
 export const debugSpecs: ControlSpec[] = [
@@ -930,6 +961,15 @@ const CROSS_FIELD_RULES: Array<{
     message: 'The tuning band inner radius must be below the outer radius.',
   },
   {
+    key: 'hybrid.ring4Degrees',
+    check: values => {
+      const r0 = asNumber(values['hybrid.ring0Degrees']); const r1 = asNumber(values['hybrid.ring1Degrees']); const r2 = asNumber(values['hybrid.ring2Degrees']); const r3 = asNumber(values['hybrid.ring3Degrees']); const r4 = asNumber(values['hybrid.ring4Degrees']);
+      if (r0===undefined||r1===undefined||r2===undefined||r3===undefined||r4===undefined) return true;
+      return r0 < r1 && r1 < r2 && r2 < r3 && r3 < r4;
+    },
+    message: 'Annulus bounds must be strictly increasing.',
+  },
+  {
     key: 'streamFrame.blackFloor.floorCode',
     check: values => {
       if (!values['streamFrame.blackFloor.shadowLift']) return true;
@@ -964,6 +1004,8 @@ export const CONTROL_SPECS: readonly ControlSpec[] = [
   ...kalmanSpecs,
   ...graveyardSpecs.map(spec => spec.key.startsWith('streamFrame.derive')
     ? { ...spec, appliesWhen: deriveModeOnly } : spec),
+  ...hybridSpecs,
+  ...hybridChoiceSpecs,
   ...debugSpecs,
   ...renderSpecs,
 ];

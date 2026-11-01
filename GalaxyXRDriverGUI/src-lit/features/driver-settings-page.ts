@@ -5,11 +5,12 @@
 import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import { customElement } from 'lit/decorators.js';
 import { css } from 'lit';
-import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionGroup, fieldStyles, numberControl, sliderControl, vectorControl } from './page-base';
+import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionGroup, fieldStyles, numberControl, choiceControl, sliderControl, vectorControl } from './page-base';
 import { t, tHtml } from '../locale/i18n';
 import { pageIntro, statusMessage, type FieldNotice } from '../ui/presentation';
 import { driverDefaults } from '../domain/driver-defaults';
 import { renderLongEdge } from '../state/galaxy-settings';
+import { foveaSummary, ringSummary } from '../domain/hybrid-fovea';
 import '../ui/controls';
 import './driver-banner';
 import './system-ready';
@@ -673,6 +674,65 @@ export class DriverSettingsPage extends BasePage {
           }
       }
       }
+    }
+
+    // ---------------- Hybrid fovea (experimental) ----------------
+    body.push(sectionRow(t('Hybrid Fovea (Experimental)'), true, 0, () => {}, 'hybrid'));
+    {
+      const hx = galaxy.hybrid; const hd = galaxy.hybridDefaults(); const hs = galaxy.hybridStatus(); const est = galaxy.estimateHybridBytes(); const fr = galaxy.foveaReadout();
+      // The driver re-runs hybrid admission on every settings publication: nothing here
+      // needs a SteamVR restart. Its NVENC hook reaches encoders created after it is
+      // installed, so a first enable mid-stream takes effect at the next headset connection.
+      const hybridTip = t('Saved and applied live; stays on for later streams. The first time it is enabled during a stream it starts with the next headset connection. Base "Same as stream" uses the codec the stream runs (HEVC by default); H.264 streams are rejected visibly.');
+      body.push(
+        noteRow(html`<fluent-badge appearance="tint" color="warning">${t('Experimental')}</fluent-badge> ${t("Replaces Steam Link's own fovea tile with ASTC or PyroWave patches around the gaze point. Off by default.")} <br>${t('Both ASTC and PyroWave are lossy codecs. A base-codec mismatch is rejected rather than auto-switched.')}`),
+        // No fallback: the driver clears the video's fovea tiles while the hybrid runs, so a
+        // missing hybrid fovea is visible instead of hidden by the video's own.
+        noteRow(t("While the hybrid runs, the video's fovea tiles are cleared to grey before encoding: there is no video fallback, so a missing or broken hybrid fovea shows at once as grey. The headset compositor for the hybrid layer is not built yet, so a running hybrid currently shows a grey fovea.")),
+        ...(fr ? [
+          noteRow(foveaSummary(fr)),
+          noteRow(t('To change it: Tile Width (Image Settings > Stream Quality) sets the fovea size and the periphery sharpness; Render Width/Height per Eye (Driver Settings > Headset) sets the pixels per degree everywhere, so a larger render makes the same tile cover fewer degrees. Both need a SteamVR restart. The ring settings below are live and spend bytes only inside this tile.')),
+        ] : []),
+        fieldRow(t('Enable hybrid fovea'), html`<app-switch .checked=${!!hx.enabled} @change=${(e:CustomEvent)=>{hx.enabled=e.detail; save();}}></app-switch>`, { tip: hybridTip, reset: { can: hx.enabled!==hd.enabled, on: ()=>{galaxy.resetHybrid('enabled');} } }),
+        fieldRow(t('Fovea method'), choiceControl('hybrid.foveaCodec', { value: hx.foveaCodec, ctx: controlContext, onCommit: v=>{ hx.foveaCodec=v as number; save(); } }), { tip: hybridTip, reset: { can: hx.foveaCodec!==hd.foveaCodec, on: ()=>galaxy.resetHybrid('foveaCodec') } }),
+        fieldRow(t('Base codec'), choiceControl('hybrid.baseCodec', { value: hx.baseCodec, ctx: controlContext, onCommit: v=>{ hx.baseCodec=v as number; save(); } }), { tip: hybridTip, reset: { can: hx.baseCodec!==hd.baseCodec, on: ()=>galaxy.resetHybrid('baseCodec') } }),
+        fieldRow(t('Guard angle'), html`${numberControl('hybrid.guardDegrees', { value: hx.guardDegrees, ctx: controlContext, onCommit: v=>{hx.guardDegrees=v; save();}})} ${sliderControl('hybrid.guardDegrees', { value: hx.guardDegrees, onChange: v=>{hx.guardDegrees=v; save();}})}`, { tip: hybridTip, reset: { can: hx.guardDegrees!==hd.guardDegrees, on: ()=>galaxy.resetHybrid('guardDegrees') } }),
+        noteRow(t('Annulus outer bounds (degrees): 0 \u2013 5 \u2013 10 \u2013 20 \u2013 35 \u2013 45 — strictly increasing')),
+        fieldRow(t('Ring 0 outer'), html`${numberControl('hybrid.ring0Degrees', { value: hx.ring0Degrees, ctx: controlContext, onCommit: v=>{hx.ring0Degrees=v; save();}})}`, { tip: hybridTip, reset: { can: hx.ring0Degrees!==hd.ring0Degrees, on: ()=>galaxy.resetHybrid('ring0Degrees') } }),
+        fieldRow(t('Ring 1 outer'), html`${numberControl('hybrid.ring1Degrees', { value: hx.ring1Degrees, ctx: controlContext, onCommit: v=>{hx.ring1Degrees=v; save();}})}`, { tip: hybridTip, reset: { can: hx.ring1Degrees!==hd.ring1Degrees, on: ()=>galaxy.resetHybrid('ring1Degrees') } }),
+        fieldRow(t('Ring 2 outer'), html`${numberControl('hybrid.ring2Degrees', { value: hx.ring2Degrees, ctx: controlContext, onCommit: v=>{hx.ring2Degrees=v; save();}})}`, { tip: hybridTip, reset: { can: hx.ring2Degrees!==hd.ring2Degrees, on: ()=>galaxy.resetHybrid('ring2Degrees') } }),
+        fieldRow(t('Ring 3 outer'), html`${numberControl('hybrid.ring3Degrees', { value: hx.ring3Degrees, ctx: controlContext, onCommit: v=>{hx.ring3Degrees=v; save();}})}`, { tip: hybridTip, reset: { can: hx.ring3Degrees!==hd.ring3Degrees, on: ()=>galaxy.resetHybrid('ring3Degrees') } }),
+        fieldRow(t('Ring 4 outer'), html`${numberControl('hybrid.ring4Degrees', { value: hx.ring4Degrees, ctx: controlContext, onCommit: v=>{hx.ring4Degrees=v; save();}})}`, { tip: hybridTip, reset: { can: hx.ring4Degrees!==hd.ring4Degrees, on: ()=>galaxy.resetHybrid('ring4Degrees') } }),
+        fieldRow(t('Ring 0 block'), choiceControl('hybrid.ring0Block', { value: hx.ring0Block, ctx: controlContext, onCommit: v=>{ hx.ring0Block=Number(v); save(); } }), { tip: hybridTip, reset: { can: hx.ring0Block!==hd.ring0Block, on: ()=>galaxy.resetHybrid('ring0Block') } }),
+        fieldRow(t('Ring 1 block'), choiceControl('hybrid.ring1Block', { value: hx.ring1Block, ctx: controlContext, onCommit: v=>{ hx.ring1Block=Number(v); save(); } }), { tip: hybridTip, reset: { can: hx.ring1Block!==hd.ring1Block, on: ()=>galaxy.resetHybrid('ring1Block') } }),
+        fieldRow(t('Ring 2 block'), choiceControl('hybrid.ring2Block', { value: hx.ring2Block, ctx: controlContext, onCommit: v=>{ hx.ring2Block=Number(v); save(); } }), { tip: hybridTip, reset: { can: hx.ring2Block!==hd.ring2Block, on: ()=>galaxy.resetHybrid('ring2Block') } }),
+        fieldRow(t('Ring 3 block'), choiceControl('hybrid.ring3Block', { value: hx.ring3Block, ctx: controlContext, onCommit: v=>{ hx.ring3Block=Number(v); save(); } }), { tip: hybridTip, reset: { can: hx.ring3Block!==hd.ring3Block, on: ()=>galaxy.resetHybrid('ring3Block') } }),
+        fieldRow(t('Ring 4 block'), choiceControl('hybrid.ring4Block', { value: hx.ring4Block, ctx: controlContext, onCommit: v=>{ hx.ring4Block=Number(v); save(); } }), { tip: hybridTip, reset: { can: hx.ring4Block!==hd.ring4Block, on: ()=>galaxy.resetHybrid('ring4Block') } }),
+        noteRow(t('Ring density is the sampling density relative to the game image (1 = native). Below 1 the ring is low-pass resampled before ASTC coding and stretched back on the headset; PyroWave leaves out the wavelet detail above it.')),
+        fieldRow(t('Ring 0 density'), html`${numberControl('hybrid.ring0Density', { value: hx.ring0Density, ctx: controlContext, onCommit: v=>{hx.ring0Density=v; save();}})} ${sliderControl('hybrid.ring0Density', { value: hx.ring0Density, onChange: v=>{hx.ring0Density=v; save();}})}`, { tip: hybridTip, reset: { can: hx.ring0Density!==hd.ring0Density, on: ()=>galaxy.resetHybrid('ring0Density') } }),
+        fieldRow(t('Ring 1 density'), html`${numberControl('hybrid.ring1Density', { value: hx.ring1Density, ctx: controlContext, onCommit: v=>{hx.ring1Density=v; save();}})} ${sliderControl('hybrid.ring1Density', { value: hx.ring1Density, onChange: v=>{hx.ring1Density=v; save();}})}`, { tip: hybridTip, reset: { can: hx.ring1Density!==hd.ring1Density, on: ()=>galaxy.resetHybrid('ring1Density') } }),
+        fieldRow(t('Ring 2 density'), html`${numberControl('hybrid.ring2Density', { value: hx.ring2Density, ctx: controlContext, onCommit: v=>{hx.ring2Density=v; save();}})} ${sliderControl('hybrid.ring2Density', { value: hx.ring2Density, onChange: v=>{hx.ring2Density=v; save();}})}`, { tip: hybridTip, reset: { can: hx.ring2Density!==hd.ring2Density, on: ()=>galaxy.resetHybrid('ring2Density') } }),
+        fieldRow(t('Ring 3 density'), html`${numberControl('hybrid.ring3Density', { value: hx.ring3Density, ctx: controlContext, onCommit: v=>{hx.ring3Density=v; save();}})} ${sliderControl('hybrid.ring3Density', { value: hx.ring3Density, onChange: v=>{hx.ring3Density=v; save();}})}`, { tip: hybridTip, reset: { can: hx.ring3Density!==hd.ring3Density, on: ()=>galaxy.resetHybrid('ring3Density') } }),
+        fieldRow(t('Ring 4 density'), html`${numberControl('hybrid.ring4Density', { value: hx.ring4Density, ctx: controlContext, onCommit: v=>{hx.ring4Density=v; save();}})} ${sliderControl('hybrid.ring4Density', { value: hx.ring4Density, onChange: v=>{hx.ring4Density=v; save();}})}`, { tip: hybridTip, reset: { can: hx.ring4Density!==hd.ring4Density, on: ()=>galaxy.resetHybrid('ring4Density') } }),
+        fieldRow(t('Feather'), html`${numberControl('hybrid.featherPx', { value: hx.featherPx, ctx: controlContext, onCommit: v=>{hx.featherPx=v; save();}})}`, { tip: hybridTip, reset: { can: hx.featherPx!==hd.featherPx, on: ()=>galaxy.resetHybrid('featherPx') } }),
+        fieldRow(t('Byte budget'), html`${numberControl('hybrid.maxFoveaBytes', { value: hx.maxFoveaBytes, ctx: controlContext, onCommit: v=>{hx.maxFoveaBytes=v; save();}})}`, { tip: hybridTip, reset: { can: hx.maxFoveaBytes!==hd.maxFoveaBytes, on: ()=>galaxy.resetHybrid('maxFoveaBytes') } }),
+        noteRow(t('Estimated ASTC cost: {bytes} bytes (16 bytes per block, estimated; measured per frame at runtime)', { bytes: String(est) } as any)),
+        ...(fr && fr.rings.length ? [noteRow(html`${fr.rings.map((ring, i) => html`${i ? html`<br>` : nothing}${ringSummary(ring, i)}`)}`)] : []),
+        noteRow(t('PyroWave codes each eye as one image instead of ring patches: a ring\'s block size sets its quantizer step relative to 4x4, so 8x8 quantizes twice as coarsely as the core.')),
+        noteRow(t('Readiness is enforced by the driver; the bench override is a driver-side setting only and is never exposed here.')),
+        noteRow(hs ? t('Status: {state} — {reason}; backend {backend}, {patchCount} patches, {foveaBytes} bytes, encode {encodeMs} ms', { state: hs.state, reason: hs.reason||'', backend: hs.backend||'-', patchCount: String(hs.patchCount), foveaBytes: String(hs.foveaBytes), encodeMs: String(hs.encodeMs)} as any) : t('Status: no driver report yet')),
+        ...(hs && hs.canvasW ? [noteRow(t('Latest plan: {w}x{h} canvas per eye, {bytes} ASTC bytes per frame (PyroWave is rate-controlled to the budget)', { w: String(hs.canvasW), h: String(hs.canvasH ?? 0), bytes: String(hs.plannedBytes ?? 0) } as any))] : []),
+        ...(hs && hs.cropW ? [noteRow(t('Planning is limited to the stream fovea tile: {w}x{h} px per eye (Steam Link background layers carry the rest). Capture: {path}.', { w: String(hs.cropW), h: String(hs.cropH ?? 0), path: hs.capturePath || '-' } as any))] : []),
+        ...(hs && hs.streamFps ? (() => {
+          const bytes = hs.foveaBytes || hs.plannedBytes || 0;
+          const fovea = Math.round(bytes * 8 * hs.streamFps / 1e6);
+          const rows = [noteRow(t('Wire: fovea about {fovea} Mbit/s plus your base budget of {base} Mbit/s at {fps} fps.', { fovea: String(fovea), base: String(hs.baseBitrateMbit ?? 0), fps: String(hs.streamFps) } as any))];
+          if (!hs.baseForceCbr) rows.push(noteRow(t('Without Force CBR the base follows vrlink\'s adaptive request, which also counts the fovea bytes and can lower the base when the fovea grows. Force CBR keeps the base at your budget.')));
+          return rows;
+        })() : []),
+        ...(hs && hs.videoFoveaCleared !== undefined ? [noteRow(t('Video fovea tiles cleared on {cleared} frames; clear failed (video fovea still sent) on {kept}.', { cleared: String(hs.videoFoveaCleared ?? 0), kept: String(hs.videoFoveaKept ?? 0) }))] : []),
+        ...(hs && hs.joinedFrames !== undefined ? [noteRow(t('Frames with their own fovea: {joined}; sent base-only: {degraded} (fovea late {late}, unmapped {unmapped}); encode failures {failures}', { joined: String(hs.joinedFrames ?? 0), degraded: String(hs.degradedFrames ?? 0), late: String(hs.lateFrames ?? 0), unmapped: String(hs.unmappedFrames ?? 0), failures: String(hs.encodeFailures ?? 0) } as any))] : []),
+      );
     }
 
     return html`<app-system-ready .ctx=${this.ctx}>${this.sectionCardsFor(body)}</app-system-ready>`;
