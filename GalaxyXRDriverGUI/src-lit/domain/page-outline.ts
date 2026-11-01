@@ -93,9 +93,15 @@ export const CHAPTER_OUTLINES: Record<Route, readonly OutlineItem[]> = {
         },
       ],
     },
+    {
+      id: 'controller-graveyard', label: 'Controller Experiments (Retired)',
+      when: ctx => hasSettings(ctx) && ctx.advancedMode && !!ctx.settings?.graveyardEnable,
+      open: ['controllerGraveyard'],
+    },
   ],
 
   'stream-frame': [
+    { id: 'render-resolution', label: 'Render Resolution', when: hasSettings, open: ['heading:render-resolution'] },
     { id: 'stream-quality', label: 'Stream Quality', when: vendorHasSettings, open: ['heading:stream-quality'] },
     {
       id: 'image-processing', label: 'Image Processing',
@@ -118,9 +124,17 @@ export const CHAPTER_OUTLINES: Record<Route, readonly OutlineItem[]> = {
       open: ['heading:encoder'],
     },
     {
-      id: 'graveyard', label: 'Graveyard (retired experiments)',
-      when: ctx => !!ctx.settings?.graveyardEnable,
+      id: 'graveyard', label: 'Image Experiments (Retired)',
+      when: ctx => hasSettings(ctx) && ctx.advancedMode && !!ctx.settings?.graveyardEnable,
       open: ['graveyard'],
+    },
+  ],
+
+  'hybrid-fovea': [
+    {
+      id: 'hybrid', label: 'Hybrid Fovea (Experimental)',
+      when: ctx => hasSettings(ctx) && ctx.advancedMode,
+      open: ['heading:hybrid'],
     },
   ],
 

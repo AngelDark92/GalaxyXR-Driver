@@ -33,6 +33,7 @@ import { BitrateCurvePanel } from './features/bitrate-curve';
 import { AppShell } from './shell/app-shell';
 import { DriverSettingsPage } from './features/driver-settings-page';
 import { DistortionProfilePage } from './features/distortion-profile-page';
+import { HybridFoveaPage } from './features/hybrid-fovea-page';
 import { StreamFramePage } from './features/stream-frame-page';
 import { AppSettingsPage } from './features/app-settings-page';
 import { DebugPage } from './features/debug-page';
@@ -96,6 +97,7 @@ export const appCustomElements = {
   DriverSettingsPage,
   DistortionProfilePage,
   StreamFramePage,
+  HybridFoveaPage,
   AppSettingsPage,
   DebugPage,
   SetupPage,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROUTES, driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, sectionHref, settingHref, permittedRoute, visibleRoutes, type InstallationState } from './navigation';
+import { ROUTES, ROUTE_LABELS, compatibleSectionRoute, compatibleSettingRoute, defaultRoute, driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, sectionHref, settingHref, permittedRoute, visibleRoutes, type InstallationState } from './navigation';
 
 describe('stable tab order and the always-visible Setup page', () => {
   it('round-trips a stable setting target and still enforces installation routes', () => {
@@ -22,22 +22,32 @@ describe('stable tab order and the always-visible Setup page', () => {
     expect(parseSectionTarget('#/driver-settings?section=controller-fix')).toBe('controller-fix');
   });
   it('keeps the canonical tab order', () => {
-    expect([...ROUTES]).toEqual(['driver-settings', 'stream-frame', 'debug', 'distortion-profile', 'app-settings', 'setup', 'about']);
+    expect([...ROUTES]).toEqual(['driver-settings', 'stream-frame', 'hybrid-fovea', 'debug', 'distortion-profile', 'app-settings', 'setup', 'about']);
+    expect(ROUTE_LABELS['hybrid-fovea']).toBe('Hybrid Fovea (Experimental)');
   });
 
   it.each([
-    [true, true], [true, false], [false, true], [false, false],
-  ] as const)('gates Debug for installed=%s and Debug Mode=%s', (available, debugMode) => {
-    const routes = visibleRoutes(available, debugMode);
-    expect(routes).toEqual(available
-      ? debugMode
-        ? ['driver-settings', 'stream-frame', 'debug', 'distortion-profile', 'app-settings', 'setup', 'about']
-        : ['driver-settings', 'stream-frame', 'distortion-profile', 'app-settings', 'setup', 'about']
-      : ['app-settings', 'setup', 'about']);
+    [true, true, true], [true, true, false], [true, false, true], [true, false, false],
+    [false, true, true], [false, true, false], [false, false, true], [false, false, false],
+  ] as const)('gates pages for installed=%s, Debug Mode=%s, Advanced Mode=%s', (available, debugMode, advancedMode) => {
+    const routes = visibleRoutes(available, debugMode, advancedMode);
+    expect(routes).toEqual(available ? [
+      'driver-settings', 'stream-frame',
+      ...(advancedMode ? ['hybrid-fovea'] : []), ...(debugMode ? ['debug'] : []),
+      'distortion-profile', 'app-settings', 'setup', 'about',
+    ] : ['app-settings', 'setup', 'about']);
     expect(parseRoute('#/debug', available)).toBe('debug');
-    expect(permittedRoute('debug', available, debugMode)).toBe(available
+    expect(parseRoute('#/hybrid-fovea', available)).toBe('hybrid-fovea');
+    expect(permittedRoute('debug', available, debugMode, advancedMode)).toBe(available
       ? debugMode ? 'debug' : 'app-settings'
       : 'setup');
+    expect(permittedRoute('hybrid-fovea', available, debugMode, advancedMode)).toBe(available
+      ? advancedMode ? 'hybrid-fovea' : 'app-settings'
+      : 'setup');
+    for (const route of ROUTES) {
+      expect(permittedRoute(route, available, debugMode, advancedMode) === route).toBe(routes.includes(route));
+    }
+    expect(defaultRoute(available)).toBe(available ? 'driver-settings' : 'setup');
   });
 
   it('hides Debug by default and gates its setting links through application preferences', () => {
@@ -45,6 +55,26 @@ describe('stable tab order and the always-visible Setup page', () => {
     const hash = settingHref('debug', 'streamFrame.hitchDiag');
     expect(parseSettingTarget(hash)).toBe('streamFrame.hitchDiag');
     expect(permittedRoute(parseRoute(hash, true), true)).toBe('app-settings');
+  });
+
+  it('denies Hybrid by default even when Debug Mode is enabled', () => {
+    expect(visibleRoutes(true)).not.toContain('hybrid-fovea');
+    expect(visibleRoutes(true, true)).not.toContain('hybrid-fovea');
+    expect(permittedRoute('hybrid-fovea', true)).toBe('app-settings');
+    expect(permittedRoute('hybrid-fovea', true, true)).toBe('app-settings');
+    expect(permittedRoute('hybrid-fovea', false, true)).toBe('setup');
+  });
+
+  it('round-trips Hybrid setting and section links without changing target IDs', () => {
+    const setting = settingHref('hybrid-fovea', 'hybrid.enabled');
+    expect(setting).toBe('#/hybrid-fovea?setting=hybrid.enabled');
+    expect(parseRoute(setting, true)).toBe('hybrid-fovea');
+    expect(parseSettingTarget(setting)).toBe('hybrid.enabled');
+    const section = sectionHref('hybrid-fovea', 'hybrid');
+    expect(section).toBe('#/hybrid-fovea?section=hybrid');
+    expect(parseRoute(section, true)).toBe('hybrid-fovea');
+    expect(parseSectionTarget(section)).toBe('hybrid');
+    expect(parseRoute('#///hybrid-fovea?section=hybrid', true)).toBe('hybrid-fovea');
   });
 
   it.each([
@@ -83,5 +113,74 @@ describe('stable tab order and the always-visible Setup page', () => {
     expect(parseRoute(`#/${route}`, true)).toBe(route);
     expect(permittedRoute(route, false)).toBe('setup');
     expect(permittedRoute(route, true)).toBe(route);
+  });
+});
+
+describe('explicit compatibility aliases', () => {
+  it.each([
+    'galaxyXr.nativeResolution', 'galaxyXr.renderWidth', 'galaxyXr.renderHeight',
+    'renderResolutionLinked', 'galaxyXr.sdr10Baseline',
+  ])('moves only the old Driver Settings link for %s', id => {
+    for (const route of ROUTES) {
+      expect(compatibleSettingRoute(route, id)).toBe(route === 'driver-settings' ? 'stream-frame' : route);
+    }
+  });
+
+  it.each([
+    'streamFrame.kalmanCaReportAccel', 'controllers.aligner.enable', 'galaxyXr.simulateTouch',
+    'streamFrame.deriveLatchPoseAssist', 'streamFrame.kalmanDirLeadAdaptive', 'streamFrame.kalmanAdaptiveR',
+    'streamFrame.kalmanGripEnable', 'streamFrame.deriveSmoothAngSeparate', 'streamFrame.deriveSplitDirLinear',
+    'streamFrame.deriveSplitDirAngular', 'streamFrame.deriveReleaseLatch',
+  ])('moves only the old Image Settings controller link for %s', id => {
+    for (const route of ROUTES) {
+      expect(compatibleSettingRoute(route, id)).toBe(route === 'stream-frame' ? 'driver-settings' : route);
+    }
+  });
+
+  it.each([
+    'streamFrame.blackFloor.rampBar', 'streamFrame.hitchDiag', 'streamFrame.eyeGaze.debugRing',
+    'streamFrame.poseLogging', 'streamFrame.poseLogBurst', 'galaxyXr.vrlinkDebugOverlay',
+    'streamFrame.nvencFixLevel', 'streamFrame.nvencVerbose',
+  ])('preserves only the old Image Settings diagnostic link for %s', id => {
+    for (const route of ROUTES) {
+      expect(compatibleSettingRoute(route, id)).toBe(route === 'stream-frame' ? 'debug' : route);
+    }
+  });
+
+  it.each([
+    '', 'unknown.setting', 'hybrid.enabled', 'debugMode', 'galaxyXr.profileSupports10bit',
+    'galaxyXr.controllerBypass', 'streamFrame.eyeGaze.debugGrid', 'streamFrame.eyeGaze.probeCapture',
+  ])('does not infer an alias for %s', id => {
+    for (const route of ROUTES) expect(compatibleSettingRoute(route, id)).toBe(route);
+  });
+
+  it.each(['driver-settings', 'stream-frame'] as const)('keeps the old %s Hybrid section ID', route => {
+    const hash = sectionHref(route, 'hybrid');
+    expect(parseSectionTarget(hash)).toBe('hybrid');
+    expect(compatibleSectionRoute(parseRoute(hash, true), parseSectionTarget(hash)!)).toBe('hybrid-fovea');
+  });
+
+  it.each(['', 'unknown', 'headset', 'controllers', 'graveyard', 'hybrid-other'])('keeps unrelated section links for %s', id => {
+    for (const route of ROUTES) expect(compatibleSectionRoute(route, id)).toBe(route);
+  });
+
+  it('does not accept the Hybrid section on unrelated routes', () => {
+    for (const route of ROUTES.filter(route => route !== 'driver-settings' && route !== 'stream-frame')) {
+      expect(compatibleSectionRoute(route, 'hybrid')).toBe(route);
+    }
+  });
+
+  it('requires installation and mode permission after canonicalization', () => {
+    const hybrid = compatibleSectionRoute('driver-settings', 'hybrid');
+    expect(permittedRoute(hybrid, true, true, false)).toBe('app-settings');
+    expect(permittedRoute(hybrid, false, true, true)).toBe('setup');
+    expect(permittedRoute(hybrid, true, false, true)).toBe('hybrid-fovea');
+    const diagnostic = compatibleSettingRoute('stream-frame', 'streamFrame.hitchDiag');
+    expect(permittedRoute(diagnostic, true, false, true)).toBe('app-settings');
+    expect(permittedRoute(diagnostic, false, true, true)).toBe('setup');
+    expect(permittedRoute(diagnostic, true, true, false)).toBe('debug');
+    const headset = compatibleSettingRoute('driver-settings', 'galaxyXr.nativeResolution');
+    expect(permittedRoute(headset, false)).toBe('setup');
+    expect(permittedRoute(headset, true)).toBe('stream-frame');
   });
 });

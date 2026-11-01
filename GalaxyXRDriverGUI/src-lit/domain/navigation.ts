@@ -1,10 +1,11 @@
-// Canonical tab order (2026-10-01): Debug follows Image Settings when enabled.
+// Canonical tab order (2026-11-01): Hybrid precedes Debug when enabled.
 // Installation/mode gates hide pages without reordering the remaining tabs.
-export const ROUTES = ['driver-settings', 'stream-frame', 'debug', 'distortion-profile', 'app-settings', 'setup', 'about'] as const;
+export const ROUTES = ['driver-settings', 'stream-frame', 'hybrid-fovea', 'debug', 'distortion-profile', 'app-settings', 'setup', 'about'] as const;
 export type Route = (typeof ROUTES)[number];
 export const ROUTE_LABELS: Record<Route, string> = {
   'driver-settings': 'Driver Settings', 'distortion-profile': 'Distortion Profile',
-  'stream-frame': 'Image Settings', debug: 'Debug', 'app-settings': 'App Settings', setup: 'Setup', about: 'About',
+  'stream-frame': 'Image Settings', 'hybrid-fovea': 'Hybrid Fovea (Experimental)',
+  debug: 'Debug', 'app-settings': 'App Settings', setup: 'Setup', about: 'About',
 };
 export type InstallationState = 'checking' | 'installed' | 'not-installed' | 'unknown';
 const ALWAYS_VISIBLE: readonly Route[] = ['app-settings', 'setup', 'about'];
@@ -14,8 +15,9 @@ export function driverAvailable(version: string | undefined, state: Installation
   return !!version && (state === 'installed' || state === 'checking');
 }
 
-export function visibleRoutes(available: boolean, debugMode = false): readonly Route[] {
-  return ROUTES.filter(route => (available || ALWAYS_VISIBLE.includes(route)) && (route !== 'debug' || debugMode));
+export function visibleRoutes(available: boolean, debugMode = false, advancedMode = false): readonly Route[] {
+  return ROUTES.filter(route => (available || ALWAYS_VISIBLE.includes(route))
+    && (route !== 'debug' || debugMode) && (route !== 'hybrid-fovea' || advancedMode));
 }
 
 /** Landing page (2026-09-22): Setup before the driver is installed,
@@ -53,7 +55,39 @@ export function parseSectionTarget(hash: string): string | undefined {
   return id && /^[a-zA-Z0-9._-]+$/.test(id) ? id : undefined;
 }
 
-export function permittedRoute(requested: Route, available: boolean, debugMode = false): Route {
-  if (available && requested === 'debug' && !debugMode) return 'app-settings';
+const LEGACY_HEADSET_SETTINGS: ReadonlySet<string> = new Set([
+  'galaxyXr.nativeResolution', 'galaxyXr.renderWidth', 'galaxyXr.renderHeight',
+  'renderResolutionLinked', 'galaxyXr.sdr10Baseline',
+]);
+const LEGACY_CONTROLLER_SETTINGS: ReadonlySet<string> = new Set([
+  'streamFrame.kalmanCaReportAccel', 'controllers.aligner.enable', 'galaxyXr.simulateTouch',
+  'streamFrame.deriveLatchPoseAssist', 'streamFrame.kalmanDirLeadAdaptive', 'streamFrame.kalmanAdaptiveR',
+  'streamFrame.kalmanGripEnable', 'streamFrame.deriveSmoothAngSeparate', 'streamFrame.deriveSplitDirLinear',
+  'streamFrame.deriveSplitDirAngular', 'streamFrame.deriveReleaseLatch',
+]);
+const LEGACY_DIAGNOSTIC_SETTINGS: ReadonlySet<string> = new Set([
+  'streamFrame.blackFloor.rampBar', 'streamFrame.hitchDiag', 'streamFrame.eyeGaze.debugRing',
+  'streamFrame.poseLogging', 'streamFrame.poseLogBurst', 'galaxyXr.vrlinkDebugOverlay',
+  'streamFrame.nvencFixLevel', 'streamFrame.nvencVerbose',
+]);
+
+/** Canonicalize only known pre-move setting links; callers still apply route gates. */
+export function compatibleSettingRoute(requested: Route, id: string): Route {
+  if (requested === 'driver-settings' && LEGACY_HEADSET_SETTINGS.has(id)) return 'stream-frame';
+  if (requested === 'stream-frame') {
+    if (LEGACY_CONTROLLER_SETTINGS.has(id)) return 'driver-settings';
+    if (LEGACY_DIAGNOSTIC_SETTINGS.has(id)) return 'debug';
+  }
+  return requested;
+}
+
+/** Section aliases preserve IDs without granting access to the target page. */
+export function compatibleSectionRoute(requested: Route, id: string): Route {
+  return id === 'hybrid' && (requested === 'driver-settings' || requested === 'stream-frame')
+    ? 'hybrid-fovea' : requested;
+}
+
+export function permittedRoute(requested: Route, available: boolean, debugMode = false, advancedMode = false): Route {
+  if (available && (requested === 'debug' && !debugMode || requested === 'hybrid-fovea' && !advancedMode)) return 'app-settings';
   return available || ALWAYS_VISIBLE.includes(requested) ? requested : 'setup';
 }

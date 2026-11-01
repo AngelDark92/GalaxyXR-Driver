@@ -19,6 +19,17 @@ export class AppSettingsPage extends BasePage {
     .scale-value { min-width: 3.5ch; font-variant-numeric: tabular-nums; color: var(--colorNeutralForeground2); }
   `];
 
+  private hybridStops: Array<() => void> = [];
+  connectedCallback(): void {
+    super.connectedCallback();
+    this.hybridStops = [this.ctx.hybridAccess.changing, this.ctx.hybridAccess.error, this.ctx.hybridAccess.allowed]
+      .map(value => value.subscribe(() => this.requestPageUpdate()));
+  }
+  disconnectedCallback(): void {
+    for (const stop of this.hybridStops.splice(0)) stop();
+    super.disconnectedCallback();
+  }
+
   private uiScaleError = '';
   // 2026-10-20: the Companion rescales on release. A drag emits one change per
   // step, so a step only previews the value in the thumb and its readout here;
@@ -146,11 +157,20 @@ export class AppSettingsPage extends BasePage {
       noteRow(t('Also check for dev (pre-release) builds when checking for updates.')),
       sectionHeading(t('Advanced'), 0, 'app-advanced'),
       settingFieldRow('advanceMode', html`
-        <app-switch .known=${!appSetting.readFileError()} .disabled=${!!appSetting.readFileError()}
-          .checked=${!!appSetting.values().advanceMode} @change=${(e: CustomEvent) => save({ advanceMode: e.detail })}></app-switch>
+        <app-switch .known=${!appSetting.readFileError()} .disabled=${!!appSetting.readFileError() || this.ctx.hybridAccess.changing()}
+          .checked=${appSetting.confirmedValues()?.advanceMode === true} @change=${async (e: CustomEvent<boolean>) => {
+          const control = e.currentTarget as AppSwitch;
+          const change = this.ctx.hybridAccess.setAdvancedMode(e.detail);
+          await control.updateComplete;
+          control.checked = appSetting.confirmedValues()?.advanceMode === true;
+          await change;
+          await control.updateComplete;
+          control.checked = appSetting.confirmedValues()?.advanceMode === true;
+          this.requestUpdate();
+        }}></app-switch>
       `, {
-        tip: t("Reveals the advanced and encoder controls. Hiding them never changes their values.\n\nValue: advanceMode (gui-settings.json). GUI-only visibility fence.") }),
-      noteRow(t('Show encoder, controller, and calibration controls. Hiding them keeps their values.')),
+        tip: t("Reveals advanced and encoder controls and unlocks the Hybrid Fovea page. Hybrid stays Off until enabled separately. Turning Advanced Mode off also turns Hybrid off, while keeping its tuning and all other advanced values.\n\nValue: advanceMode (gui-settings.json). Companion visibility preference; turning it off also saves Hybrid Off.") }),
+      noteRow(t('Show encoder, controller, and calibration controls. Turning this off stops Hybrid Fovea and keeps its tuning.')),
       settingFieldRow('debugMode', html`
         <app-switch .known=${known} .disabled=${!installed || !known || busy}
           .checked=${galaxy.debugMode} @change=${async (e: CustomEvent<boolean>) => {
@@ -165,6 +185,22 @@ export class AppSettingsPage extends BasePage {
       `, { tip: t('Show the Debug tab and allow its selected diagnostic overlays and logging. Turning this off stops diagnostic effects while keeping their saved selections. Black-point correction and encoder compatibility/rate tuning remain active. Requires a SteamVR restart and reconnect for the Steam Link debug overlay.') }),
     ];
     if (appSetting.values().advanceMode || this.revealAdvanced) {
+      body.push(settingFieldRow('streamFrame.graveyardEnable', html`
+        <app-switch .known=${known} .checked=${!!galaxy.settings?.graveyardEnable}
+          .disabled=${!installed || !known || busy}
+          @change=${async (e: CustomEvent<boolean>) => {
+            const control = e.currentTarget as AppSwitch;
+            await control.updateComplete;
+            control.checked = !!galaxy.settings?.graveyardEnable;
+            const current = this.ctx.dss.values();
+            if (!installed || !known || busy || !current?.streamFrame) return;
+            await this.ctx.dss.save({ ...current, streamFrame: { ...current.streamFrame, graveyardEnable: e.detail } });
+            await control.updateComplete;
+            control.checked = !!galaxy.settings?.graveyardEnable;
+            this.requestUpdate();
+          }}></app-switch>`, {
+          tip: t('Show retired controller and image experiments while Advanced Mode is on. This changes visibility only; hiding experiments never resets or disables their saved values.'),
+        }));
       body.push(sectionGroup(t('Update install'), 1, 'group', 'app-update-install'));
       body.push(fieldRow(t('Update Install Style'), html`
         <app-select .value=${appSetting.values().updateMode} .options=${[

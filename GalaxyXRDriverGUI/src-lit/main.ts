@@ -63,6 +63,7 @@ async function boot(): Promise<void> {
   // Mount before awaiting restoration: even a hung manager leaves a usable
   // diagnostic window when the native startup watchdog reveals it.
   const restore = ctx.ofxr.start();
+  const hybridReady = ctx.hybridAccess.start();
   void ctx.windowsStartup.start();
 
   const host = document.createElement('app-shell');
@@ -71,12 +72,12 @@ async function boot(): Promise<void> {
   // Exposed for debugging / future integration tests.
   (window as unknown as Record<string, unknown>).appContext = ctx;
   (window as unknown as Record<string, unknown>).appCustomElements = appCustomElements;
-  await restore;
+  await Promise.all([restore, hybridReady]);
   // Before first install (or after Uninstall), settings.json may not exist.
   // Its absence is not a tray failure. Saved OFXR restoration independently
   // requires loaded driver settings and reports its failure through ofxr.error.
   const driverReadError = ctx.dss.readFileError();
-  const startupError = ctx.lifecycle.error() || ctx.ofxr.error()
+  const startupError = ctx.lifecycle.error() || ctx.ofxr.error() || ctx.hybridAccess.error()
     || (ctx.appSetting.readFileError() || (driverReadError && driverReadError.reason !== FileReadErrorReason.NotExists)
       ? t('Saved settings could not be read. Check Settings on Setup before restoring Optical Flow.') : undefined);
   // Native recovery reports the same failure through the lifecycle banner;

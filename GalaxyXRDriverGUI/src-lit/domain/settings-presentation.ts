@@ -30,13 +30,15 @@ function group(route: Route, containers: string[], sections: string[], advanced 
 }
 const headset = group('driver-settings', ['Headset'], ['headset']);
 headset('galaxyXr.nativeIdentity', 'Galaxy XR Recognition', { advanced: true });
-headset('galaxyXr.nativeResolution', 'Override Render Resolution');
-headset('galaxyXr.renderWidth', 'Render Width per Eye', { kind: 'value' });
-headset('galaxyXr.renderHeight', 'Render Height per Eye', { kind: 'value' });
+const render = group('stream-frame', ['Render Resolution'], ['heading:render-resolution']);
+render('galaxyXr.nativeResolution', 'Override Render Resolution');
+render('galaxyXr.renderWidth', 'Render Width per Eye', { kind: 'value' });
+render('galaxyXr.renderHeight', 'Render Height per Eye', { kind: 'value' });
 // GUI-only preference for the proportional render sliders (2026-10-30).
-headset('renderResolutionLinked', 'Render Resolution Sliders', { source: 'gui-settings.json' });
+render('renderResolutionLinked', 'Render Resolution Sliders', { source: 'gui-settings.json' });
 headset('galaxyXr.vrlinkHeadsetProfile', 'Galaxy XR Headset Profile', { advanced: true });
-headset('galaxyXr.sdr10Baseline', '10-Bit SDR Mode');
+group('stream-frame', ['Image Processing'], ['heading:image-processing'])('galaxyXr.sdr10Baseline', '10-Bit SDR Mode');
+group('hybrid-fovea', ['Hybrid Fovea (Experimental)'], ['heading:hybrid'], true)('hybrid.enabled', 'Enable hybrid fovea');
 const controllers = group('driver-settings', ['Controllers'], ['controllers'], false, 'vendor');
 group('driver-settings', ['Controllers'], ['controllers'])('galaxyXr.controllerBypass', 'Disable All Controller Features');
 controllers('galaxyXr.nativeInputProfile', 'Official Controller Layout');
@@ -57,6 +59,7 @@ group('app-settings', ['Window'], ['heading:app-window'])('minimizeToTray', 'Min
 group('app-settings', ['Advanced'], ['heading:app-advanced'])('advanceMode', 'Advanced Mode', { source: 'gui-settings.json' });
 group('app-settings', ['Updates'], ['heading:app-updates'])('devUpdates', 'Developer Builds', { source: 'gui-settings.json' });
 group('app-settings', ['Advanced'], ['heading:app-advanced'])('debugMode', 'Debug Mode');
+group('app-settings', ['Advanced'], ['heading:app-advanced'], true)('streamFrame.graveyardEnable', 'Show retired experiments');
 
 group('stream-frame', ['Image Processing', 'Color'], ['heading:image-processing', 'color'], false, 'enhancements')('streamFrame.contrastLinear', 'Linear Contrast');
 const enhance = group('stream-frame', ['Image Processing', 'Image Enhancements'], ['heading:image-processing', 'enhance'], false, 'enhancements');
@@ -121,25 +124,26 @@ const encoderDebug = group('debug', ['Encoder', 'Diagnostics'], ['debugEncoder']
 encoderDebug('galaxyXr.vrlinkDebugOverlay', 'Steam Link Debug Overlay');
 encoderDebug('streamFrame.nvencFixLevel', 'Encoder Auto-Fixes');
 encoderDebug('streamFrame.nvencVerbose', 'Encoder Verbose Log');
-const retired = group('stream-frame', ['Graveyard (retired experiments)'], ['graveyard'], true, 'graveyard');
-retired('streamFrame.kalmanCaReportAccel', 'Kalman CA: Report Acceleration');
-retired('controllers.aligner.enable', 'Controller Aligner (in-headset)');
-retired('galaxyXr.simulateTouch', 'Retired: Controller Layout Simulation', { vendorOnly: true });
+const retired = group('stream-frame', ['Image Experiments (Retired)'], ['graveyard'], true, 'graveyard');
+const controllerRetired = group('driver-settings', ['Controller Experiments (Retired)'], ['controllerGraveyard'], true, 'graveyard');
+controllerRetired('streamFrame.kalmanCaReportAccel', 'Kalman CA: Report Acceleration');
+controllerRetired('controllers.aligner.enable', 'Controller Aligner (in-headset)');
+controllerRetired('galaxyXr.simulateTouch', 'Retired: Controller Layout Simulation', { vendorOnly: true });
 retired('streamFrame.eyeGaze.probeCapture', 'Probe Capture (scoring run)');
 retired('streamFrame.skipColorWhileDashboardOpen', 'Skip Color While Dashboard Open');
 retired('streamFrame.eyeGaze.calibDot', 'Fixation Dot (VOR probe)');
 retired('streamFrame.eyeGaze.swimProbe', 'Swim Probe Logging');
-retired('streamFrame.deriveLatchPoseAssist', 'Velocity Consumer Test / Pose Assist');
-retired('streamFrame.kalmanDirLeadAdaptive', 'Adaptive Direction Lead - EXPERIMENT A');
-retired('streamFrame.kalmanAdaptiveR', 'Adaptive Measurement Trust - EXPERIMENT B');
-retired('streamFrame.kalmanGripEnable', 'Grip-Point Velocity Compensator');
+controllerRetired('streamFrame.deriveLatchPoseAssist', 'Velocity Consumer Test / Pose Assist');
+controllerRetired('streamFrame.kalmanDirLeadAdaptive', 'Adaptive Direction Lead - EXPERIMENT A');
+controllerRetired('streamFrame.kalmanAdaptiveR', 'Adaptive Measurement Trust - EXPERIMENT B');
+controllerRetired('streamFrame.kalmanGripEnable', 'Grip-Point Velocity Compensator');
 retired('streamFrame.blackFloor.shadowLift', 'Black Floor: Shadow Lift (floor / knee, sRGB codes)');
 retired('streamFrame.zeroCopyV3', 'Zero-Copy v3 (experimental)');
 retired('streamFrame.nvencPresetMerge', 'NVENC (retired): True Preset Merge');
-retired('streamFrame.deriveSmoothAngSeparate', 'Angular Smoothing: Separate (tau slow/fast ms, speed low/high rad/s)');
-retired('streamFrame.deriveSplitDirLinear', 'Derive Split Direction: Linear');
-retired('streamFrame.deriveSplitDirAngular', 'Derive Split Direction: Angular');
-retired('streamFrame.deriveReleaseLatch', 'Release Latch (derive)');
+controllerRetired('streamFrame.deriveSmoothAngSeparate', 'Angular Smoothing: Separate (tau slow/fast ms, speed low/high rad/s)');
+controllerRetired('streamFrame.deriveSplitDirLinear', 'Derive Split Direction: Linear');
+controllerRetired('streamFrame.deriveSplitDirAngular', 'Derive Split Direction: Angular');
+controllerRetired('streamFrame.deriveReleaseLatch', 'Release Latch (derive)');
 
 const distortion = group('distortion-profile', ['Distortion Correction'], ['distortion'], false, 'enhancements');
 distortion('streamFrame.distortion.perEye', 'Per Eye Curves');
@@ -174,10 +178,10 @@ export const INTERNAL_BOOLEAN_KEYS = [
   'customShader.srgbColorCorrection', 'customShader.srgbWhitePointCorrection', 'customShader.dither10Bit',
   'customShader.enableFilterForOverlay', 'customShader.enableFilterForDashboard', 'forceTracking',
   'streamFrame.distortion.enable', 'streamFrame.pupilSwim.enable',
-  'streamFrame.reconLogger', 'streamFrame.zeroCopy', 'streamFrame.graveyardEnable',
+  'streamFrame.reconLogger', 'streamFrame.zeroCopy',
   // Hybrid booleans are shown on the experimental card but are not part of the
   // settingFieldRow catalog yet; their state is published through hybridStatus.
-  'hybrid.enabled', 'hybrid.requireReadyPeer',
+  'hybrid.requireReadyPeer',
   'takeCompositorScreenshots', 'onlyHandlePrivateFunctionality', 'watchDistortionProfiles',
 ] as const;
 export function classifyBoolean(check: Pick<SettingCheck, 'source' | 'key'>): 'control' | 'internal' | 'unknown' {
@@ -302,6 +306,7 @@ export function settingUnavailable(setting: SettingPresentation, context: Presen
   if (setting.source === 'settings.json' && !context.settings) return 'Saved driver settings could not be read. Check installation to retry.';
   if (setting.source === 'gui-settings.json' && !context.app) return 'App preferences could not be read. Check installation to retry.';
   if (setting.source === 'settings.json' && !context.driverInstalled) return 'Install the driver to show this control.';
+  if (setting.route === 'hybrid-fovea' && context.app?.advanceMode !== true) return 'Enable Advanced Mode in App Settings to open Hybrid Fovea.';
   if (setting.route === 'debug' && context.settings?.debugMode !== true) return 'Enable Debug Mode in App Settings to show diagnostic controls.';
   if ((setting.vendorOnly || setting.gate === 'vendor') && !context.vendor) return 'This control is available in the Galaxy XR build.';
   // 2026-10-24: the master switch hides every other controller control; the

@@ -6,6 +6,29 @@ what still blocks it. Client internals are in
 plans `steamlink-patches/diagnostics/astc-streaming/2026-10-20-ASTC-STREAMING-PLAN.md` and
 `.../pyrowave-streaming/2026-10-31-PYROWAVE-GAZE-PLAN.md` (gitignored notes).
 
+## Companion access (2026-11-01)
+
+**Hybrid Fovea (Experimental)** is a separate page after Image Settings. It appears only
+when the driver is installed and **App Settings > Advanced > Advanced Mode** has been
+saved On. Debug Mode and temporary advanced-control links do not unlock this page.
+Advanced Mode only unlocks access: Hybrid remains Off until its own Enable switch is
+turned on. All Hybrid tuning, estimates, summaries and telemetry live on this page.
+
+Turning Advanced Mode Off first saves Hybrid Off, then saves the Advanced preference.
+Its codec/ring/budget tuning is retained. Re-enabling Advanced does not restart Hybrid.
+At Companion startup, a saved Hybrid On with Advanced Off is reconciled to Hybrid Off;
+the same policy applies to confirmed settings reloads. A read-only Check Settings
+inspection reports a discovered conflict without saving; use Reload settings to
+apply the reconciliation explicitly. Failed writes are visible. A
+failed Hybrid-Off write keeps Advanced On; if the subsequent Advanced write fails,
+Hybrid remains Off. **Reload settings** retries read/reconciliation; repeat a failed
+switch action to request that change again.
+
+This is Companion-managed coordination through the existing native `hybrid.enabled`
+setting and hot reload. GUI preferences remain GUI-only. Saved Off is distinct from
+fresh runtime proof that the loaded driver has stopped Hybrid; manually edited files
+while Companion is closed are still native settings.
+
 ## Status (2026-11-01)
 
 Host side complete and tested; **not displayable on the headset**. Fail-closed by default:
@@ -106,7 +129,7 @@ canvas above 4096 px or a patch above 2 Mi px is refused before capture.
 **Fovea size and resolution.** Two settings decide what the fovea is, and the hybrid works
 inside the result:
 
-- *Render Width/Height per Eye* (Driver Settings > Headset, default 3552 x 3840) is the whole
+- *Render Width/Height per Eye* (Image Settings > Render Resolution, default 3552 x 3840) is the whole
   per-eye render target, not the fovea. It sets the pixels per degree everywhere.
 - *Tile Width* W (Image Settings > Stream Quality: 1024, 1536 HEVC/AV1 default, 2048) is the
   fovea. Each eye's fovea tile is a W x W cut-out of the render at native density around the
@@ -179,7 +202,7 @@ featherPx, maxFoveaBytes, requireReadyPeer (bench only, not in the Companion). I
 reject with a reason. `info.json` `hybridStatus` reports state/reason, backend, capture path,
 latest plan (canvas, crop, planned ASTC bytes), per-frame bytes and encode time, join and
 failure counters, video-fovea clears (`videoFoveaCleared`, `videoFoveaKept`), and the applied
-base budget, Force CBR and fps. The Companion's Driver Settings card renders all of it,
+base budget, Force CBR and fps. The Companion's Hybrid Fovea page renders all of it,
 together with the fovea readout above, the fovea Mbit/s beside the base budget, and a warning
 that without Force CBR vrlink's adaptive request counts the fovea bytes and can lower the
 base.

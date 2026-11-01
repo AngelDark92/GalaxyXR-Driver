@@ -6,7 +6,7 @@ import type { AppContext } from '../app-context';
 import { applyTheme } from '../ui/theme';
 import { applyUiScale } from '../ui/ui-scale';
 import { interactiveStyles } from '../ui/shared-styles';
-import { defaultRoute, driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, permittedRoute, visibleRoutes, sectionHref, settingHref, ROUTE_LABELS, type Route } from '../domain/navigation';
+import { compatibleSettingRoute, compatibleSectionRoute, defaultRoute, driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, permittedRoute, visibleRoutes, sectionHref, settingHref, ROUTE_LABELS, type Route } from '../domain/navigation';
 import { CHAPTER_OUTLINES, findOutlineItem, flattenOutline, visibleOutline, type ChapterView, type OutlineContext } from '../domain/page-outline';
 import { settingPresentation } from '../domain/settings-presentation';
 import { close_bitrate_monitor, publish_bitrate_monitor_theme } from '../platform/tauri';
@@ -21,6 +21,7 @@ export class AppShell extends LitElement {
   @property({ attribute: false }) private settingMessage = '';
   private targetGeneration = 0;
   private debugAllowed = false;
+  private hybridAllowed = false;
   private monitorAllowed = false;
   private streamQualityToast?: StreamQualityFallbackNotice;
   private streamQualityToastTimer?: number;
@@ -69,6 +70,11 @@ export class AppShell extends LitElement {
     this.requestUpdate();
   };
 
+  private readonly onHybridAccess = () => {
+    if (this.hybridAllowed !== this.ctx.hybridAccess.allowed()) this.syncRoute();
+    this.requestUpdate();
+  };
+
   connectedCallback(): void {
     super.connectedCallback();
     this.syncRoute();
@@ -86,6 +92,10 @@ export class AppShell extends LitElement {
       this.ctx.checks.checking.subscribe(notify), this.ctx.checks.report.subscribe(notify),
       this.ctx.dss.writeFileError.subscribe(notify), this.ctx.appSetting.writeFileError.subscribe(notify),
       this.ctx.appSetting.values.subscribe(notify),
+      this.ctx.appSetting.readFileError.subscribe(this.onHybridAccess),
+      this.ctx.hybridAccess.allowed.subscribe(this.onHybridAccess),
+      this.ctx.hybridAccess.changing.subscribe(notify),
+      this.ctx.hybridAccess.error.subscribe(notify),
       this.ctx.lifecycle.error.subscribe(notify), this.ctx.lifecycle.quitting.subscribe(notify),
       this.ctx.ofxr.error.subscribe(notify),
       subscribeLocale(notify),
@@ -162,18 +172,18 @@ export class AppShell extends LitElement {
 
   private syncRoute(): void {
     this.debugAllowed = this.driverAvailable && this.ctx.galaxy.debugMode;
+    this.hybridAllowed = this.ctx.hybridAccess.allowed();
     const target = parseSettingTarget(window.location.hash);
     const section = parseSectionTarget(window.location.hash);
     let requested = parseRoute(window.location.hash, this.driverAvailable);
-    const setting = target ? settingPresentation(target) : undefined;
-    // 2026-10-01: retain pre-move links without bypassing Debug Mode.
-    if (requested === 'stream-frame' && setting?.route === 'debug') {
-      requested = 'debug';
-      if (this.ctx.galaxy.debugMode && this.driverAvailable) {
-        window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${settingHref('debug', target!)}`);
-      }
+    const originalRoute = requested;
+    if (target) requested = compatibleSettingRoute(requested, target);
+    else if (section) requested = compatibleSectionRoute(requested, section);
+    if (requested !== originalRoute && permittedRoute(requested, this.driverAvailable, this.ctx.galaxy.debugMode, this.ctx.hybridAccess.allowed()) === requested) {
+      const hash = target ? settingHref(requested, target) : sectionHref(requested, section!);
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${hash}`);
     }
-    const next = permittedRoute(requested, this.driverAvailable, this.ctx.galaxy.debugMode);
+    const next = permittedRoute(requested, this.driverAvailable, this.ctx.galaxy.debugMode, this.ctx.hybridAccess.allowed());
     const redirected = this.route !== next && requested !== next;
     this.route = next;
     // Do not lose a valid startup deep-link while initial inspection is pending.
@@ -218,6 +228,7 @@ export class AppShell extends LitElement {
     const page = this.activePageElement();
     if (!id) {
       page?.clearSettingTarget?.();
+      if (requested === 'hybrid-fovea' && this.driverAvailable && !this.ctx.hybridAccess.allowed()) this.settingMessage = 'Enable Advanced Mode in App Settings to open Hybrid Fovea.';
       if (requested === 'debug' && this.driverAvailable && !this.ctx.galaxy.debugMode) this.settingMessage = 'Enable Debug Mode in App Settings to show diagnostic controls.';
       return;
     }
@@ -227,7 +238,8 @@ export class AppShell extends LitElement {
       return;
     }
     if (requested !== this.route) {
-      this.settingMessage = requested === 'debug' && this.driverAvailable
+      this.settingMessage = requested === 'hybrid-fovea' && this.driverAvailable
+        ? 'Enable Advanced Mode in App Settings to open Hybrid Fovea.' : requested === 'debug' && this.driverAvailable
         ? 'Enable Debug Mode in App Settings to show diagnostic controls.' : 'Install the driver to show this control.';
       return;
     }
@@ -245,7 +257,8 @@ export class AppShell extends LitElement {
     await this.updateComplete;
     if (!this.isConnected || generation !== this.targetGeneration) return;
     if (requested !== this.route) {
-      this.settingMessage = requested === 'debug' && this.driverAvailable
+      this.settingMessage = requested === 'hybrid-fovea' && this.driverAvailable
+        ? 'Enable Advanced Mode in App Settings to open Hybrid Fovea.' : requested === 'debug' && this.driverAvailable
         ? 'Enable Debug Mode in App Settings to show diagnostic controls.'
         : 'This section is not available in this version.';
       this.requestUpdate();
@@ -280,7 +293,7 @@ export class AppShell extends LitElement {
 
   private onChapterSelect = (event: Event): void => {
     const route = (event as CustomEvent<Route>).detail;
-    if (!(visibleRoutes(this.driverAvailable, this.ctx.galaxy.debugMode) as readonly string[]).includes(route)) return;
+    if (!(visibleRoutes(this.driverAvailable, this.ctx.galaxy.debugMode, this.ctx.hybridAccess.allowed()) as readonly string[]).includes(route)) return;
     if (route === this.route) {
       this.activeSection = '';
       this.activePageElement()?.clearSettingTarget?.();
@@ -299,7 +312,7 @@ export class AppShell extends LitElement {
 
   private onSectionSelect = (event: Event): void => {
     const { route, id } = (event as CustomEvent<{ route: Route; id: string }>).detail;
-    if (!(visibleRoutes(this.driverAvailable, this.ctx.galaxy.debugMode) as readonly string[]).includes(route)) return;
+    if (!(visibleRoutes(this.driverAvailable, this.ctx.galaxy.debugMode, this.ctx.hybridAccess.allowed()) as readonly string[]).includes(route)) return;
     const target = sectionHref(route, id);
     // A changed hash goes through syncRoute, which adds a history entry and
     // runs the same reveal path for pasted links and Back/Forward. Re-selecting
@@ -379,7 +392,8 @@ export class AppShell extends LitElement {
 
   private renderPage(): TemplateResult {
     const ctx = this.ctx;
-    switch (permittedRoute(this.route, this.driverAvailable, this.ctx.galaxy.debugMode)) {
+    switch (permittedRoute(this.route, this.driverAvailable, this.ctx.galaxy.debugMode, this.ctx.hybridAccess.allowed())) {
+      case 'hybrid-fovea': return html`<app-hybrid-fovea-page .ctx=${ctx}></app-hybrid-fovea-page>`;
       case 'debug': return html`<app-debug-page .ctx=${ctx}></app-debug-page>`;
       case 'distortion-profile': return html`<app-distortion-profile-page .ctx=${ctx}></app-distortion-profile-page>`;
       case 'stream-frame': return html`<app-stream-frame-page .ctx=${ctx}></app-stream-frame-page>`;
@@ -391,8 +405,8 @@ export class AppShell extends LitElement {
   }
 
   render() {
-    const routes = visibleRoutes(this.driverAvailable, this.ctx.galaxy.debugMode);
-    const activeRoute = permittedRoute(this.route, this.driverAvailable, this.ctx.galaxy.debugMode);
+    const routes = visibleRoutes(this.driverAvailable, this.ctx.galaxy.debugMode, this.ctx.hybridAccess.allowed());
+    const activeRoute = permittedRoute(this.route, this.driverAvailable, this.ctx.galaxy.debugMode, this.ctx.hybridAccess.allowed());
     const update = this.ctx.aus.updateInfo();
     const busy = this.ctx.checks.checking() || this.ctx.sds.installingDriver() || this.ctx.lifecycle.quitting();
     const writeError = this.ctx.dss.writeFileError() || this.ctx.appSetting.writeFileError();
@@ -415,6 +429,11 @@ export class AppShell extends LitElement {
         ${writeError ? html`<fluent-message-bar class="status" intent="error" role="alert"><span slot="icon" aria-hidden="true">!</span><strong>${t('Settings could not be saved.')}</strong> ${t('The controls have been restored to the last verified values.')}<details><summary>${t('Technical details')}</summary>${writeError}</details></fluent-message-bar>` : nothing}
         ${lifecycleError ? html`<fluent-message-bar class="status" intent="error" role="alert"><span slot="icon" aria-hidden="true">!</span><strong>${t('Companion tray behavior could not be applied')}</strong> ${lifecycleError}</fluent-message-bar>` : nothing}
         ${ofxrError ? html`<fluent-message-bar class="status" intent="error" role="alert"><span slot="icon" aria-hidden="true">!</span><strong>${t('Optical Flow needs attention')}</strong> ${ofxrError} <a href="#/stream-frame">${t('Open Optical Flow')}</a></fluent-message-bar>` : nothing}
+        ${this.ctx.hybridAccess.error() ? html`<fluent-message-bar class="status" intent="error" role="alert">
+          <span slot="icon" aria-hidden="true">!</span><strong>${t('Hybrid Fovea needs attention')}</strong> ${t(this.ctx.hybridAccess.error()!)}
+          <fluent-button appearance="outline" ?disabled=${this.ctx.hybridAccess.changing()} @click=${() => { void this.ctx.hybridAccess.retry(); }}>${t('Reload settings')}</fluent-button>
+          <a href="#/app-settings">${t('Open App Settings')}</a>
+        </fluent-message-bar>` : nothing}
         ${this.settingMessage ? html`<fluent-message-bar class="status" intent="info" role="status"><span slot="icon" aria-hidden="true">ⓘ</span>${t(this.settingMessage)}</fluent-message-bar>` : nothing}
         <main class="content" aria-busy=${String(busy)} .inert=${busy}>
           ${routes.map(route => html`<section class="panel" id=${`panel-${route}`}

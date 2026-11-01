@@ -295,6 +295,12 @@ export class BasePage extends LitElement {
   /** Temporary inspection visibility. Never saved as the Advanced Mode setting. */
   protected revealAdvanced = false;
 
+  /** Application-owned signals must respect the same hidden-page redraw gate. */
+  protected requestPageUpdate(): void {
+    if (document.visibilityState === 'hidden') this._hiddenUpdate = true;
+    else this.requestUpdate();
+  }
+
   clearSettingTarget(): void {
     if (this.revealAdvanced) { this.revealAdvanced = false; this.requestUpdate(); }
   }
@@ -330,10 +336,7 @@ export class BasePage extends LitElement {
     super.connectedCallback();
     // 2026-10-20: tray-hidden pages retain state, but need no Lit redraws.
     // Refresh once on return, including updates received while hidden.
-    const notify = () => {
-      if (document.visibilityState === 'hidden') this._hiddenUpdate = true;
-      else this.requestUpdate();
-    };
+    const notify = () => this.requestPageUpdate();
     const c = this.ctx;
     if (!c) return;
     document.addEventListener('visibilitychange', this._onVisibility);

@@ -83,8 +83,10 @@ verifier. See `Docs/CompanionGraphWindow.md` for async WebView2 creation,
 lifecycle and QA, and `Docs/BitrateMonitor.md` for the monitor's measurement
 contract.
 
-- `features/driver-settings-page.ts`: headset/device and legacy controls.
-- `features/stream-frame-page.ts`: stream/image processing controls.
+- `features/driver-settings-page.ts`: headset identity, controller tracking and retired controller experiments.
+- `features/stream-frame-page.ts`: render resolution, SDR mode, stream/image processing and retired image experiments.
+- `features/hybrid-fovea-page.ts`: separate persisted-Advanced-only Hybrid Fovea controls and telemetry.
+- `services/hybrid-access.ts`: application-owned Advanced/Hybrid coordination; explicit Advanced-Off saves Hybrid Off before hiding access; startup/watched conflicts reconcile Off without resetting tuning.
 - `features/distortion-profile-page.ts`, `curve-editor.ts`: distortion/tuner UI.
 - `features/debug-page.ts`: diagnostics gated by Debug Mode.
 - `features/app-settings-page.ts`: presentation/Debug Mode/application settings.
@@ -92,7 +94,7 @@ contract.
 - `features/about-page.ts`: project/update/install information.
 
 Hash routing/permitted visibility lives in `src-lit/shell/app-shell.ts` and
-`domain/navigation.ts`. Debug Mode OFF must gate direct routes and tabs. Shared
+`domain/navigation.ts`. Debug Mode OFF must gate direct routes and tabs. Hybrid access additionally requires confirmed, readable Advanced Mode On; temporary advanced reveal cannot unlock it. Shared
 controls/tips/reset/styling: `src-lit/ui/controls.ts`, `shared-styles.ts`,
 `presentation.ts`, `theme.ts`, `src-lit/styles/app.css`. Setting metadata/search:
 `domain/settings-presentation.ts`.

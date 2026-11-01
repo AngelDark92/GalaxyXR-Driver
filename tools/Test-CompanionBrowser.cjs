@@ -45,7 +45,18 @@ function fixture() {
   const put = (p, value) => { files[normalize(p)] = value; persist(); };
   const github = { tagName: '1.2.13', releaseUrl: 'https://github.com/AngelDark92/GalaxyXR-Driver/releases/tag/v1.2.13',
     status: 200, hold: false, pending: [], requests: [] };
-  window.__qa = { files, calls, data, github, openerError: '', runtime: null, holdRuntime: false, pendingRuntime: [], releaseGithub() {
+  const writes = [], pendingWrites = [];
+  const write = async (target, value) => {
+    target = normalize(target);
+    if (window.__qa.holdWrites[target]) await new Promise(resolve => pendingWrites.push({ target, resolve }));
+    if (window.__qa.writeErrors[target]) throw Error(window.__qa.writeErrors[target]);
+    put(target, value);
+    writes.push({ target, value });
+  };
+  window.__qa = { files, calls, data, github, writes, pendingWrites, holdWrites: {},
+    writeErrors: JSON.parse(sessionStorage.getItem('qa-write-errors') || '{}'),
+    releaseWrites() { this.holdWrites = {}; for (const pending of pendingWrites.splice(0)) pending.resolve(); },
+    openerError: '', runtime: null, holdRuntime: false, pendingRuntime: [], releaseGithub() {
     github.hold = false;
     for (const release of github.pending.splice(0)) release();
   } };
@@ -117,10 +128,10 @@ function fixture() {
       if (command === 'plugin:fs|write_text_file') {
         const target = options.headers?.path ? decodeURIComponent(options.headers.path) : p;
         const value = args.contents ?? args.data ?? args;
-        put(target, typeof value === 'string' ? value : new TextDecoder().decode(new Uint8Array(value)));
+        await write(target, typeof value === 'string' ? value : new TextDecoder().decode(new Uint8Array(value)));
         return;
       }
-      if (command === 'plugin:fs|copy_file') { put(args.to, files[normalize(args.from)]); return; }
+      if (command === 'plugin:fs|copy_file') { await write(args.to, files[normalize(args.from)]); return; }
       if (command === 'plugin:fs|remove') { delete files[p]; persist(); return; }
       if (command === 'plugin:fs|mkdir') return;
       if (command === 'plugin:fs|watch') return 1;
@@ -219,9 +230,9 @@ function fixture() {
       { name: 'Missing driver settings preserve an explicit tray opt-out without writes',
         firstLaunch: true, appSettings: { minimizeToTray: false }, driverRaw: null, minimizeToTray: false, driverReason: 'File not exists', startupError: null },
       { name: 'Malformed driver settings still fail startup readiness without writes or Optical Flow arming',
-        appSettings: {}, driverRaw: '{broken', minimizeToTray: true, driverReason: 'Parsing failed', startupError: /Saved settings could not be read/ },
+        appSettings: {}, driverRaw: '{broken', minimizeToTray: true, driverReason: 'Parsing failed', startupError: /(?:Saved|Driver) settings could not be read/ },
       { name: 'Unreadable driver settings still fail startup readiness without writes or Optical Flow arming',
-        appSettings: {}, driverRaw: '{}', readError: 'Fixture driver access denied', minimizeToTray: true, driverReason: 'Read failed', startupError: /Saved settings could not be read/ },
+        appSettings: {}, driverRaw: '{}', readError: 'Fixture driver access denied', minimizeToTray: true, driverReason: 'Read failed', startupError: /(?:Saved|Driver) settings could not be read/ },
       { name: 'Missing driver settings block saved Optical Flow restoration and preserve the enabled preference',
         firstLaunch: true, appSettings: { ofxr: { enabled: true } }, driverRaw: null, minimizeToTray: true, driverReason: 'File not exists',
         startupError: /Read the saved driver and Companion settings successfully before enabling Optical Flow/, ofxrEnabled: true },
@@ -283,6 +294,278 @@ function fixture() {
       } finally {
         await startupPage.close();
       }
+    }
+    // Keep relocation/save-failure scenarios independent of the existing suite.
+    const settingsPage = await context.newPage();
+    const settingsErrors = [];
+    settingsPage.on('pageerror', error => settingsErrors.push(String(error)));
+    try {
+      const visit = async (hash, route = hash.slice(2).split('?')[0]) => {
+        await settingsPage.evaluate(hash => { location.hash = hash; }, hash);
+        await settingsPage.locator(`app-${route}-page`).getByRole('heading', { level: 1 }).waitFor();
+      };
+      const idle = () => settingsPage.evaluate(() => appContext.hybridAccess.idle());
+      const state = () => settingsPage.evaluate(() => ({
+        advanced: appContext.appSetting.confirmedValues()?.advanceMode,
+        allowed: appContext.hybridAccess.allowed(), settings: structuredClone(appContext.dss.values()),
+        driver: JSON.parse(__qa.files[__qa.data + '/settings.json']),
+        app: JSON.parse(__qa.files[__qa.data + '/gui-settings.json']),
+      }));
+      const finalWrites = () => settingsPage.evaluate(() => __qa.writes
+        .filter(write => write.target === __qa.data + '/settings.json' || write.target === __qa.data + '/gui-settings.json')
+        .map(write => ({ file: write.target.split('/').at(-1), value: JSON.parse(write.value) })));
+      const advancedSwitch = settingsPage.locator('[data-setting-id="advanceMode"] fluent-switch');
+      const hybridSwitch = settingsPage.locator('[data-setting-id="hybrid.enabled"] fluent-switch');
+      const errorBar = settingsPage.locator('app-shell fluent-message-bar').filter({ hasText: 'Hybrid Fovea needs attention' });
+      const assertChecked = async (control, checked) => {
+        assert.deepEqual(await control.evaluate(async element => {
+          const adapter = element.getRootNode().host;
+          await adapter.updateComplete;
+          return { adapter: adapter.checked, fluent: element.checked };
+        }), { adapter: checked, fluent: checked });
+      };
+      const setError = (file, message) => settingsPage.evaluate(({ file, message }) => {
+        __qa.writeErrors = message ? { [__qa.data + '/' + file]: message } : {};
+      }, { file, message });
+      await settingsPage.goto(base + '#/app-settings');
+      await settingsPage.waitForFunction(() => window.appContext?.sds.driverState() === 'installed');
+      await idle();
+      await settingsPage.evaluate(async () => {
+        const settings = structuredClone(appContext.dss.values());
+        settings.debugMode = true;
+        settings.galaxyXr.nativeIdentity = false;
+        settings.galaxyXr.controllerBypass = true;
+        settings.galaxyXr.renderWidth = 3600; settings.galaxyXr.renderHeight = 3900;
+        settings.streamFrame.enable = false; settings.streamFrame.graveyardEnable = false;
+        settings.hybrid = { ...settings.hybrid, enabled: false, guardDegrees: 7.5, maxFoveaBytes: 1234567 };
+        await appContext.dss.save(settings); await appContext.dss.flush();
+      });
+      await idle();
+      const originalSettings = (await state()).settings;
+      const tuning = ({ enabled, ...rest }) => rest;
+      assert.equal(await settingsPage.locator('#page-hybrid-fovea').count(), 0);
+      assert.equal(await settingsPage.locator('#page-debug').count(), 1);
+      assert.equal(await settingsPage.locator('[data-setting-id="streamFrame.graveyardEnable"]').count(), 0);
+      for (const hash of ['#/hybrid-fovea', '#/hybrid-fovea?setting=hybrid.enabled',
+        '#/driver-settings?section=hybrid', '#/stream-frame?section=hybrid']) {
+        const before = await finalWrites();
+        await visit(hash, 'app-settings');
+        await settingsPage.waitForFunction(() => location.hash === '#/app-settings');
+        await settingsPage.locator('app-shell fluent-message-bar').filter({ hasText: 'Enable Advanced Mode in App Settings to open Hybrid Fovea.' }).waitFor();
+        assert.equal(await settingsPage.locator('app-hybrid-fovea-page').count(), 0);
+        assert.equal((await state()).advanced, false);
+        assert.deepEqual(await finalWrites(), before);
+      }
+      await visit('#/driver-settings');
+      const driverPage = settingsPage.locator('app-driver-settings-page');
+      await driverPage.getByText('Keep Galaxy XR recognition enabled', { exact: true }).waitFor();
+      for (const id of ['galaxyXr.nativeResolution', 'galaxyXr.renderWidth', 'galaxyXr.renderHeight', 'renderResolutionLinked', 'galaxyXr.sdr10Baseline', 'hybrid.enabled']) {
+        assert.equal(await driverPage.locator(`[data-setting-id="${id}"]`).count(), 0, id);
+      }
+      const beforeReveal = await finalWrites();
+      await visit('#/driver-settings?setting=galaxyXr.nativeIdentity');
+      await driverPage.locator('[data-setting-id="galaxyXr.nativeIdentity"]').waitFor();
+      assert.equal((await state()).advanced, false);
+      assert.equal(await settingsPage.locator('#page-hybrid-fovea').count(), 0);
+      await visit('#/hybrid-fovea?setting=hybrid.enabled', 'app-settings');
+      assert.equal(await settingsPage.locator('app-hybrid-fovea-page').count(), 0);
+      assert.deepEqual(await finalWrites(), beforeReveal);
+      await visit('#/stream-frame');
+      const imagePage = settingsPage.locator('app-stream-frame-page');
+      for (const id of ['galaxyXr.nativeResolution', 'galaxyXr.renderWidth', 'galaxyXr.renderHeight', 'renderResolutionLinked']) {
+        await imagePage.locator(`#section-render-resolution [data-setting-id="${id}"]`).waitFor();
+      }
+      assert.equal(await imagePage.locator('[data-setting-id="galaxyXr.renderWidth"] app-number').evaluate(control => control.value), 3600);
+      assert.equal(await imagePage.locator('[data-setting-id="galaxyXr.renderHeight"] app-number').evaluate(control => control.value), 3900);
+      await imagePage.locator('#section-image-processing [data-setting-id="galaxyXr.sdr10Baseline"] fluent-switch:not([disabled])').waitFor();
+      await imagePage.locator('#section-render-resolution').screenshot({ path: path.join(out, 'relocated-render-resolution.png'), animations: 'disabled' });
+      await imagePage.locator('#section-image-processing').screenshot({ path: path.join(out, 'baseline-enhancements-off.png'), animations: 'disabled' });
+      assert.equal((await state()).settings.streamFrame.enable, false);
+      assert.deepEqual((await state()).settings, originalSettings);
+      results.push('Image owns Render Resolution and independent 10-bit baseline; Driver keeps identity warnings; Hybrid deep links cannot bypass Advanced');
+
+      await visit('#/app-settings');
+      await setError('gui-settings.json', 'Fixture app save denied');
+      await advancedSwitch.click(); await idle();
+      await errorBar.filter({ hasText: 'Could not save Advanced Mode.' }).waitFor();
+      assert.equal((await state()).advanced, false);
+      await assertChecked(advancedSwitch, false);
+      assert.equal(await settingsPage.locator('#page-hybrid-fovea').count(), 0);
+      await setError('', '');
+      await advancedSwitch.click(); await idle();
+      await settingsPage.locator('#page-hybrid-fovea').waitFor();
+      assert.equal((await state()).advanced, true);
+      assert.equal((await state()).settings.hybrid.enabled, false);
+      assert.deepEqual((await state()).settings, originalSettings);
+      await settingsPage.reload();
+      await settingsPage.waitForFunction(() => window.appContext?.hybridAccess.allowed());
+      await idle();
+      assert.equal((await state()).settings.hybrid.enabled, false);
+      assert.deepEqual(await settingsPage.locator('app-chapter-nav .chapter-link').evaluateAll(nodes => nodes.map(node => node.id)),
+        ['page-driver-settings', 'page-stream-frame', 'page-hybrid-fovea', 'page-debug', 'page-distortion-profile', 'page-app-settings', 'page-setup', 'page-about']);
+      await visit('#/driver-settings?section=hybrid', 'hybrid-fovea');
+      await settingsPage.waitForFunction(() => location.hash === '#/hybrid-fovea?section=hybrid');
+      await settingsPage.locator('app-hybrid-fovea-page #section-hybrid').waitFor();
+      await setError('settings.json', 'Fixture driver save denied');
+      await hybridSwitch.click(); await idle();
+      await errorBar.filter({ hasText: 'Could not save Hybrid settings.' }).waitFor();
+      assert.equal((await state()).settings.hybrid.enabled, false);
+      assert.equal((await state()).driver.hybrid.enabled === true, false);
+      await assertChecked(hybridSwitch, false);
+      await setError('', '');
+      const beforeEnable = (await finalWrites()).length;
+      await hybridSwitch.click(); await idle();
+      assert.equal((await state()).driver.hybrid.enabled, true);
+      assert.deepEqual((await finalWrites()).slice(beforeEnable).map(write => write.file), ['settings.json']);
+      assert.deepEqual(tuning((await state()).settings.hybrid), tuning(originalSettings.hybrid));
+      results.push('Advanced save failure stays locked; confirmed Advanced persists and unlocks Hybrid without enabling it; explicit Hybrid enable saves separately');
+
+      await visit('#/app-settings');
+      await setError('settings.json', 'Fixture Hybrid Off denied');
+      await advancedSwitch.click(); await idle();
+      await errorBar.filter({ hasText: 'Could not save Hybrid settings.' }).waitFor();
+      assert.equal((await state()).advanced, true);
+      assert.equal((await state()).driver.hybrid.enabled, true);
+      await assertChecked(advancedSwitch, true);
+      await setError('gui-settings.json', 'Fixture Advanced Off denied');
+      await advancedSwitch.click(); await idle();
+      await errorBar.filter({ hasText: 'Hybrid is off, but Advanced Mode could not be saved.' }).waitFor();
+      assert.equal((await state()).advanced, true);
+      assert.equal((await state()).driver.hybrid.enabled === true, false);
+      await assertChecked(advancedSwitch, true);
+      assert.equal(await settingsPage.locator('#page-hybrid-fovea').count(), 1);
+      await setError('', '');
+      await visit('#/hybrid-fovea');
+      await hybridSwitch.click(); await idle();
+      const beforeOff = (await finalWrites()).length;
+      await settingsPage.evaluate(() => {
+        __qa.holdWrites[__qa.data + '/settings.json'] = true;
+        void appContext.hybridAccess.setAdvancedMode(false);
+      });
+      await settingsPage.waitForFunction(() => __qa.pendingWrites.length === 1);
+      assert.equal((await state()).advanced, true);
+      assert.equal((await state()).driver.hybrid.enabled, true);
+      assert.equal((await state()).allowed, true);
+      assert.equal(await hybridSwitch.getAttribute('disabled'), '');
+      assert.deepEqual((await finalWrites()).slice(beforeOff), []);
+      await settingsPage.evaluate(() => __qa.releaseWrites()); await idle();
+      await settingsPage.waitForFunction(() => location.hash === '#/app-settings');
+      assert.equal((await state()).advanced, false);
+      assert.equal((await state()).driver.hybrid.enabled === true, false);
+      assert.deepEqual((await finalWrites()).slice(beforeOff).map(write => write.file), ['settings.json', 'gui-settings.json']);
+      assert.deepEqual(tuning((await state()).settings.hybrid), tuning(originalSettings.hybrid));
+      assert.equal(await settingsPage.locator('app-hybrid-fovea-page').count(), 0);
+      assert.equal(await settingsPage.locator('#page-hybrid-fovea').count(), 0);
+      results.push('Failed Hybrid Off keeps Advanced on; failed app save keeps Hybrid Off; ordered Off waits for native persistence and redirects the active Hybrid page');
+
+      await advancedSwitch.click(); await idle();
+      const graveyardSwitch = settingsPage.locator('[data-setting-id="streamFrame.graveyardEnable"] fluent-switch');
+      await graveyardSwitch.waitFor();
+      await visit('#/driver-settings');
+      assert.equal(await driverPage.locator('#section-controller-graveyard').count(), 0);
+      await visit('#/stream-frame');
+      assert.equal(await imagePage.locator('#section-graveyard').count(), 0);
+      await visit('#/app-settings');
+      await setError('settings.json', 'Fixture retired visibility save denied');
+      await graveyardSwitch.click();
+      await settingsPage.waitForFunction(() => !!appContext.dss.writeFileError());
+      await assertChecked(graveyardSwitch, false);
+      assert.equal((await state()).driver.streamFrame.graveyardEnable === true, false);
+      await setError('', '');
+      await graveyardSwitch.click();
+      await settingsPage.evaluate(() => appContext.dss.flush());
+      const retiredBefore = (await state()).settings;
+      await visit('#/driver-settings');
+      const controllerRetired = driverPage.locator('#section-controller-graveyard');
+      await controllerRetired.waitFor();
+      assert.equal(await controllerRetired.locator('.card-heading button').getAttribute('aria-expanded'), 'false');
+      await controllerRetired.locator('.card-heading button').click();
+      await controllerRetired.locator('[data-setting-id="streamFrame.kalmanGripEnable"]').waitFor();
+      await controllerRetired.getByText('Controller features are disabled. Saved experimental adjustments are kept.', { exact: true }).waitFor();
+      assert.equal(await controllerRetired.locator('[data-setting-id="streamFrame.kalmanGripEnable"] app-switch').evaluate(control => control.disabled), false);
+      const gripSwitch = controllerRetired.locator('[data-setting-id="streamFrame.kalmanGripEnable"] fluent-switch');
+      await gripSwitch.click();
+      await settingsPage.waitForFunction(() => appContext.dss.values().streamFrame.kalmanGripEnable === true);
+      await settingsPage.evaluate(() => appContext.dss.flush());
+      assert.equal((await state()).settings.galaxyXr.controllerBypass, true);
+      await gripSwitch.click();
+      await settingsPage.waitForFunction(() => appContext.dss.values().streamFrame.kalmanGripEnable === false);
+      await settingsPage.evaluate(() => appContext.dss.flush());
+      assert.deepEqual((await state()).settings, retiredBefore);
+      await controllerRetired.screenshot({ path: path.join(out, 'relocated-controller-experiments.png'), animations: 'disabled' });
+      await visit('#/stream-frame');
+      const imageRetired = imagePage.locator('#section-graveyard');
+      await imageRetired.waitFor();
+      assert.equal(await imageRetired.locator('.card-heading button').getAttribute('aria-expanded'), 'false');
+      await imageRetired.locator('.card-heading button').click();
+      await imageRetired.locator('[data-setting-id="streamFrame.eyeGaze.probeCapture"]').waitFor();
+      assert.equal(await imagePage.locator('[data-setting-id="streamFrame.kalmanGripEnable"]').count(), 0);
+      const beforeLinks = await finalWrites();
+      for (const [hash, canonical, id] of [
+        ['#/driver-settings?setting=galaxyXr.renderWidth', '#/stream-frame?setting=galaxyXr.renderWidth', 'galaxyXr.renderWidth'],
+        ['#/driver-settings?setting=galaxyXr.sdr10Baseline', '#/stream-frame?setting=galaxyXr.sdr10Baseline', 'galaxyXr.sdr10Baseline'],
+        ['#/stream-frame?setting=streamFrame.kalmanGripEnable', '#/driver-settings?setting=streamFrame.kalmanGripEnable', 'streamFrame.kalmanGripEnable'],
+      ]) {
+        await visit(hash, canonical.slice(2).split('?')[0]);
+        await settingsPage.waitForFunction(hash => location.hash === hash, canonical);
+        await settingsPage.locator(`[data-setting-id="${id}"]`).waitFor();
+        await settingsPage.waitForFunction(id => {
+          let active = document.activeElement;
+          while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+          return active?.getAttribute('data-setting-id') === id;
+        }, id);
+      }
+      assert.deepEqual(await finalWrites(), beforeLinks);
+      assert.deepEqual((await state()).settings, retiredBefore);
+      await visit('#/app-settings');
+      await graveyardSwitch.click(); await settingsPage.evaluate(() => appContext.dss.flush());
+      const retiredAfter = (await state()).settings;
+      assert.deepEqual({ ...retiredAfter, streamFrame: { ...retiredAfter.streamFrame, graveyardEnable: true } }, retiredBefore);
+      await advancedSwitch.click(); await idle();
+      assert.equal(await settingsPage.locator('[data-setting-id="streamFrame.graveyardEnable"]').count(), 0);
+      results.push('Retired visibility is Advanced-only; controller and image groups start collapsed, controller edits survive bypass, and old links focus relocated controls without writes');
+
+      const startupSeed = await settingsPage.evaluate(() => {
+        const driver = structuredClone(appContext.dss.values()); driver.hybrid.enabled = true;
+        // Materializing never-set ASW defaults must not introduce an unrelated migration.
+        driver.streamFrame.spacewarpSettingsVersion = 2;
+        const app = { ...appContext.appSetting.confirmedValues(), advanceMode: false };
+        __qa.files[__qa.data + '/settings.json'] = JSON.stringify(driver);
+        __qa.files[__qa.data + '/gui-settings.json'] = JSON.stringify(app);
+        sessionStorage.setItem('qa-files', JSON.stringify(__qa.files));
+        sessionStorage.setItem('qa-write-errors', JSON.stringify({ [__qa.data + '/settings.json']: 'Fixture startup Hybrid Off denied' }));
+        return { driver, app };
+      });
+      await settingsPage.reload();
+      await settingsPage.waitForFunction(() => window.appContext?.hybridAccess.error()); await idle();
+      await errorBar.filter({ hasText: 'Could not save Hybrid settings.' }).waitFor();
+      assert.equal((await state()).advanced, false);
+      assert.equal((await state()).driver.hybrid.enabled, true);
+      assert.equal(await settingsPage.locator('#page-hybrid-fovea').count(), 0);
+      await setError('', '');
+      await errorBar.getByText('Reload settings', { exact: true }).click(); await idle();
+      await errorBar.waitFor({ state: 'detached' });
+      assert.deepEqual((await state()).driver, { ...startupSeed.driver, hybrid: { ...startupSeed.driver.hybrid, enabled: false } });
+      assert.deepEqual((await state()).app, startupSeed.app);
+      assert.deepEqual((await finalWrites()).map(write => write.file), ['settings.json']);
+      await settingsPage.evaluate(() => sessionStorage.removeItem('qa-write-errors'));
+      await settingsPage.reload();
+      await settingsPage.waitForFunction(() => window.appContext?.sds.driverState() === 'installed');
+      await idle();
+      assert.equal((await state()).driver.hybrid.enabled, false);
+      assert.deepEqual((await state()).driver, { ...startupSeed.driver, hybrid: { ...startupSeed.driver.hybrid, enabled: false } });
+      assert.deepEqual((await finalWrites()).map(write => write.file), []);
+      assert.deepEqual(settingsErrors, []);
+      results.push('Startup reconciliation fails visibly with Hybrid inaccessible; Retry saves only Hybrid Off, preserves tuning, and reopening makes no redundant writes');
+    } catch (error) {
+      console.error(await settingsPage.evaluate(() => ({ hash: location.hash,
+        hybridError: window.appContext?.hybridAccess.error(), advanced: window.appContext?.appSetting.confirmedValues()?.advanceMode,
+        writes: window.__qa?.writes.map(write => write.target),
+      })));
+      await settingsPage.screenshot({ path: path.join(out, 'settings-relocation-failure.png'), animations: 'disabled' });
+      throw error;
+    } finally {
+      await settingsPage.close();
     }
     const debugSelections = () => page.evaluate(() => {
       const settings = appContext.dss.values(), sf = settings.streamFrame;
@@ -444,7 +727,7 @@ function fixture() {
       await appContext.appSetting.save({ ...appContext.appSetting.values(), advanceMode: true });
       appContext.galaxy.sections.set(Object.fromEntries(Object.entries(appContext.galaxy.sections()).map(([key]) => [key, true])));
     });
-    for (const route of ['driver-settings', 'stream-frame', 'debug', 'distortion-profile', 'app-settings', 'setup', 'about']) {
+    for (const route of ['driver-settings', 'stream-frame', 'hybrid-fovea', 'debug', 'distortion-profile', 'app-settings', 'setup', 'about']) {
       await openRoute(route);
       await assertCardDepth(route);
       assert.equal(await page.locator(`app-${route}-page .section-group > .section-group-label`).evaluateAll(labels =>
@@ -454,7 +737,7 @@ function fixture() {
     assert.equal(await page.locator('app-driver-settings-page #section-controllers-advanced').count(), 1);
     await openRoute('stream-frame');
     assert.equal(await page.locator('app-stream-frame-page #section-advanced').count(), 1);
-    results.push('All seven pages keep at most two real nested cards with Advanced controls open; Debug captured at wide/narrow widths in both themes');
+    results.push('All eight pages keep at most two real nested cards with Advanced controls open; Debug captured at wide/narrow widths in both themes');
 
     await openRoute('debug');
     await page.evaluate(async () => {
@@ -508,7 +791,7 @@ function fixture() {
         const app = window.appContext.appSetting;
         await app.save({ ...app.values(), colorScheme: theme });
       }, theme);
-      for (const route of ['driver-settings','stream-frame','distortion-profile','app-settings','setup','about']) {
+      for (const route of ['driver-settings','stream-frame','hybrid-fovea','distortion-profile','app-settings','setup','about']) {
         await openRoute(route);
         await page.screenshot({ path: path.join(out, `${route}-${theme}-1100.png`), animations: 'disabled' });
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -518,13 +801,13 @@ function fixture() {
       await page.setViewportSize({ width: 1100, height: 900 });
     }
     await page.setViewportSize({ width: 600, height: 900 });
-    for (const route of ['driver-settings','stream-frame','distortion-profile','app-settings','setup','about']) {
+    for (const route of ['driver-settings','stream-frame','hybrid-fovea','distortion-profile','app-settings','setup','about']) {
       await openRoute(route);
       await page.screenshot({ path: path.join(out, `${route}-dark-600.png`), animations: 'disabled' });
     }
     await page.setViewportSize({ width: 600, height: 1700 });
     await page.screenshot({ path: path.join(out, 'about-dark-600-full.png'), animations: 'disabled', fullPage: true });
-    results.push('Six production tabs captured in both themes and narrow layout');
+    results.push('Seven production tabs including Advanced-only Hybrid captured in both themes and narrow layout');
     await page.setViewportSize({ width: 1100, height: 900 });
     await openRoute('about');
     const about = page.locator('app-about-page');

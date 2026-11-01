@@ -16,6 +16,8 @@ export class DriverSettingService extends JsonSettingServiceBase<Settings> {
       const defaults = deepMerge(structuredClone(bundled), driverInfoService.values()?.defaultSettings ?? {});
       // 2026-10-01: stale telemetry must not change the master default or prune OFF.
       defaults.debugMode = bundled.debugMode;
+      // Missing Hybrid enable follows this package, never stale telemetry. Stored values still win.
+      if (defaults.hybrid) defaults.hybrid.enabled = bundled.hybrid?.enabled ?? false;
       // 2026-09-26: telemetry can outlive an installed package. Encoder toggles
       // and sparse saves must use that package's native defaults, otherwise an
       // explicit Off can be pruned and return as On on the next native load.

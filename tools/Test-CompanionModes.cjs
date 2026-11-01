@@ -275,6 +275,34 @@ const writes = h => h.fixture.calls.filter(x => x.kind === 'write' && x.path ===
     h.fixture.put(h.fixture.data + '/settings.json', values); await c.checks.refresh();
     assert.equal(c.galaxy.baselineRequested, true); assert.equal(c.galaxy.imageEnhancementsEnabled, false);
   }));
+  await test('Hybrid startup reconciles Advanced Off without resetting tuning', async () => scenario(s => {
+    s.hybrid.enabled = true; s.hybrid.guardDegrees = 7; s.hybrid.ring4Density = 0.4;
+  }, async (h, c) => {
+    await c.appSetting.save({ ...clone(c.appSetting.values()), advanceMode: false });
+    const before = clone(c.dss.values().hybrid);
+    await c.hybridAccess.start(); await c.hybridAccess.idle();
+    assert.equal(c.hybridAccess.allowed(), false);
+    assert.deepEqual(clone(c.dss.values().hybrid), { ...before, enabled: false });
+    assert.equal(JSON.parse(h.fixture.files.get(h.fixture.data + '/settings.json')).hybrid.enabled, false);
+  }));
+  await test('Hybrid needs explicit enable and stops before Advanced Off is saved', async () => scenario(() => {}, async (h, c) => {
+    await c.appSetting.save({ ...clone(c.appSetting.values()), advanceMode: false });
+    await c.hybridAccess.start();
+    assert.equal(await c.hybridAccess.setEnabled(true), false);
+    assert.equal(await c.hybridAccess.setAdvancedMode(true), true);
+    assert.equal(c.dss.values().hybrid.enabled, false);
+    assert.equal(await c.hybridAccess.setEnabled(true), true);
+    const before = clone(c.dss.values().hybrid), callCount = h.fixture.calls.length;
+    assert.equal(await c.hybridAccess.setAdvancedMode(false), true);
+    const actions = h.fixture.calls.slice(callCount).filter(call => call.kind === 'write');
+    const nativeOff = actions.findIndex(call => call.path === h.fixture.data + '/settings.json');
+    const appOff = actions.findIndex(call => call.path === h.fixture.data + '/gui-settings.json');
+    assert.ok(nativeOff >= 0 && appOff > nativeOff, 'native Off must be persisted first');
+    assert.deepEqual(clone(c.dss.values().hybrid), { ...before, enabled: false });
+    assert.equal(c.hybridAccess.allowed(), false);
+    assert.equal(await c.hybridAccess.setAdvancedMode(true), true);
+    assert.equal(c.dss.values().hybrid.enabled, false);
+  }));
   await test('Driver removal retains App Settings, Setup, and About even with Debug Mode selected', async () => scenario(s => { s.debugMode = true; }, async (h, c) => {
     assert.equal(nav.driverAvailable(c.sds.driverInstalled(), c.sds.driverState()), true);
     h.fixture.files.delete(h.fixture.runtime + '/drivers/GalaxyXRNative/bin/win64/driver_GalaxyXRNative.dll');

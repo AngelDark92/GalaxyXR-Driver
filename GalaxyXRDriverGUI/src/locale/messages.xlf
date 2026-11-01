@@ -5283,7 +5283,33 @@ Value: renderResolutionLinked (gui-settings.json) with galaxyXr.renderWidth and 
       <trans-unit id="hybrid-20261031-22" datatype="html"><source>Estimated ASTC cost: {bytes} bytes (16 bytes per block, estimated; measured per frame at runtime)</source></trans-unit>
       <trans-unit id="hybrid-20261101-01" datatype="html"><source>Status: {state} — {reason}; backend {backend}, {patchCount} patches, {foveaBytes} bytes, encode {encodeMs} ms</source></trans-unit>
       <trans-unit id="hybrid-20261031-25" datatype="html"><source>Status: no driver report yet</source></trans-unit>
-      <trans-unit id="hybrid-20261101-32" datatype="html"><source>Saved and applied live; stays on for later streams. The first time it is enabled during a stream it starts with the next headset connection. Base "Same as stream" uses the codec the stream runs (HEVC by default); H.264 streams are rejected visibly.</source></trans-unit>
+      <trans-unit id="hybrid-20261101-50" datatype="html"><source>Turns the experimental fovea on. While it runs, Steam Link's own fovea tile is cleared to grey, so a missing hybrid fovea is obvious instead of hidden. Saved, applied live and kept for later streams; the first enable during a stream starts at the next headset connection.
+
+Value: hybrid.enabled (settings.json).</source></trans-unit>
+      <trans-unit id="hybrid-20261101-51" datatype="html"><source>How the fovea patches are compressed. ASTC: GPU-encoded blocks, one fixed size per ring, made for direct GPU sampling on the headset. PyroWave: one wavelet image per eye, currently CPU-only and too slow for 90 Hz.
+
+Value: hybrid.foveaCodec (settings.json).</source></trans-unit>
+      <trans-unit id="hybrid-20261101-52" datatype="html"><source>Codec the base video must use. Same as stream follows the codec NVENC actually runs; HEVC or AV1 refuses any other codec instead of switching it. H.264 cannot carry the fovea.
+
+Value: hybrid.baseCodec (settings.json).</source></trans-unit>
+      <trans-unit id="hybrid-20261101-53" datatype="html"><source>Extra angle added to every ring, so the sharp area still covers your gaze when the eyes move between frames. Larger is safer but costs more bytes.
+
+Value: hybrid.guardDegrees (settings.json).</source></trans-unit>
+      <trans-unit id="hybrid-20261101-54" datatype="html"><source>Where ring {n} ends, in degrees from your gaze point (the guard angle is added on top). Each ring must end further out than the one before; parts beyond the stream's fovea tile are cut off.
+
+Value: hybrid.ring{n}Degrees (settings.json).</source></trans-unit>
+      <trans-unit id="hybrid-20261101-55" datatype="html"><source>ASTC block size for ring {n}: 4x4 is the sharpest (8 bits per pixel), 12x12 the smallest (about 0.9 bits per pixel). With PyroWave it sets how coarsely the ring is quantized instead.
+
+Value: hybrid.ring{n}Block (settings.json).</source></trans-unit>
+      <trans-unit id="hybrid-20261101-56" datatype="html"><source>Detail kept in ring {n}, relative to the game image: 1 is native, 0.5 is half resolution per axis (a quarter of the pixels). Lower values save bytes; the headset stretches the ring back.
+
+Value: hybrid.ring{n}Density (settings.json).</source></trans-unit>
+      <trans-unit id="hybrid-20261101-57" datatype="html"><source>Width of the soft blend at the fovea's outer edge, so the seam with the background is not a hard line. 0 gives a hard edge.
+
+Value: hybrid.featherPx (settings.json).</source></trans-unit>
+      <trans-unit id="hybrid-20261101-58" datatype="html"><source>Most bytes the fovea may use per frame. A ring plan above it is refused and shown in Status rather than silently reduced; 0 refuses every fovea.
+
+Value: hybrid.maxFoveaBytes (settings.json).</source></trans-unit>
       <trans-unit id="hybrid-20261101-31" datatype="html"><source>Same as stream</source></trans-unit>
       <trans-unit id="hybrid-20261101-33" datatype="html"><source>While the hybrid runs, the video's fovea tiles are cleared to grey before encoding: there is no video fallback, so a missing or broken hybrid fovea shows at once as grey. The headset compositor for the hybrid layer is not built yet, so a running hybrid currently shows a grey fovea.</source></trans-unit>
       <trans-unit id="hybrid-20261101-34" datatype="html"><source>To change it: Tile Width (Image Settings &gt; Stream Quality) sets the fovea size and the periphery sharpness; Render Width/Height per Eye (Driver Settings &gt; Headset) sets the pixels per degree everywhere, so a larger render makes the same tile cover fewer degrees. Both need a SteamVR restart. The ring settings below are live and spend bytes only inside this tile.</source></trans-unit>
@@ -5334,6 +5360,44 @@ Value: renderResolutionLinked (gui-settings.json) with galaxyXr.renderWidth and 
       <trans-unit id="hybrid-20261031-41" datatype="html"><source>Annulus bounds must be strictly increasing.</source></trans-unit>
       <trans-unit id="hybrid-20261031-42" datatype="html"><source>Hybrid fovea codec</source></trans-unit>
       <trans-unit id="hybrid-20261031-43" datatype="html"><source>Hybrid base codec</source></trans-unit>
+      <trans-unit id="settings-reorganization-a31ac7741912" datatype="html"><source>Render Resolution</source></trans-unit>
+      <trans-unit id="settings-reorganization-77e642affaea" datatype="html"><source>Show retired experiments</source></trans-unit>
+      <trans-unit id="settings-reorganization-761db69b9536" datatype="html"><source>Controller Experiments (Retired)</source></trans-unit>
+      <trans-unit id="settings-reorganization-03aed78ddce9" datatype="html"><source>Image Experiments (Retired)</source></trans-unit>
+      <trans-unit id="settings-reorganization-0336f722830c" datatype="html"><source>Headset identity controls are available in Advanced Mode.</source></trans-unit>
+      <trans-unit id="settings-reorganization-b158527162f1" datatype="html"><source>Controller features are disabled. Saved experimental adjustments are kept.</source></trans-unit>
+      <trans-unit id="settings-reorganization-6693332308c8" datatype="html"><source>This reset restores the existing field-retired defaults across both settings pages; other experiment values are kept.</source></trans-unit>
+      <trans-unit id="settings-reorganization-33c7321020eb" datatype="html"><source>Open image experiments</source></trans-unit>
+      <trans-unit id="settings-reorganization-58248840e782" datatype="html"><source>Stored: {value} px</source></trans-unit>
+      <trans-unit id="settings-reorganization-e97a921f6422" datatype="html"><source>Tile width is a preset class sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. The selected codec caps the tile: H.264 1024, HEVC/AV1 2048, because tile × 4 must fit the encoder&#39;s height. A stored value outside the presets is kept and shown here; choose a preset to replace it. Requires a SteamVR restart.
+
+Value: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap&#39;s tile answers.</source></trans-unit>
+      <trans-unit id="settings-reorganization-a0db3af7e9c4" datatype="html"><source>Send the stream as 10-bit SDR. On by default. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off. Switching back to HEVC or AV1 turns it on again; a saved Off on HEVC or AV1 is restored to On by the next codec switch.
+
+Turning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.
+
+Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit).</source></trans-unit>
+      <trans-unit id="settings-reorganization-bdfb36bfdb79" datatype="html"><source>Open controller experiments</source></trans-unit>
+      <trans-unit id="settings-reorganization-01bbcd81f7a3" datatype="html"><source>Experimental gaze-centered fovea encoding. Off until you enable it.</source></trans-unit>
+      <trans-unit id="settings-reorganization-cc6feade27dc" datatype="html"><source>To change it: Tile Width (Image Settings &gt; Stream Quality) sets the fovea size and the periphery sharpness; Render Width/Height per Eye (Image Settings &gt; Render Resolution) sets the pixels per degree everywhere, so a larger render makes the same tile cover fewer degrees. Both need a SteamVR restart. The ring settings below are live and spend bytes only inside this tile.</source></trans-unit>
+      <trans-unit id="settings-reorganization-abcfad2033f3" datatype="html"><source>Reveals advanced and encoder controls and unlocks the Hybrid Fovea page. Hybrid stays Off until enabled separately. Turning Advanced Mode off also turns Hybrid off, while keeping its tuning and all other advanced values.
+
+Value: advanceMode (gui-settings.json). Companion visibility preference; turning it off also saves Hybrid Off.</source></trans-unit>
+      <trans-unit id="settings-reorganization-7d1f9290dfd9" datatype="html"><source>Show encoder, controller, and calibration controls. Turning this off stops Hybrid Fovea and keeps its tuning.</source></trans-unit>
+      <trans-unit id="settings-reorganization-4631b7cb8ade" datatype="html"><source>Show retired controller and image experiments while Advanced Mode is on. This changes visibility only; hiding experiments never resets or disables their saved values.</source></trans-unit>
+      <trans-unit id="settings-reorganization-d49adeea6371" datatype="html"><source>Enable Advanced Mode in App Settings to open Hybrid Fovea.</source></trans-unit>
+      <trans-unit id="settings-reorganization-e1156e7e15fa" datatype="html"><source>Hybrid Fovea needs attention</source></trans-unit>
+      <trans-unit id="settings-reorganization-035e37bfa3e5" datatype="html"><source>Reload settings</source></trans-unit>
+      <trans-unit id="settings-reorganization-d605ed89f4ea" datatype="html"><source>Application settings could not be read. Repair gui-settings.json and retry.</source></trans-unit>
+      <trans-unit id="settings-reorganization-68bb0e06d9be" datatype="html"><source>Driver settings could not be read. Repair settings.json and retry.</source></trans-unit>
+      <trans-unit id="settings-reorganization-c7aaf8246398" datatype="html"><source>Driver settings are missing. Install the driver before enabling Hybrid.</source></trans-unit>
+      <trans-unit id="settings-reorganization-e25b75085fe3" datatype="html"><source>Could not save Hybrid settings. Check settings.json permissions and retry.</source></trans-unit>
+      <trans-unit id="settings-reorganization-75c798cc1f1a" datatype="html"><source>Could not save Advanced Mode. Check gui-settings.json permissions and retry.</source></trans-unit>
+      <trans-unit id="settings-reorganization-dac5f4964df5" datatype="html"><source>Hybrid is off, but Advanced Mode could not be saved. Check gui-settings.json permissions and retry.</source></trans-unit>
+      <trans-unit id="settings-reorganization-58f77045166c" datatype="html"><source>Enable Advanced Mode before enabling Hybrid.</source></trans-unit>
+      <trans-unit id="settings-reorganization-1e0f20b05358" datatype="html"><source>Settings are being inspected. Finish the settings check and retry.</source></trans-unit>
+      <trans-unit id="settings-reorganization-03c65b8416a1" datatype="html"><source>Hybrid settings could not be updated. Reload settings and retry.</source></trans-unit>
+      <trans-unit id="hybrid-advanced-inspection-conflict" datatype="html"><source>Hybrid is saved On while Advanced Mode is off. Reload settings to turn Hybrid off.</source></trans-unit>
     </body>
   </file>
 </xliff>

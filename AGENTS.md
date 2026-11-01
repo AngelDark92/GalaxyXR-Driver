@@ -44,9 +44,10 @@ Only two actions write per-codec optimized defaults on Stream Frame: switching t
 | SDR 10-bit baseline | On; H.264 turns it Off/disabled, logs it and suppresses the `supports10bit` request; HEVC or AV1 restore On |
 | `galaxyXr.profileSupports10bit` | User-owned; never rewritten by codec selection |
 | Image Enhancements | On; independent of the 10-bit baseline and never disables its switch |
+| Hybrid Fovea | Off by default; separate page requires saved Advanced Mode On. Advanced only unlocks access. Disabling Advanced saves Hybrid Off first; Companion startup/confirmed reloads with Advanced Off reconcile Hybrid Off. Preserve all other Hybrid tuning and report failures. |
 | H.264 tile | 1024x4096 negotiated class; other codecs use the 1536 class |
 
-Selected codecs are running codecs: no codec-to-codec fallback. A failed selection fails loudly with NVENC status and request in the log plus the evidence row. Capability-forced outcomes stay visible (driver log plus honest UI), never downgraded. Dated, versioned migrations are the only other permitted rewrites and cover never-set values only.
+Selected codecs are running codecs: no codec-to-codec fallback. A failed selection fails loudly with NVENC status and request in the log plus the evidence row. Capability-forced outcomes stay visible (driver log plus honest UI), never downgraded. Apart from the explicit Hybrid Advanced-access policy above, dated, versioned migrations are the only other permitted rewrites and cover never-set values only.
 
 ## External artifacts
 

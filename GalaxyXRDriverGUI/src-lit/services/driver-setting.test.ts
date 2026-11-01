@@ -68,6 +68,13 @@ describe('vendor defaults before info.json exists', () => {
     expect(service.values()?.streamFrame).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
   });
 
+  it.each(['', 'galaxyxr'])('keeps missing Hybrid disabled despite stale telemetry while preserving explicit enable for %s', async vendor => {
+    const stale = await load(vendor, {}, { hybrid: { enabled: true } });
+    expect(stale.values()?.hybrid?.enabled).toBe(false);
+    const explicit = await load(vendor, { hybrid: { enabled: true, guardDegrees: 6 } }, { hybrid: { enabled: false } });
+    expect(explicit.values()?.hybrid).toMatchObject({ enabled: true, guardDegrees: 6 });
+  });
+
   it.each(['', 'galaxyxr'])('pins the SDR10 default On for the %s build against stale info.json telemetry while a stored Off wins', async vendor => {
     const stale = await load(vendor, {}, { galaxyXr: { sdr10Baseline: false } });
     expect(stale.values()?.galaxyXr?.sdr10Baseline).toBe(true);

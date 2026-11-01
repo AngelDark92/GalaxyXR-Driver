@@ -16,6 +16,7 @@ import { GalaxySettingsBase } from './state/galaxy-settings';
 import { CurvePreviewPublisher, previewState } from './services/curve-preview';
 import { CompanionLifecycleService } from './services/companion-lifecycle';
 import { OfxrSessionService } from './services/ofxr-session';
+import { HybridAccessService } from './services/hybrid-access';
 import { WindowsStartupService } from './services/windows-startup';
 import { vendor } from './environment';
 import { listen } from '@tauri-apps/api/event';
@@ -36,6 +37,7 @@ export interface AppContext {
   lifecycle: CompanionLifecycleService;
   ofxr: OfxrSessionService;
   windowsStartup: WindowsStartupService;
+  hybridAccess: HybridAccessService;
   dispose(): void;
 }
 
@@ -51,10 +53,11 @@ export function createAppContext(paths: PathsService): AppContext {
   const sds = new SystemDiagnosticService(dss, dis, dialog, paths, appSetting);
   const aus = new AppUpdateService(sds, appSettingGetter);
   const galaxy = new GalaxySettingsBase(appSetting, dss, dis);
+  const hybridAccess = new HybridAccessService(appSetting, dss);
   const ofxr = new OfxrSessionService(appSetting, dss, galaxy);
   const windowsStartup = new WindowsStartupService(vendor);
   const lifecycle = new CompanionLifecycleService(appSetting, dialog, async () => {
-    await Promise.all([ofxr.idle(), windowsStartup.idle()]);
+    await Promise.all([ofxr.idle(), windowsStartup.idle(), hybridAccess.idle()]);
   });
   const startup = new DriverStartupService(sds);
   const curvePreview = new CurvePreviewPublisher(
@@ -116,10 +119,12 @@ export function createAppContext(paths: PathsService): AppContext {
     lifecycle,
     ofxr,
     windowsStartup,
+    hybridAccess,
     dispose() {
       disposed = true;
       for (const stop of stopCurveListeners.splice(0)) stop();
       lifecycle.dispose();
+      hybridAccess.dispose();
       ofxr.dispose();
       windowsStartup.dispose();
       curvePreview.dispose();

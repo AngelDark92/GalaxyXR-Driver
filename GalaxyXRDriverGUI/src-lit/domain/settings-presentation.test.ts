@@ -21,11 +21,16 @@ describe('human-readable settings inspection', () => {
   });
 
   it('binds every catalog entry to exactly one real field and keeps labels outside JSON paths', () => {
-    const sources = ['driver-settings', 'stream-frame', 'debug', 'distortion-profile', 'app-settings'].map(route =>
+    const sources = ['driver-settings', 'stream-frame', 'hybrid-fovea', 'debug', 'distortion-profile', 'app-settings'].map(route =>
       readFileSync(new URL(`../features/${route}-page.ts`, import.meta.url), 'utf8')).join('\n');
     const ids = [...sources.matchAll(/settingFieldRow\('([^']+)'/g)].map(match => match[1]);
     expect(new Set(SETTINGS_PRESENTATION.map(setting => setting.id)).size).toBe(SETTINGS_PRESENTATION.length);
     expect(ids.sort()).toEqual(SETTINGS_PRESENTATION.map(setting => setting.id).sort());
+    for (const route of ['driver-settings', 'stream-frame', 'hybrid-fovea', 'debug', 'distortion-profile', 'app-settings']) {
+      const source = readFileSync(new URL(`../features/${route}-page.ts`, import.meta.url), 'utf8');
+      const actual = [...source.matchAll(/settingFieldRow\('([^']+)'/g)].map(match => match[1]).sort();
+      expect(actual, route).toEqual(SETTINGS_PRESENTATION.filter(setting => setting.route === route).map(setting => setting.id).sort());
+    }
     const rows = presentSettings([], context());
     expect(rows.find(row => row.id === 'streamFrame.nvencForceCbr')?.location)
       .toEqual(['Image Settings', 'Encoder Advanced', 'Force Constant Bitrate']);
@@ -36,6 +41,36 @@ describe('human-readable settings inspection', () => {
     expect(rows.find(row => row.id === 'galaxyXr.controllerBypass')?.location)
       .toEqual(['Driver Settings', 'Controllers', 'Disable All Controller Features']);
     expect(rows.every(row => !row.location.join(' ').includes('.json'))).toBe(true);
+  });
+
+  it('moves image settings and retired controller links with their opening keys and gates', () => {
+    for (const id of ['galaxyXr.nativeResolution', 'galaxyXr.renderWidth', 'galaxyXr.renderHeight', 'renderResolutionLinked']) {
+      expect(settingPresentation(id)).toMatchObject({ route: 'stream-frame', containers: ['Render Resolution'], sections: ['heading:render-resolution'], advanced: false });
+    }
+    expect(settingPresentation('galaxyXr.sdr10Baseline')).toMatchObject({ route: 'stream-frame', sections: ['heading:image-processing'], advanced: false });
+    const c = context(); c.settings.galaxyXr!.controllerBypass = true; c.settings.streamFrame!.graveyardEnable = true;
+    const before = structuredClone(c);
+    for (const id of ['streamFrame.kalmanGripEnable', 'controllers.aligner.enable', 'streamFrame.deriveReleaseLatch']) {
+      const entry = settingPresentation(id)!;
+      expect(entry).toMatchObject({ route: 'driver-settings', sections: ['controllerGraveyard'], advanced: true, gate: 'graveyard' });
+      expect(settingUnavailable(entry, c)).toBeUndefined();
+    }
+    expect(classifyBoolean({ key: 'streamFrame.graveyardEnable', source: 'settings.json' })).toBe('control');
+    expect(c).toEqual(before);
+  });
+
+  it('requires actual Advanced preferences before revealing a Hybrid setting', () => {
+    const c = context(); const entry = settingPresentation('hybrid.enabled')!;
+    expect(entry.route).toBe('hybrid-fovea');
+    const before = structuredClone(c);
+    expect(settingUnavailable(entry, c)).toMatch(/Enable Advanced Mode/);
+    c.settings.debugMode = true;
+    expect(settingUnavailable(entry, c)).toMatch(/Enable Advanced Mode/);
+    expect(settingUnavailable(entry, { ...c, app: undefined })).toMatch(/Enable Advanced Mode/);
+    c.settings.debugMode = before.settings.debugMode;
+    expect(c).toEqual(before);
+    c.app.advanceMode = true;
+    expect(settingUnavailable(entry, c)).toBeUndefined();
   });
 
   it('presents choice rows with their real state instead of boolean Off', () => {
@@ -65,7 +100,7 @@ describe('human-readable settings inspection', () => {
 
   it('presents the render slider link as a GUI preference', () => {
     const row = presentSettings([], context()).find(entry => entry.id === 'renderResolutionLinked')!;
-    expect(row.location).toEqual(['Driver Settings', 'Headset', 'Render Resolution Sliders']);
+    expect(row.location).toEqual(['Image Settings', 'Render Resolution', 'Render Resolution Sliders']);
     expect(row.source).toBe('gui-settings.json');
     expect(row.state).toBe('On');
   });
