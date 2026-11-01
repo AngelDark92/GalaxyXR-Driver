@@ -1,7 +1,6 @@
 #include "../src/Driver/FrameProcessor.h"
 #include "../src/Driver/NvencTap.h"
 #include "../src/Driver/NvencPostPack.h"
-#include "../src/Driver/VrlinkTap.h"
 #include "../src/Driver/ReconLogger.h"
 #include "../src/Driver/ZeroCopy.h"
 #include "../src/Config/ConfigLoader.h"
@@ -19,7 +18,6 @@ int checks = 0;
 int failures = 0;
 int tapUpdates = 0;
 int postPackUpdates = 0;
-int vrlinkTapUpdates = 0;
 int installCalls = 0;
 int heartbeatCalls = 0;
 int bandwidthCalls = 0;
@@ -47,13 +45,11 @@ void Dispatch(const Config& config, const char* label) {
     settings.policy = gxr::ResolveSdr10Policy(config);
     const int previousTapUpdates = tapUpdates;
     const int previousPostPackUpdates = postPackUpdates;
-    const int previousVrlinkTapUpdates = vrlinkTapUpdates;
     const int previousInstallCalls = installCalls;
     const int previousHeartbeatCalls = heartbeatCalls;
     FrameProcessor::UpdateEncoderSettings(settings);
     Check(tapUpdates == previousTapUpdates + 1, std::string(label) + ": encoder snapshot published");
     Check(postPackUpdates == previousPostPackUpdates + 1, std::string(label) + ": post-pack snapshot published");
-    Check(vrlinkTapUpdates == previousVrlinkTapUpdates + 1, std::string(label) + ": vrlink tap snapshot published");
     Check(installCalls == previousInstallCalls + (config.streamFrame.nvencTap ? 1 : 0),
         std::string(label) + ": installation follows NVENC master");
     Check(heartbeatCalls == previousHeartbeatCalls + (config.streamFrame.nvencTap ? 1 : 0),
@@ -125,10 +121,6 @@ void NvencTap::SetConfig(const NvencTapConfig& value) { lastTap = value; ++tapUp
 void NvencTap::TryInstall() { ++installCalls; }
 void NvencTap::MaybeHeartbeat() { ++heartbeatCalls; }
 void NvencPostPack::SetConfig(const NvencPostPackConfig& value) { lastPostPack = value; ++postPackUpdates; }
-// 2026-10-17: the ASW publisher joined UpdateEncoderSettings (1488b1e); the
-// real VrlinkTap install/publish path never runs in this harness.
-VrlinkTap& VrlinkTap::Get() { static VrlinkTap tap; return tap; }
-void VrlinkTap::SetConfig(bool, int) { ++vrlinkTapUpdates; }
 int GalaxyXR_EffectiveBandwidthMbit() { ++bandwidthCalls; return 432; }
 int GalaxyXR_EffectiveTileWidth() { ++tileCalls; return 1536; }
 

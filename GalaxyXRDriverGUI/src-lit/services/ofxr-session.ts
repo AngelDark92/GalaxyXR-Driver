@@ -82,24 +82,9 @@ export class OfxrSessionService {
     if (this.app.readFileError() || this.driver.readFileError() || this.driver.inspecting || !this.galaxy.settings) {
       throw new Error(t('Read the saved driver and Companion settings successfully before enabling Optical Flow.'));
     }
-    const previousSpacewarp = !!this.galaxy.settings.spacewarpEnable;
     const previousEnabled = this.preferences().enabled;
-    // Startup must not rewrite a conflicting user setting. An explicit retry
-    // can turn ASW off through the same confirmed-save path as the switch.
-    if (restoring && previousSpacewarp) {
-      throw new Error(t('Optical Flow was not restored because Async Spacewarp is enabled. Enable Optical Flow again to switch modes.'));
-    }
-    let disabledSpacewarp = false;
     let savedEnable = false;
     try {
-      if (previousSpacewarp) {
-        this.galaxy.settings.spacewarpEnable = false;
-        if (!await this.galaxy.save() || this.galaxy.settings?.spacewarpEnable !== false) {
-          throw new Error(t('Async Spacewarp could not be saved Off. Optical Flow was not armed.'));
-        }
-        disabledSpacewarp = true;
-      }
-      if (this.disposed) return;
       const prefs = restoring ? this.preferences() : await this.save({ enabled: true });
       savedEnable = !restoring;
       if (this.disposed) return;
@@ -110,10 +95,6 @@ export class OfxrSessionService {
       if (savedEnable && !previousEnabled) {
         try { await this.save({ enabled: previousEnabled }); }
         catch (error) { errors.push(String(error)); }
-      }
-      if (disabledSpacewarp && this.galaxy.settings) {
-        this.galaxy.settings.spacewarpEnable = previousSpacewarp;
-        if (!await this.galaxy.save()) errors.push(t('The previous Async Spacewarp setting could not be restored.'));
       }
       await this.refreshStatus();
       throw new Error(errors.join(' '));
@@ -186,28 +167,6 @@ export class OfxrSessionService {
         await this.save({ enabled: false, version: '' });
         this.error.set(undefined);
       } finally { await this.refreshStatus(); }
-    });
-  }
-
-  setSpacewarp(enabled: boolean): Promise<void> {
-    return this.serialize(async () => {
-      // A different page or process may have armed the layer since this
-      // service last inspected the registry; the exclusion check must read
-      // live state (same rule as selectVersion below).
-      if (enabled) await this.refreshStatus();
-      if (enabled && this.galaxy.vendor && (this.preferences().enabled || this.isArmed() || this.status()?.state === 'armed_external')) {
-        await this.save({ enabled: false });
-        // Always confirm disarm, including a failed earlier Off operation.
-        try { this.status.set(await ofxr_disarm()); }
-        finally { await this.refreshStatus(); }
-        if (this.status()?.state === 'armed' || this.status()?.state === 'armed_external') {
-          throw new Error(t('Disarm Optical Flow from its current manager before enabling Async Spacewarp.'));
-        }
-      }
-      if (!this.galaxy.settings) return;
-      this.galaxy.settings.spacewarpEnable = enabled;
-      if (!await this.galaxy.save()) throw new Error(t('The Async Spacewarp setting could not be saved.'));
-      this.error.set(undefined);
     });
   }
 }

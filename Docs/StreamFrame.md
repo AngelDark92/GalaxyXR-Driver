@@ -46,7 +46,7 @@ The Stream Quality page shows all six codec recommendations. Changing codec appl
 
 Companion displays the latest accepted codec, dimensions, rate-control mode and split state, plus configuration/picture errors. Evidence must match a freshly verified SteamVR process, module and settings path and expires after five seconds; expiry schedules a real runtime status refresh and, while the verified process still matches, keeps the last observed rejection visible with its age instead of a waiting-only row. This reports encoder acceptance, not received headset frames or measured payload bitrate.
 
-**Start with Windows** (App Settings → Window, 2026-10-26) is independent of Optical Flow and defaults to Off. Enabling it registers the current portable Companion for your Windows account. At sign-in it starts in the tray and restores saved Optical Flow; manual launches open the window. It does not start SteamVR or change Optical Flow, Async Spacewarp, Minimize to tray or close-button preferences. Startup failures reveal the window for recovery. Quit stops Optical Flow for this session but leaves startup registration enabled for the next sign-in.
+**Start with Windows** (App Settings → Window, 2026-10-26) is independent of Optical Flow and defaults to Off. Enabling it registers the current portable Companion for your Windows account. At sign-in it starts in the tray and restores saved Optical Flow; manual launches open the window. It does not start SteamVR or change Optical Flow, Minimize to tray or close-button preferences. Startup failures reveal the window for recovery. Quit stops Optical Flow for this session but leaves startup registration enabled for the next sign-in.
 
 On first launch before driver installation, an absent `settings.json` is expected and does not raise a tray startup error. Companion preferences use their defaults in memory without creating settings files. Malformed or unreadable files still report errors; restoring saved Optical Flow still requires successfully loaded driver settings.
 
@@ -86,25 +86,18 @@ Settings live in `%APPDATA%\GalaxyXR\CustomHeadset\settings.json`, separate from
 
 Galaxy XR page:
 
-- **Headset**: Native Identity on, Override Render Resolution on, 3552×3840 per eye (defaults), Stream Quality: Tile Width 1536, Bandwidth 350 Mbit/s (defaults).
+- **Headset**: Native Identity on.
+- **Image Settings**: Render Resolution on, 3552×3840 per eye (defaults), Stream Quality: Tile Width 1536, Bandwidth 350 Mbit/s (defaults).
 - **Controllers**: Official Controller Layout on. Controller Motion Filter: Kalman CA (default). Leave the offsets alone unless the controllers visibly sit wrong in your hand, the shipped values were measured against the official models.
 - **Image Processing**: Enable on.
 
 Device pages: leave **Custom Shader disabled**. The Galaxy XR image processing replaces it for streamed HMDs, the page warns if both are active with color adjustments.
 
-## Frame synthesis (Async Spacewarp)
+## Frame synthesis
 
-Async Spacewarp is a Stream Frame switch, Off by default. It asks the headset client to synthesize frames. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. Only one synthesis mode runs at a time: enabling it turns Optical Flow off.
-
-**Automatic and Force half-rate (2026-10-26).** `streamFrame.spacewarpMode` is a separate **Force half-rate** switch beside Async Spacewarp. Off is Automatic: the driver samples the application's own frame timings and publishes normal late-frame recovery (carrier 1) until the measured cadence stays below 90% of the headset refresh for 500 ms, then half rate (carrier 2). It returns to late-frame recovery after the cadence stays at or above 97% for two seconds. One second of valid timing history is required before the first automatic decision; stale timing (over 500 ms), an application change, a reconnect or a refresh change resets the decision to normal late-frame recovery. Force half-rate keeps carrier 2 on regardless of game FPS. Requested and effective modes are separate: automatic transitions never rewrite the saved enable/mode choice.
-
-Half rate is client-side frame selection: 45 selected stream frames plus 45 synthetic display slots at 90 Hz (36/36 at 72 Hz). It does not throttle the game or promise upstream GPU savings; selected stream frames may already contain repeated or reprojected game content. The client layer estimates motion from two immutable selected composites A/B, rotation-aligns A into B, extrapolates B at the nominal interleaved scale 1.5, and renders into owned runtime swapchains. Fresh frames arriving in synthetic slots are discarded from presentation and history. A synthetic failure submits the original composite and does not shift the alternating phase; source age beyond two selected-real periods or scale beyond 3 also falls back to stock.
+**Async Spacewarp is retired and deleted (2026-11-01).** It could only be implemented by tapping vrlink's private in-process value transport or by running a separate listener beside Steam Link; neither is a supported or stable integration point. The host publisher, automatic half-rate tracker, settings, status rows and ASW-specific tests are removed. Saved `streamFrame.spacewarpEnable`, `spacewarpMode` and `spacewarpSettingsVersion` keys are ignored and pruned from the Companion's next settings save. Optical Flow is the supported PC-side synthesis path. See [Async Spacewarp (retired and deleted)](RetiredHalfRateASW.md).
 
 Optical Flow (OFXR Bridge, 2026-10-17; fork import 2026-10-23): the Companion arms an OpenXR layer that synthesizes intermediate frames on the PC. It bundles djules75's v0.2.14.2 (V557) payload and accepts any downloaded fork through **Install from folder…** without a version-compatibility check. The Companion writes only the settings shared by the verified forks; NVIDIA OFA resolution, Hybrid, 3X, frame-generation mode, Vulkan/D3D11 bridges and other build-specific keys stay in the downloaded build's own tray and are preserved by the merge. See [OFXR Bridge builds](OFXRBridge.md).
-
-Both values are saved in `settings.json` (`streamFrame.spacewarpEnable`, `streamFrame.spacewarpMode`) and apply live to a running stream. The dated semantics stamp `streamFrame.spacewarpSettingsVersion` advances to 2 without rewriting an existing enable/mode selection. The Companion's green **Active** row confirms only that the driver published the request. It does not guarantee that the headset is synthesizing frames or that motion will be smoother, so the client patch is required to show anything.
-
-Disabling ASW publishes carrier 0. The client observes that value on its 60-endframe control cadence (about 0.67 seconds at 90 Hz or 0.83 seconds at 72 Hz after delivery) and releases synthesis resources on their owning EGL context, including resources from a failed initialization. Settled Off performs no synthesis, history copies, motion estimation or GPU timing queries; decoded-image arrival learning also stops. The implicit layer, control/descriptor bookkeeping and image-ownership FIFO tracking (including its locking) remain active for correct live re-enable with images acquired across frame boundaries, so this is not a claim of literally zero overhead or measured headset performance parity. If publication fails, the driver retries; the headset must actually receive Off before its synthesis stops.
 
 After changing anything in the Headset section or the input profile, restart SteamVR.
 

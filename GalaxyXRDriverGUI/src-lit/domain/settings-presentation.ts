@@ -82,11 +82,6 @@ const controllerDebug = group('debug', ['Controllers', 'Diagnostics'], ['debugCo
 controllerDebug('streamFrame.poseLogging', 'Motion Logging');
 controllerDebug('streamFrame.poseLogBurst', 'Motion Logging: Burst');
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.nvencTap', 'Override NVIDIA Encoder');
-// Async Spacewarp (2026-10-17; 2026-10-26): stream synthesis toggle and the
-// separate Force half-rate switch; both rows live in the vendor build's Stream
-// Quality branch, so they mirror nvencTap's gate.
-group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpEnable', 'Async Spacewarp');
-group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpMode', 'Force half-rate', { kind: 'value' });
 // Optical Flow (2026-10-17; 2026-10-23): the managed OFXR Bridge card. The
 // remaining rows are gui-settings.json values owned by the Companion; the
 // page's Enable switch is additionally gated by the native ofxr_status()
@@ -265,7 +260,6 @@ function formatValue(id: string, value: unknown): string {
     case 'ofxr.overlay': return ofxrOverlayLabel(value);
     case 'ofxr.version': return String(value) || 'Automatic (newest installed)';
     case 'streamFrame.nvencCodec': return codecLabel(value);
-    case 'streamFrame.spacewarpMode': return value === 1 ? 'On' : 'Off';
     case 'streamFrame.nvencBitrateCurve': return bitrateCurveLabel(value);
     case 'streamFrame.nvencBitrateConstancyPct': return `${value}%`;
     default: return formatSettingValue(value);
@@ -282,7 +276,7 @@ export function formatCheckValue(check: SettingCheck): string {
 const INTERNAL_VALUE_KEYS = new Set([
   'galaxyXr.sdr10SettingsVersion', 'galaxyXr.renderModelVariant', 'galaxyXr.streamQuality',
   'galaxyXr.customEncodeWidth', 'galaxyXr.customStreamFormatWidthOverride', 'galaxyXr.profileMaxStreamFormatWidth',
-  'streamFrame.nvencSettingsVersion', 'streamFrame.spacewarpSettingsVersion', 'streamFrame.streamFrameSchema',
+  'streamFrame.nvencSettingsVersion', 'streamFrame.streamFrameSchema',
   'streamFrame.nvencValidationError', 'streamFrame.distortion.enable', 'streamFrame.pupilSwim.enable',
   'streamFrame.distortion.points', 'streamFrame.distortion.curves',
   'streamFrame.pupilSwim.centerStrengthX', 'streamFrame.pupilSwim.centerStrengthY',

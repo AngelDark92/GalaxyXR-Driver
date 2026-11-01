@@ -20,9 +20,7 @@ For the new mode/navigation regression suite, run `node ../tools/Test-CompanionM
 
 Optical Flow needs the Companion to remain running while you play. Its card displays this requirement even with Advanced Mode off. Enable it before launching or restarting the game.
 
-On reopening the Companion, a saved enabled selection is armed again after both settings files load successfully. The Enable switch reflects the Companion's current armed state; a failed restore appears beside that switch and can be retried by enabling it again. If Async Spacewarp is also saved On, startup leaves it untouched and asks you to enable Optical Flow again to switch modes. An explicit mode switch waits for the Async Spacewarp Off write to succeed before arming OFXR.
-
-Async Spacewarp's separate **Force half-rate** switch stores mode 1; Off is Automatic (2026-10-26). Automatic publishes normal late-frame recovery until the application's measured cadence stays below 90% of the headset refresh for 500 ms, then half rate; it returns to normal after the cadence stays at or above 97% for two seconds. Force half-rate keeps it on regardless of game FPS. Half rate is client-side frame selection (45 selected stream frames plus 45 synthetic display slots at 90 Hz; 36/36 at 72 Hz); it does not throttle the game or promise PC GPU savings. The dated `spacewarpSettingsVersion` migration advances without rewriting a saved enable/mode choice.
+On reopening the Companion, a saved enabled selection is armed again after both settings files load successfully. The Enable switch reflects the Companion's current armed state; a failed restore appears beside that switch and can be retried by enabling it again.
 
 An explicitly selected OFXR version must be available exactly: the Companion reports a missing version instead of loading another one. Reinstall uses the matching bundled payload and preserves external OFXR installations; Automatic reinstalls the bundled seed. An enabled selection is rearmed after reinstall. Uninstall Optical Flow removes Companion-owned registration and runtime directories.
 
@@ -30,7 +28,7 @@ OFXR is an OpenXR layer, so ordinary OpenVR games do not automatically use it. I
 
 **Minimize to tray** is On by default under **App Settings → Window**. The Minimize button hides the Companion and its visible graph preview to the system tray without stopping Optical Flow. Click the tray icon or choose **Open Companion** to restore it. Choose **Quit** to save pending edits, exit, and disarm Optical Flow. The window's Close (X) button asks first and closes the Companion; the **Close button** row on the same page can make it close immediately or minimize instead.
 
-Turn the preference Off for normal taskbar minimization; the X follows the **Close button** row either way. The choice applies immediately and is preserved across launches. An older preferences file without the key receives the On default. Tray failures stay visible and keep the window accessible. ASW runs in the driver and patched headset client and does not require the Companion window to remain open.
+Turn the preference Off for normal taskbar minimization; the X follows the **Close button** row either way. The choice applies immediately and is preserved across launches. An older preferences file without the key receives the On default. Tray failures stay visible and keep the window accessible.
 
 When hidden to the tray, the Companion and graph explicitly hide their WebViews and request WebView2's Low memory target. Restoring a window requests Normal again. This is best effort cache/memory reduction; the app keeps scripts running for settings saves and Quit. No fixed amount of reclaimed RAM is guaranteed. Hidden pages defer reactive redraws until visible, and normal Chromium background throttling remains enabled.
 

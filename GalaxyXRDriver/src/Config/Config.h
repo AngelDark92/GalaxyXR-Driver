@@ -803,26 +803,6 @@ struct StreamFrameConfig{
 	// wall: NVENC surfaces untouched). our per-eye traffic 4x -> 2x.
 	// EXPERIMENTAL: one dedicated toggle-on test in a disposable session.
 	bool zeroCopyV3 = false;
-	// 2026-10-17 add-feature (brief 11-W2B): async spacewarp toggle. false =
-	// stock stream (default conservative-off). true is routed through
-	// VrlinkTap on every hot reload (FrameProcessor::UpdateEncoderSettings),
-	// which publishes the effective mode to the client over the pinned vrlink
-	// value-transport impl — see VrlinkTap.h for the pinned gate contract.
-	bool spacewarpEnable = false;
-	// 2026-10-26 (owner directive): which synthesis mode the client runs while
-	// the toggle is on, carried on the same value-transport id (4-byte value:
-	// 0 = off, 1 = late-frame recovery, 2 = half rate). The stored value is
-	// 0 = Automatic (late-frame recovery until the measured application cadence
-	// stays below 90% of refresh, then half rate) and 1 = Forced half rate.
-	// Any other stored value applies as Automatic and is never rewritten.
-	// Requested mode (this value) and effective mode (runtime carrier) are
-	// separate; automatic transitions never rewrite settings.json.
-	int spacewarpMode = 0;
-	// Async Spacewarp settings-semantics version (2026-10-26). 1/absent = the
-	// pre-automatic file that still stores the same 0/1 values; 2 = read under
-	// the Automatic/Forced semantics. The migration stamps this only and never
-	// rewrites the enable/mode selection. Mirrors the GUI's dated block.
-	int spacewarpSettingsVersion = 1;
 	// NVENC tap (ACTIVE since 2026-08-27, see NvencTap.h). hooks vrlink's
 	// encoder init/reconfigure. every override is retried with vrlink's
 	// own params on failure, so worst case is stock behaviour + a log line.

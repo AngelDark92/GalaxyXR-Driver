@@ -158,9 +158,6 @@
     <ClCompile Include="src\Driver\NvencTap.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\Driver\VrlinkTap.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\Driver\VrlinkFallbackTap.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

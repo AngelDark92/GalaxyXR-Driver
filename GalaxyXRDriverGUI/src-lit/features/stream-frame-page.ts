@@ -10,16 +10,17 @@ import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionHeadin
 import { t } from '../locale/i18n';
 import { pageIntro, statusMessage, type FieldNotice } from '../ui/presentation';
 import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
-import { spacewarpStatus } from '../domain/spacewarp-status';
-import { isForcedHalfRate, modeForForceSwitch, spacewarpPublication } from '../domain/spacewarp-modes';
 import { codecSwitchState } from '../domain/codec-selection';
 import { ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
+import { driverDefaults } from '../domain/driver-defaults';
+import { renderLongEdge } from '../state/galaxy-settings';
 import { codecEncoderDefaults } from '../state/galaxy-settings';
 import { crossFieldIssues } from '../domain/control-specs';
 import { BITRATE_CURVE_FAMILIES } from '../domain/bitrate-curve';
 import { open } from '@tauri-apps/plugin-dialog';
 import '../ui/controls';
+import type { AppSwitch } from '../ui/controls';
 import './driver-banner';
 import './system-ready';
 
@@ -146,7 +147,6 @@ export class StreamFramePage extends BasePage {
   private reinstallOfxr(): Promise<void> { return this.ctx.ofxr.reinstall(); }
   private removeOfxr(): Promise<void> { return this.ctx.ofxr.remove(); }
   private updateOfxr(patch: Partial<OfxrPreferences>): Promise<void> { return this.ctx.ofxr.update(patch); }
-  private setSpacewarp(enabled: boolean): Promise<void> { return this.ctx.ofxr.setSpacewarp(enabled); }
   // 2026-10-19 (owner directive): a codec switch is live-session-sensitive, so
   // the runtime is re-checked when the user commits it. A refused switch puts
   // the control back on the saved codec; the setting never changes silently.
@@ -206,7 +206,6 @@ export class StreamFramePage extends BasePage {
       text-transform: uppercase; letter-spacing: 0.04em;
     }
     .evidence-strip .v { font-variant-numeric: tabular-nums; font-weight: 600; overflow-wrap: anywhere; }
-    .spacewarp-controls { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .rgb-control span { opacity: 0.75; font-size: 90%; }
     .matrix-control { flex-direction: column; align-items: flex-start; gap: 0.3rem; }
     .note-inline { opacity: 0.75; font-size: 0.9rem; }
@@ -455,36 +454,6 @@ if (vendor) {
   tip: t("Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.\n\nAn encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.\n\nValue: streamFrame.nvencTap (settings.json). Encoder side — hooks NVIDIA NVENC session creation and reconfiguration."),
   reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
             }));
-        // 2026-10-26 (owner directive): Automatic is the saved mode 0 and the
-        // separate Force half-rate switch stores mode 1. Both values are
-        // user-owned; an automatic runtime transition never rewrites them.
-        const spacewarpMode = settings.spacewarpMode ?? 0;
-        parts.push(settingFieldRow('streamFrame.spacewarpEnable', html`
-      <span class="spacewarp-controls"><app-switch .checked=${!!settings.spacewarpEnable} ?disabled=${this.ctx.ofxr.changing()} @change=${(e: CustomEvent) => { void this.setSpacewarp(e.detail); }}></app-switch></span>
-            `, {
-  tip: `${t("Applies live to the running stream. Async Spacewarp synthesizes frames on the headset client when the stream misses a display tick. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. When your graphics card supports optical flow (NVIDIA Turing generation or newer with Optical Flow hardware), prefer Optical Flow: it synthesizes on the PC with hardware motion vectors and needs no headset patch. Only one synthesis mode runs at a time: enabling this turns Optical Flow off, and enabling Optical Flow turns this off.\n\nAutomatic enters half rate after the application cadence stays below 90% of the headset refresh for 500 ms, and returns to normal late-frame recovery after it stays at or above 97% for two seconds. Force half-rate keeps half rate on regardless of game FPS. Half rate targets 45 selected stream frames plus 45 synthetic display slots at 90 Hz (36/36 at 72 Hz); it does not throttle the game or promise upstream GPU savings, and selected stream frames may already contain repeated or reprojected game content.\n\nValue: streamFrame.spacewarpEnable and streamFrame.spacewarpMode (settings.json). Stream side — publishes the effective mode live to the running vrlink stream; the headset client synthesizes the frames.")}`,
-  reset: { can: settings.spacewarpEnable != defaults.spacewarpEnable, on: () => { galaxy.reset('spacewarpEnable'); } }
-            }));
-        parts.push(settingFieldRow('streamFrame.spacewarpMode', html`
-      <span class="spacewarp-controls"><app-switch .checked=${isForcedHalfRate(spacewarpMode)} ?disabled=${!settings.spacewarpEnable || this.ctx.ofxr.changing()} @change=${(e: CustomEvent) => { settings.spacewarpMode = modeForForceSwitch(!!e.detail); save(); }}></app-switch></span>
-            `, {
-  tip: t("Keep half-rate presentation on regardless of game FPS. Off is Automatic: the driver publishes normal late-frame recovery until the measured application cadence stays below 90% of the headset refresh for 500 ms, then half rate; it returns to normal after the cadence stays at or above 97% for two seconds. The measurement uses the application's frame timings, never compositor, encoder or decoder FPS. Automatic and forced transitions publish live to the running stream without rewriting your saved enable/mode choice.\n\nHalf rate is client-side frame selection: 45 selected stream frames plus 45 synthetic display slots at 90 Hz (36/36 at 72 Hz). It does not throttle the game or promise upstream GPU savings, and selected stream frames may already contain repeated or reprojected game content.\n\nValue: streamFrame.spacewarpMode (settings.json). 0 = Automatic, 1 = Forced half rate. Changes apply live to the running stream."),
-  reset: { can: spacewarpMode != defaults.spacewarpMode, on: () => { galaxy.reset('spacewarpMode'); } }
-            }));
-        {
-          const spacewarpState = spacewarpStatus(!!settings.spacewarpEnable, this.ctx.dis.values(), this.ctx.startup.status());
-          const publication = spacewarpPublication(this.ctx.dis.values()?.spacewarp);
-          const deliveredNote = publication.mode === 'half' ? t('The driver currently publishes half rate.')
-            : publication.mode === 'late' ? t('The driver currently publishes late-frame recovery.')
-              : t('The published mode is not reported by this driver.');
-          const modeNote = publication.pending ? `${deliveredNote} ${t('A mode change is pending publication.')}` : deliveredNote;
-          parts.push(statusMessage(spacewarpState === 'on' ? 'success' : spacewarpState === 'waiting' ? 'warning' : 'info',
-            t(spacewarpState === 'on' ? 'Async Spacewarp: Active' : spacewarpState === 'waiting' ? 'Async Spacewarp: Waiting for stream' : 'Async Spacewarp: Off'),
-            spacewarpState === 'on'
-              ? t('Green confirms that the driver published the request. It does not guarantee that the headset is synthesizing frames or that motion will be smoother. {mode} Frames are synthesized only while the headset client patch is active.', { mode: modeNote })
-              : spacewarpState === 'waiting' ? t('The saved value is not confirmed by the running stream yet. Green confirms that the driver published the request. It does not guarantee that the headset is synthesizing frames or that motion will be smoother. When this persists while streaming, the headset needs the GXR spacewarp client patch (experimental) to synthesize frames; without it the stream shows extra held frames instead of synthesized frames.')
-              : t('The stream is left unchanged; no frames are synthesized.')));
-        }
         // 2026-10-19 (owner directive): a codec switch made while SteamVR is
         // running would land in settings.json under a live session instead of
         // waiting for the next start, so the selector stays disabled until the
@@ -758,7 +727,7 @@ if (vendor && settings) {
       ${this.ofxrError ? html`<span class="mode-error" role="alert">${this.ofxrError}</span>` : ''}
             `, {
   notices: [ofxrRuntimeNotice],
-  tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, quitting the Companion disarms it; minimizing or closing to the tray keeps it running. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
+  tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, quitting the Companion disarms it; minimizing or closing to the tray keeps it running.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
             }));
         parts.push(settingFieldRow('ofxr.mode', html`
       <app-select .value=${ofxr.mode} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed()} .options=${[
