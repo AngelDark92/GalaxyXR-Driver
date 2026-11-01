@@ -12,6 +12,7 @@
 #include "HybridConfigGlue.h"
 #include <chrono>
 #include <set>
+#include <string>
 #include <map>
 #include <memory>
 #include <vector>
@@ -239,6 +240,8 @@ std::atomic<int> h264FileSelLogged{0};
 // one-shot logs for the probe-driven open-time decisions and their rejections
 std::atomic<int> openProbeLogged{0};
 std::atomic<int> openRejectLogged{0};
+// one-shot log for the hard failure of a selected hybrid mode that cannot run
+std::atomic<int> hybridBlockLogged{0};
 // one-shot note for the observe-only encodeConfig-less init/reconfigure path
 std::atomic<int> observeOnlyLogged{0};
 // SDK 12.1 struct versions (NVENCAPI_VERSION 12|1<<24 = 0x0100000C)
@@ -1781,6 +1784,15 @@ void ForgetHybridEncoder(void* encoder){
 }  // namespace
 
 NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARAMS* params){
+	// Covers a hybrid mode rejected after the session opened (hot reload): every frame fails
+	// rather than the base codec quietly carrying a stream the user believes is foveated.
+	if(gxh1::Producer::Get().BlocksStream()){
+		const std::string why = gxh1::Producer::Get().Snapshot().reason;
+		if(hybridBlockLogged.fetch_add(1) < 1){
+			DriverLog("NvencTap: refusing NVENC encode (status %u) — hybrid fovea is enabled but the producer rejected it (%s). No fallback: the stream fails instead of running without the selected fovea.", (unsigned)NV_ENC_ERR_INVALID_CALL, why.c_str());
+		}
+		return NV_ENC_ERR_INVALID_CALL;
+	}
 	const NvencTapConfig qcfg = NvencTap::Get().GetConfig();
 	// 2026-09-30: OFF keeps only the ABI adapter required by live 12.1 sessions.
 	if(!qcfg.enabled){
@@ -2292,6 +2304,15 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 
 // ---- session upgrade shims ----
 NVENCSTATUS NVENCAPI NvencTapShims::OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS* params, void** encoder){
+	// A selected hybrid mode that cannot run fails the stream here. The mode is never skipped
+	// silently so the base codec does not stand in for a mode the user believes is applied.
+	if(gxh1::Producer::Get().BlocksStream()){
+		const std::string why = gxh1::Producer::Get().Snapshot().reason;
+		if(hybridBlockLogged.fetch_add(1) < 1){
+			DriverLog("NvencTap: refusing the NVENC session (status %u) — hybrid fovea is enabled but the producer rejected it (%s). No fallback: the stream fails instead of running without the selected fovea.", (unsigned)NV_ENC_ERR_INVALID_CALL, why.c_str());
+		}
+		return NV_ENC_ERR_INVALID_CALL;
+	}
 	if(!params || !encoder || !UpgradeWanted() || params->apiVersion != kApi111){
 		return origOpenEncodeSessionEx(params, encoder);
 	}

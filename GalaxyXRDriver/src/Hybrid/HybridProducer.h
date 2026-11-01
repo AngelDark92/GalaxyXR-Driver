@@ -159,6 +159,9 @@ public:
 	bool CommitIfCurrent(uint64_t frameId, const std::function<void()>& commit);
 	const FoveaPlan* InflightPlan() const { return &inflightPlan_; }
 	ProducerStatus Snapshot() const;
+	// True when a hybrid mode is enabled but cannot run. The NVENC seam refuses to encode in
+	// that state so the stream fails visibly instead of silently running without the mode.
+	bool BlocksStream() const;
 	void Shutdown();
 
 	// Assembles a GXH1 envelope around `au`. The returned buffer owns the base AU copy and

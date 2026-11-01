@@ -214,8 +214,11 @@ void Producer::Configure(const ProducerConfig& config, uint8_t runningBaseCodec)
 		return;
 	}
 
+	// No readiness bridge exists, so peerReady_ can never become true. WaitingPeer would claim
+	// the mode is still coming up when it can never start; reject it instead, and let the NVENC
+	// seam fail the stream so the selected mode is never silently not applied.
 	if (config.requireReadyPeer && !peerReady_) {
-		SetState(ProducerState::WaitingPeer, "peer_not_ready");
+		SetState(ProducerState::Rejected, "no_readiness_bridge");
 		return;
 	}
 	{
@@ -780,6 +783,13 @@ bool Producer::AcceptsLiveBase(uint8_t liveBase) {
 ProducerStatus Producer::Snapshot() const {
 	std::lock_guard<std::mutex> lock(mutex_);
 	return status_;
+}
+
+bool Producer::BlocksStream() const {
+	std::lock_guard<std::mutex> lock(mutex_);
+	// Configure() only reports Off when hybrid is disabled, so Rejected always means a mode was
+	// selected and cannot run.
+	return status_.state == ProducerState::Rejected;
 }
 
 bool Producer::WrapAccessUnit(const uint8_t* au, size_t auBytes, uint8_t baseFormat, const EncodedFrame& fovea,

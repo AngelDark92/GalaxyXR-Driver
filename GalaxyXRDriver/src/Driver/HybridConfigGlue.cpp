@@ -3,10 +3,12 @@
 #include <atomic>
 #include <cstring>
 #include <mutex>
+#include <string>
 
 #include "../Config/Config.h"
 #include "../Hybrid/HybridProducer.h"
 #include "AstcGpuEncoder.h"
+#include "DriverLog.h"
 #include "HybridCapture.h"
 #include "NvencTap.h"
 
@@ -126,6 +128,27 @@ void ApplyHybridDriverConfig() {
 			gxh1::InitAstcGpuEncoder(nullptr);
 		}
 		gxh1::Producer::Get().Configure(desired, runningBase);
+		{
+			// Record every admission, rejection and degrade. A selected mode that cannot run has
+			// to be visible in the driver log, never inferred from its absence of effect.
+			const gxh1::ProducerStatus hs = gxh1::Producer::Get().Snapshot();
+			static int lastState = -1;
+			static std::string lastReason;
+			if (lastState != static_cast<int>(hs.state) || lastReason != hs.reason) {
+				lastState = static_cast<int>(hs.state);
+				lastReason = hs.reason;
+				const char* name = "off";
+				switch (hs.state) {
+				case gxh1::ProducerState::Off: name = "off"; break;
+				case gxh1::ProducerState::WaitingPeer: name = "waiting_peer"; break;
+				case gxh1::ProducerState::Active: name = "active"; break;
+				case gxh1::ProducerState::Degraded: name = "degraded"; break;
+				case gxh1::ProducerState::Rejected: name = "rejected"; break;
+				}
+				DriverLog("Hybrid: producer state %s (reason %s); foveaCodec %d, base codec %d",
+					name, hs.reason.c_str(), desired.foveaCodec, static_cast<int>(runningBase));
+			}
+		}
 		if (!gxh1::Producer::Get().WantsCapture()) {
 			// Mode off, rejected or waiting: release the staging texture and the encoder
 			// device so the idle path owns no custom GPU resource. The seam is registered

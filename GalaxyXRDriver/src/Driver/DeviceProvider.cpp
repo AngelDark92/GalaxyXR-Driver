@@ -282,7 +282,13 @@ void GalaxyXRDeviceProvider::RunFrame(){
 		return;
 	}
 	
+	// 2026-11-01: ConfigLoader::WriteInfo() takes driverConfigLock itself, so publishing
+	// from inside this scope re-enters a non-recursive mutex and hangs the frame thread on
+	// the first HMD activation or dashboard change. Collect the request and write after the
+	// lock is released, at the end of the frame.
+	bool publishInfo = false;
 	// acquire driverConfig.configLock for the duration of this function
+	{
 	std::lock_guard<std::mutex> lock(driverConfigLock);
 	// 2026-10-01: a disabled interval must not leak into the next diagnostic
 	// session. Reset telemetry only; preserve estimates and motion clocks.
@@ -342,20 +348,20 @@ void GalaxyXRDeviceProvider::RunFrame(){
 				// DriverLog("Device %d has driver direct mode component: %s", vrevent.trackedDeviceIndex, vr::VRProperties()->GetBoolProperty(container, vr::Prop_HasDriverDirectModeComponent_Bool) ? "true" : "false");
 				if(vr::VRProperties()->GetBoolProperty(container, vr::Prop_HasDriverDirectModeComponent_Bool)){
 					driverConfigLoader.info.nonNativeHeadsetFound = true;
-					driverConfigLoader.WriteInfo();
+					publishInfo = true;
 				}
 			}
 		}
 		if(vrevent.eventType == vr::VREvent_DashboardActivated){
 			if(!driverConfigLoader.info.isDashboardOpen){
 				driverConfigLoader.info.isDashboardOpen = true;
-				driverConfigLoader.WriteInfo();
+				publishInfo = true;
 			}
 		}
 		if(vrevent.eventType == vr::VREvent_DashboardDeactivated){
 			if(driverConfigLoader.info.isDashboardOpen){
 				driverConfigLoader.info.isDashboardOpen = false;
-				driverConfigLoader.WriteInfo();
+				publishInfo = true;
 			}
 		}
 		if(vrevent.eventType == vr::VREvent_ProcessConnected && customShaderEnabled){
@@ -385,6 +391,10 @@ void GalaxyXRDeviceProvider::RunFrame(){
 	eyeTrackingOutput.RunFrame();
 	// clear update flag at end of frame
 	driverConfig.hasBeenUpdated = false;
+	}
+	if(publishInfo){
+		driverConfigLoader.WriteInfo();
+	}
 }
 
 void GalaxyXRDeviceProvider::SendContextCollectionEvents(uint32_t id){
