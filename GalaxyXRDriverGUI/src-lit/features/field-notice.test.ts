@@ -27,7 +27,7 @@ describe('row-owned notices', () => {
     const page = read('./driver-settings-page.ts');
     expect(page).toContain('notices: nativeIdentityNotices');
     expect(page).toContain('notices: profileNotices');
-    expect(page).toContain('notices: baselineNotices');
+    expect(read('./stream-frame-page.ts')).toContain('notices: baselineNotices');
     expect(page).toContain('!advanced && (!gx.nativeIdentity || !gx.vrlinkHeadsetProfile)');
     expect(page).not.toContain("statusMessage('info', t('SDR 10-bit baseline is on')");
   });
@@ -39,8 +39,8 @@ describe('row-owned notices', () => {
     expect(page).toContain('notices: [ofxrRuntimeNotice]');
     expect(page).toMatch(/settingFieldRow\('ofxr\.maxLogMb'[\s\S]{0,800}?ctx: controlContext/);
     expect(page).toContain("noticeKey: 'streamFrame.nvencSplitMode'");
-    expect(page).toContain("noticeKey: 'streamFrame.kalmanGripBlend'");
-    expect(page).toContain("noticeKey: 'streamFrame.deriveSmoothTauSlowMs'");
+    expect(read('./driver-settings-page.ts')).toContain("noticeKey: 'streamFrame.kalmanGripBlend'");
+    expect(read('./driver-settings-page.ts')).toContain("noticeKey: 'streamFrame.deriveSmoothTauSlowMs'");
   });
 
   it('does not describe the retired controller layout as a Meta or PICO identity', () => {

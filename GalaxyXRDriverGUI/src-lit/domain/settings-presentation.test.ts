@@ -65,7 +65,7 @@ describe('human-readable settings inspection', () => {
 
   it('presents the render slider link as a GUI preference', () => {
     const row = presentSettings([], context()).find(entry => entry.id === 'renderResolutionLinked')!;
-    expect(row.location).toEqual(['Driver Settings', 'Headset', 'Render Resolution Sliders']);
+    expect(row.location).toEqual(['Image Settings', 'Render Resolution', 'Render Resolution Sliders']);
     expect(row.source).toBe('gui-settings.json');
     expect(row.state).toBe('On');
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROUTES, driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, sectionHref, settingHref, permittedRoute, visibleRoutes, type InstallationState } from './navigation';
+import { ROUTES, compatibleSettingRoute, driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, sectionHref, settingHref, permittedRoute, visibleRoutes, type InstallationState } from './navigation';
 
 describe('stable tab order and the always-visible Setup page', () => {
   it('round-trips a stable setting target and still enforces installation routes', () => {
@@ -38,6 +38,9 @@ describe('stable tab order and the always-visible Setup page', () => {
     expect(permittedRoute('debug', available, debugMode)).toBe(available
       ? debugMode ? 'debug' : 'app-settings'
       : 'setup');
+    for (const route of ROUTES) {
+      expect(permittedRoute(route, available, debugMode) === route).toBe(routes.includes(route));
+    }
   });
 
   it('hides Debug by default and gates its setting links through application preferences', () => {
@@ -83,5 +86,54 @@ describe('stable tab order and the always-visible Setup page', () => {
     expect(parseRoute(`#/${route}`, true)).toBe(route);
     expect(permittedRoute(route, false)).toBe('setup');
     expect(permittedRoute(route, true)).toBe(route);
+  });
+});
+
+describe('explicit compatibility aliases', () => {
+  it.each([
+    'galaxyXr.nativeResolution', 'galaxyXr.renderWidth', 'galaxyXr.renderHeight',
+    'renderResolutionLinked', 'galaxyXr.sdr10Baseline',
+  ])('moves only the old Driver Settings link for %s', id => {
+    for (const route of ROUTES) {
+      expect(compatibleSettingRoute(route, id)).toBe(route === 'driver-settings' ? 'stream-frame' : route);
+    }
+  });
+
+  it.each([
+    'streamFrame.kalmanCaReportAccel', 'controllers.aligner.enable', 'galaxyXr.simulateTouch',
+    'streamFrame.deriveLatchPoseAssist', 'streamFrame.kalmanDirLeadAdaptive', 'streamFrame.kalmanAdaptiveR',
+    'streamFrame.kalmanGripEnable', 'streamFrame.deriveSmoothAngSeparate', 'streamFrame.deriveSplitDirLinear',
+    'streamFrame.deriveSplitDirAngular', 'streamFrame.deriveReleaseLatch',
+  ])('moves only the old Image Settings controller link for %s', id => {
+    for (const route of ROUTES) {
+      expect(compatibleSettingRoute(route, id)).toBe(route === 'stream-frame' ? 'driver-settings' : route);
+    }
+  });
+
+  it.each([
+    'streamFrame.blackFloor.rampBar', 'streamFrame.hitchDiag', 'streamFrame.eyeGaze.debugRing',
+    'streamFrame.poseLogging', 'streamFrame.poseLogBurst', 'galaxyXr.vrlinkDebugOverlay',
+    'streamFrame.nvencFixLevel', 'streamFrame.nvencVerbose',
+  ])('preserves only the old Image Settings diagnostic link for %s', id => {
+    for (const route of ROUTES) {
+      expect(compatibleSettingRoute(route, id)).toBe(route === 'stream-frame' ? 'debug' : route);
+    }
+  });
+
+  it.each([
+    '', 'unknown.setting', 'hybrid.enabled', 'debugMode', 'galaxyXr.profileSupports10bit',
+    'galaxyXr.controllerBypass', 'streamFrame.eyeGaze.debugGrid', 'streamFrame.eyeGaze.probeCapture',
+  ])('does not infer an alias for %s', id => {
+    for (const route of ROUTES) expect(compatibleSettingRoute(route, id)).toBe(route);
+  });
+
+  it('requires installation and mode permission after canonicalization', () => {
+    const diagnostic = compatibleSettingRoute('stream-frame', 'streamFrame.hitchDiag');
+    expect(permittedRoute(diagnostic, true, false)).toBe('app-settings');
+    expect(permittedRoute(diagnostic, false, true)).toBe('setup');
+    expect(permittedRoute(diagnostic, true, true)).toBe('debug');
+    const headset = compatibleSettingRoute('driver-settings', 'galaxyXr.nativeResolution');
+    expect(permittedRoute(headset, false)).toBe('setup');
+    expect(permittedRoute(headset, true)).toBe('stream-frame');
   });
 });

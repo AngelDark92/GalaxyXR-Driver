@@ -5259,6 +5259,25 @@ Value: renderResolutionLinked (gui-settings.json) with galaxyXr.renderWidth and 
       <trans-unit id="companion-20261030-n16" datatype="html">
         <source>Go to {page}</source>
       </trans-unit>
+      <trans-unit id="settings-reorganization-a31ac7741912" datatype="html"><source>Render Resolution</source></trans-unit>
+      <trans-unit id="settings-reorganization-77e642affaea" datatype="html"><source>Show retired experiments</source></trans-unit>
+      <trans-unit id="settings-reorganization-761db69b9536" datatype="html"><source>Controller Experiments (Retired)</source></trans-unit>
+      <trans-unit id="settings-reorganization-03aed78ddce9" datatype="html"><source>Image Experiments (Retired)</source></trans-unit>
+      <trans-unit id="settings-reorganization-0336f722830c" datatype="html"><source>Headset identity controls are available in Advanced Mode.</source></trans-unit>
+      <trans-unit id="settings-reorganization-b158527162f1" datatype="html"><source>Controller features are disabled. Saved experimental adjustments are kept.</source></trans-unit>
+      <trans-unit id="settings-reorganization-6693332308c8" datatype="html"><source>This reset restores the existing field-retired defaults across both settings pages; other experiment values are kept.</source></trans-unit>
+      <trans-unit id="settings-reorganization-33c7321020eb" datatype="html"><source>Open image experiments</source></trans-unit>
+      <trans-unit id="settings-reorganization-58248840e782" datatype="html"><source>Stored: {value} px</source></trans-unit>
+      <trans-unit id="settings-reorganization-e97a921f6422" datatype="html"><source>Tile width is a preset class sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. The selected codec caps the tile: H.264 1024, HEVC/AV1 2048, because tile × 4 must fit the encoder&#39;s height. A stored value outside the presets is kept and shown here; choose a preset to replace it. Requires a SteamVR restart.
+
+Value: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap&#39;s tile answers.</source></trans-unit>
+      <trans-unit id="settings-reorganization-a0db3af7e9c4" datatype="html"><source>Send the stream as 10-bit SDR. On by default. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off. Switching back to HEVC or AV1 turns it on again; a saved Off on HEVC or AV1 is restored to On by the next codec switch.
+
+Turning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.
+
+Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit).</source></trans-unit>
+      <trans-unit id="settings-reorganization-bdfb36bfdb79" datatype="html"><source>Open controller experiments</source></trans-unit>
+      <trans-unit id="settings-reorganization-4631b7cb8ade" datatype="html"><source>Show retired controller and image experiments while Advanced Mode is on. This changes visibility only; hiding experiments never resets or disables their saved values.</source></trans-unit>
     </body>
   </file>
 </xliff>

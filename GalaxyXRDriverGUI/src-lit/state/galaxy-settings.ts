@@ -297,7 +297,7 @@ export class GalaxySettingsBase {
   sections = signal({
     headset: true, controllers: true, ctrlFix: true, gameLink: true, ctrlOffsets: true, tipOffset: false,
     processing: true, color: true, enhance: true, distortion: true, eyeAlign: false, share: false,
-    debugImage: true, debugControllers: true, debugEncoder: true, debugMonitoring: true, graveyard: false,
+    debugImage: true, debugControllers: true, debugEncoder: true, debugMonitoring: true, graveyard: false, controllerGraveyard: false,
   });
 
   constructor(appSettings: AppSettingService, dss: DriverSettingService, dis: DriverInfoService) {

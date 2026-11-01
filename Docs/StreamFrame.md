@@ -8,7 +8,11 @@ A standalone SteamVR vendor driver for the Samsung Galaxy XR over Steam Link / v
 
 Image processing settings apply live within about a second. Identity, input profile, resolution and quality need a SteamVR restart.
 
-Advanced layout (2026-10-01): **App Settings --> Advanced --> Advanced Mode** reveals labeled inline groups beneath the settings they extend, including Kalman Advanced Settings. Advanced groups do not collapse. Settings pages contain at most two nested collapsible containers.
+Settings layout (2026-11-01): Driver Settings owns headset identity and controller tracking; Image Settings owns Render Resolution, Stream Quality, Image Processing, Optical Flow and encoder tuning. Only top-level cards collapse; nested groups do not.
+
+**App Settings > Advanced > Advanced Mode** reveals advanced controls. Other advanced values are preserved while hidden.
+
+**Show retired experiments**, available under App Settings > Advanced, exposes Controller Experiments (Retired) on Driver Settings and Image Experiments (Retired) on Image Settings while Advanced Mode is on. It changes visibility only. Retired values can remain active while hidden. Both cards expose the same existing field-retired reset subset across both pages; the reset does not reset every retired setting. Old setting links redirect to their new pages without enabling prerequisites.
 
 **App Settings --> Advanced --> Debug Mode** enables the separate Debug tab after driver installation, independently of Advanced Mode. It defaults off and is stored in the driver settings. Debug groups use non-collapsible **Image Processing**, **Controllers**, and **Encoder** labels, each with a collapsible Diagnostics container. Turning Debug Mode off hides the tab and stops its ramp bar, gaze ring, hitch diagnostics, pose logs/bursts, encoder debug overlay, and verbose encoder logging. Individual diagnostic selections are kept for the next time it is enabled. Black-point correction, HEVC level compatibility, headroom, frame rate and bitrate tuning remain active. The Steam Link Debug Overlay request requires a SteamVR restart and reconnect; Debug Mode OFF also overrides expert overlay keys. Distortion calibration tools and retired experiments remain in their existing tabs.
 
@@ -151,7 +155,7 @@ Controller Offsets (under Controllers Advanced) are authored for the left hand a
 
 ## SDR 10-bit baseline
 
-A switch on the Driver Settings page (Headset section), on by default (owner directive 2026-10-23); an explicitly saved Off is preserved. It asks the stream for 10-bit HEVC or AV1; H.264 cannot carry 10-bit, so selecting that codec turns it off and its switch stays disabled until another codec is selected. The driver also suppresses the baseline request whenever H.264 is the saved codec, even if a hand-edited file still stores the baseline On, and logs the suppression; an explicit advanced `profileSupports10bit` request remains user-owned. It is a request, not a guarantee: the device decides what it actually negotiates.
+A switch on Image Settings (Image Processing), on by default (owner directive 2026-10-23); an explicitly saved Off is preserved. It asks the stream for 10-bit HEVC or AV1; H.264 cannot carry 10-bit, so selecting that codec turns it off and its switch stays disabled until another codec is selected. The driver also suppresses the baseline request whenever H.264 is the saved codec, even if a hand-edited file still stores the baseline On, and logs the suppression; an explicit advanced `profileSupports10bit` request remains user-owned. It is a request, not a guarantee: the device decides what it actually negotiates.
 
 When enabled, the driver:
 
@@ -165,7 +169,7 @@ Image Enhancements itself defaults On since 2026-10-17, so fresh installs apply 
 
 **APK side is a separate manual step; the host does not send it.** Apply the Steam Link patch options yourself: `profile=neutral`, `outputPrecision=srgb8-highp`, `dithering=off`, `use8BitOutputWhenDithering=false`. Note `neutral` keeps Valve's `_valve1_d2020d709` matrix, it is not an identity transform end to end.
 
-**Status.** Driver Settings shows a plain baseline-on note and Stream Frame exposes the picture controls. A device custom shader enabled for this headset still conflicts with the baseline request and shows a warning.
+**Status.** Image Settings shows the baseline status with the 10-bit SDR switch and exposes the picture controls. A device custom shader enabled for this headset still conflicts with the baseline request and shows a warning.
 
 **Rollback.** Turning the baseline off disables its 10-bit capability request (`supports10bit=false`); Image Enhancements and your picture settings are untouched. The explicit false is journaled even when Galaxy XR Headset Profile is off, so removing the key cannot accidentally restore an earlier true. Schema 2 retires the old enabled `profileSupports10bit` default only when the baseline is off; custom picture/encoder tuning and explicit advanced overrides are preserved. Uninstall/recovery restores original values only while the current values still match the journal. Requires a SteamVR restart and reconnect. A capability request does not guarantee a live 8-bit codec; verify the connection log.
 
@@ -210,7 +214,7 @@ Panel Blackout (Testing) (Advanced section) turns both panels black while tracki
 Check `Steam\logs\vrserver.txt`:
 
 - `FrameComponentShim: wrapping IVRDriverDirectModeComponent`: the frame path is hooked. Missing: the headset driver is not direct mode, or the driver did not load (check for duplicate registrations).
-- Manual render resolution uses the per-eye width and height entered in Driver Settings (3552x3840 by default), without forcing a refresh rate. The VRLink display callback preserves these values above 4096 per axis, so 5376x4973 no longer becomes a square. These are the base dimensions at SteamVR Custom 100%; Auto/global/per-game scaling still applies. Reset arrows restore native defaults, and turning the override off retains the manual values. Your selected rate (for example, 75 Hz) is preserved. Earlier refresh-rate overrides are restored only with journal ownership and an unchanged value. Resolution changes take effect on the next SteamVR start.
+- Manual render resolution uses the per-eye width and height entered in Image Settings > Render Resolution (3552x3840 by default), without forcing a refresh rate. The VRLink display callback preserves these values above 4096 per axis, so 5376x4973 no longer becomes a square. These are the base dimensions at SteamVR Custom 100%; Auto/global/per-game scaling still applies. Reset arrows restore native defaults, and turning the override off retains the manual values. Your selected rate (for example, 75 Hz) is preserved. Earlier refresh-rate overrides are restored only with journal ownership and an unchanged value. Resolution changes take effect on the next SteamVR start.
 - `GalaxyXR: stream quality '<preset>'`: the preset was applied. Takes effect at the next headset connect.
 - `GalaxyXR: SDR10 baseline: profile + supports10bit forced on ... REQUESTED ONLY`: the SDR 10-bit baseline forced the profile request; the device confirms at connect. Check `driver_vrlink.txt` for `Using 10bit mode: 1` after the next SteamVR start.
 - `FrameProcessor: matched hmd adapter <gpu>`: processing runs on the GPU SteamVR renders on. `no adapter matched` / `failed to create D3D11 device`: report with your GPU setup.

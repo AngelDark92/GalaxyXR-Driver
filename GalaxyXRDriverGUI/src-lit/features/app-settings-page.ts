@@ -165,6 +165,22 @@ export class AppSettingsPage extends BasePage {
       `, { tip: t('Show the Debug tab and allow its selected diagnostic overlays and logging. Turning this off stops diagnostic effects while keeping their saved selections. Black-point correction and encoder compatibility/rate tuning remain active. Requires a SteamVR restart and reconnect for the Steam Link debug overlay.') }),
     ];
     if (appSetting.values().advanceMode || this.revealAdvanced) {
+      body.push(settingFieldRow('streamFrame.graveyardEnable', html`
+        <app-switch .known=${known} .checked=${!!galaxy.settings?.graveyardEnable}
+          .disabled=${!installed || !known || busy}
+          @change=${async (e: CustomEvent<boolean>) => {
+            const control = e.currentTarget as HTMLElement & { checked: boolean; updateComplete: Promise<unknown> };
+            await control.updateComplete;
+            control.checked = !!galaxy.settings?.graveyardEnable;
+            const current = this.ctx.dss.values();
+            if (!installed || !known || busy || !current?.streamFrame) return;
+            await this.ctx.dss.save({ ...current, streamFrame: { ...current.streamFrame, graveyardEnable: e.detail } });
+            await control.updateComplete;
+            control.checked = !!galaxy.settings?.graveyardEnable;
+            this.requestUpdate();
+          }}></app-switch>`, {
+        tip: t('Show retired controller and image experiments while Advanced Mode is on. This changes visibility only; hiding experiments never resets or disables their saved values.'),
+      }));
       body.push(sectionGroup(t('Update install'), 1, 'group', 'app-update-install'));
       body.push(fieldRow(t('Update Install Style'), html`
         <app-select .value=${appSetting.values().updateMode} .options=${[

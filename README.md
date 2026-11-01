@@ -22,7 +22,7 @@ This driver has to work in tandem with the latest patched Steam Link releases fo
 - Manual render resolution: independently editable width and height per eye, defaulting to the native 3552 × 3840. Non-square sizes above 4096 pixels remain rectangular.
 - Stream quality controls for the vrlink encoder: tile width and bandwidth, with per-codec defaults.
 
-To choose a render size, open **Driver Settings → Headset → Override Render Resolution** and enter the width and height per eye. Reset arrows restore **3552 × 3840**. Existing custom values are preserved. Requires a SteamVR restart. Use SteamVR Custom **100%** to compare the base dimensions; Auto, global and per-game scaling still apply. Refresh rate and stream encoding size are separate settings. Advanced VRLink resolution overrides retain priority on their respective axes.
+To choose a render size, open **Image Settings → Render Resolution → Override Render Resolution** and enter the width and height per eye. Reset arrows restore **3552 × 3840**. Existing custom values are preserved. Requires a SteamVR restart. Use SteamVR Custom **100%** to compare the base dimensions; Auto, global and per-game scaling still apply. Refresh rate and stream encoding size are separate settings. Advanced VRLink resolution overrides retain priority on their respective axes.
 
 **Controllers**
 - Galaxy XR controller models, input profile and compositor bindings. Games without a native binding see Index controllers.
