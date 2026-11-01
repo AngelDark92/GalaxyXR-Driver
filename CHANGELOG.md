@@ -6,6 +6,16 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [2.0.0-dev.1] - 2026-11-01
+
+### Reworks
+
+- Add HybridAccessService and associated tests for managing Hybrid and Advanced settings (`9d9207a`)
+
+### Other changes
+
+- major: Add hybrid fovea implementation and associated tests (`eff5f8a`)
+
 ## [1.16.0] - 2026-10-31
 
 ### Features
