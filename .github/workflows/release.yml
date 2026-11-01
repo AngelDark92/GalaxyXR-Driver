@@ -80,7 +80,7 @@ jobs:
       # cached, because actions/cache rejects relative '..' patterns and
       # uploading the multi-GB tree costs more than the recompile it saves.
       - name: Restore Cargo registry cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
