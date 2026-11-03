@@ -1002,12 +1002,19 @@ fn restore_settings(settings: &mut Value, journal: &Value, warnings: &mut Vec<St
 fn setting_equal(a:Option<&Value>,b:Option<&Value>) -> bool {
     match (a,b) {
         (Some(a),Some(b)) if a.is_number() && b.is_number() => {
-            if a==b || a.as_f64()==b.as_f64() {return true;}
+            if a==b {return true;}
+            // With serde_json arbitrary_precision, as_f64() is None for numbers
+            // outside f64 (e.g. 1e+9999); those match only by identical token.
+            let (Some(x),Some(y))=(a.as_f64(),b.as_f64()) else {return false;};
+            // Two integers must be exactly equal (already handled above).
+            if !a.is_f64() && !b.is_f64() {return false;}
+            if x==y {return true;}
             // OpenVR float settings persist float32; JSON may spell the same
             // exact float with either double digits or its shortest decimal.
+            // Values overflowing f32 never match through infinity.
             if a.is_f64() && b.is_f64() {
-                let (a,b)=(a.as_f64().unwrap(),b.as_f64().unwrap());
-                return a.is_finite() && b.is_finite() && (a as f32).to_bits()==(b as f32).to_bits();
+                let (x,y)=(x as f32,y as f32);
+                return x.is_finite() && y.is_finite() && x.to_bits()==y.to_bits();
             }
             false
         }
@@ -1648,6 +1655,46 @@ mod tests {
         assert!(Path::new(&second.registered_path).join("driver.vrdrivermanifest").exists());assert!(source.exists());
         assert_eq!(read_json(&f.ctx.data.join("settings.json")).unwrap(),json!({"galaxyXr":{"nativeIdentity":true}}));
     }
+    #[test]
+    fn uninstall_succeeds_and_preserves_unowned_out_of_range_numbers() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        let raw=b"{\n\"steamvr\":{\"other\":42},\n\"unowned\":{\"streamFormatWidth\" : -1e+9999,\"big\":1e+9999,\"neg\":-1e-9999,\"i\":123456789012345678901234567890,\"u\":18446744073709551615}\n}\n";
+        atomic_bytes(&f.ctx.settings,raw).unwrap();
+        atomic_json(&f.ctx.data.join("settings.json"),&json!({})).unwrap();
+        assert_eq!(read_json(&f.ctx.settings).unwrap()["steamvr"]["other"],42);
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let report=uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert_eq!(report.outcome,"complete");
+        let text=String::from_utf8(fs::read(&f.ctx.settings).unwrap()).unwrap();
+        for token in ["-1e+9999","1e+9999","-1e-9999","123456789012345678901234567890","18446744073709551615"] { assert!(text.contains(token),"{token} lost: {text}"); }
+        assert_eq!(read_settings(&f.ctx.settings).unwrap()["steamvr"]["other"],42);
+    }
+    #[test]
+    fn setting_equal_never_equates_distinct_out_of_range_or_overflowing_numbers() {
+        let p=|s:&str|serde_json::from_str::<Value>(s).unwrap();
+        let eq=|a:&str,b:&str|{let(a,b)=(p(a),p(b));setting_equal(Some(&a),Some(&b))};
+        assert!(eq("-1e+9999","-1e+9999"));
+        assert!(!eq("-1e+9999","-1e+9998"));assert!(!eq("-1e+9999","1e+9999"));
+        assert!(!eq("1e+9999","1e+400"));assert!(!eq("1e+9999","1.5"));assert!(!eq("-1e+9999","0"));
+        assert!(!eq("1e300","1.5e300"));assert!(!eq("3.5e38","3.6e38"));assert!(!eq("1e300","2e300"));
+        assert!(!eq("123456789012345678901234567890","123456789012345678901234567891"));
+        assert!(eq("123456789012345678901234567890","123456789012345678901234567890"));
+        // ordinary behaviour is unchanged
+        assert!(eq("1","1.0"));assert!(eq("0.1","0.1"));assert!(eq("0.10000000149011612","0.1"));assert!(!eq("0.1","0.2"));
+        assert!(!setting_equal(None,Some(&p("1e+9999"))));assert!(setting_equal(None,None));
+    }
+    #[test]
+    fn restore_preserves_later_external_out_of_range_change() {
+        let journal=json!({"entries":{"s":{"k":{"present":true,"value":1,"lastPresent":true,"lastValue":p_big("-1e+9999")}}}});
+        let mut settings=json!({"s":{"k":p_big("-1e+9998")}});
+        let mut warnings=vec![];
+        assert_eq!(restore_settings(&mut settings,&journal,&mut warnings).unwrap(),0);
+        assert_eq!(warnings.len(),1);assert_eq!(settings["s"]["k"],p_big("-1e+9998"));
+        let mut settings=json!({"s":{"k":p_big("-1e+9999")}});
+        assert_eq!(restore_settings(&mut settings,&journal,&mut vec![]).unwrap(),1);
+        assert_eq!(settings["s"]["k"],1);
+    }
+    fn p_big(s:&str)->Value { serde_json::from_str(s).unwrap() }
     #[test]
     fn direct_upgrade_preserves_all_saved_settings() {
         let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
