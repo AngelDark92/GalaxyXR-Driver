@@ -204,9 +204,7 @@ User docs: `Docs/StreamFrame.md`, `TunerUsage.md`, `DriverUninstall.md`,
 
 ## Delegation
 
-OpenCode reads `.opencode/agents/*.md`, Codex `.codex/agents/*.toml`, Cursor
-`.cursor/rules/project.mdc`, and Hermes `.agents/skills/`. Read
-[the cavecrew skill](../../cavecrew/SKILL.md) for role contracts and output
-formats. Children start with fresh context and cannot ask questions: paste the
-role, exact paths, evidence and authorization into each call. The parent re-reads
-cited lines and reruns the checks.
+Use the host's available specialists and follow [AGENTS.md](../../../../AGENTS.md)
+for the delegation contract. Children start with fresh context: include the role,
+exact paths, evidence, authorization and validation owner in each call. Parallel
+writers own disjoint files. The parent re-reads cited lines and reruns the checks.

@@ -28,47 +28,32 @@ const instructionFiles = [
   '.opencode/skills/customheadset-gxr/references/runtime-evidence.md',
   '.opencode/skills/galaxyxr-workspace/SKILL.md',
   '.opencode/skills/galaxyxr-workspace/references/project-map.md',
-  '.opencode/skills/cavecrew/SKILL.md',
-  '.opencode/agents/cavecrew-investigator.md',
-  '.opencode/agents/cavecrew-builder.md',
-  '.opencode/agents/cavecrew-reviewer.md',
-  '.codex/agents/cavecrew-investigator.toml',
-  '.codex/agents/cavecrew-builder.toml',
-  '.codex/agents/cavecrew-reviewer.toml',
 ];
 
+const budgets = new Map([
+  ['AGENTS.md', 9000],
+  ['CLAUDE.md', 1500],
+  ['.cursor/rules/project.mdc', 1800],
+  ['.github/copilot-instructions.md', 2600],
+  ['.github/instructions/project-routing.instructions.md', 2200],
+  ['.github/instructions/cross-project-protocol.instructions.md', 2200],
+  ['.agents/AGENTS.md', 1500],
+  ['.opencode/skills/customheadset-gxr/SKILL.md', 4000],
+  ['.opencode/skills/customheadset-gxr/workflow-add-feature.md', 2500],
+  ['.opencode/skills/customheadset-gxr/workflow-edit-behavior.md', 2500],
+  ['.opencode/skills/customheadset-gxr/workflow-fix-bug.md', 2500],
+  ['.opencode/skills/customheadset-gxr/references/runtime-evidence.md', 3000],
+  ['.opencode/skills/galaxyxr-workspace/SKILL.md', 4500],
+  ['.opencode/skills/galaxyxr-workspace/references/project-map.md', 18000],
+]);
+
 test('canonical instruction files exist and stay within their size budgets', () => {
-  const budgets = new Map([
-    ['AGENTS.md', 9000],
-    ['CLAUDE.md', 1500],
-    ['.cursor/rules/project.mdc', 1800],
-    ['.github/copilot-instructions.md', 2600],
-    ['.github/instructions/project-routing.instructions.md', 2200],
-    ['.github/instructions/cross-project-protocol.instructions.md', 2200],
-    ['.agents/AGENTS.md', 1500],
-    ['.opencode/skills/customheadset-gxr/SKILL.md', 4000],
-    ['.opencode/skills/customheadset-gxr/workflow-add-feature.md', 2500],
-    ['.opencode/skills/customheadset-gxr/workflow-edit-behavior.md', 2500],
-    ['.opencode/skills/customheadset-gxr/workflow-fix-bug.md', 2500],
-    ['.opencode/skills/customheadset-gxr/references/runtime-evidence.md', 3000],
-    ['.opencode/skills/galaxyxr-workspace/SKILL.md', 4500],
-    ['.opencode/skills/galaxyxr-workspace/references/project-map.md', 18000],
-    ['.opencode/skills/cavecrew/SKILL.md', 4500],
-    ['.opencode/agents/cavecrew-investigator.md', 3000],
-    ['.opencode/agents/cavecrew-builder.md', 3000],
-    ['.opencode/agents/cavecrew-reviewer.md', 3000],
-    ['.codex/agents/cavecrew-investigator.toml', 1500],
-    ['.codex/agents/cavecrew-builder.toml', 1500],
-    ['.codex/agents/cavecrew-reviewer.toml', 1500],
-  ]);
   for (const relative of instructionFiles) assert.ok(exists(relative), `missing ${relative}`);
   for (const [relative, budget] of budgets) {
     assert.ok(fileSize(relative) <= budget, `${relative} is ${fileSize(relative)} bytes; budget ${budget}`);
   }
   if (hasWorkspace) {
     assert.ok(fs.statSync(path.join(workspace, 'AGENTS.md')).size <= 8000, 'workspace AGENTS.md exceeds 8000 bytes');
-    assert.ok(fs.statSync(path.join(workspace, '.opencode/skills/cavecrew/SKILL.md')).size <= 4500,
-      'workspace cavecrew skill exceeds 4500 bytes');
   }
 });
 
@@ -128,7 +113,6 @@ test('mirror skills are pointers to existing canonical files', () => {
   const pointers = [
     '.agents/skills/customheadset-gxr/SKILL.md',
     '.agents/skills/galaxyxr-workspace/SKILL.md',
-    '.agents/skills/cavecrew/SKILL.md',
   ];
   for (const relative of pointers) {
     const text = read(relative);
@@ -151,17 +135,32 @@ test('mirror skills are pointers to existing canonical files', () => {
   }
 });
 
-test('project and workspace cavecrew contracts match when the workspace is present', { skip: !hasWorkspace }, () => {
-  const normalized = text => text.replace(/\r\n/g, '\n');
-  assert.equal(normalized(read('.opencode/skills/cavecrew/SKILL.md')),
-    normalized(readWorkspace('.opencode/skills/cavecrew/SKILL.md')),
-    'project and workspace cavecrew contracts drifted');
+test('active project instructions do not require retired project cavecrew paths', () => {
+  const retired = /cavecrew/;
+  for (const relative of instructionFiles) {
+    assert.doesNotMatch(relative, retired, `${relative} is a retired cavecrew path in instructionFiles`);
+    assert.doesNotMatch(read(relative), retired, `${relative} references retired cavecrew instructions`);
+  }
+  for (const relative of budgets.keys()) {
+    assert.doesNotMatch(relative, retired, `${relative} is a retired cavecrew path in budgets`);
+  }
+  for (const relative of [
+    '.agents/skills/customheadset-gxr/SKILL.md',
+    '.agents/skills/galaxyxr-workspace/SKILL.md',
+  ]) {
+    assert.doesNotMatch(relative, retired, `${relative} is a retired cavecrew mirror pointer`);
+    assert.doesNotMatch(read(relative), retired, `${relative} references retired cavecrew instructions`);
+  }
+  const canonical = read('AGENTS.md');
+  assert.match(canonical, /\.opencode\/skills\/galaxyxr-workspace\/SKILL\.md/, 'AGENTS.md must reference galaxyxr-workspace skill');
+  assert.match(canonical, /\.opencode\/skills\/customheadset-gxr\/SKILL\.md/, 'AGENTS.md must reference customheadset-gxr skill');
+  assert.match(canonical, /references\/project-map\.md/, 'AGENTS.md must reference project-map');
 });
 
 test('instruction files contain no stale artifact or accidental paths', () => {
   const scanned = [...instructionFiles];
   if (hasWorkspace) scanned.push('../AGENTS.md', '../.opencode/instructions/workspace-conventions.md',
-    '../.opencode/instructions/README.md', '../.opencode/skills/cavecrew/SKILL.md');
+    '../.opencode/instructions/README.md');
   for (const relative of scanned) {
     const file = path.isAbsolute(relative) ? relative : path.join(project, relative);
     if (!fs.existsSync(file)) continue;
