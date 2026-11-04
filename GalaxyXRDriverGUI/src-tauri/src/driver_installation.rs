@@ -1670,6 +1670,42 @@ mod tests {
         assert_eq!(read_settings(&f.ctx.settings).unwrap()["steamvr"]["other"],42);
     }
     #[test]
+    fn install_seed_restores_exact_out_of_range_stream_format_width_and_preserves_external_change() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        let raw=b"{\n\"driver_vrlink\":{\"streamFormatWidth\":-1e+9999,\"targetBandwidth\":-1e+9998,\"note\":\"1536-ish text\"}\n}\n";
+        atomic_bytes(&f.ctx.settings,raw).unwrap();
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let settings=read_settings(&f.ctx.settings).unwrap();
+        assert_eq!(settings["driver_vrlink"]["streamFormatWidth"],json!(1536));
+        assert_eq!(settings["driver_vrlink"]["targetBandwidth"],json!(350));
+        assert_eq!(settings["driver_vrlink"]["note"],"1536-ish text");
+        let journal=load_journal(&f.ctx).unwrap();
+        let sf_entry=&journal["entries"]["driver_vrlink"]["streamFormatWidth"];
+        assert_eq!(sf_entry["value"],p_big("-1e+9999"));
+        assert_eq!(sf_entry["lastValue"],json!(1536));
+        assert_eq!(sf_entry["lastPresent"],true);
+        assert_eq!(settings["driver_vrlink"]["streamFormatWidth"],sf_entry["lastValue"]);
+        let tb_entry=&journal["entries"]["driver_vrlink"]["targetBandwidth"];
+        assert_eq!(tb_entry["value"],p_big("-1e+9998"));
+        assert_eq!(tb_entry["lastValue"],json!(350));
+        // Simulate a later external SteamVR edit (not through apply_changes).
+        let mut modified=read_settings(&f.ctx.settings).unwrap();
+        modified["driver_vrlink"]["targetBandwidth"]=p_big("-1e+9997");
+        atomic_json(&f.ctx.settings,&modified).unwrap();
+        let report=uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert_eq!(report.outcome,"attention-required");
+        let text=String::from_utf8(fs::read(&f.ctx.settings).unwrap()).unwrap();
+        assert!(text.contains("-1e+9999"),"baseline streamFormatWidth token lost: {text}");
+        assert!(text.contains("-1e+9997"),"external targetBandwidth change not preserved: {text}");
+        assert!(!text.contains("-1e+9998"),"original targetBandwidth token leaked back: {text}");
+        assert!(text.contains("\"1536-ish text\""),"string became number: {text}");
+        assert!(report.warnings.iter().any(|w|w.contains("targetBandwidth")&&w.contains("Preserved later external change")),"missing external change warning: {:?}",report.warnings);
+        let final_settings=read_settings(&f.ctx.settings).unwrap();
+        assert_eq!(final_settings["driver_vrlink"]["streamFormatWidth"],p_big("-1e+9999"));
+        assert_eq!(final_settings["driver_vrlink"]["targetBandwidth"],p_big("-1e+9997"));
+        assert_eq!(final_settings["driver_vrlink"]["note"],"1536-ish text");
+    }
+    #[test]
     fn setting_equal_never_equates_distinct_out_of_range_or_overflowing_numbers() {
         let p=|s:&str|serde_json::from_str::<Value>(s).unwrap();
         let eq=|a:&str,b:&str|{let(a,b)=(p(a),p(b));setting_equal(Some(&a),Some(&b))};

@@ -30,7 +30,9 @@ The native driver and GUI share a named mutex and `%APPDATA%/GalaxyXR/CustomHead
 
 Uninstall restores recorded values and removes keys originally absent. It preserves unrelated settings. If a tracked setting has subsequently changed to a different value, uninstall preserves that later change and reports it. The journal covers driver resolution, transport, refresh rate, headset profiles, arbitrary `vrlinkExtraKeys`, GUI driver enable/block changes, and the driver version marker.
 
-SteamVR settings may contain JSON numbers outside the normal floating-point range, such as `-1e+9999`. Companion preserves those numeric tokens when reading and rewriting settings; they do not need to be deleted or replaced to uninstall. Different out-of-range values do not establish journal ownership.
+SteamVR settings may contain JSON numbers outside the normal floating-point range, such as `-1e+9999`. Companion and the native driver preserve these tokens in the recovery journal, so one such value does not block unrelated profile or capability writes. Do not delete the journal or replace its original values. The native driver skips restoring values that SteamVR's typed settings API cannot represent; Companion can restore their original numeric tokens during uninstall. Different out-of-range values do not establish journal ownership.
+
+Profile logs distinguish a successful settings request from a failed write. Even a successful request is not proof of negotiation: check `driver_vrlink.txt` after restarting SteamVR for the headset profile and effective 10-bit mode. This does not change render-resolution defaults or SteamVR supersampling.
 
 **Older installations have no original-value journal.** Their known Galaxy XR overrides can be removed to return to SteamVR defaults, but historical user values cannot be reconstructed. The result explicitly identifies this legacy reset. Installing this build over an older installation cannot retroactively create the missing history.
 

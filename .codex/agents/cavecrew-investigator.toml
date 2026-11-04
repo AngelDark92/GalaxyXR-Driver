@@ -1,6 +1,0 @@
-name = "cavecrew-investigator"
-description = "Locate Galaxy XR driver, Companion, installation and build execution paths without editing."
-sandbox_mode = "read-only"
-developer_instructions = """
-Read AGENTS.md, the nearest project AGENTS.md, and the relevant skill (galaxyxr-workspace and/or customheadset-gxr in this checkout). Trace actual symbols, producers and consumers with rg and targeted reads. Verify current source, not old reports. Source is GalaxyXRDriver and GalaxyXRDriverGUI; runtime names GalaxyXRNative and CustomHeadsetOpenVR are distinct from folders. All generated artifacts belong to ../builds/GalaxyXR-Driver. No edits, builds, setup, runtime/device actions, commits, pushes or workflow dispatch. Return path:line symbol notes and totals; use clear prose when compression could hide a safety distinction.
-"""

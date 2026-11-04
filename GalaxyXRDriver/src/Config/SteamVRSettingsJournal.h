@@ -1,12 +1,15 @@
 #pragma once
 #include "openvr_driver.h"
 #include "nlohmann/json.hpp"
+#include "LosslessJson.h"
 #include "../Driver/DriverLog.h"
+#include <cmath>
 #include <filesystem>
 #include <functional>
 #include <limits>
 #include <vector>
 #include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #ifdef _WIN32
@@ -81,9 +84,17 @@ inline bool PlanOwnedRestore(const Json& entry, const Json& settings,
     present = entry["present"].get<bool>();
     value = present ? entry["value"] : Json();
     // The API can restore scalar settings, not arbitrary JSON or null values.
+    // Opaque (out-of-range) numeric tokens are binary values: never settable.
     if(present && !(value.is_boolean() || value.is_string() || value.is_number())) return false;
     if(value.is_number_integer() && (value.get<double>() < std::numeric_limits<int32_t>::min()
         || value.get<double>() > std::numeric_limits<int32_t>::max())) return false;
+    if(value.is_number_float()) {
+        // SetFloat takes a float: reject anything it cannot represent finitely
+        // and non-zero values that would collapse to zero.
+        const double d = value.get<double>();
+        if(!std::isfinite(d) || std::fabs(d) > static_cast<double>(std::numeric_limits<float>::max())
+            || (d != 0.0 && static_cast<float>(d) == 0.0f)) return false;
+    }
     return present != currentPresent || (present && value != settings[section][key]);
 }
 
@@ -115,10 +126,13 @@ inline std::filesystem::path EnvironmentPath(const wchar_t* name) {
     return std::filesystem::path(value);
 }
 
+// Lossless: out-of-range numeric tokens (e.g. SteamVR's -1e+9999) are kept as
+// opaque values and written back verbatim; malformed JSON still throws.
 inline Json ReadJson(const std::filesystem::path& path) {
-    std::ifstream input(path);
+    std::ifstream input(path, std::ios::binary);
     if(!input) throw std::runtime_error("could not read SteamVR settings/recovery file");
-    Json result = Json::parse(input, nullptr, true, true);
+    const std::string text((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    Json result = gxrjson::ParseLossless(text);
     if(!result.is_object()) throw std::runtime_error("settings/recovery root is not an object");
     return result;
 }
@@ -126,7 +140,7 @@ inline Json ReadJson(const std::filesystem::path& path) {
 inline void WriteJournal(const std::filesystem::path& path, const Json& journal) {
     std::filesystem::create_directories(path.parent_path());
     auto temp = path; temp += ".native.tmp";
-    const std::string bytes = journal.dump(2) + "\n";
+    const std::string bytes = gxrjson::DumpLossless(journal, 2) + "\n";
     HANDLE file = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if(file == INVALID_HANDLE_VALUE) throw std::runtime_error("could not create journal temporary file");
     DWORD written = 0;
@@ -173,8 +187,17 @@ inline void RestoreOwnedMatching(const std::function<bool(const std::string&, co
                     const auto& last = key.value().at("lastValue");
                     vr::EVRSettingsError e = vr::VRSettingsError_None; bool match = false;
                     if(last.is_boolean()) match = vr::VRSettings()->GetBool(section.key().c_str(), key.key().c_str(), &e) == last.get<bool>();
-                    else if(last.is_number_integer()) match = vr::VRSettings()->GetInt32(section.key().c_str(), key.key().c_str(), &e) == last.get<int32_t>();
-                    else if(last.is_number_float()) match = vr::VRSettings()->GetFloat(section.key().c_str(), key.key().c_str(), &e) == last.get<float>();
+                    // Opaque or out-of-range values cannot be compared through the typed API.
+                    else if(last.is_number_integer()) {
+                        const double d = last.get<double>();
+                        if(d < std::numeric_limits<int32_t>::min() || d > std::numeric_limits<int32_t>::max()) continue;
+                        match = vr::VRSettings()->GetInt32(section.key().c_str(), key.key().c_str(), &e) == last.get<int32_t>();
+                    }
+                    else if(last.is_number_float()) {
+                        const double d = last.get<double>();
+                        if(!std::isfinite(d) || std::fabs(d) > static_cast<double>(std::numeric_limits<float>::max())) continue;
+                        match = vr::VRSettings()->GetFloat(section.key().c_str(), key.key().c_str(), &e) == last.get<float>();
+                    }
                     else if(last.is_string()) {
                         std::vector<char> text(last.get<std::string>().size() + 2, 0);
                         vr::VRSettings()->GetString(section.key().c_str(), key.key().c_str(), text.data(), static_cast<uint32_t>(text.size()), &e);
