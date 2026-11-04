@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [2.0.0-dev.5] - 2026-11-04
+
+### Features
+
+- add GPU capabilities probing for Windows using DXGI and NVML (`d8a7f9b`)
+
 ## [2.0.0-dev.4] - 2026-11-03
 
 ### Fixes
