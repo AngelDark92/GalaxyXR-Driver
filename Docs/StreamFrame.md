@@ -8,7 +8,11 @@ A standalone SteamVR vendor driver for the Samsung Galaxy XR over Steam Link / v
 
 Image processing settings apply live within about a second. Identity, input profile, resolution and quality need a SteamVR restart.
 
-Advanced layout (2026-10-01): **App Settings --> Advanced --> Advanced Mode** reveals labeled inline groups beneath the settings they extend, including Kalman Advanced Settings. Advanced groups do not collapse. Settings pages contain at most two nested collapsible containers.
+Settings layout (2026-11-01): Driver Settings owns headset identity and controller tracking; Image Settings owns Render Resolution, Stream Quality, Image Processing, Optical Flow and encoder tuning. Only top-level cards collapse; nested groups do not.
+
+**App Settings > Advanced > Advanced Mode** reveals advanced controls. Other advanced values are preserved while hidden.
+
+**Show retired experiments**, available under App Settings > Advanced, exposes Controller Experiments (Retired) on Driver Settings and Image Experiments (Retired) on Image Settings while Advanced Mode is on. It changes visibility only. Retired values can remain active while hidden. Both cards expose the same existing field-retired reset subset across both pages; the reset does not reset every retired setting. Old setting links redirect to their new pages without enabling prerequisites.
 
 **App Settings --> Advanced --> Debug Mode** enables the separate Debug tab after driver installation, independently of Advanced Mode. It defaults off and is stored in the driver settings. Debug groups use non-collapsible **Image Processing**, **Controllers**, and **Encoder** labels, each with a collapsible Diagnostics container. Turning Debug Mode off hides the tab and stops its ramp bar, gaze ring, hitch diagnostics, pose logs/bursts, encoder debug overlay, and verbose encoder logging. Individual diagnostic selections are kept for the next time it is enabled. Black-point correction, HEVC level compatibility, headroom, frame rate and bitrate tuning remain active. The Steam Link Debug Overlay request requires a SteamVR restart and reconnect; Debug Mode OFF also overrides expert overlay keys. Distortion calibration tools and retired experiments remain in their existing tabs.
 
@@ -42,7 +46,7 @@ The Stream Quality page shows all six codec recommendations. Changing codec appl
 
 Companion displays the latest accepted codec, dimensions, rate-control mode and split state, plus configuration/picture errors. Evidence must match a freshly verified SteamVR process, module and settings path and expires after five seconds; expiry schedules a real runtime status refresh and, while the verified process still matches, keeps the last observed rejection visible with its age instead of a waiting-only row. This reports encoder acceptance, not received headset frames or measured payload bitrate.
 
-**Start with Windows** (App Settings → Window, 2026-10-26) is independent of Optical Flow and defaults to Off. Enabling it registers the current portable Companion for your Windows account. At sign-in it starts in the tray and restores saved Optical Flow; manual launches open the window. It does not start SteamVR or change Optical Flow, Async Spacewarp, Minimize to tray or close-button preferences. Startup failures reveal the window for recovery. Quit stops Optical Flow for this session but leaves startup registration enabled for the next sign-in.
+**Start with Windows** (App Settings → Window, 2026-10-26) is independent of Optical Flow and defaults to Off. Enabling it registers the current portable Companion for your Windows account. At sign-in it starts in the tray and restores saved Optical Flow; manual launches open the window. It does not start SteamVR or change Optical Flow, Minimize to tray or close-button preferences. Startup failures reveal the window for recovery. Quit stops Optical Flow for this session but leaves startup registration enabled for the next sign-in.
 
 On first launch before driver installation, an absent `settings.json` is expected and does not raise a tray startup error. Companion preferences use their defaults in memory without creating settings files. Malformed or unreadable files still report errors; restoring saved Optical Flow still requires successfully loaded driver settings.
 
@@ -67,6 +71,20 @@ Toggle corrections (2026-09-25):
 - Hitch Diagnostics defaults to OFF (2026-09-26). OFF skips its timing samples, counters, event tags and logs. Enabling it starts a fresh measurement window; explicit saved choices remain supported.
 - Legacy encoder imports preserve explicit OFF choices for encoder switches, the headset profile, and CAS. Completed migrations are not repeated; settings already overwritten by an older version cannot be reconstructed automatically.
 
+## GPU capability checks
+
+Hardware gating (2026-11-04) keeps unsupported controls visible with a reason and preserves their saved values. Turning a feature off or choosing a supported alternative remains possible. Unknown support is not treated as unsupported; an editable control is not a promise that the selected GPU will accept it.
+
+The Companion inventories Windows DXGI adapters and reads NVIDIA library information without creating an encoder session. AV1 encoding is unavailable on confirmed pre-Ada NVIDIA architectures. Encoder capacity of zero, missing NVIDIA libraries, failed queries and ambiguous adapter matching remain unknown. The inventory does not guess encoder dimensions, 10-bit support, preset lists or split-frame support from a marketing name.
+
+During encoding, fresh process-bound driver evidence supplies the actual session's codec GUIDs, dimensions, 10-bit capability, engine count and preset GUIDs. Capabilities are cached per encoder handle and retired when that session is destroyed. Unsupported explicit codec, input depth, preset or strip-count requests fail visibly rather than switching codec, reducing the request or rewriting settings. Tap OFF skips these capability probes.
+
+Multiple adapters are not merged into one imaginary GPU. On Intel/AMD plus one NVIDIA systems, the sole NVIDIA adapter that may support NVENC is used as the preferred encoder candidate when the other adapters are confirmed non-candidates. This is not proof of the active GPU or Windows display-primary selection. Multiple NVIDIA candidates or unidentified adapters remain unverified. Fresh encoder-session evidence overrides the candidate; an old session cannot identify the GPU used by a new process.
+
+With NVENC Tap requested, fresh current-process evidence shows an error if the encoder adapter differs from the preferred candidate. The driver also publishes the SteamVR HMD rendering-adapter LUID separately as `graphicsAdapter` in `info.json`, only after a successful nonzero property read. A different renderer produces a separately labeled error even before NVENC opens; different rendering and encoding GPUs alone do not prove streaming will fail. Missing, stale or wrong-process evidence does not establish a mismatch. These notices never switch GPUs, fall back to another codec or rewrite saved settings. Optical Flow continues to use its independent capability check.
+
+NVIDIA Optical Flow is a separate capability from NVENC. Confirmed unsupported NVIDIA modes cannot be armed; FidelityFX and disarming remain available. A failed probe or an ambiguous OpenXR adapter remains unknown, and the running OpenXR layer must still validate its own device. Multipass has no guessed GPU-generation restriction. Hardware fixtures and package builds do not establish headset behavior; that requires a fresh matching SteamVR/OpenXR session.
+
 ## Install
 
 1. Unpack the entire release zip. The GUI folder and the `GalaxyXRNative` folder must stay next to each other.
@@ -82,25 +100,18 @@ Settings live in `%APPDATA%\GalaxyXR\CustomHeadset\settings.json`, separate from
 
 Galaxy XR page:
 
-- **Headset**: Native Identity on, Override Render Resolution on, 3552×3840 per eye (defaults), Stream Quality: Tile Width 1536, Bandwidth 350 Mbit/s (defaults).
+- **Headset**: Native Identity on.
+- **Image Settings**: Render Resolution on, 3552×3840 per eye (defaults), Stream Quality: Tile Width 1536, Bandwidth 350 Mbit/s (defaults).
 - **Controllers**: Official Controller Layout on. Controller Motion Filter: Kalman CA (default). Leave the offsets alone unless the controllers visibly sit wrong in your hand, the shipped values were measured against the official models.
 - **Image Processing**: Enable on.
 
 Device pages: leave **Custom Shader disabled**. The Galaxy XR image processing replaces it for streamed HMDs, the page warns if both are active with color adjustments.
 
-## Frame synthesis (Async Spacewarp)
+## Frame synthesis
 
-Async Spacewarp is a Stream Frame switch, Off by default. It asks the headset client to synthesize frames. It needs the GXR spacewarp client patch (experimental) installed on the headset; without it the stream shows extra held frames instead of synthesized frames. Only one synthesis mode runs at a time: enabling it turns Optical Flow off.
-
-**Automatic and Force half-rate (2026-10-26).** `streamFrame.spacewarpMode` is a separate **Force half-rate** switch beside Async Spacewarp. Off is Automatic: the driver samples the application's own frame timings and publishes normal late-frame recovery (carrier 1) until the measured cadence stays below 90% of the headset refresh for 500 ms, then half rate (carrier 2). It returns to late-frame recovery after the cadence stays at or above 97% for two seconds. One second of valid timing history is required before the first automatic decision; stale timing (over 500 ms), an application change, a reconnect or a refresh change resets the decision to normal late-frame recovery. Force half-rate keeps carrier 2 on regardless of game FPS. Requested and effective modes are separate: automatic transitions never rewrite the saved enable/mode choice.
-
-Half rate is client-side frame selection: 45 selected stream frames plus 45 synthetic display slots at 90 Hz (36/36 at 72 Hz). It does not throttle the game or promise upstream GPU savings; selected stream frames may already contain repeated or reprojected game content. The client layer estimates motion from two immutable selected composites A/B, rotation-aligns A into B, extrapolates B at the nominal interleaved scale 1.5, and renders into owned runtime swapchains. Fresh frames arriving in synthetic slots are discarded from presentation and history. A synthetic failure submits the original composite and does not shift the alternating phase; source age beyond two selected-real periods or scale beyond 3 also falls back to stock.
+**Async Spacewarp is retired and deleted (2026-11-01).** It could only be implemented by tapping vrlink's private in-process value transport or by running a separate listener beside Steam Link; neither is a supported or stable integration point. The host publisher, automatic half-rate tracker, settings, status rows and ASW-specific tests are removed. Saved `streamFrame.spacewarpEnable`, `spacewarpMode` and `spacewarpSettingsVersion` keys are ignored and pruned from the Companion's next settings save. Optical Flow is the supported PC-side synthesis path. See [Async Spacewarp (retired and deleted)](RetiredHalfRateASW.md).
 
 Optical Flow (OFXR Bridge, 2026-10-17; fork import 2026-10-23): the Companion arms an OpenXR layer that synthesizes intermediate frames on the PC. It bundles djules75's v0.2.14.2 (V557) payload and accepts any downloaded fork through **Install from folder…** without a version-compatibility check. The Companion writes only the settings shared by the verified forks; NVIDIA OFA resolution, Hybrid, 3X, frame-generation mode, Vulkan/D3D11 bridges and other build-specific keys stay in the downloaded build's own tray and are preserved by the merge. See [OFXR Bridge builds](OFXRBridge.md).
-
-Both values are saved in `settings.json` (`streamFrame.spacewarpEnable`, `streamFrame.spacewarpMode`) and apply live to a running stream. The dated semantics stamp `streamFrame.spacewarpSettingsVersion` advances to 2 without rewriting an existing enable/mode selection. The Companion's green **Active** row confirms only that the driver published the request. It does not guarantee that the headset is synthesizing frames or that motion will be smoother, so the client patch is required to show anything.
-
-Disabling ASW publishes carrier 0. The client observes that value on its 60-endframe control cadence (about 0.67 seconds at 90 Hz or 0.83 seconds at 72 Hz after delivery) and releases synthesis resources on their owning EGL context, including resources from a failed initialization. Settled Off performs no synthesis, history copies, motion estimation or GPU timing queries; decoded-image arrival learning also stops. The implicit layer, control/descriptor bookkeeping and image-ownership FIFO tracking (including its locking) remain active for correct live re-enable with images acquired across frame boundaries, so this is not a claim of literally zero overhead or measured headset performance parity. If publication fails, the driver retries; the headset must actually receive Off before its synthesis stops.
 
 After changing anything in the Headset section or the input profile, restart SteamVR.
 
@@ -151,7 +162,7 @@ Controller Offsets (under Controllers Advanced) are authored for the left hand a
 
 ## SDR 10-bit baseline
 
-A switch on the Driver Settings page (Headset section), on by default (owner directive 2026-10-23); an explicitly saved Off is preserved. It asks the stream for 10-bit HEVC or AV1; H.264 cannot carry 10-bit, so selecting that codec turns it off and its switch stays disabled until another codec is selected. The driver also suppresses the baseline request whenever H.264 is the saved codec, even if a hand-edited file still stores the baseline On, and logs the suppression; an explicit advanced `profileSupports10bit` request remains user-owned. It is a request, not a guarantee: the device decides what it actually negotiates.
+A switch on Image Settings (Image Processing), on by default (owner directive 2026-10-23); an explicitly saved Off is preserved. It asks the stream for 10-bit HEVC or AV1; H.264 cannot carry 10-bit, so selecting that codec turns it off and its switch stays disabled until another codec is selected. The driver also suppresses the baseline request whenever H.264 is the saved codec, even if a hand-edited file still stores the baseline On, and logs the suppression; an explicit advanced `profileSupports10bit` request remains user-owned. It is a request, not a guarantee: the device decides what it actually negotiates.
 
 When enabled, the driver:
 
@@ -165,7 +176,7 @@ Image Enhancements itself defaults On since 2026-10-17, so fresh installs apply 
 
 **APK side is a separate manual step; the host does not send it.** Apply the Steam Link patch options yourself: `profile=neutral`, `outputPrecision=srgb8-highp`, `dithering=off`, `use8BitOutputWhenDithering=false`. Note `neutral` keeps Valve's `_valve1_d2020d709` matrix, it is not an identity transform end to end.
 
-**Status.** Driver Settings shows a plain baseline-on note and Stream Frame exposes the picture controls. A device custom shader enabled for this headset still conflicts with the baseline request and shows a warning.
+**Status.** Image Settings shows the baseline status with the 10-bit SDR switch and exposes the picture controls. A device custom shader enabled for this headset still conflicts with the baseline request and shows a warning.
 
 **Rollback.** Turning the baseline off disables its 10-bit capability request (`supports10bit=false`); Image Enhancements and your picture settings are untouched. The explicit false is journaled even when Galaxy XR Headset Profile is off, so removing the key cannot accidentally restore an earlier true. Schema 2 retires the old enabled `profileSupports10bit` default only when the baseline is off; custom picture/encoder tuning and explicit advanced overrides are preserved. Uninstall/recovery restores original values only while the current values still match the journal. Requires a SteamVR restart and reconnect. A capability request does not guarantee a live 8-bit codec; verify the connection log.
 
@@ -210,7 +221,7 @@ Panel Blackout (Testing) (Advanced section) turns both panels black while tracki
 Check `Steam\logs\vrserver.txt`:
 
 - `FrameComponentShim: wrapping IVRDriverDirectModeComponent`: the frame path is hooked. Missing: the headset driver is not direct mode, or the driver did not load (check for duplicate registrations).
-- Manual render resolution uses the per-eye width and height entered in Driver Settings (3552x3840 by default), without forcing a refresh rate. The VRLink display callback preserves these values above 4096 per axis, so 5376x4973 no longer becomes a square. These are the base dimensions at SteamVR Custom 100%; Auto/global/per-game scaling still applies. Reset arrows restore native defaults, and turning the override off retains the manual values. Your selected rate (for example, 75 Hz) is preserved. Earlier refresh-rate overrides are restored only with journal ownership and an unchanged value. Resolution changes take effect on the next SteamVR start.
+- Manual render resolution uses the per-eye width and height entered in Image Settings > Render Resolution (3552x3840 by default), without forcing a refresh rate. The VRLink display callback preserves these values above 4096 per axis, so 5376x4973 no longer becomes a square. These are the base dimensions at SteamVR Custom 100%; Auto/global/per-game scaling still applies. Reset arrows restore native defaults, and turning the override off retains the manual values. Your selected rate (for example, 75 Hz) is preserved. Earlier refresh-rate overrides are restored only with journal ownership and an unchanged value. Resolution changes take effect on the next SteamVR start.
 - `GalaxyXR: stream quality '<preset>'`: the preset was applied. Takes effect at the next headset connect.
 - `GalaxyXR: SDR10 baseline: profile + supports10bit forced on ... REQUESTED ONLY`: the SDR 10-bit baseline forced the profile request; the device confirms at connect. Check `driver_vrlink.txt` for `Using 10bit mode: 1` after the next SteamVR start.
 - `FrameProcessor: matched hmd adapter <gpu>`: processing runs on the GPU SteamVR renders on. `no adapter matched` / `failed to create D3D11 device`: report with your GPU setup.

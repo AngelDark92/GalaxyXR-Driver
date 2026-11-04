@@ -83,8 +83,8 @@ verifier. See `Docs/CompanionGraphWindow.md` for async WebView2 creation,
 lifecycle and QA, and `Docs/BitrateMonitor.md` for the monitor's measurement
 contract.
 
-- `features/driver-settings-page.ts`: headset/device and legacy controls.
-- `features/stream-frame-page.ts`: stream/image processing controls.
+- `features/driver-settings-page.ts`: headset identity, controller tracking and retired controller experiments.
+- `features/stream-frame-page.ts`: render resolution, SDR mode, stream/image processing and retired image experiments.
 - `features/distortion-profile-page.ts`, `curve-editor.ts`: distortion/tuner UI.
 - `features/debug-page.ts`: diagnostics gated by Debug Mode.
 - `features/app-settings-page.ts`: presentation/Debug Mode/application settings.

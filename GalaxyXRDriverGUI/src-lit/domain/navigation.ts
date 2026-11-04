@@ -53,6 +53,32 @@ export function parseSectionTarget(hash: string): string | undefined {
   return id && /^[a-zA-Z0-9._-]+$/.test(id) ? id : undefined;
 }
 
+const LEGACY_HEADSET_SETTINGS: ReadonlySet<string> = new Set([
+  'galaxyXr.nativeResolution', 'galaxyXr.renderWidth', 'galaxyXr.renderHeight',
+  'renderResolutionLinked', 'galaxyXr.sdr10Baseline',
+]);
+const LEGACY_CONTROLLER_SETTINGS: ReadonlySet<string> = new Set([
+  'streamFrame.kalmanCaReportAccel', 'controllers.aligner.enable', 'galaxyXr.simulateTouch',
+  'streamFrame.deriveLatchPoseAssist', 'streamFrame.kalmanDirLeadAdaptive', 'streamFrame.kalmanAdaptiveR',
+  'streamFrame.kalmanGripEnable', 'streamFrame.deriveSmoothAngSeparate', 'streamFrame.deriveSplitDirLinear',
+  'streamFrame.deriveSplitDirAngular', 'streamFrame.deriveReleaseLatch',
+]);
+const LEGACY_DIAGNOSTIC_SETTINGS: ReadonlySet<string> = new Set([
+  'streamFrame.blackFloor.rampBar', 'streamFrame.hitchDiag', 'streamFrame.eyeGaze.debugRing',
+  'streamFrame.poseLogging', 'streamFrame.poseLogBurst', 'galaxyXr.vrlinkDebugOverlay',
+  'streamFrame.nvencFixLevel', 'streamFrame.nvencVerbose',
+]);
+
+/** Canonicalize only known pre-move setting links; callers still apply route gates. */
+export function compatibleSettingRoute(requested: Route, id: string): Route {
+  if (requested === 'driver-settings' && LEGACY_HEADSET_SETTINGS.has(id)) return 'stream-frame';
+  if (requested === 'stream-frame') {
+    if (LEGACY_CONTROLLER_SETTINGS.has(id)) return 'driver-settings';
+    if (LEGACY_DIAGNOSTIC_SETTINGS.has(id)) return 'debug';
+  }
+  return requested;
+}
+
 export function permittedRoute(requested: Route, available: boolean, debugMode = false): Route {
   if (available && requested === 'debug' && !debugMode) return 'app-settings';
   return available || ALWAYS_VISIBLE.includes(requested) ? requested : 'setup';

@@ -531,30 +531,48 @@ export interface ChoiceControlOptions {
   ctx: ControlContext;
   disabled?: boolean;
   label?: string;
-  onCommit: (value: string | number) => void;
+  onCommit: (value: string | number, event?: CustomEvent<string | number>) => void;
 }
 
 /**
  * Spec-driven finite set. A stored value that is not in the list is appended as
  * an explicit "Stored: X (unsupported)" option, so the control shows the truth
- * instead of selecting a different value.
+ * instead of selecting a different value. Per-option hardware gates are applied
+ * to options other than the current value so a saved unsupported value stays
+ * visible and selectable.
  */
 export function choiceControl(key: string, opts: ChoiceControlOptions): TemplateResult {
   const spec = controlSpec(key);
   if (!spec || spec.kind !== 'choice') throw new Error(`Unknown choice control spec: ${key}`);
-  const options = spec.options.map(option => ({ value: option.value, label: t(option.label) }));
-  if (!options.some(option => String(option.value) === String(opts.value))) {
+  const current = String(opts.value);
+  const options = spec.options.map(option => {
+    const disabled = !!spec.optionDisabled?.(option.value, opts.ctx) && String(option.value) !== current;
+    const reason = disabled ? spec.optionReason?.(option.value, opts.ctx) : undefined;
+    return { value: option.value, label: t(option.label), disabled, reason };
+  });
+  if (!options.some(option => String(option.value) === current)) {
     options.push({
       value: opts.value,
       label: t('Stored: {value} (unsupported)', { value: String(opts.value) }),
+      disabled: false,
+      reason: undefined,
     });
   }
-  const onChange = (event: CustomEvent<string | number>) => opts.onCommit(event.detail);
+  const onChange = (event: CustomEvent<string | number>) => opts.onCommit(event.detail, event);
   return spec.segmented
     ? html`<app-choice .value=${opts.value} .options=${options} .label=${opts.label ?? ''}
         .disabled=${!!opts.disabled} @change=${onChange}></app-choice>`
     : html`<app-select .value=${String(opts.value)} .options=${options} .label=${opts.label ?? ''}
         .disabled=${!!opts.disabled} @change=${onChange}></app-select>`;
+}
+
+/** Row warning for a choice whose saved value is unsupported or unverified. */
+export function hardwareChoiceNotice(key: string, value: string | number, ctx: ControlContext): FieldNotice | undefined {
+  const spec = controlSpec(key);
+  if (!spec || spec.kind !== 'choice' || !spec.optionReason) return undefined;
+  const reason = spec.optionReason(value, ctx);
+  if (!reason) return undefined;
+  return { intent: 'warning', title: reason, compact: true };
 }
 
 export interface SliderControlOptions {

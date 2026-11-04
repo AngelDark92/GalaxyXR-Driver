@@ -5,6 +5,7 @@
 #include <fstream>
 #include <filesystem>
 #include <chrono>
+#include <cstdio>
 #include "nlohmann/json.hpp"
 #include "../Driver/DriverLog.h"
 #include "StreamTiers.h"
@@ -16,8 +17,6 @@
 #ifdef _WIN32
 #include "Windows.h"
 #include "../Driver/NvencTap.h"
-#include "../Driver/VrlinkTap.h"
-#include "../Driver/AswAutoMode.h"
 #else
 #include <unistd.h>
 #endif
@@ -36,6 +35,35 @@ static std::string LoadedDriverModulePath(){
 	return std::filesystem::path(std::wstring(path, size)).u8string();
 }
 #endif
+
+// 2026-11-03: shared serialization of the session-bound NVENC capability
+// inventory for info.json and diagnostic.json.
+static ordered_json SerializeEncoderCapabilities(const NvencCapabilities& caps){
+	ordered_json capsJson = ordered_json::object();
+	if(!caps.adapter.luid.empty()){ capsJson["adapterLuid"] = caps.adapter.luid; }
+	if(!caps.adapter.gpuName.empty()){ capsJson["gpuName"] = caps.adapter.gpuName; }
+	if(caps.adapter.vendorId.has_value()){ capsJson["vendorId"] = caps.adapter.vendorId.value(); }
+	if(caps.adapter.apiVersion.has_value()){ capsJson["apiVersion"] = caps.adapter.apiVersion.value(); }
+	ordered_json codecsJson = ordered_json::object();
+	const char* codecNames[3] = {"hevc", "h264", "av1"};
+	for(int i = 0; i < 3; i++){
+		const auto& cc = caps.codecs[i];
+		if(!cc.supported.has_value() && !cc.tenBit.has_value() && !cc.maxWidth.has_value()
+			&& !cc.maxHeight.has_value() && !cc.engines.has_value() && !cc.presets.has_value()
+			&& !cc.split.has_value()){ continue; }
+		ordered_json c = ordered_json::object();
+		if(cc.supported.has_value()){ c["supported"] = cc.supported.value(); }
+		if(cc.tenBit.has_value()){ c["tenBit"] = cc.tenBit.value(); }
+		if(cc.maxWidth.has_value()){ c["maxWidth"] = cc.maxWidth.value(); }
+		if(cc.maxHeight.has_value()){ c["maxHeight"] = cc.maxHeight.value(); }
+		if(cc.engines.has_value()){ c["engines"] = cc.engines.value(); }
+		if(cc.presets.has_value()){ c["presets"] = cc.presets.value(); }
+		if(cc.split.has_value()){ c["split"] = cc.split.value(); }
+		codecsJson[codecNames[i]] = std::move(c);
+	}
+	if(!codecsJson.empty()){ capsJson["codecs"] = std::move(codecsJson); }
+	return capsJson;
+}
 
 std::string ConfigLoader::GetConfigFolder(){
 	// vendor builds keep their config in a separate folder so they can coexist
@@ -1094,15 +1122,6 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["nvencForceCbr"].is_boolean()){
 				newConfig.streamFrame.nvencForceCbr = streamFrameData["nvencForceCbr"].get<bool>();
 			}
-			if(streamFrameData["spacewarpEnable"].is_boolean()){
-				newConfig.streamFrame.spacewarpEnable = streamFrameData["spacewarpEnable"].get<bool>();
-			}
-			if(streamFrameData["spacewarpMode"].is_number()){
-				newConfig.streamFrame.spacewarpMode = streamFrameData["spacewarpMode"].get<int>();
-			}
-			if(streamFrameData["spacewarpSettingsVersion"].is_number()){
-				newConfig.streamFrame.spacewarpSettingsVersion = streamFrameData["spacewarpSettingsVersion"].get<int>();
-			}
 			if(streamFrameData["nvencLowDelayKfScale"].is_number()){
 				newConfig.streamFrame.nvencLowDelayKfScale = streamFrameData["nvencLowDelayKfScale"].get<int>();
 			}
@@ -1739,14 +1758,6 @@ void ConfigLoader::ParseConfig(){
 		if(newConfig.streamFrame.streamFrameSchema < 6){
 			newConfig.streamFrame.streamFrameSchema = 6;
 		}
-		// Async Spacewarp semantics v2 (2026-10-26): mode 0 becomes Automatic
-		// (late-frame recovery until the measured cadence drops, then half rate)
-		// and mode 1 becomes Forced half rate. The stored 0/1 values keep their
-		// meaning, so only the dated semantics stamp advances; no enable/mode
-		// selection and no tuning is rewritten. Mirrors GalaxySettingsBase.
-		if(newConfig.streamFrame.spacewarpSettingsVersion < 2){
-			newConfig.streamFrame.spacewarpSettingsVersion = 2;
-		}
 		gxr::ApplyDebugModePolicy(newConfig);
 		// 2026-10-24: controllerBypass is the master controller disable and
 		// must win over a saved Game Link layout. Runtime copy only; the
@@ -2155,9 +2166,6 @@ void ConfigLoader::WriteInfo(){
 				{"nvencMinQp", defaultSettings.streamFrame.nvencMinQp},
 				{"nvencMinQpIntra", defaultSettings.streamFrame.nvencMinQpIntra},
 				{"nvencForceCbr", defaultSettings.streamFrame.nvencForceCbr},
-				{"spacewarpEnable", defaultSettings.streamFrame.spacewarpEnable},
-				{"spacewarpMode", defaultSettings.streamFrame.spacewarpMode},
-				{"spacewarpSettingsVersion", defaultSettings.streamFrame.spacewarpSettingsVersion},
 				{"nvencLowDelayKfScale", defaultSettings.streamFrame.nvencLowDelayKfScale},
 				{"nvencVuiMatrix", defaultSettings.streamFrame.nvencVuiMatrix},
 				{"nvencVuiPrimaries", defaultSettings.streamFrame.nvencVuiPrimaries},
@@ -2302,42 +2310,34 @@ void ConfigLoader::WriteInfo(){
 		{"effectiveSplit", tap.effectiveSplit},
 		{"encodeWidth", tap.encodeWidth},
 		{"encodeHeight", tap.encodeHeight}};
-	// 2026-10-17 add-feature (brief 11-W2B): pinned cross-child seam — the
-	// Companion (brief 12-W2C) reads these keys and the status enum verbatim:
-	// status is EXACTLY one of "off" (disabled) / "on" (enabled and published)
-	// / "waiting" (enabled but the value-transport publish has not happened
-	// yet). Do not deviate from the shape.
-	const auto spacewarpTap = VrlinkTap::Get().GetRuntimeState();
-	const auto aswAuto = gxr::AswAutoMode::Get().Snapshot();
-	data["spacewarp"] = {
-		{"enabled", spacewarpTap.enabled}, {"hookInstalled", spacewarpTap.hookInstalled},
-		{"published", spacewarpTap.published}, {"publishedValue", spacewarpTap.publishedValue},
-		{"status", spacewarpTap.status}, {"reason", spacewarpTap.reason},
-		{"requestedMode", spacewarpTap.requestedMode},
-		{"effectiveMode", spacewarpTap.effectiveMode},
-		{"transportGeneration", spacewarpTap.transportGeneration},
-		{"auto", {{"enabled", aswAuto.enabled},
-			{"requestedMode", aswAuto.requestedMode},
-			{"effectiveMode", aswAuto.effectiveMode},
-			{"measuredFps", aswAuto.measuredFps},
-			{"refreshHz", aswAuto.refreshHz},
-			{"historySpanSeconds", aswAuto.historySpanSeconds},
-			{"historyValid", aswAuto.historyValid},
-			{"reason", aswAuto.reason},
-			{"generation", aswAuto.generation},
-			{"enterCount", aswAuto.enterCount},
-			{"exitCount", aswAuto.exitCount}}},
-		{"observedAt", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
-		{"implRva", spacewarpTap.implRva}, {"workerRva", spacewarpTap.workerRva},
-		{"callerCount", spacewarpTap.callerCount},
-		{"moduleImageSize", spacewarpTap.moduleImageSize},
-		{"moduleTimestamp", spacewarpTap.moduleTimestamp}};
+	// 2026-11-03: publish the session-bound capability inventory. Missing fields
+	// mean unknown; query failures are omitted rather than reported as false.
+	const auto caps = NvencTap::Get().GetCapabilities(tap.encoder);
+	if(caps.queried){
+		ordered_json capsJson = SerializeEncoderCapabilities(caps);
+		if(!capsJson.empty()){ data["encoderTap"]["capabilities"] = std::move(capsJson); }
+	}
 	// 2026-10-23: observed streamer request, Max Bitrate and applied target.
 	// The old 350 Mbit clamp/overdrive pair is retired; this is diagnostics only.
 	const auto bitratePolicy = NvencTap::Get().GetBitratePolicyState();
 	data["bitratePolicy"] = {
 		{"ceilingMbit", bitratePolicy.ceilingMbit}, {"requestMbit", bitratePolicy.requestMbit},
 		{"targetMbit", bitratePolicy.targetMbit}};
+	// 2026-11-04: fresh SteamVR HMD renderer adapter LUID, separate from the
+	// NVENC encoder identity. Omitted (never defaulted or retained) unless the
+	// runtime is live and the property read succeeds with a nonzero value.
+	if(info.runtimeInitialized.load() && !info.runtimeLockedOut.load() && vr::VRProperties()){
+		const vr::PropertyContainerHandle_t hmdContainer = vr::VRProperties()->TrackedDeviceToPropertyContainer(vr::k_unTrackedDeviceIndex_Hmd);
+		vr::ETrackedPropertyError luidError = vr::TrackedProp_Success;
+		const uint64_t hmdLuid = vr::VRProperties()->GetUint64Property(hmdContainer, vr::Prop_GraphicsAdapterLuid_Uint64, &luidError);
+		if(luidError == vr::TrackedProp_Success && hmdLuid != 0){
+			char luidText[17] = {};
+			snprintf(luidText, sizeof(luidText), "%016llx", (unsigned long long)hmdLuid);
+			data["graphicsAdapter"] = {{"adapterLuid", std::string(luidText)},
+				{"pid", GetCurrentProcessId()},
+				{"observedAt", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()}};
+		}
+	}
 #endif
 	ordered_json& distortionProfilesJson = data["builtInDistortionProfiles"];
 	for(auto profilePair : builtInDistortionProfiles){
@@ -2465,6 +2465,11 @@ void ConfigLoader::WriteDiagnosticInfo(){
 	const auto tap = NvencTap::Get().GetRuntimeState();
 	data["encoderTap"] = {{"enabled", tap.enabled}, {"hookInstalled", tap.hookInstalled},
 		{"upgradedSessionsRemain", tap.upgradedSessionsRemain}};
+	const auto caps = NvencTap::Get().GetCapabilities(tap.encoder);
+	if(caps.queried){
+		ordered_json capsJson = SerializeEncoderCapabilities(caps);
+		if(!capsJson.empty()){ data["encoderTap"]["capabilities"] = std::move(capsJson); }
+	}
 #endif
 	diagnosticFile << data.dump(1, '\t');
 	diagnosticFile.close();

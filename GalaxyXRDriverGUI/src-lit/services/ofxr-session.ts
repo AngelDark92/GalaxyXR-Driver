@@ -6,6 +6,8 @@ import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_import, ofxr_remove, ofxr_reins
 import type { AppSettingService } from './app-setting';
 import type { DriverSettingService } from './driver-setting';
 import type { GalaxySettingsBase } from '../state/galaxy-settings';
+import type { GpuCapabilitiesService } from './gpu-capabilities';
+import { ofxrNvidiaSupport } from '../domain/encoder-capabilities';
 
 /** One application-owned queue, including startup restoration and page remounts. */
 export class OfxrSessionService {
@@ -20,6 +22,7 @@ export class OfxrSessionService {
     private readonly app: AppSettingService,
     private readonly driver: DriverSettingService,
     private readonly galaxy: GalaxySettingsBase,
+    private readonly gpu: GpuCapabilitiesService,
   ) {}
 
   preferences(): OfxrPreferences { return normalizeOfxrPreferences(this.app.values().ofxr); }
@@ -27,6 +30,14 @@ export class OfxrSessionService {
   setError(message: string | undefined): void { this.error.set(message); }
   idle(): Promise<void> { return this.queue; }
   dispose(): void { this.disposed = true; }
+
+  private checkNvidiaMode(prefs: OfxrPreferences): void {
+    if (!prefs.mode.startsWith('nvidia')) return;
+    const verdict = ofxrNvidiaSupport(this.gpu.caps());
+    if (verdict.verdict === 'unsupported') {
+      throw new Error(verdict.reason ?? t('NVIDIA Optical Flow is not available on the current GPU.'));
+    }
+  }
 
   private serialize(task: () => Promise<void>): Promise<void> {
     const next = this.queue.then(async () => {
@@ -42,7 +53,7 @@ export class OfxrSessionService {
 
   start(): Promise<void> {
     return this.started ??= this.serialize(async () => {
-      await Promise.all([this.app.initTask, this.driver.initTask]);
+      await Promise.all([this.app.initTask, this.driver.initTask, this.gpu.ready]);
       if (this.disposed || !this.galaxy.vendor) return;
       // Restore only a successfully read preference, never an optimistic draft.
       if (this.app.readFileError() || !this.app.confirmedValues()?.ofxr?.enabled) return;
@@ -82,26 +93,12 @@ export class OfxrSessionService {
     if (this.app.readFileError() || this.driver.readFileError() || this.driver.inspecting || !this.galaxy.settings) {
       throw new Error(t('Read the saved driver and Companion settings successfully before enabling Optical Flow.'));
     }
-    const previousSpacewarp = !!this.galaxy.settings.spacewarpEnable;
     const previousEnabled = this.preferences().enabled;
-    // Startup must not rewrite a conflicting user setting. An explicit retry
-    // can turn ASW off through the same confirmed-save path as the switch.
-    if (restoring && previousSpacewarp) {
-      throw new Error(t('Optical Flow was not restored because Async Spacewarp is enabled. Enable Optical Flow again to switch modes.'));
-    }
-    let disabledSpacewarp = false;
     let savedEnable = false;
     try {
-      if (previousSpacewarp) {
-        this.galaxy.settings.spacewarpEnable = false;
-        if (!await this.galaxy.save() || this.galaxy.settings?.spacewarpEnable !== false) {
-          throw new Error(t('Async Spacewarp could not be saved Off. Optical Flow was not armed.'));
-        }
-        disabledSpacewarp = true;
-      }
-      if (this.disposed) return;
       const prefs = restoring ? this.preferences() : await this.save({ enabled: true });
       savedEnable = !restoring;
+      this.checkNvidiaMode(prefs);
       if (this.disposed) return;
       this.status.set(await ofxr_arm(prefs));
       this.error.set(undefined);
@@ -111,10 +108,6 @@ export class OfxrSessionService {
         try { await this.save({ enabled: previousEnabled }); }
         catch (error) { errors.push(String(error)); }
       }
-      if (disabledSpacewarp && this.galaxy.settings) {
-        this.galaxy.settings.spacewarpEnable = previousSpacewarp;
-        if (!await this.galaxy.save()) errors.push(t('The previous Async Spacewarp setting could not be restored.'));
-      }
       await this.refreshStatus();
       throw new Error(errors.join(' '));
     }
@@ -122,6 +115,13 @@ export class OfxrSessionService {
 
   update(patch: Partial<OfxrPreferences>): Promise<void> {
     return this.serialize(async () => {
+      // Only a newly requested mode is validated before persisting: choosing an
+      // unsupported NVIDIA mode must not be saved and left unapplied, but other
+      // edits (and switching away) stay allowed while a stored unsupported mode
+      // is kept. Arming always validates the stored mode.
+      if (patch.mode !== undefined && patch.mode !== this.preferences().mode) {
+        this.checkNvidiaMode({ ...this.preferences(), ...patch });
+      }
       const prefs = await this.save(patch);
       try { await ofxr_apply(prefs); this.error.set(undefined); }
       finally { await this.refreshStatus(); }
@@ -186,28 +186,6 @@ export class OfxrSessionService {
         await this.save({ enabled: false, version: '' });
         this.error.set(undefined);
       } finally { await this.refreshStatus(); }
-    });
-  }
-
-  setSpacewarp(enabled: boolean): Promise<void> {
-    return this.serialize(async () => {
-      // A different page or process may have armed the layer since this
-      // service last inspected the registry; the exclusion check must read
-      // live state (same rule as selectVersion below).
-      if (enabled) await this.refreshStatus();
-      if (enabled && this.galaxy.vendor && (this.preferences().enabled || this.isArmed() || this.status()?.state === 'armed_external')) {
-        await this.save({ enabled: false });
-        // Always confirm disarm, including a failed earlier Off operation.
-        try { this.status.set(await ofxr_disarm()); }
-        finally { await this.refreshStatus(); }
-        if (this.status()?.state === 'armed' || this.status()?.state === 'armed_external') {
-          throw new Error(t('Disarm Optical Flow from its current manager before enabling Async Spacewarp.'));
-        }
-      }
-      if (!this.galaxy.settings) return;
-      this.galaxy.settings.spacewarpEnable = enabled;
-      if (!await this.galaxy.save()) throw new Error(t('The Async Spacewarp setting could not be saved.'));
-      this.error.set(undefined);
     });
   }
 }

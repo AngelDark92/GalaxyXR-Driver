@@ -2,8 +2,8 @@
 // Command names, argument keys and result meanings are the IPC contract with
 // src-tauri/src/js_api.rs + driver_installation.rs; keep them in lockstep.
 import { invoke } from '@tauri-apps/api/core';
-import type { OfxrPreferences, OfxrStatus } from '../domain/types';
-export type { OfxrPreferences, OfxrStatus };
+import type { GpuCapabilities, OfxrPreferences, OfxrStatus } from '../domain/types';
+export type { GpuCapabilities, OfxrPreferences, OfxrStatus };
 
 /** Title-bar Close (X) behavior; the Minimize button is independent. */
 export type CompanionCloseAction = 'ask' | 'close' | 'minimise';
@@ -141,6 +141,10 @@ export function clean_galaxyxr_settings(steamvrPath?: string): Promise<CleanSett
 }
 export function get_galaxyxr_runtime_status(steamvrPath: string | undefined, expectedVersion: string): Promise<DriverRuntimeStatus> {
     return invoke('get_galaxyxr_runtime_status', { steamvrPath: steamvrPath ?? null, expectedVersion });
+}
+
+export function get_gpu_capabilities(): Promise<GpuCapabilities> {
+    return invoke('get_gpu_capabilities');
 }
 
 // OFXR Bridge managed component (2026-10-17; 2026-10-23). Pinned IPC contract:

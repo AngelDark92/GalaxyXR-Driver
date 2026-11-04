@@ -21,6 +21,8 @@
 #include <limits>
 #include <fstream>
 #include <sstream>
+#include <dxgi.h>
+#include <unknwn.h>
 #include "../../../ThirdParty/json/single_include/nlohmann/json.hpp"
 
 // Versioned read-only data export for external measurement tools. It contains
@@ -46,6 +48,10 @@ struct NvencTapShims {
 	static NVENCSTATUS NVENCAPI OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS* params, void** encoder);
 	static NVENCSTATUS NVENCAPI DestroyEncoder(void* encoder);
 	static NVENCSTATUS NVENCAPI GetEncodeCaps(void* encoder, GUID encodeGUID, NV_ENC_CAPS_PARAM* params, int* capsVal);
+	static NVENCSTATUS NVENCAPI GetEncodeGUIDCount(void* encoder, uint32_t* count);
+	static NVENCSTATUS NVENCAPI GetEncodeGUIDs(void* encoder, GUID* guids, uint32_t guidArraySize, uint32_t* guidCount);
+	static NVENCSTATUS NVENCAPI GetEncodePresetCount(void* encoder, GUID encodeGUID, uint32_t* count);
+	static NVENCSTATUS NVENCAPI GetEncodePresetGUIDs(void* encoder, GUID encodeGUID, GUID* presetGuids, uint32_t guidArraySize, uint32_t* guidCount);
 	static NVENCSTATUS NVENCAPI GetEncodePresetConfig(void* encoder, GUID encodeGUID, GUID presetGUID, NV_ENC_PRESET_CONFIG* params);
 	static NVENCSTATUS NVENCAPI GetEncodePresetConfigEx(void* encoder, GUID encodeGUID, GUID presetGUID, NV_ENC_TUNING_INFO tuning, NV_ENC_PRESET_CONFIG* params);
 	static NVENCSTATUS NVENCAPI CreateInputBuffer(void* encoder, NV_ENC_CREATE_INPUT_BUFFER* params);
@@ -75,6 +81,10 @@ PNVENCLOCKBITSTREAM origLockBitstream = nullptr;
 // for the canonical config of the target preset (see NvencTapConfig::presetMerge)
 PNVENCGETENCODEPRESETCONFIGEX origGetPresetConfigEx = nullptr;
 PNVENCGETENCODECAPS origGetEncodeCaps = nullptr;
+PNVENCGETENCODEGUIDCOUNT origGetEncodeGUIDCount = nullptr;
+PNVENCGETENCODEGUIDS origGetEncodeGUIDs = nullptr;
+PNVENCGETENCODEPRESETCOUNT origGetEncodePresetCount = nullptr;
+PNVENCGETENCODEPRESETGUIDS origGetEncodePresetGUIDs = nullptr;
 PNVENCGETLASTERROR origGetLastErrorString = nullptr;
 PNVENCOPENENCODESESSIONEX origOpenEncodeSessionEx = nullptr;
 PNVENCDESTROYENCODER origDestroyEncoder = nullptr;
@@ -278,6 +288,13 @@ void* runtimeInitEncoder = nullptr;
 struct InitFailure { uint32_t status; std::string error; };
 std::map<void*, InitFailure> firstInitFailures;
 std::string acceptedRequest;
+
+// 2026-11-03: per-session capability inventory and the actual session API
+// version (major*100+minor, e.g. 1201). Kept separate from the global stats
+// so multi-session / handle-reuse lifetimes do not cross-contaminate.
+std::mutex capsLock;
+std::map<void*, NvencCapabilities> capCache;
+std::map<void*, uint32_t> sessionApiVersion;
 void PublishPictureResult(void* encoder, NVENCSTATUS status, const std::string& error, bool log = true){
 	if(status == NV_ENC_ERR_NEED_MORE_INPUT){ return; }
 	std::lock_guard<std::mutex> guard(runtimeLock);
@@ -320,7 +337,7 @@ void PublishFailure(void* encoder, const NvencTapConfig& cfg, NVENCSTATUS status
 		runtime.effectiveCodec = -1; runtime.effectiveRateControl = -1;
 		runtime.effectiveSplit = -1; runtime.encodeWidth = 0; runtime.encodeHeight = 0;
 	}
-	runtimeEncoder = encoder; runtime.requestedCodec = cfg.codec;
+	runtimeEncoder = encoder; runtime.encoder = encoder; runtime.requestedCodec = cfg.codec;
 	runtime.lastStatus = (uint32_t)status; runtime.error = error;
 	}
 	// 2026-10-18 handshake grace (see the ApplyOverrides split block): split
@@ -397,7 +414,7 @@ void PublishFailure(void* encoder, const NvencTapConfig& cfg, NVENCSTATUS status
 		|| runtime.encodeWidth != p->encodeWidth || runtime.encodeHeight != p->encodeHeight)){
 		DriverLog("NvencTap: applied requested codec=%d effective codec=%d RC=%d size=%ux%u", cfg.codec, codec, rc, p->encodeWidth, p->encodeHeight);
 	}
-	runtimeEncoder = encoder; runtime.requestedCodec = cfg.codec; runtime.effectiveCodec = codec;
+	runtimeEncoder = encoder; runtime.encoder = encoder; runtime.requestedCodec = cfg.codec; runtime.effectiveCodec = codec;
 	runtime.lastStatus = NV_ENC_SUCCESS; runtime.error.clear();
 	runtime.effectiveRateControl = rc; runtime.encodeWidth = p->encodeWidth; runtime.encodeHeight = p->encodeHeight;
 	runtime.effectiveSplit = codec == 1 ? -1 : ((p->version & 0xFFFFu) >= 12 ? (int)p->splitEncodeMode : -1);
@@ -625,6 +642,226 @@ int SessionCodecOf(void* encoder){
 	return it == sessionCodecs.end() ? -1 : it->second;
 }
 
+// 2026-11-03: capability-inventory helpers.
+static const GUID* CodecGuid(int codec){
+	switch(codec){ case 0: return &NV_ENC_CODEC_HEVC_GUID; case 1: return &NV_ENC_CODEC_H264_GUID; case 2: return &NV_ENC_CODEC_AV1_GUID; default: return nullptr; }
+}
+
+// Forward: defined later beside Snapshot.
+const GUID* PresetGuid(int p);
+static const char* CodecShortName(int codec){
+	switch(codec){ case 0: return "HEVC"; case 1: return "H.264"; case 2: return "AV1"; default: return "unknown"; }
+}
+
+static bool IsTenBitBufferFormat(NV_ENC_BUFFER_FORMAT fmt){
+	switch(fmt){
+		case NV_ENC_BUFFER_FORMAT_YUV420_10BIT:
+		case NV_ENC_BUFFER_FORMAT_YUV444_10BIT:
+		case NV_ENC_BUFFER_FORMAT_ARGB10:
+		case NV_ENC_BUFFER_FORMAT_ABGR10:
+		case NV_ENC_BUFFER_FORMAT_P210:
+			return true;
+		default:
+			return false;
+	}
+}
+
+static std::string FormatLuid(const LUID& luid){
+	char buf[32];
+	snprintf(buf, sizeof(buf), "%08x%08x", (uint32_t)luid.HighPart, (uint32_t)luid.LowPart);
+	return std::string(buf);
+}
+
+static void ResolveAdapterIdentity(const NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS* params, NvencAdapterIdentity& id){
+	if(!params || params->deviceType != NV_ENC_DEVICE_TYPE_DIRECTX || !params->device){ return; }
+	IUnknown* unk = static_cast<IUnknown*>(params->device);
+	IDXGIDevice* dxgi = nullptr;
+	if(FAILED(unk->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi)))){ return; }
+	IDXGIAdapter* adapter = nullptr;
+	HRESULT hr = dxgi->GetAdapter(&adapter);
+	dxgi->Release();
+	if(FAILED(hr) || !adapter){ return; }
+	DXGI_ADAPTER_DESC desc{};
+	hr = adapter->GetDesc(&desc);
+	adapter->Release();
+	if(FAILED(hr)){ return; }
+	id.luid = FormatLuid(desc.AdapterLuid);
+	id.vendorId = desc.VendorId;
+	int len = WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, nullptr, 0, nullptr, nullptr);
+	if(len > 0){
+		std::string name(len, '\0');
+		WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, &name[0], len, nullptr, nullptr);
+		if(!name.empty() && name.back() == '\0'){ name.pop_back(); }
+		id.gpuName = std::move(name);
+	}
+}
+
+static uint32_t EncodedApiVersion(uint32_t nvencApiVersion){
+	const uint32_t major = nvencApiVersion & 0xFFFFu;
+	const uint32_t minor = (nvencApiVersion >> 24) & 0xFu;
+	return major * 100u + minor;
+}
+
+static int PresetNumberFromGuid(const GUID& g){
+	for(int p = 1; p <= 7; p++){
+		const GUID* pg = PresetGuid(p);
+		if(pg && memcmp(&g, pg, sizeof(GUID)) == 0){ return p; }
+	}
+	return 0;
+}
+
+static void QueryCodecCapabilities(void* encoder, uint32_t apiMajor, uint32_t apiMinor, NvencCodecCapability caps[3]){
+	if(!origGetEncodeCaps){ return; }
+	// 1. Authoritative codec GUID inventory. If the driver enumerates GUIDs,
+	// a missing codec is a known negative; width/height alone are not reliable.
+	bool guidKnown[3] = {false, false, false};
+	bool guidSupported[3] = {false, false, false};
+	bool enumSucceeded = false;
+	if(origGetEncodeGUIDCount && origGetEncodeGUIDs){
+		uint32_t count = 0;
+		if(origGetEncodeGUIDCount(encoder, &count) == NV_ENC_SUCCESS){
+			if(count > 0){
+				std::vector<GUID> guids(count);
+				uint32_t fetched = 0;
+				if(origGetEncodeGUIDs(encoder, guids.data(), count, &fetched) == NV_ENC_SUCCESS){
+					enumSucceeded = true;
+					for(uint32_t i = 0; i < fetched && i < count; i++){
+						int idx = CodecOfGuid(guids[i]);
+						if(idx >= 0){ guidKnown[idx] = true; guidSupported[idx] = true; }
+					}
+				}
+			}else{
+				enumSucceeded = true; // driver reports zero supported codecs
+			}
+		}
+	}
+	const NV_ENC_CAPS_PARAM cpBase = {};
+	for(int codec = 0; codec < 3; codec++){
+		const GUID* guid = CodecGuid(codec);
+		if(!guid){ continue; }
+		// AV1 only exists from NVENC API 12.0 onward.
+		if(codec == 2 && (apiMajor < 12)){ continue; }
+		NvencCodecCapability& cap = caps[codec];
+		if(guidKnown[codec]){
+			cap.supported = guidSupported[codec];
+			if(!guidSupported[codec]){ continue; }
+		}else if(enumSucceeded){
+			// Enumeration succeeded but this codec was absent: known unsupported.
+			cap.supported = false;
+			continue;
+		}
+		NV_ENC_CAPS_PARAM cp = cpBase;
+		cp.version = apiMajor | (apiMinor << 24) | (1u << 16) | (0x7u << 28);
+		auto q = [&](NV_ENC_CAPS what, int* out)->bool{
+			cp.capsToQuery = what;
+			return origGetEncodeCaps(encoder, *guid, &cp, out) == NV_ENC_SUCCESS;
+		};
+		int v = 0;
+		if(q(NV_ENC_CAPS_WIDTH_MAX, &v)){ cap.maxWidth = (uint32_t)v; }
+		if(q(NV_ENC_CAPS_HEIGHT_MAX, &v)){ cap.maxHeight = (uint32_t)v; }
+		// Fallback support detection only when the driver did not enumerate GUIDs.
+		if(!guidKnown[codec] && cap.maxWidth.has_value() && cap.maxHeight.has_value()){
+			cap.supported = (cap.maxWidth.value() > 0 && cap.maxHeight.value() > 0);
+		}
+		if(q(NV_ENC_CAPS_NUM_ENCODER_ENGINES, &v)){ cap.engines = (uint32_t)v; }
+		if(q(NV_ENC_CAPS_SUPPORT_10BIT_ENCODE, &v)){ cap.tenBit = (v != 0); }
+		// 2. Authoritative preset GUID enumeration. Tuning-specific config queries
+		// are not the same as preset GUID support.
+		if(origGetEncodePresetCount && origGetEncodePresetGUIDs){
+			uint32_t pcount = 0;
+			if(origGetEncodePresetCount(encoder, *guid, &pcount) == NV_ENC_SUCCESS && pcount > 0){
+				std::vector<GUID> pguids(pcount);
+				uint32_t pfetched = 0;
+				if(origGetEncodePresetGUIDs(encoder, *guid, pguids.data(), pcount, &pfetched) == NV_ENC_SUCCESS){
+					std::vector<int> presets;
+					for(uint32_t i = 0; i < pfetched && i < pcount; i++){
+						int pn = PresetNumberFromGuid(pguids[i]);
+						if(pn){ presets.push_back(pn); }
+					}
+					// An empty mapped list (driver reported no recognizable presets)
+					// must stay unknown so we do not falsely reject P1..P7.
+					if(!presets.empty()){ cap.presets = std::move(presets); }
+				}
+			}
+		}
+		// H.264 genuinely does not support split-frame encoding. For other
+		// codecs we defer to the engine count check in ValidateCapabilities,
+		// which names the exact requested strip count rather than claiming a
+		// generic unsupported capability.
+		if(codec == 1){ cap.split = false; }
+	}
+}
+
+static void EnsureCapabilitiesQueried(void* encoder, uint32_t initStructVersion){
+	if(!encoder){ return; }
+	// The actual opened session API wins over the caller's struct version word.
+	uint32_t apiMajor = 0, apiMinor = 0;
+	{
+		std::lock_guard<std::mutex> g(upgradedLock);
+		auto it = sessionApiVersion.find(encoder);
+		if(it != sessionApiVersion.end()){
+			const uint32_t enc = it->second;
+			apiMajor = enc / 100u;
+			apiMinor = enc % 100u;
+		}
+	}
+	if(apiMajor == 0){
+		apiMajor = ApiMajor(initStructVersion);
+		apiMinor = (initStructVersion >> 24) & 0xFu;
+	}
+	if(apiMajor == 0){ return; }
+	std::lock_guard<std::mutex> g(capsLock);
+	NvencCapabilities& caps = capCache[encoder];
+	if(caps.queried){ return; }
+	caps.queried = true;
+	if(!caps.adapter.apiVersion.has_value() || caps.adapter.apiVersion.value() == 0){
+		caps.adapter.apiVersion = apiMajor * 100u + apiMinor;
+	}
+	QueryCodecCapabilities(encoder, apiMajor, apiMinor, caps.codecs.data());
+}
+
+static NvencCapabilities GetCapabilitiesForEncoder(void* encoder){
+	std::lock_guard<std::mutex> g(capsLock);
+	auto it = capCache.find(encoder);
+	return it == capCache.end() ? NvencCapabilities{} : it->second;
+}
+
+static std::string ValidateCapabilities(const NvencTapConfig& cfg, void* encoder, const NV_ENC_INITIALIZE_PARAMS* p){
+	if(!cfg.enabled || !encoder || !p || !p->encodeConfig){ return {}; }
+	const NvencCapabilities caps = GetCapabilitiesForEncoder(encoder);
+	int targetCodec = cfg.codec > 0 ? cfg.codec : CodecOfGuid(p->encodeGUID);
+	if(targetCodec < 0 || targetCodec > 2){ return {}; }
+	const NvencCodecCapability& cc = caps.codecs[targetCodec];
+	const char* name = CodecShortName(targetCodec);
+	if(cc.supported.has_value() && !cc.supported.value()){
+		return std::string("streamFrame.nvencCodec ") + name + " is not supported by this NVIDIA session.";
+	}
+	if(IsTenBitBufferFormat(p->bufferFormat)){
+		if(targetCodec == 1){ return "streamFrame.nvencCodec=1 (H.264 High 8-bit) cannot encode a 10-bit input surface."; }
+		if(cc.tenBit.has_value() && !cc.tenBit.value()){
+			return std::string("streamFrame.nvencCodec=") + std::to_string(targetCodec) + " (" + name + ") 10-bit encoding is not supported by this NVIDIA session.";
+		}
+	}
+	if(cfg.preset != 0 && cc.presets.has_value()){
+		const auto& ps = cc.presets.value();
+		if(std::find(ps.begin(), ps.end(), cfg.preset) == ps.end()){
+			return std::string("streamFrame.nvencPreset ") + std::to_string(cfg.preset) + " is not supported for " + name + " on this NVIDIA session.";
+		}
+	}
+	if(cfg.splitMode >= 2 && cfg.splitMode <= 4){
+		if(targetCodec == 1){
+			return "streamFrame.nvencSplitMode " + std::to_string(cfg.splitMode) + " is not applicable to H.264.";
+		}
+		if(cc.split.has_value() && !cc.split.value()){
+			return "streamFrame.nvencSplitMode " + std::to_string(cfg.splitMode) + " strip encoding is not supported on this NVIDIA session.";
+		}
+		if(cc.engines.has_value() && cfg.splitMode > (int)cc.engines.value()){
+			return "streamFrame.nvencSplitMode " + std::to_string(cfg.splitMode) + " requires " + std::to_string(cfg.splitMode) + " encoder engines; this session reports " + std::to_string(cc.engines.value()) + ". The requested strip count is retained and not lowered.";
+		}
+	}
+	return {};
+}
+
 const char* PresetName(const GUID &g){
 	if(memcmp(&g, &NV_ENC_PRESET_P1_GUID, sizeof(GUID)) == 0) return "P1";
 	if(memcmp(&g, &NV_ENC_PRESET_P2_GUID, sizeof(GUID)) == 0) return "P2";
@@ -721,26 +958,43 @@ const GUID* PresetGuid(int p){
 // three fail the merge is skipped and logged, GUID-swap behaviour remains.
 // ---------------------------------------------------------------------------
 std::mutex presetCacheLock;
-struct PresetCache {
-	bool valid = false;
+// 2026-11-03: preset canonical-config cache is bound to (encoder, session API
+// version) so a recycled or cross-adapter handle cannot reuse a stale config.
+struct PresetCacheEntry {
+	uint32_t apiVersion = 0;
 	int preset = 0;
 	NV_ENC_TUNING_INFO tuning = NV_ENC_TUNING_INFO_UNDEFINED;
 	GUID codec{};
 	NV_ENC_PRESET_CONFIG pc{};
-} presetCache;
+};
+std::map<void*, std::vector<PresetCacheEntry>> presetCache;
 std::atomic<int> presetDiffLogged{0};
 std::atomic<int> presetFetchFailLogged{0};
 std::atomic<int> presetAutoLogged{0};
 std::atomic<int> presetAutoH264Logged{0};
 
-const NV_ENC_PRESET_CONFIG* FetchPresetConfig(void* encoder, const NV_ENC_INITIALIZE_PARAMS* p, const NV_ENC_CONFIG* callerCfg, int preset){
+bool FetchPresetConfig(void* encoder, const NV_ENC_INITIALIZE_PARAMS* p, const NV_ENC_CONFIG* callerCfg, int preset, NV_ENC_PRESET_CONFIG* outPc){
 	const GUID* pg = PresetGuid(preset);
-	if(!pg || !origGetPresetConfigEx || !encoder || ApiMajor(p->version) < 10){ return nullptr; }
+	if(!pg || !origGetPresetConfigEx || !encoder || ApiMajor(p->version) < 10 || !outPc){ return false; }
+	// The actual opened session API is part of the cache key; a reused handle
+	// or a different adapter may not share the same canonical config.
+	uint32_t apiVersion = 0;
+	{
+		std::lock_guard<std::mutex> g(upgradedLock);
+		auto it = sessionApiVersion.find(encoder);
+		if(it != sessionApiVersion.end()){ apiVersion = it->second; }
+	}
 	{
 		std::lock_guard<std::mutex> g(presetCacheLock);
-		if(presetCache.valid && presetCache.preset == preset && presetCache.tuning == p->tuningInfo
-				&& memcmp(&presetCache.codec, &p->encodeGUID, sizeof(GUID)) == 0){
-			return &presetCache.pc;
+		auto it = presetCache.find(encoder);
+		if(it != presetCache.end()){
+			for(const auto& e : it->second){
+				if(e.apiVersion == apiVersion && e.preset == preset && e.tuning == p->tuningInfo
+						&& memcmp(&e.codec, &p->encodeGUID, sizeof(GUID)) == 0){
+					*outPc = e.pc;
+					return true;
+				}
+			}
 		}
 	}
 	// NVENCAPI_VERSION bits of the caller: major 0..15, minor 24..27
@@ -757,10 +1011,14 @@ const NV_ENC_PRESET_CONFIG* FetchPresetConfig(void* encoder, const NV_ENC_INITIA
 		NVENCSTATUS st = origGetPresetConfigEx(encoder, p->encodeGUID, *pg, p->tuningInfo, &pc);
 		if(st == NV_ENC_SUCCESS){
 			std::lock_guard<std::mutex> g(presetCacheLock);
-			presetCache.valid = true; presetCache.preset = preset; presetCache.tuning = p->tuningInfo;
-			presetCache.codec = p->encodeGUID; presetCache.pc = pc;
+			PresetCacheEntry e;
+			e.apiVersion = apiVersion; e.preset = preset; e.tuning = p->tuningInfo;
+			e.codec = p->encodeGUID; e.pc = pc;
+			auto& entries = presetCache[encoder];
+			entries.push_back(std::move(e));
 			{ std::lock_guard<std::mutex> s(statsLock); stats.presetFetchOk++; stats.presetCfgVerUsed = pc.version; }
-			return &presetCache.pc;
+			*outPc = pc;
+			return true;
 		}
 		if(st != NV_ENC_ERR_INVALID_VERSION && f == 0){
 			// non-version failure: the other flavours will not do better
@@ -768,14 +1026,14 @@ const NV_ENC_PRESET_CONFIG* FetchPresetConfig(void* encoder, const NV_ENC_INITIA
 				DriverLog("NvencTap: nvEncGetEncodePresetConfigEx(P%d, tuning %u) failed (%u) — preset merge unavailable, GUID swap only", preset, (unsigned)p->tuningInfo, (unsigned)st);
 			}
 			std::lock_guard<std::mutex> s(statsLock); stats.presetFetchFail++;
-			return nullptr;
+			return false;
 		}
 	}
 	if(presetFetchFailLogged.fetch_add(1) < 3){
 		DriverLog("NvencTap: nvEncGetEncodePresetConfigEx(P%d) rejected all struct-version flavours (caller api bits 0x%08x, vendored 0x%08x) — preset merge unavailable", preset, callerApi, (unsigned)NV_ENC_PRESET_CONFIG_VER);
 	}
 	std::lock_guard<std::mutex> s(statsLock); stats.presetFetchFail++;
-	return nullptr;
+	return false;
 }
 
 void Describe(const char* tag, const NV_ENC_INITIALIZE_PARAMS* p, bool full){
@@ -1008,8 +1266,10 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	if(!PresetGuid(seedPreset)){
 		for(int n = 1; n <= 7; ++n){ if(memcmp(&p->presetGUID, PresetGuid(n), sizeof(GUID)) == 0){ seedPreset = n; break; } }
 	}
-	const NV_ENC_PRESET_CONFIG* canonical = (snap.codecSwapped || cfg.presetMerge)
-		? FetchPresetConfig(encoder, p, c, seedPreset) : nullptr;
+	// Caller-owned copy: the cache vector may reallocate/erase after unlock.
+	NV_ENC_PRESET_CONFIG canonicalStorage{};
+	const NV_ENC_PRESET_CONFIG* canonical = ((snap.codecSwapped || cfg.presetMerge)
+		&& FetchPresetConfig(encoder, p, c, seedPreset, &canonicalStorage)) ? &canonicalStorage : nullptr;
 	if(snap.codecSwapped && canonical){
 		memcpy(&c->encodeCodecConfig, &canonical->presetCfg.encodeCodecConfig, Snapshot::kCodecWindow);
 		ApplyCodecFields(c, p, snap.codecTarget, w, whatLen, what);
@@ -1569,6 +1829,18 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		std::lock_guard<std::mutex> guard(statsLock); failed++;
 		return NV_ENC_ERR_INVALID_PARAM;
 	}
+	// 2026-11-03: session-bound capability inventory is queried outside frame
+	// paths (init/reconfigure) and only when the tap is enabled. A failed or
+	// incomplete query never publishes false; it simply defers to NVENC.
+	if(cfg.enabled){
+		EnsureCapabilitiesQueried(encoder, p ? p->version : 0);
+		const std::string capError = ValidateCapabilities(cfg, encoder, p);
+		if(!capError.empty()){
+			fail(NV_ENC_ERR_INVALID_PARAM, capError);
+			std::lock_guard<std::mutex> guard(statsLock); failed++;
+			return NV_ENC_ERR_INVALID_PARAM;
+		}
+	}
 	Snapshot snap; char what[256] = {};
 	const bool changed = cfg.enabled && ApplyOverrides(encoder, p, cfg, snap, what, sizeof(what), initializing);
 	if(!snap.error.empty()){
@@ -2018,35 +2290,75 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 
 // ---- session upgrade shims ----
 NVENCSTATUS NVENCAPI NvencTapShims::OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS* params, void** encoder){
-	if(!params || !encoder || !UpgradeWanted() || params->apiVersion != kApi111){
-		return origOpenEncodeSessionEx(params, encoder);
-	}
+	if(!params || !encoder || !origOpenEncodeSessionEx){ return NV_ENC_ERR_INVALID_PTR; }
+	const bool upgrade = UpgradeWanted() && params->apiVersion == kApi111;
+	const uint32_t sessionApi = upgrade ? kApi121 : params->apiVersion;
 	uint32_t savedVer = params->version, savedApi = params->apiVersion;
-	params->apiVersion = kApi121;
-	if(Is111(params->version)){ params->version = Tag121(1, false); }
+	if(upgrade){
+		params->apiVersion = kApi121;
+		if(Is111(params->version)){ params->version = Tag121(1, false); }
+	}
 	NVENCSTATUS st = origOpenEncodeSessionEx(params, encoder);
 	params->version = savedVer; params->apiVersion = savedApi;
 	if(st == NV_ENC_SUCCESS){
-		{ std::lock_guard<std::mutex> g(upgradedLock); upgradedSessions.insert(*encoder); }
-		{ std::lock_guard<std::mutex> g(statsLock); stats.sessionUpgrade = 1; }
-		// earliest observable boundary of a new encode session: arm the split
-		// handshake window here too (silent; the init that follows announces)
-		ArmSplitHandshakeWindow(SplitArmOpen, 0.0, false);
-		DriverLog("NvencTap: SESSION UPGRADE: nvEncOpenEncodeSessionEx accepted apiVersion 12.1 (encoder %p) — vrlink's 11.1 structs will be re-tagged as 12.1 on every call; splitEncodeMode is now reachable", *encoder);
+		// A recycled handle must not inherit a dead session's capability cache,
+		// preset config cache, or API version. Only the handle NVENC actually
+		// returned is valid; reading *encoder before the call is undefined.
+		{
+			std::lock_guard<std::mutex> g(capsLock);
+			capCache.erase(*encoder);
+		}
+		{
+			std::lock_guard<std::mutex> g(upgradedLock);
+			sessionApiVersion.erase(*encoder);
+		}
+		{
+			std::lock_guard<std::mutex> g(presetCacheLock);
+			presetCache.erase(*encoder);
+		}
+		// OFF keeps pass-through and performs no capability/identity probes.
+		const bool tapEnabled = OpenDecisionConfig().enabled;
+		if(tapEnabled){
+			// Record the actual session identity and API version before anything
+			// else reads the cache. DXGI identity is only available for D3D
+			// sessions; other session types remain unknown.
+			{
+				std::lock_guard<std::mutex> g(capsLock);
+				NvencCapabilities& caps = capCache[*encoder];
+				caps.adapter.apiVersion = EncodedApiVersion(sessionApi);
+				ResolveAdapterIdentity(params, caps.adapter);
+			}
+			{
+				std::lock_guard<std::mutex> g(upgradedLock);
+				sessionApiVersion[*encoder] = EncodedApiVersion(sessionApi);
+			}
+		}
+		if(upgrade){
+			{ std::lock_guard<std::mutex> g(upgradedLock); upgradedSessions.insert(*encoder); }
+			{ std::lock_guard<std::mutex> g(statsLock); stats.sessionUpgrade = 1; }
+			// earliest observable boundary of a new encode session: arm the split
+			// handshake window here too (silent; the init that follows announces)
+			ArmSplitHandshakeWindow(SplitArmOpen, 0.0, false);
+			DriverLog("NvencTap: SESSION UPGRADE: nvEncOpenEncodeSessionEx accepted apiVersion 12.1 (encoder %p) — vrlink's 11.1 structs will be re-tagged as 12.1 on every call; splitEncodeMode is now reachable", *encoder);
+		}
 		return st;
 	}
-	sessionUpgradeRejected.store(true);
-	{ std::lock_guard<std::mutex> g(statsLock); stats.sessionUpgrade = 2; stats.sessionUpgradeStatus = (uint32_t)st; }
-	if(openRejectLogged.fetch_add(1) < 1){
-		DriverLog("NvencTap: open-time 12.1 session upgrade rejected by NVENC (status %u) — no pristine open and no fallback; explicit settings keep failing visibly until the upgrade is accepted", (unsigned)st);
+	if(upgrade){
+		sessionUpgradeRejected.store(true);
+		{ std::lock_guard<std::mutex> g(statsLock); stats.sessionUpgrade = 2; stats.sessionUpgradeStatus = (uint32_t)st; }
+		if(openRejectLogged.fetch_add(1) < 1){
+			DriverLog("NvencTap: open-time 12.1 session upgrade rejected by NVENC (status %u) — no pristine open and no fallback; explicit settings keep failing visibly until the upgrade is accepted", (unsigned)st);
+		}
+		PublishFailure(nullptr, OpenDecisionConfig(), st, "NVENC rejected the required API 12.1 session upgrade. No older-API fallback was attempted.");
 	}
-	PublishFailure(nullptr, OpenDecisionConfig(), st, "NVENC rejected the required API 12.1 session upgrade. No older-API fallback was attempted.");
 	return st;
 }
 NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
 	const NVENCSTATUS status = origDestroyEncoder(encoder);
 	if(status != NV_ENC_SUCCESS){ return status; }
-	{ std::lock_guard<std::mutex> guard(upgradedLock); upgradedSessions.erase(encoder); sessionCodecs.erase(encoder); }
+	{ std::lock_guard<std::mutex> guard(upgradedLock); upgradedSessions.erase(encoder); sessionCodecs.erase(encoder); sessionApiVersion.erase(encoder); }
+	{ std::lock_guard<std::mutex> guard(capsLock); capCache.erase(encoder); }
+	{ std::lock_guard<std::mutex> guard(presetCacheLock); presetCache.erase(encoder); }
 	// a destroyed handle must not leave a stale encode stamp behind: a later
 	// session at a recycled handle would read the dead session's gap and arm a
 	// phantom reconnect
@@ -2058,7 +2370,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
 		std::lock_guard<std::mutex> guard(runtimeLock);
 		firstInitFailures.erase(encoder);
 		if(runtimeEncoder == encoder){
-			runtimeEncoder = nullptr; runtime.effectiveCodec = -1;
+			runtimeEncoder = nullptr; runtime.encoder = nullptr; runtime.effectiveCodec = -1;
 			runtime.effectiveRateControl = -1; runtime.effectiveSplit = -1; runtime.encodeWidth = 0; runtime.encodeHeight = 0;
 			// Keep a rejected request visible until a configuration succeeds.
 		}
@@ -2127,6 +2439,18 @@ NVENCSTATUS NVENCAPI NvencTapShims::GetEncodeCaps(void* encoder, GUID encodeGUID
 		*capsVal = 0; return NV_ENC_SUCCESS;
 	}
 	return origGetEncodeCaps(encoder, encodeGUID, params, capsVal);
+}
+NVENCSTATUS NVENCAPI NvencTapShims::GetEncodeGUIDCount(void* encoder, uint32_t* count){
+	return origGetEncodeGUIDCount(encoder, count);
+}
+NVENCSTATUS NVENCAPI NvencTapShims::GetEncodeGUIDs(void* encoder, GUID* guids, uint32_t guidArraySize, uint32_t* guidCount){
+	return origGetEncodeGUIDs(encoder, guids, guidArraySize, guidCount);
+}
+NVENCSTATUS NVENCAPI NvencTapShims::GetEncodePresetCount(void* encoder, GUID encodeGUID, uint32_t* count){
+	return origGetEncodePresetCount(encoder, encodeGUID, count);
+}
+NVENCSTATUS NVENCAPI NvencTapShims::GetEncodePresetGUIDs(void* encoder, GUID encodeGUID, GUID* presetGuids, uint32_t guidArraySize, uint32_t* guidCount){
+	return origGetEncodePresetGUIDs(encoder, encodeGUID, presetGuids, guidArraySize, guidCount);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::GetEncodePresetConfig(void* encoder, GUID encodeGUID, GUID presetGUID, NV_ENC_PRESET_CONFIG* params){
 	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 4, true); rt.add(&params->presetCfg.version, 8, true); }
@@ -2238,6 +2562,10 @@ NVENCSTATUS NVENCAPI NvencTapShims::CreateInstance(NV_ENCODE_API_FUNCTION_LIST* 
 	WRAP(nvEncOpenEncodeSessionEx, OpenEncodeSessionEx, origOpenEncodeSessionEx);
 	WRAP(nvEncDestroyEncoder, DestroyEncoder, origDestroyEncoder);
 	WRAP(nvEncGetEncodeCaps, GetEncodeCaps, origGetEncodeCaps);
+	WRAP(nvEncGetEncodeGUIDCount, GetEncodeGUIDCount, origGetEncodeGUIDCount);
+	WRAP(nvEncGetEncodeGUIDs, GetEncodeGUIDs, origGetEncodeGUIDs);
+	WRAP(nvEncGetEncodePresetCount, GetEncodePresetCount, origGetEncodePresetCount);
+	WRAP(nvEncGetEncodePresetGUIDs, GetEncodePresetGUIDs, origGetEncodePresetGUIDs);
 	WRAP(nvEncGetEncodePresetConfig, GetEncodePresetConfig, origGetPresetConfig);
 	WRAP(nvEncGetEncodePresetConfigEx, GetEncodePresetConfigEx, origGetPresetConfigEx);
 	WRAP(nvEncCreateInputBuffer, CreateInputBuffer, origCreateInputBuffer);
@@ -2296,6 +2624,10 @@ BitratePolicyState NvencTap::GetBitratePolicyState(){
 NvencTapStats NvencTap::GetStats(){
 	std::lock_guard<std::mutex> g(statsLock);
 	return stats;
+}
+
+NvencCapabilities NvencTap::GetCapabilities(void* encoder){
+	return GetCapabilitiesForEncoder(encoder);
 }
 
 void NvencTap::TryInstall(){

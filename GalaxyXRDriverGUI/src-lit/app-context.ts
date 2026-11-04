@@ -17,6 +17,7 @@ import { CurvePreviewPublisher, previewState } from './services/curve-preview';
 import { CompanionLifecycleService } from './services/companion-lifecycle';
 import { OfxrSessionService } from './services/ofxr-session';
 import { WindowsStartupService } from './services/windows-startup';
+import { GpuCapabilitiesService } from './services/gpu-capabilities';
 import { vendor } from './environment';
 import { listen } from '@tauri-apps/api/event';
 import type { BitrateCurvePoint } from './domain/types';
@@ -32,6 +33,7 @@ export interface AppContext {
   galaxy: GalaxySettingsBase;
   checks: SettingsCheckService;
   startup: DriverStartupService;
+  gpu: GpuCapabilitiesService;
   curvePreview: CurvePreviewPublisher;
   lifecycle: CompanionLifecycleService;
   ofxr: OfxrSessionService;
@@ -51,12 +53,29 @@ export function createAppContext(paths: PathsService): AppContext {
   const sds = new SystemDiagnosticService(dss, dis, dialog, paths, appSetting);
   const aus = new AppUpdateService(sds, appSettingGetter);
   const galaxy = new GalaxySettingsBase(appSetting, dss, dis);
-  const ofxr = new OfxrSessionService(appSetting, dss, galaxy);
+  const startup = new DriverStartupService(sds);
+  const gpu = new GpuCapabilitiesService(() => startup.status());
+  const ofxr = new OfxrSessionService(appSetting, dss, galaxy, gpu);
   const windowsStartup = new WindowsStartupService(vendor);
   const lifecycle = new CompanionLifecycleService(appSetting, dialog, async () => {
     await Promise.all([ofxr.idle(), windowsStartup.idle()]);
   });
-  const startup = new DriverStartupService(sds);
+  const stopGpuStatus = startup.status.subscribe(() => {
+    // A runtime status change is a good time to re-check the GPU in use. The
+    // previous result stays on screen until the new one arrives (no flicker),
+    // and refreshes are throttled to the service's refresh window.
+    void gpu.refreshIfStale();
+  });
+  // Initial probe was started by GpuCapabilitiesService; refresh again when the
+  // window becomes visible after a hidden interval.
+  const refreshGpuOnVisible = () => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
+      void gpu.refreshIfStale();
+    }
+  };
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', refreshGpuOnVisible);
+  }
   const curvePreview = new CurvePreviewPublisher(
     () => previewState(galaxy.rootSetting, galaxy.streamQualityValues.bandwidth,
       startup.status()?.steamvrRunning === true),
@@ -112,16 +131,22 @@ export function createAppContext(paths: PathsService): AppContext {
     galaxy,
     checks,
     startup,
+    gpu,
     curvePreview,
     lifecycle,
     ofxr,
     windowsStartup,
     dispose() {
       disposed = true;
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', refreshGpuOnVisible);
+      }
       for (const stop of stopCurveListeners.splice(0)) stop();
+      stopGpuStatus();
       lifecycle.dispose();
       ofxr.dispose();
       windowsStartup.dispose();
+      gpu.dispose();
       curvePreview.dispose();
       stopInstallation(); stopMaintenance(); startup.invalidate();
       sds.dispose();

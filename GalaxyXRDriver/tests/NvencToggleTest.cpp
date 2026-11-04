@@ -89,6 +89,33 @@ NVENCSTATUS NVENCAPI EncodeMapCallback(void* encoder, NV_ENC_PIC_PARAMS* params)
 	return encodeMapCallback(encoder, params);
 }
 
+// 2026-11-03: capability-inventory controls. Defaults reproduce the legacy
+// fixture behaviour (all codecs supported, one engine, 10-bit reported on).
+bool capsCodecSupported[3] = {true, true, true};
+int capsEngineCount[3] = {1, 1, 1};
+bool capsTenBit[3] = {true, true, true};
+int capsWidthMax[3] = {8192, 4096, 8192};
+int capsHeightMax[3] = {8192, 4096, 8192};
+bool capsFailAll[3] = {false, false, false};
+int presetSupportMax[3] = {7, 7, 7};
+
+int CapsCodecIndex(const GUID& guid){
+	if(IsH264(guid)) return 1;
+	if(memcmp(&guid, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0) return 2;
+	if(IsHevc(guid)) return 0;
+	return -1;
+}
+int PresetNumber(const GUID& guid){
+	if(memcmp(&guid, &NV_ENC_PRESET_P1_GUID, sizeof(GUID)) == 0) return 1;
+	if(memcmp(&guid, &NV_ENC_PRESET_P2_GUID, sizeof(GUID)) == 0) return 2;
+	if(memcmp(&guid, &NV_ENC_PRESET_P3_GUID, sizeof(GUID)) == 0) return 3;
+	if(memcmp(&guid, &NV_ENC_PRESET_P4_GUID, sizeof(GUID)) == 0) return 4;
+	if(memcmp(&guid, &NV_ENC_PRESET_P5_GUID, sizeof(GUID)) == 0) return 5;
+	if(memcmp(&guid, &NV_ENC_PRESET_P6_GUID, sizeof(GUID)) == 0) return 6;
+	if(memcmp(&guid, &NV_ENC_PRESET_P7_GUID, sizeof(GUID)) == 0) return 7;
+	return 0;
+}
+
 void Check(bool condition, const char* label){
 	checks++;
 	if(!condition){ failures++; std::cerr << "FAIL: " << label << '\n'; }
@@ -137,6 +164,7 @@ CapsProbe ShimCapsQuery(void* encoder, NV_ENC_CAPS capsToQuery){
 
 void* OpenSession();
 void CreateFunctionList();
+NVENCSTATUS NVENCAPI CaptureCaps(void*, GUID, NV_ENC_CAPS_PARAM*, int*);
 
 void CheckCodecOverride(void* encoder){
 	// H.264 rewrite: GUID + profile + SPS/PPS repeat, depths left DEFAULT,
@@ -765,7 +793,10 @@ void CheckBitrateRequestReference(){
 	ConfigureCodec(true, 0);
 }
 
-NVENCSTATUS NVENCAPI CaptureCanonicalPreset(void*, GUID codec, GUID, NV_ENC_TUNING_INFO, NV_ENC_PRESET_CONFIG* preset){
+NVENCSTATUS NVENCAPI CaptureCanonicalPreset(void*, GUID codec, GUID presetGuid, NV_ENC_TUNING_INFO, NV_ENC_PRESET_CONFIG* preset){
+	const int codecIdx = CapsCodecIndex(codec);
+	const int presetNum = PresetNumber(presetGuid);
+	if(codecIdx >= 0 && presetNum > presetSupportMax[codecIdx]){ return NV_ENC_ERR_UNSUPPORTED_PARAM; }
 	preset->presetCfg.rcParams.multiPass = (NV_ENC_MULTI_PASS)1;
 	if(IsH264(codec)){ preset->presetCfg.encodeCodecConfig.h264Config.disableDeblockingFilterIDC = 2; }
 	else if(CodecOfGuid(codec) == 2){ preset->presetCfg.encodeCodecConfig.av1Config.numTileRows = 2; }
@@ -774,6 +805,45 @@ NVENCSTATUS NVENCAPI CaptureCanonicalPreset(void*, GUID codec, GUID, NV_ENC_TUNI
 NVENCSTATUS NVENCAPI RejectCanonicalPreset(void*, GUID, GUID, NV_ENC_TUNING_INFO, NV_ENC_PRESET_CONFIG*){
 	++rejectedPresetCalls;
 	return NV_ENC_ERR_UNSUPPORTED_PARAM;
+}
+
+// 2026-11-03: fake GUID enumeration for the capability inventory. The shim
+// must use nvEncGetEncodeGUIDCount/GUIDs and nvEncGetEncodePresetCount/GUIDs
+// for authoritative codec/preset support, not width/height inference.
+NVENCSTATUS NVENCAPI CaptureEncodeGUIDCount(void*, uint32_t* count){
+	if(!count){ return NV_ENC_ERR_INVALID_PTR; }
+	*count = 0;
+	for(int i = 0; i < 3; i++){ if(capsCodecSupported[i]){ (*count)++; } }
+	return NV_ENC_SUCCESS;
+}
+NVENCSTATUS NVENCAPI CaptureEncodeGUIDs(void*, GUID* guids, uint32_t count, uint32_t* fetched){
+	if(!guids || !fetched){ return NV_ENC_ERR_INVALID_PTR; }
+	*fetched = 0;
+	for(int i = 0; i < 3 && *fetched < count; i++){
+		if(!capsCodecSupported[i]){ continue; }
+		const GUID* g = CodecGuid(i);
+		if(g){ guids[(*fetched)++] = *g; }
+	}
+	return NV_ENC_SUCCESS;
+}
+NVENCSTATUS NVENCAPI CaptureEncodePresetCount(void*, GUID codec, uint32_t* count){
+	if(!count){ return NV_ENC_ERR_INVALID_PTR; }
+	*count = 0;
+	const int idx = CapsCodecIndex(codec);
+	if(idx < 0){ return NV_ENC_ERR_INVALID_PARAM; }
+	for(int p = 1; p <= presetSupportMax[idx]; p++){ (*count)++; }
+	return NV_ENC_SUCCESS;
+}
+NVENCSTATUS NVENCAPI CaptureEncodePresetGUIDs(void*, GUID codec, GUID* guids, uint32_t count, uint32_t* fetched){
+	if(!guids || !fetched){ return NV_ENC_ERR_INVALID_PTR; }
+	*fetched = 0;
+	const int idx = CapsCodecIndex(codec);
+	if(idx < 0){ return NV_ENC_ERR_INVALID_PARAM; }
+	for(int p = 1; p <= presetSupportMax[idx] && *fetched < count; p++){
+		const GUID* pg = PresetGuid(p);
+		if(pg){ guids[(*fetched)++] = *pg; }
+	}
+	return NV_ENC_SUCCESS;
 }
 
 void CheckExplicitSettings(){
@@ -1261,6 +1331,14 @@ NVENCSTATUS NVENCAPI CaptureList(NV_ENCODE_API_FUNCTION_LIST* list){
 	listVersions.push_back(list ? list->version : 0);
 	if(!list){ return NV_ENC_ERR_INVALID_PTR; }
 	if(rejectListUpgrade && (list->version & 0xffffu) == 12u){ return NV_ENC_ERR_INVALID_VERSION; }
+	// Wire the capability-inventory callbacks through the function list so
+	// CreateInstance captures them, matching production behavior instead of
+	// relying on direct global assignments.
+	list->nvEncGetEncodeCaps = CaptureCaps;
+	list->nvEncGetEncodeGUIDCount = CaptureEncodeGUIDCount;
+	list->nvEncGetEncodeGUIDs = CaptureEncodeGUIDs;
+	list->nvEncGetEncodePresetCount = CaptureEncodePresetCount;
+	list->nvEncGetEncodePresetGUIDs = CaptureEncodePresetGUIDs;
 	return NV_ENC_SUCCESS;
 }
 
@@ -1269,11 +1347,14 @@ NVENCSTATUS NVENCAPI CaptureCaps(void*, GUID guid, NV_ENC_CAPS_PARAM* params, in
 	seenCapsGuid = guid;
 	seenCapsVersion = params->version;
 	*value = 1;
+	const int idx = CapsCodecIndex(guid);
+	if(idx >= 0 && capsFailAll[idx]){ return NV_ENC_ERR_INVALID_PARAM; }
 	if(params->capsToQuery == NV_ENC_CAPS_SUPPORT_CONSTRAINED_ENCODING){ *value = IsHevc(guid) ? 1 : 0; }
-	if(params->capsToQuery == NV_ENC_CAPS_WIDTH_MAX || params->capsToQuery == NV_ENC_CAPS_HEIGHT_MAX){
-		*value = IsH264(guid) ? 4096 : 8192;
-		if(strictCapabilities){ directGeometryCaps.push_back(guid); }
-	}
+	if(params->capsToQuery == NV_ENC_CAPS_WIDTH_MAX){ *value = (idx >= 0) ? capsWidthMax[idx] : (IsH264(guid) ? 4096 : 8192); }
+	else if(params->capsToQuery == NV_ENC_CAPS_HEIGHT_MAX){ *value = (idx >= 0) ? capsHeightMax[idx] : (IsH264(guid) ? 4096 : 8192); }
+	else if(params->capsToQuery == NV_ENC_CAPS_NUM_ENCODER_ENGINES){ *value = (idx >= 0) ? capsEngineCount[idx] : 1; }
+	else if(params->capsToQuery == NV_ENC_CAPS_SUPPORT_10BIT_ENCODE){ *value = (idx >= 0 && capsTenBit[idx]) ? 1 : 0; }
+	if((params->capsToQuery == NV_ENC_CAPS_WIDTH_MAX || params->capsToQuery == NV_ENC_CAPS_HEIGHT_MAX) && strictCapabilities){ directGeometryCaps.push_back(guid); }
 	return NV_ENC_SUCCESS;
 }
 
@@ -1394,7 +1475,14 @@ void CheckOffPassthrough(void* encoder){
 	list.nvEncLockBitstream = CaptureLock;
 	const auto originalList = list;
 	NvencTapShims::CreateInstance(&list);
-	Check(memcmp(&list, &originalList, sizeof(list)) == 0, "OFF preserves populated API table");
+	Check(list.nvEncInitializeEncoder == CaptureInit && list.nvEncReconfigureEncoder == CaptureReconfigure
+		&& list.nvEncRegisterResource == CaptureRegister && list.nvEncMapInputResource == CaptureMap
+		&& list.nvEncEncodePicture == CaptureEncode && list.nvEncLockBitstream == CaptureLock,
+		"OFF preserves populated API table entries (shim did not wrap)");
+	Check(list.nvEncGetEncodeCaps == CaptureCaps && list.nvEncGetEncodeGUIDCount == CaptureEncodeGUIDCount
+		&& list.nvEncGetEncodeGUIDs == CaptureEncodeGUIDs && list.nvEncGetEncodePresetCount == CaptureEncodePresetCount
+		&& list.nvEncGetEncodePresetGUIDs == CaptureEncodePresetGUIDs,
+		"OFF driver populates caps/enumeration callbacks");
 	Check(NvencTapShims::CreateInstance(nullptr) == NV_ENC_ERR_INVALID_PTR, "OFF null list status forwarded");
 	list.version = 0xffff;
 	const auto unsupportedList = list;
@@ -1845,6 +1933,194 @@ void CheckFirstInitializationFailure(){
 }
 }
 
+// 2026-11-03: native capability inventory and enforcement. These checks are
+// session-bound, never fabricate GPU knowledge, and defer to NVENC when a
+// capability is unknown.
+void CheckCapabilityInventory(){
+	// defaults: all codecs supported, one engine, 10-bit on, all presets on
+	for(int i = 0; i < 3; i++){
+		capsCodecSupported[i] = true;
+		capsEngineCount[i] = 1;
+		capsTenBit[i] = true;
+		capsWidthMax[i] = (i == 1) ? 4096 : 8192;
+		capsHeightMax[i] = (i == 1) ? 4096 : 8192;
+		capsFailAll[i] = false;
+		presetSupportMax[i] = 7;
+	}
+	// The ConfigLoader publishes these indices as hevc/h264/av1; a reversal
+	// would swap the published capability map.
+	Check(CodecOfGuid(NV_ENC_CODEC_HEVC_GUID) == 0 && CodecOfGuid(NV_ENC_CODEC_H264_GUID) == 1 && CodecOfGuid(NV_ENC_CODEC_AV1_GUID) == 2,
+		"capability: internal codec indices match ConfigLoader names hevc/h264/av1");
+	NV_ENC_CONFIG config = {}; config.version = Tag111(7, true); config.rcParams.version = Tag111(1);
+	config.rcParams.averageBitRate = 42000000; config.rcParams.maxBitRate = 42000000;
+	config.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+	config.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+	NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag111(5, true);
+	init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init.encodeConfig = &config;
+	init.frameRateNum = 90; init.frameRateDen = 1;
+	const auto savedConfig = config; const auto savedInit = init;
+
+	// Known unsupported codec: AV1 reports zero dimensions -> supported=false.
+	capsCodecSupported[2] = false; capsWidthMax[2] = 0; capsHeightMax[2] = 0;
+	NvencTapConfig av1Unsup; av1Unsup.enabled = true; av1Unsup.codec = 2; av1Unsup.splitMode = 0;
+	NvencTap::Get().SetConfig(av1Unsup);
+	void* av1Enc = OpenSession();
+	Check(Upgraded(av1Enc), "capability: AV1 session upgraded");
+	const int beforeAv1 = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(av1Enc, &init) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == beforeAv1,
+		"capability: known unsupported AV1 codec is refused before NVENC");
+	Check(NvencTap::Get().GetRuntimeState().error.find("streamFrame.nvencCodec") != std::string::npos,
+		"capability: unsupported codec refusal names the setting");
+	Check(memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&config, &savedConfig, sizeof(config)) == 0,
+		"capability: unsupported codec rejection leaves caller bytes untouched");
+	// Telemetry records the known-negative capability.
+	auto caps = NvencTap::Get().GetCapabilities(av1Enc);
+	Check(caps.queried && caps.codecs[2].supported.has_value() && !caps.codecs[2].supported.value(),
+		"capability: telemetry records AV1 as not supported");
+	Check(NvencTapShims::DestroyEncoder(av1Enc) == NV_ENC_SUCCESS, "capability: unsupported AV1 session destroyed");
+	capsCodecSupported[2] = true; capsWidthMax[2] = 8192; capsHeightMax[2] = 8192;
+
+	// H.264 10-bit input is always refused (High 8-bit profile contract).
+	NvencTapConfig h264TenBit; h264TenBit.enabled = true; h264TenBit.codec = 1;
+	NvencTap::Get().SetConfig(h264TenBit);
+	void* h264Enc = OpenSession();
+	init.bufferFormat = NV_ENC_BUFFER_FORMAT_YUV420_10BIT;
+	const auto savedInit10 = init;
+	const int beforeH264Ten = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &init) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == beforeH264Ten,
+		"capability: H.264 with 10-bit input is refused before NVENC");
+	Check(NvencTap::Get().GetRuntimeState().error.find("10-bit") != std::string::npos,
+		"capability: H.264 10-bit refusal names the conflict");
+	Check(memcmp(&init, &savedInit10, sizeof(init)) == 0, "capability: H.264 10-bit rejection restores caller bytes");
+	init.bufferFormat = NV_ENC_BUFFER_FORMAT_NV12;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &init) == NV_ENC_SUCCESS,
+		"capability: H.264 with 8-bit input is accepted");
+
+	// HEVC 10-bit refusal when the hardware reports no 10-bit encode support.
+	capsTenBit[0] = false;
+	NvencTapConfig hevcTenBit; hevcTenBit.enabled = true; hevcTenBit.codec = 0;
+	NvencTap::Get().SetConfig(hevcTenBit);
+	void* hevcEnc = OpenSession();
+	init.encodeGUID = NV_ENC_CODEC_HEVC_GUID;
+	init.bufferFormat = NV_ENC_BUFFER_FORMAT_YUV420_10BIT;
+	const int beforeHevcTen = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(hevcEnc, &init) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == beforeHevcTen,
+		"capability: HEVC 10-bit refused when hardware reports no 10-bit encode");
+	Check(NvencTap::Get().GetRuntimeState().error.find("10-bit") != std::string::npos,
+		"capability: HEVC 10-bit refusal names the conflict");
+	capsTenBit[0] = true;
+
+	// Unknown query result defers to NVENC: if caps fail entirely, init proceeds.
+	capsFailAll[0] = true;
+	NvencTapConfig hevcUnknown; hevcUnknown.enabled = true; hevcUnknown.codec = 0;
+	NvencTap::Get().SetConfig(hevcUnknown);
+	void* unknownEnc = OpenSession();
+	init.bufferFormat = NV_ENC_BUFFER_FORMAT_NV12;
+	const int beforeUnknown = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(unknownEnc, &init) == NV_ENC_SUCCESS && initDriverCalls == beforeUnknown + 1,
+		"capability: failed HEVC capability query defers validation to NVENC");
+	capsFailAll[0] = false;
+	Check(NvencTapShims::DestroyEncoder(unknownEnc) == NV_ENC_SUCCESS, "capability: unknown-query session destroyed");
+
+	// Known absent AV1 + failed caps query: successful enumeration is
+	// authoritative; the failed width/height probe must not flip the codec
+	// back to unknown.
+	capsCodecSupported[2] = false; capsWidthMax[2] = 0; capsHeightMax[2] = 0; capsFailAll[2] = true;
+	NvencTapConfig av1Absent; av1Absent.enabled = true; av1Absent.codec = 2; av1Absent.splitMode = 0;
+	NvencTap::Get().SetConfig(av1Absent);
+	void* av1AbsentEnc = OpenSession();
+	Check(Upgraded(av1AbsentEnc), "capability: absent AV1 session upgraded");
+	const int beforeAv1Absent = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(av1AbsentEnc, &init) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == beforeAv1Absent,
+		"capability: absent AV1 with failed caps query is still known unsupported");
+	Check(NvencTap::Get().GetRuntimeState().error.find("streamFrame.nvencCodec") != std::string::npos,
+		"capability: absent AV1 refusal names the setting");
+	{
+		auto absentCaps = NvencTap::Get().GetCapabilities(av1AbsentEnc);
+		Check(absentCaps.queried && absentCaps.codecs[2].supported.has_value() && !absentCaps.codecs[2].supported.value(),
+			"capability: absent AV1 records known negative despite failed width/height probe");
+	}
+	Check(NvencTapShims::DestroyEncoder(av1AbsentEnc) == NV_ENC_SUCCESS, "capability: absent AV1 session destroyed");
+	capsFailAll[2] = false; capsCodecSupported[2] = true; capsWidthMax[2] = 8192; capsHeightMax[2] = 8192;
+
+	// Explicit preset absence: restrict HEVC presets to P1/P2, request P7.
+	presetSupportMax[0] = 2;
+	origGetPresetConfigEx = CaptureCanonicalPreset;
+	NvencTapConfig hevcPreset; hevcPreset.enabled = true; hevcPreset.codec = 0; hevcPreset.preset = 7;
+	NvencTap::Get().SetConfig(hevcPreset);
+	void* presetEnc = OpenSession();
+	init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init.bufferFormat = NV_ENC_BUFFER_FORMAT_NV12;
+	const int beforePreset = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(presetEnc, &init) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == beforePreset,
+		"capability: explicit absent preset is refused before NVENC");
+	Check(NvencTap::Get().GetRuntimeState().error.find("streamFrame.nvencPreset") != std::string::npos,
+		"capability: absent preset refusal names the setting");
+	// A present preset still works.
+	hevcPreset.preset = 2;
+	NvencTap::Get().SetConfig(hevcPreset);
+	Check(NvencTapShims::InitializeEncoder(presetEnc, &init) == NV_ENC_SUCCESS,
+		"capability: explicit present preset is accepted");
+	presetSupportMax[0] = 7;
+
+	// Explicit strip modes are refused when not enough engines are available.
+	capsEngineCount[0] = 1;
+	NvencTapConfig hevcSplit; hevcSplit.enabled = true; hevcSplit.codec = 0; hevcSplit.splitMode = 3;
+	NvencTap::Get().SetConfig(hevcSplit);
+	void* splitEnc = OpenSession();
+	const int beforeSplit = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(splitEnc, &init) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == beforeSplit,
+		"capability: explicit 3-strip HEVC refused with one engine");
+	Check(NvencTap::Get().GetRuntimeState().error.find("streamFrame.nvencSplitMode") != std::string::npos,
+		"capability: strip refusal names the setting");
+	// Default auto split=1 must not fail with one engine.
+	hevcSplit.splitMode = 1;
+	NvencTap::Get().SetConfig(hevcSplit);
+	Check(NvencTapShims::InitializeEncoder(splitEnc, &init) == NV_ENC_SUCCESS,
+		"capability: default auto split=1 accepted even with one engine");
+	// Explicit strip mode on H.264 is refused.
+	NvencTapConfig h264Split; h264Split.enabled = true; h264Split.codec = 1; h264Split.splitMode = 2;
+	NvencTap::Get().SetConfig(h264Split);
+	init.encodeGUID = NV_ENC_CODEC_H264_GUID;
+	const int beforeH264Split = initDriverCalls;
+	Check(NvencTapShims::InitializeEncoder(h264Enc, &init) == NV_ENC_ERR_INVALID_PARAM && initDriverCalls == beforeH264Split,
+		"capability: explicit strip mode refused for H.264");
+	Check(NvencTap::Get().GetRuntimeState().error.find("streamFrame.nvencSplitMode") != std::string::npos,
+		"capability: H.264 strip refusal names the setting");
+
+	// Session separation: capabilities are bound to the handle, not global.
+	NvencTapConfig hevcMany; hevcMany.enabled = true; hevcMany.codec = 0; hevcMany.splitMode = 0;
+	NvencTap::Get().SetConfig(hevcMany);
+	init.encodeGUID = NV_ENC_CODEC_HEVC_GUID;
+	capsEngineCount[0] = 3;
+	void* manyEngEnc = OpenSession();
+	Check(NvencTapShims::InitializeEncoder(manyEngEnc, &init) == NV_ENC_SUCCESS,
+		"capability: many-engine session initializes");
+	Check(NvencTap::Get().GetCapabilities(splitEnc).codecs[0].engines.value_or(0) == 1u,
+		"capability: low-engine session keeps its own engine count");
+	Check(NvencTap::Get().GetCapabilities(manyEngEnc).codecs[0].engines.value_or(0) == 3u,
+		"capability: many-engine session keeps its own engine count");
+
+	// Lifecycle: destroying a session retires its capabilities; a fresh handle
+	// gets a fresh query.
+	Check(NvencTapShims::DestroyEncoder(splitEnc) == NV_ENC_SUCCESS, "capability: split session destroyed");
+	void* freshEnc = OpenSession();
+	Check(!NvencTap::Get().GetCapabilities(freshEnc).queried,
+		"capability: fresh handle starts with no cached capabilities");
+	Check(NvencTapShims::InitializeEncoder(freshEnc, &init) == NV_ENC_SUCCESS,
+		"capability: fresh handle queries and initializes");
+	Check(NvencTap::Get().GetCapabilities(freshEnc).codecs[0].engines.value_or(0) == 3u,
+		"capability: fresh handle sees the current engine count");
+
+	origGetPresetConfigEx = nullptr;
+	capsEngineCount[0] = 1; capsEngineCount[1] = 1; capsEngineCount[2] = 1;
+	Check(NvencTapShims::DestroyEncoder(h264Enc) == NV_ENC_SUCCESS, "capability: H264 session destroyed");
+	Check(NvencTapShims::DestroyEncoder(hevcEnc) == NV_ENC_SUCCESS, "capability: HEVC session destroyed");
+	Check(NvencTapShims::DestroyEncoder(presetEnc) == NV_ENC_SUCCESS, "capability: preset session destroyed");
+	Check(NvencTapShims::DestroyEncoder(manyEngEnc) == NV_ENC_SUCCESS, "capability: many-engine session destroyed");
+	Check(NvencTapShims::DestroyEncoder(freshEnc) == NV_ENC_SUCCESS, "capability: fresh session destroyed");
+	ConfigureCodec(true, 0);
+}
+
 // GPU processing always fails fast. Hook installation is allowed only in
 // the explicit fake-loader concurrency case below; no live DLL is loaded.
 namespace NvencPostPack {
@@ -1873,6 +2149,8 @@ int main(){
 	origOpenEncodeSessionEx = CaptureOpen;
 	origCreateInstance = CaptureList;
 	origGetEncodeCaps = CaptureCaps;
+	// The GUID/preset enumeration callbacks are wired by CreateInstance via
+	// CaptureList's populated function table, matching production.
 	origInitializeEncoder = CaptureInit;
 	origDestroyEncoder = CaptureDestroy;
 	origReconfigureEncoder = CaptureReconfigure;
@@ -1931,6 +2209,7 @@ int main(){
 	CheckSplitGateAndRefusalKeys();
 	CheckStartupAllocationAndPictures();
 	CheckFirstInitializationFailure();
+	CheckCapabilityInventory();
 
 	Configure(true, 0);
 	stock = OpenSession();

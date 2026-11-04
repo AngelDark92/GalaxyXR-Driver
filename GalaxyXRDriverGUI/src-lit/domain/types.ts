@@ -264,19 +264,6 @@ export type StreamFrameConfig = {
   nvencMinQp: number;
   nvencMinQpIntra: number;
   nvencForceCbr: boolean;
-  // Async Spacewarp toggle (2026-10-17): never-set key keeps its native
-  // default (false) — no migration, and nothing silently rewrites it.
-  spacewarpEnable: boolean;
-  // Async Spacewarp mode (2026-10-26): 0 = Automatic (late-frame recovery until
-  // the measured application cadence stays below 90% of refresh, then half
-  // rate), 1 = Forced half rate. The Companion exposes mode 1 as a separate
-  // Force half-rate switch. The saved value is user-owned and is never rewritten
-  // by a codec switch, an automatic transition or a reset of the other row.
-  spacewarpMode: number;
-  // Async Spacewarp settings-semantics version (2026-10-26): absent/1 = legacy
-  // file (same stored 0/1 meanings), 2 = Automatic/Forced semantics. The
-  // migration stamps this only; it never rewrites enable/mode or tuning.
-  spacewarpSettingsVersion: number;
   nvencLowDelayKfScale: number;
   nvencVuiMatrix: number;
   nvencVuiPrimaries: number;
@@ -528,6 +515,34 @@ export const HeadsetType = {
 
 export type HeadsetType = typeof HeadsetType[keyof typeof HeadsetType];
 
+export type CodecCaps = {
+  supported?: boolean;
+  tenBit?: boolean;
+  maxWidth?: number;
+  maxHeight?: number;
+  engines?: number;
+  presets?: number[];
+  split?: boolean;
+};
+
+export type AdapterCapabilities = {
+  adapterLuid?: string;
+  gpuName?: string;
+  vendorId?: number;
+  /** NVENC API max supported version: major * 100 + minor (e.g. 1201 for 12.1).
+   *  This is NOT a D3D feature level; it comes from nvEncodeAPI64.dll. */
+  apiVersion?: number;
+  codecs?: { h264?: CodecCaps; hevc?: CodecCaps; av1?: CodecCaps };
+  nvenc?: boolean;
+  opticalFlow?: boolean;
+};
+
+export type GpuCapabilities = {
+  adapters: AdapterCapabilities[];
+  checkedAt: number;
+  error?: string;
+};
+
 export type DriverInfo = {
   about: string;
   defaultSettings: Settings;
@@ -556,39 +571,15 @@ export type DriverInfo = {
     observedAt?: number;
     lastPictureStatus?: number;
     pictureError?: string;
+    /** Optional running-encoder capability snapshot (same schema as GpuCapabilities adapters). */
+    capabilities?: AdapterCapabilities;
   };
-  spacewarp?: {
-    enabled: boolean;
-    hookInstalled: boolean;
-    published: boolean;
-    publishedValue?: number;
-    // Pinned cross-child seam (brief 11, 2026-10-17): the keys and the status
-    // enum are read verbatim from info.json — exactly 'off' | 'on' | 'waiting'.
-    status: 'off' | 'on' | 'waiting';
-    // 2026-10-26 automatic/forced split (additive; older drivers omit these).
-    // requestedMode is the stored 0/1 value; effectiveMode is the carrier class
-    // the driver wants to publish (0 off, 1 late, 2 half). publishedValue is
-    // the last confirmed delivery and may differ after a failed transition.
-    requestedMode?: number;
-    effectiveMode?: number;
-    transportGeneration?: number;
-    auto?: {
-      enabled: boolean;
-      requestedMode: number;
-      effectiveMode: number;
-      measuredFps: number;
-      refreshHz: number;
-      historySpanSeconds: number;
-      historyValid: boolean;
-      reason: string;
-      generation: number;
-      enterCount: number;
-      exitCount: number;
-    };
-    // 2026-10-25: driver write time (ms since epoch). Lets the row trust a
-    // fresh host report even when the separate installation/version check is
-    // in a mismatch or polling failure. Optional for older drivers.
-    observedAt?: number;
+  /** Optional: the GPU SteamVR reported as the HMD rendering adapter (actual
+   *  runtime property, no fallback). Bound to a driver process by `pid`. */
+  graphicsAdapter?: {
+    adapterLuid: string;
+    pid: number;
+    observedAt: number;
   };
   // 2026-10-21 (S1): encoder ceiling vs the request clamp VRLink honours.
   // Observed request, Max Bitrate and applied target.

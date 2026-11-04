@@ -1,6 +1,7 @@
 mod i18n;
 mod js_api;
 mod driver_installation;
+mod gpu_capabilities;
 mod ofxr;
 mod webview_zoom;
 mod curve_preview;
@@ -66,6 +67,7 @@ pub fn run() {
             driver_installation::settings_cleanup::clean_galaxyxr_settings,
             driver_installation::settings_cleanup::restore_steamlink_encoder_behaviour,
             driver_installation::runtime_status::get_galaxyxr_runtime_status,
+            gpu_capabilities::get_gpu_capabilities,
             ofxr::ofxr_status,
             ofxr::ofxr_arm,
             ofxr::ofxr_disarm,

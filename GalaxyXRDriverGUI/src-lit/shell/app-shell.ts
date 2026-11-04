@@ -6,7 +6,7 @@ import type { AppContext } from '../app-context';
 import { applyTheme } from '../ui/theme';
 import { applyUiScale } from '../ui/ui-scale';
 import { interactiveStyles } from '../ui/shared-styles';
-import { defaultRoute, driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, permittedRoute, visibleRoutes, sectionHref, settingHref, ROUTE_LABELS, type Route } from '../domain/navigation';
+import { compatibleSettingRoute, defaultRoute, driverAvailable, parseRoute, parseSectionTarget, parseSettingTarget, permittedRoute, visibleRoutes, sectionHref, settingHref, ROUTE_LABELS, type Route } from '../domain/navigation';
 import { CHAPTER_OUTLINES, findOutlineItem, flattenOutline, visibleOutline, type ChapterView, type OutlineContext } from '../domain/page-outline';
 import { settingPresentation } from '../domain/settings-presentation';
 import { close_bitrate_monitor, publish_bitrate_monitor_theme } from '../platform/tauri';
@@ -165,13 +165,11 @@ export class AppShell extends LitElement {
     const target = parseSettingTarget(window.location.hash);
     const section = parseSectionTarget(window.location.hash);
     let requested = parseRoute(window.location.hash, this.driverAvailable);
-    const setting = target ? settingPresentation(target) : undefined;
-    // 2026-10-01: retain pre-move links without bypassing Debug Mode.
-    if (requested === 'stream-frame' && setting?.route === 'debug') {
-      requested = 'debug';
-      if (this.ctx.galaxy.debugMode && this.driverAvailable) {
-        window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${settingHref('debug', target!)}`);
-      }
+    const originalRoute = requested;
+    // Retain pre-move links without bypassing installation or Debug Mode.
+    if (target) requested = compatibleSettingRoute(requested, target);
+    if (requested !== originalRoute && permittedRoute(requested, this.driverAvailable, this.ctx.galaxy.debugMode) === requested) {
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${settingHref(requested, target!)}`);
     }
     const next = permittedRoute(requested, this.driverAvailable, this.ctx.galaxy.debugMode);
     const redirected = this.route !== next && requested !== next;

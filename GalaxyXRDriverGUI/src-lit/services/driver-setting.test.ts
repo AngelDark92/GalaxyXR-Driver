@@ -160,26 +160,6 @@ describe('vendor defaults before info.json exists', () => {
     expect(service.values()?.streamFrame?.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: false });
   });
 
-  it('serializes the async spacewarp toggle and resets it to the native default (2026-10-17)', async () => {
-    const service = await load('galaxyxr', { streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, spacewarpEnable: true } });
-    expect(service.values()?.streamFrame?.spacewarpEnable).toBe(true);
-    const state = new GalaxySettingsBase({ values: () => ({}) } as any, service, { values: () => undefined } as any);
-    await new Promise<void>(resolve => setTimeout(resolve, 0));
-    // an old info.json without the key publishes no default for it
-    expect(state.defaults.spacewarpEnable).toBe(false);
-    await service.flush();
-    expect(state.settings?.spacewarpEnable).toBe(true);
-    state.reset('spacewarpEnable');
-    expect(state.settings?.spacewarpEnable).toBe(false); // native default
-    await new Promise<void>(resolve => setTimeout(resolve, 0));
-    await service.flush();
-    const persisted = JSON.parse(storage.files.get(filePath)!);
-    // 2026-10-19: a stored key restored to its default stays explicit.
-    expect(persisted.streamFrame.spacewarpEnable).toBe(false);
-    const reopened = await load('galaxyxr', persisted);
-    expect(reopened.values()?.streamFrame?.spacewarpEnable).toBe(false);
-  });
-
   it('preserves a saved legacy encoder-off profile through migrations, sparse saves and reloads', async () => {
     const stock = {
       nvencSettingsVersion: 4, nvencTap: false, nvencFixLevel: false,
@@ -240,6 +220,24 @@ describe('vendor defaults before info.json exists', () => {
     expect(stored.streamFrame).not.toHaveProperty('gameLinkLinearVelocityCutoff');
     expect(stored.streamFrame).not.toHaveProperty('gameLinkAngularVelocityCutoffDeg');
     expect(stored.streamFrame.saturation).toBe(1.1);
+  });
+
+  it('drops the removed Async Spacewarp keys on load and save', async () => {
+    const service = await load('galaxyxr', { streamFrame: { spacewarpEnable: true, spacewarpMode: 1, spacewarpSettingsVersion: 2, saturation: 1.1 } });
+    expect(service.values()?.streamFrame).not.toHaveProperty('spacewarpEnable');
+    expect(service.values()?.streamFrame).not.toHaveProperty('spacewarpMode');
+    expect(service.values()?.streamFrame).not.toHaveProperty('spacewarpSettingsVersion');
+    expect(await service.save(service.values()!)).toBe(true);
+    const stored = JSON.parse(storage.files.get(filePath)!);
+    expect(stored.streamFrame).not.toHaveProperty('spacewarpEnable');
+    expect(stored.streamFrame).not.toHaveProperty('spacewarpMode');
+    expect(stored.streamFrame).not.toHaveProperty('spacewarpSettingsVersion');
+    expect(stored.streamFrame.saturation).toBe(1.1);
+    const stale = await load('galaxyxr', {}, { streamFrame: { spacewarpEnable: true, spacewarpMode: 1 } });
+    const state = new GalaxySettingsBase({ values: () => ({}) } as any, stale, { values: () => undefined } as any);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    expect(state.defaults).not.toHaveProperty('spacewarpEnable');
+    expect(state.defaults).not.toHaveProperty('spacewarpMode');
   });
 
   it('retains an explicit true in the neutral build through save and reload', async () => {

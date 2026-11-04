@@ -77,6 +77,50 @@ describe('chapter table of contents', () => {
     }
   });
 
+  it('starts Image Settings with Render Resolution for either vendor', () => {
+    for (const vendor of [false, true]) {
+      const outline = visibleOutline(CHAPTER_OUTLINES['stream-frame'], ctx({ vendor }));
+      expect(outline[0]).toMatchObject({
+        id: 'render-resolution', label: 'Render Resolution', open: ['heading:render-resolution'],
+      });
+    }
+    expect(visibleOutline(CHAPTER_OUTLINES['stream-frame'], ctx({ settings: undefined }))).toEqual([]);
+    expect(findOutlineItem(CHAPTER_OUTLINES['driver-settings'], 'render-resolution')).toBeUndefined();
+  });
+
+  it('gates retired outlines behind settings, Advanced Mode, and the retired flag', () => {
+    const retired = settings();
+    retired.graveyardEnable = true;
+    for (const [route, id] of [['driver-settings', 'controller-graveyard'], ['stream-frame', 'graveyard']] as const) {
+      for (const mode of [
+        ctx({ advancedMode: true, settings: undefined }),
+        ctx({ advancedMode: false, settings: retired }),
+        ctx({ advancedMode: true, settings: { ...retired, graveyardEnable: false } }),
+      ]) {
+        expect(findOutlineItem(visibleOutline(CHAPTER_OUTLINES[route], mode), id), route).toBeUndefined();
+      }
+    }
+  });
+
+  it('keeps retired sections top level regardless of vendor or controller bypass', () => {
+    const retired = settings();
+    retired.graveyardEnable = true;
+    for (const vendor of [false, true]) {
+      for (const controllerBypass of [false, true]) {
+        const mode = ctx({ vendor, controllerBypass, advancedMode: true, settings: retired });
+        const driver = visibleOutline(CHAPTER_OUTLINES['driver-settings'], mode);
+        expect(driver.map(item => item.id)).toEqual(['headset', 'controllers', 'controller-graveyard']);
+        expect(driver[2]).toMatchObject({
+          label: 'Controller Experiments (Retired)', open: ['controllerGraveyard'],
+        });
+        const image = visibleOutline(CHAPTER_OUTLINES['stream-frame'], mode);
+        expect(image.find(item => item.id === 'graveyard')).toMatchObject({
+          label: 'Image Experiments (Retired)', open: ['graveyard'],
+        });
+      }
+    }
+  });
+
   it('nests Advanced under Optical Flow only while Advanced Mode is on', () => {
     const base = ctx({ vendor: true });
     const closed = visibleOutline(CHAPTER_OUTLINES['stream-frame'], base);

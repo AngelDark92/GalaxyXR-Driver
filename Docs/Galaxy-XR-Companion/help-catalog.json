@@ -998,7 +998,7 @@
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 568,
-    "summary": "Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, quitting the Companion disarms it; minimizing or closing to the tray keeps it running. Only one synthesis mode runs at a time: enabling this turns Async Spacewarp off.",
+    "summary": "Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, quitting the Companion disarms it; minimizing or closing to the tray keeps it running.",
     "details": "Value: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user."
   },
   {

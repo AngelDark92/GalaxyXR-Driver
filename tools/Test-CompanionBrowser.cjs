@@ -45,7 +45,18 @@ function fixture() {
   const put = (p, value) => { files[normalize(p)] = value; persist(); };
   const github = { tagName: '1.2.13', releaseUrl: 'https://github.com/AngelDark92/GalaxyXR-Driver/releases/tag/v1.2.13',
     status: 200, hold: false, pending: [], requests: [] };
-  window.__qa = { files, calls, data, github, openerError: '', runtime: null, holdRuntime: false, pendingRuntime: [], releaseGithub() {
+  const writes = [], pendingWrites = [];
+  const write = async (target, value) => {
+    target = normalize(target);
+    if (window.__qa.holdWrites[target]) await new Promise(resolve => pendingWrites.push({ target, resolve }));
+    if (window.__qa.writeErrors[target]) throw Error(window.__qa.writeErrors[target]);
+    put(target, value);
+    writes.push({ target, value });
+  };
+  window.__qa = { files, calls, data, github, writes, pendingWrites, holdWrites: {},
+    writeErrors: JSON.parse(sessionStorage.getItem('qa-write-errors') || '{}'),
+    releaseWrites() { this.holdWrites = {}; for (const pending of pendingWrites.splice(0)) pending.resolve(); },
+    openerError: '', runtime: null, holdRuntime: false, pendingRuntime: [], releaseGithub() {
     github.hold = false;
     for (const release of github.pending.splice(0)) release();
   } };
@@ -117,10 +128,10 @@ function fixture() {
       if (command === 'plugin:fs|write_text_file') {
         const target = options.headers?.path ? decodeURIComponent(options.headers.path) : p;
         const value = args.contents ?? args.data ?? args;
-        put(target, typeof value === 'string' ? value : new TextDecoder().decode(new Uint8Array(value)));
+        await write(target, typeof value === 'string' ? value : new TextDecoder().decode(new Uint8Array(value)));
         return;
       }
-      if (command === 'plugin:fs|copy_file') { put(args.to, files[normalize(args.from)]); return; }
+      if (command === 'plugin:fs|copy_file') { await write(args.to, files[normalize(args.from)]); return; }
       if (command === 'plugin:fs|remove') { delete files[p]; persist(); return; }
       if (command === 'plugin:fs|mkdir') return;
       if (command === 'plugin:fs|watch') return 1;
@@ -282,6 +293,133 @@ function fixture() {
         results.push(scenario.name);
       } finally {
         await startupPage.close();
+      }
+    }
+    {
+      // Settings relocation: moved controls, retired visibility, aliases and save failure.
+      const settingsPage = await context.newPage();
+      const settingsErrors = [];
+      settingsPage.on('pageerror', error => settingsErrors.push(String(error)));
+      try {
+        const visit = async (hash, route = hash.slice(2).split('?')[0]) => {
+          await settingsPage.evaluate(hash => { location.hash = hash; }, hash);
+          await settingsPage.locator(`app-${route}-page`).getByRole('heading', { level: 1 }).waitFor();
+        };
+        const state = () => settingsPage.evaluate(() => ({
+          advanced: appContext.appSetting.confirmedValues()?.advanceMode,
+          settings: structuredClone(appContext.dss.values()),
+          driver: JSON.parse(__qa.files[__qa.data + '/settings.json']),
+          app: JSON.parse(__qa.files[__qa.data + '/gui-settings.json']),
+        }));
+        const writes = () => settingsPage.evaluate(() => __qa.writes
+          .filter(write => write.target === __qa.data + '/settings.json' || write.target === __qa.data + '/gui-settings.json')
+          .map(write => ({ file: write.target.split('/').at(-1), value: JSON.parse(write.value) })));
+        const assertChecked = async (control, checked) => {
+          assert.deepEqual(await control.evaluate(async element => {
+            const adapter = element.getRootNode().host;
+            await adapter.updateComplete;
+            return { adapter: adapter.checked, fluent: element.checked };
+          }), { adapter: checked, fluent: checked });
+        };
+        const setError = (file, message) => settingsPage.evaluate(({ file, message }) => {
+          __qa.writeErrors = message ? { [__qa.data + '/' + file]: message } : {};
+        }, { file, message });
+        await settingsPage.goto(base + '#/app-settings');
+        await settingsPage.waitForFunction(() => window.appContext?.sds.driverState() === 'installed');
+        await settingsPage.evaluate(async () => {
+          const settings = structuredClone(appContext.dss.values());
+          settings.galaxyXr.controllerBypass = true;
+          settings.galaxyXr.nativeIdentity = false;
+          settings.galaxyXr.renderWidth = 3600; settings.galaxyXr.renderHeight = 3900;
+          settings.streamFrame.enable = false; settings.streamFrame.graveyardEnable = false;
+          settings.streamFrame.kalmanGripEnable = true;
+          await appContext.dss.save(settings); await appContext.dss.flush();
+          await appContext.appSetting.save({ ...appContext.appSetting.values(), advanceMode: false });
+        });
+
+        const driverPage = settingsPage.locator('app-driver-settings-page');
+        const imagePage = settingsPage.locator('app-stream-frame-page');
+        await visit('#/driver-settings');
+        await driverPage.getByText('Keep Galaxy XR recognition enabled', { exact: true }).waitFor();
+        for (const id of ['galaxyXr.nativeResolution', 'galaxyXr.renderWidth', 'galaxyXr.renderHeight', 'renderResolutionLinked', 'galaxyXr.sdr10Baseline']) {
+          assert.equal(await driverPage.locator(`[data-setting-id="${id}"]`).count(), 0, id);
+        }
+        assert.equal(await driverPage.locator('#section-controller-graveyard').count(), 0);
+        await visit('#/stream-frame');
+        await imagePage.locator('#section-render-resolution [data-setting-id="galaxyXr.renderWidth"]').waitFor();
+        assert.equal(await imagePage.locator('[data-setting-id="galaxyXr.renderWidth"] app-number').evaluate(control => control.value), 3600);
+        assert.equal(await imagePage.locator('[data-setting-id="galaxyXr.renderHeight"] app-number').evaluate(control => control.value), 3900);
+        await imagePage.locator('#section-image-processing [data-setting-id="galaxyXr.sdr10Baseline"] fluent-switch:not([disabled])').waitFor();
+        assert.equal(await imagePage.locator('#section-graveyard').count(), 0);
+        assert.equal(await settingsPage.locator('[data-setting-id="streamFrame.graveyardEnable"]').count(), 0);
+
+        await visit('#/app-settings');
+        const advancedSwitch = settingsPage.locator('[data-setting-id="advanceMode"] fluent-switch');
+        await advancedSwitch.click();
+        await settingsPage.waitForFunction(() => appContext.appSetting.confirmedValues()?.advanceMode === true);
+        const graveyardSwitch = settingsPage.locator('[data-setting-id="streamFrame.graveyardEnable"] fluent-switch');
+        await graveyardSwitch.waitFor();
+        await assertChecked(graveyardSwitch, false);
+        await setError('settings.json', 'Fixture retired visibility save denied');
+        await graveyardSwitch.click();
+        await settingsPage.waitForFunction(() => !!appContext.dss.writeFileError());
+        await assertChecked(graveyardSwitch, false);
+        assert.equal((await state()).driver.streamFrame.graveyardEnable === true, false);
+        await setError('', '');
+
+        await graveyardSwitch.click();
+        await settingsPage.waitForFunction(() => appContext.dss.values().streamFrame.graveyardEnable === true);
+        await settingsPage.evaluate(() => appContext.dss.flush());
+        await visit('#/driver-settings');
+        const controllerRetired = driverPage.locator('#section-controller-graveyard');
+        await controllerRetired.waitFor();
+        assert.equal(await controllerRetired.locator('.card-heading button').getAttribute('aria-expanded'), 'false');
+        await controllerRetired.locator('.card-heading button').click();
+        await controllerRetired.locator('[data-setting-id="streamFrame.kalmanGripEnable"]').waitFor();
+        await driverPage.getByText(/This reset restores the existing field-retired defaults/).waitFor();
+        await controllerRetired.getByText('Controller features are disabled. Saved experimental adjustments are kept.', { exact: true }).waitFor();
+        await visit('#/stream-frame');
+        const imageRetired = imagePage.locator('#section-graveyard');
+        await imageRetired.waitFor();
+        assert.equal(await imageRetired.locator('.card-heading button').getAttribute('aria-expanded'), 'false');
+        await imageRetired.locator('.card-heading button').click();
+        await imageRetired.locator('[data-setting-id="streamFrame.eyeGaze.probeCapture"]').waitFor();
+        await imagePage.getByText(/This reset restores the existing field-retired defaults/).waitFor();
+
+        const beforeLinks = await writes();
+        for (const [hash, canonical, id] of [
+          ['#/driver-settings?setting=galaxyXr.renderWidth', '#/stream-frame?setting=galaxyXr.renderWidth', 'galaxyXr.renderWidth'],
+          ['#/driver-settings?setting=galaxyXr.sdr10Baseline', '#/stream-frame?setting=galaxyXr.sdr10Baseline', 'galaxyXr.sdr10Baseline'],
+          ['#/stream-frame?setting=streamFrame.kalmanGripEnable', '#/driver-settings?setting=streamFrame.kalmanGripEnable', 'streamFrame.kalmanGripEnable'],
+        ]) {
+          await visit(hash, canonical.slice(2).split('?')[0]);
+          await settingsPage.waitForFunction(hash => location.hash === hash, canonical);
+          await settingsPage.locator(`[data-setting-id="${id}"]`).waitFor();
+          await settingsPage.waitForFunction(id => {
+            let active = document.activeElement;
+            while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+            return active?.getAttribute('data-setting-id') === id;
+          }, id);
+        }
+        assert.deepEqual(await writes(), beforeLinks);
+
+        await visit('#/app-settings');
+        await graveyardSwitch.click();
+        await settingsPage.waitForFunction(() => appContext.dss.values().streamFrame.graveyardEnable === false);
+        await settingsPage.evaluate(() => appContext.dss.flush());
+        await visit('#/driver-settings');
+        assert.equal(await driverPage.locator('#section-controller-graveyard').count(), 0);
+        await visit('#/stream-frame');
+        assert.equal(await imagePage.locator('#section-graveyard').count(), 0);
+        assert.equal((await state()).settings.streamFrame.kalmanGripEnable, true);
+        await visit('#/app-settings');
+        await advancedSwitch.click();
+        await settingsPage.waitForFunction(() => appContext.appSetting.confirmedValues()?.advanceMode === false);
+        assert.equal(await settingsPage.locator('[data-setting-id="streamFrame.graveyardEnable"]').count(), 0);
+        assert.deepEqual(settingsErrors, []);
+        results.push('Relocated render/SDR controls, retired visibility, independent collapsed cards, old setting links and failed save restoration');
+      } finally {
+        await settingsPage.close();
       }
     }
     const debugSelections = () => page.evaluate(() => {

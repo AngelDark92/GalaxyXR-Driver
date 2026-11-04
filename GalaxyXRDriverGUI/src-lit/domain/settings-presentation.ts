@@ -30,13 +30,14 @@ function group(route: Route, containers: string[], sections: string[], advanced 
 }
 const headset = group('driver-settings', ['Headset'], ['headset']);
 headset('galaxyXr.nativeIdentity', 'Galaxy XR Recognition', { advanced: true });
-headset('galaxyXr.nativeResolution', 'Override Render Resolution');
-headset('galaxyXr.renderWidth', 'Render Width per Eye', { kind: 'value' });
-headset('galaxyXr.renderHeight', 'Render Height per Eye', { kind: 'value' });
+const render = group('stream-frame', ['Render Resolution'], ['heading:render-resolution']);
+render('galaxyXr.nativeResolution', 'Override Render Resolution');
+render('galaxyXr.renderWidth', 'Render Width per Eye', { kind: 'value' });
+render('galaxyXr.renderHeight', 'Render Height per Eye', { kind: 'value' });
 // GUI-only preference for the proportional render sliders (2026-10-30).
-headset('renderResolutionLinked', 'Render Resolution Sliders', { source: 'gui-settings.json' });
+render('renderResolutionLinked', 'Render Resolution Sliders', { source: 'gui-settings.json' });
 headset('galaxyXr.vrlinkHeadsetProfile', 'Galaxy XR Headset Profile', { advanced: true });
-headset('galaxyXr.sdr10Baseline', '10-Bit SDR Mode');
+group('stream-frame', ['Image Processing'], ['heading:image-processing'])('galaxyXr.sdr10Baseline', '10-Bit SDR Mode');
 const controllers = group('driver-settings', ['Controllers'], ['controllers'], false, 'vendor');
 group('driver-settings', ['Controllers'], ['controllers'])('galaxyXr.controllerBypass', 'Disable All Controller Features');
 controllers('galaxyXr.nativeInputProfile', 'Official Controller Layout');
@@ -57,6 +58,7 @@ group('app-settings', ['Window'], ['heading:app-window'])('minimizeToTray', 'Min
 group('app-settings', ['Advanced'], ['heading:app-advanced'])('advanceMode', 'Advanced Mode', { source: 'gui-settings.json' });
 group('app-settings', ['Updates'], ['heading:app-updates'])('devUpdates', 'Developer Builds', { source: 'gui-settings.json' });
 group('app-settings', ['Advanced'], ['heading:app-advanced'])('debugMode', 'Debug Mode');
+group('app-settings', ['Advanced'], ['heading:app-advanced'], true)('streamFrame.graveyardEnable', 'Show retired experiments');
 
 group('stream-frame', ['Image Processing', 'Color'], ['heading:image-processing', 'color'], false, 'enhancements')('streamFrame.contrastLinear', 'Linear Contrast');
 const enhance = group('stream-frame', ['Image Processing', 'Image Enhancements'], ['heading:image-processing', 'enhance'], false, 'enhancements');
@@ -80,11 +82,6 @@ const controllerDebug = group('debug', ['Controllers', 'Diagnostics'], ['debugCo
 controllerDebug('streamFrame.poseLogging', 'Motion Logging');
 controllerDebug('streamFrame.poseLogBurst', 'Motion Logging: Burst');
 group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.nvencTap', 'Override NVIDIA Encoder');
-// Async Spacewarp (2026-10-17; 2026-10-26): stream synthesis toggle and the
-// separate Force half-rate switch; both rows live in the vendor build's Stream
-// Quality branch, so they mirror nvencTap's gate.
-group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpEnable', 'Async Spacewarp');
-group('stream-frame', ['Stream Quality'], ['heading:stream-quality'], false, 'vendor')('streamFrame.spacewarpMode', 'Force half-rate', { kind: 'value' });
 // Optical Flow (2026-10-17; 2026-10-23): the managed OFXR Bridge card. The
 // remaining rows are gui-settings.json values owned by the Companion; the
 // page's Enable switch is additionally gated by the native ofxr_status()
@@ -121,25 +118,26 @@ const encoderDebug = group('debug', ['Encoder', 'Diagnostics'], ['debugEncoder']
 encoderDebug('galaxyXr.vrlinkDebugOverlay', 'Steam Link Debug Overlay');
 encoderDebug('streamFrame.nvencFixLevel', 'Encoder Auto-Fixes');
 encoderDebug('streamFrame.nvencVerbose', 'Encoder Verbose Log');
-const retired = group('stream-frame', ['Graveyard (retired experiments)'], ['graveyard'], true, 'graveyard');
-retired('streamFrame.kalmanCaReportAccel', 'Kalman CA: Report Acceleration');
-retired('controllers.aligner.enable', 'Controller Aligner (in-headset)');
-retired('galaxyXr.simulateTouch', 'Retired: Controller Layout Simulation', { vendorOnly: true });
+const retired = group('stream-frame', ['Image Experiments (Retired)'], ['graveyard'], true, 'graveyard');
+const controllerRetired = group('driver-settings', ['Controller Experiments (Retired)'], ['controllerGraveyard'], true, 'graveyard');
+controllerRetired('streamFrame.kalmanCaReportAccel', 'Kalman CA: Report Acceleration');
+controllerRetired('controllers.aligner.enable', 'Controller Aligner (in-headset)');
+controllerRetired('galaxyXr.simulateTouch', 'Retired: Controller Layout Simulation', { vendorOnly: true });
 retired('streamFrame.eyeGaze.probeCapture', 'Probe Capture (scoring run)');
 retired('streamFrame.skipColorWhileDashboardOpen', 'Skip Color While Dashboard Open');
 retired('streamFrame.eyeGaze.calibDot', 'Fixation Dot (VOR probe)');
 retired('streamFrame.eyeGaze.swimProbe', 'Swim Probe Logging');
-retired('streamFrame.deriveLatchPoseAssist', 'Velocity Consumer Test / Pose Assist');
-retired('streamFrame.kalmanDirLeadAdaptive', 'Adaptive Direction Lead - EXPERIMENT A');
-retired('streamFrame.kalmanAdaptiveR', 'Adaptive Measurement Trust - EXPERIMENT B');
-retired('streamFrame.kalmanGripEnable', 'Grip-Point Velocity Compensator');
+controllerRetired('streamFrame.deriveLatchPoseAssist', 'Velocity Consumer Test / Pose Assist');
+controllerRetired('streamFrame.kalmanDirLeadAdaptive', 'Adaptive Direction Lead - EXPERIMENT A');
+controllerRetired('streamFrame.kalmanAdaptiveR', 'Adaptive Measurement Trust - EXPERIMENT B');
+controllerRetired('streamFrame.kalmanGripEnable', 'Grip-Point Velocity Compensator');
 retired('streamFrame.blackFloor.shadowLift', 'Black Floor: Shadow Lift (floor / knee, sRGB codes)');
 retired('streamFrame.zeroCopyV3', 'Zero-Copy v3 (experimental)');
 retired('streamFrame.nvencPresetMerge', 'NVENC (retired): True Preset Merge');
-retired('streamFrame.deriveSmoothAngSeparate', 'Angular Smoothing: Separate (tau slow/fast ms, speed low/high rad/s)');
-retired('streamFrame.deriveSplitDirLinear', 'Derive Split Direction: Linear');
-retired('streamFrame.deriveSplitDirAngular', 'Derive Split Direction: Angular');
-retired('streamFrame.deriveReleaseLatch', 'Release Latch (derive)');
+controllerRetired('streamFrame.deriveSmoothAngSeparate', 'Angular Smoothing: Separate (tau slow/fast ms, speed low/high rad/s)');
+controllerRetired('streamFrame.deriveSplitDirLinear', 'Derive Split Direction: Linear');
+controllerRetired('streamFrame.deriveSplitDirAngular', 'Derive Split Direction: Angular');
+controllerRetired('streamFrame.deriveReleaseLatch', 'Release Latch (derive)');
 
 const distortion = group('distortion-profile', ['Distortion Correction'], ['distortion'], false, 'enhancements');
 distortion('streamFrame.distortion.perEye', 'Per Eye Curves');
@@ -174,7 +172,7 @@ export const INTERNAL_BOOLEAN_KEYS = [
   'customShader.srgbColorCorrection', 'customShader.srgbWhitePointCorrection', 'customShader.dither10Bit',
   'customShader.enableFilterForOverlay', 'customShader.enableFilterForDashboard', 'forceTracking',
   'streamFrame.distortion.enable', 'streamFrame.pupilSwim.enable',
-  'streamFrame.reconLogger', 'streamFrame.zeroCopy', 'streamFrame.graveyardEnable',
+  'streamFrame.reconLogger', 'streamFrame.zeroCopy',
   'takeCompositorScreenshots', 'onlyHandlePrivateFunctionality', 'watchDistortionProfiles',
 ] as const;
 export function classifyBoolean(check: Pick<SettingCheck, 'source' | 'key'>): 'control' | 'internal' | 'unknown' {
@@ -262,7 +260,6 @@ function formatValue(id: string, value: unknown): string {
     case 'ofxr.overlay': return ofxrOverlayLabel(value);
     case 'ofxr.version': return String(value) || 'Automatic (newest installed)';
     case 'streamFrame.nvencCodec': return codecLabel(value);
-    case 'streamFrame.spacewarpMode': return value === 1 ? 'On' : 'Off';
     case 'streamFrame.nvencBitrateCurve': return bitrateCurveLabel(value);
     case 'streamFrame.nvencBitrateConstancyPct': return `${value}%`;
     default: return formatSettingValue(value);
@@ -279,7 +276,7 @@ export function formatCheckValue(check: SettingCheck): string {
 const INTERNAL_VALUE_KEYS = new Set([
   'galaxyXr.sdr10SettingsVersion', 'galaxyXr.renderModelVariant', 'galaxyXr.streamQuality',
   'galaxyXr.customEncodeWidth', 'galaxyXr.customStreamFormatWidthOverride', 'galaxyXr.profileMaxStreamFormatWidth',
-  'streamFrame.nvencSettingsVersion', 'streamFrame.spacewarpSettingsVersion', 'streamFrame.streamFrameSchema',
+  'streamFrame.nvencSettingsVersion', 'streamFrame.streamFrameSchema',
   'streamFrame.nvencValidationError', 'streamFrame.distortion.enable', 'streamFrame.pupilSwim.enable',
   'streamFrame.distortion.points', 'streamFrame.distortion.curves',
   'streamFrame.pupilSwim.centerStrengthX', 'streamFrame.pupilSwim.centerStrengthY',

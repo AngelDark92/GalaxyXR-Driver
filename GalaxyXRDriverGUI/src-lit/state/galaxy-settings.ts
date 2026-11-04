@@ -297,7 +297,7 @@ export class GalaxySettingsBase {
   sections = signal({
     headset: true, controllers: true, ctrlFix: true, gameLink: true, ctrlOffsets: true, tipOffset: false,
     processing: true, color: true, enhance: true, distortion: true, eyeAlign: false, share: false,
-    debugImage: true, debugControllers: true, debugEncoder: true, debugMonitoring: true, graveyard: false,
+    debugImage: true, debugControllers: true, debugEncoder: true, debugMonitoring: true, graveyard: false, controllerGraveyard: false,
   });
 
   constructor(appSettings: AppSettingService, dss: DriverSettingService, dis: DriverInfoService) {
@@ -408,22 +408,6 @@ export class GalaxySettingsBase {
         // semantics. Saved points, family, percentage and toggles stay owned.
         if (rawSf && canMigrate && (rawSf.streamFrameSchema ?? 1) < 6) {
           rawSf.streamFrameSchema = 6;
-          queueMicrotask(() => this.save());
-        }
-        // Async Spacewarp semantics v2 (2026-10-26): mode 0 is Automatic
-        // (late-frame recovery until the measured cadence drops, then half
-        // rate) and mode 1 is Forced half rate. The stored 0/1 values keep
-        // their user meaning, so this dated stamp rewrites no enable/mode
-        // choice and no tuning. Presence is read from the RAW stored object:
-        // the service merges defaults into the in-memory tree, so a never-set
-        // feature stays absent (no silent stamp).
-        const rawStored = this.dss.storedValues?.() as any;
-        const storedSpacewarp = rawStored?.streamFrame;
-        const hasSpacewarpSelection = storedSpacewarp?.spacewarpEnable !== undefined
-          || storedSpacewarp?.spacewarpMode !== undefined
-          || storedSpacewarp?.spacewarpSettingsVersion !== undefined;
-        if (rawSf && canMigrate && hasSpacewarpSelection && (rawSf.spacewarpSettingsVersion ?? 1) < 2) {
-          rawSf.spacewarpSettingsVersion = 2;
           queueMicrotask(() => this.save());
         }
         // 2026-10-23 migration: the preceding GUI generated five or six custom

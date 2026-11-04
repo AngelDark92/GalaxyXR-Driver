@@ -15,6 +15,7 @@
 //!   include/xrfg/implicit_layer.hpp:29-33     registry key, manifest names
 //!   src/core/fps_overlay_model.cpp:9-25       overlay position spellings
 
+use crate::gpu_capabilities;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
@@ -189,6 +190,42 @@ fn bool_ini(value: bool) -> &'static str {
         "1"
     } else {
         "0"
+    }
+}
+
+const NVIDIA_OPTICAL_FLOW_UNSUPPORTED: &str =
+    "The selected NVIDIA Optical Flow mode is not supported by any GPU in this system. \
+     Choose FidelityFX, or run on a system with an NVIDIA GPU that supports Optical Flow.";
+
+/// Gate for selecting an NVIDIA Optical Flow mode. It refuses only when the
+/// GPU probe succeeded and every adapter is explicitly known to lack Optical
+/// Flow. A probe error, an empty list, a cold cache, or any unknown/supported
+/// adapter allows the request: the OFXR layer remains the runtime authority.
+///
+/// `probe` selects whether a cold cache may be filled by running the probe.
+/// Only callers on the blocking pool may pass `true`; the synchronous
+/// per-edit `apply` path reads the cache and never runs NVML on the UI thread.
+fn check_optical_flow_gate(values: &MappedPreferences, probe: bool) -> Result<(), String> {
+    if values.backend != "nvidia" {
+        return Ok(());
+    }
+    let caps = if probe {
+        Some(gpu_capabilities::get_cached_gpu_capabilities())
+    } else {
+        gpu_capabilities::last_known_gpu_capabilities()
+    };
+    optical_flow_gate(values, caps.as_ref())
+}
+
+fn optical_flow_gate(
+    values: &MappedPreferences,
+    caps: Option<&gpu_capabilities::GpuCapabilities>,
+) -> Result<(), String> {
+    match caps {
+        Some(caps) if values.backend == "nvidia" && gpu_capabilities::optical_flow_known_unsupported(caps) => {
+            Err(NVIDIA_OPTICAL_FLOW_UNSUPPORTED.into())
+        }
+        _ => Ok(()),
     }
 }
 
@@ -1336,8 +1373,10 @@ fn status_impl(selected: Option<&str>) -> OfxrStatus {
 }
 
 fn arm_impl(prefs: OfxrPreferences) -> Result<OfxrStatus, String> {
-    let _command = command_guard();
     let values = map_preferences(&prefs)?;
+    // Before the command lock: a cold probe must not hold up other OFXR commands.
+    check_optical_flow_gate(&values, true)?;
+    let _command = command_guard();
     let local_directory = platform::local_directory()?;
     let bundled = platform::bundled_directory();
     let selected = prefs.version.as_deref().filter(|version| !version.is_empty());
@@ -1665,8 +1704,11 @@ pub fn shutdown_on_exit() {
 }
 
 fn apply_impl(prefs: OfxrPreferences) -> Result<(), String> {
-    let _command = command_guard();
     let values = map_preferences(&prefs)?;
+    // Cache-only: apply runs synchronously on every edit and must never start
+    // an NVML probe. A cold cache allows; the arm path and the layer decide.
+    check_optical_flow_gate(&values, false)?;
+    let _command = command_guard();
     let local_directory = platform::local_directory()?;
     let bundled = platform::bundled_directory();
     let selected = prefs.version.as_deref().filter(|version| !version.is_empty());
@@ -1690,8 +1732,11 @@ pub fn ofxr_status(selected: Option<String>) -> OfxrStatus {
 }
 
 #[tauri::command]
-pub fn ofxr_arm(prefs: OfxrPreferences) -> Result<OfxrStatus, String> {
-    arm_impl(prefs)
+pub async fn ofxr_arm(prefs: OfxrPreferences) -> Result<OfxrStatus, String> {
+    // Async so a cold GPU probe (NVML) runs on the blocking pool, not the UI thread.
+    tauri::async_runtime::spawn_blocking(move || arm_impl(prefs))
+        .await
+        .map_err(|error| format!("OFXR arm task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -2224,6 +2269,53 @@ mod tests {
             overlay: overlay.to_string(),
             version: None,
         }
+    }
+
+    fn gate_caps(flags: &[Option<bool>], error: Option<&str>) -> gpu_capabilities::GpuCapabilities {
+        gpu_capabilities::GpuCapabilities {
+            adapters: flags
+                .iter()
+                .map(|flag| gpu_capabilities::AdapterCapabilities {
+                    optical_flow: *flag,
+                    ..Default::default()
+                })
+                .collect(),
+            checked_at: 1,
+            error: error.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn optical_flow_gate_refuses_only_nvidia_modes_on_all_false_reports() {
+        let nvidia = map_preferences(&prefs("nvidia-fast", false, false, 32, false, "off")).unwrap();
+        let fidelity = map_preferences(&prefs("fidelityfx", false, false, 32, false, "off")).unwrap();
+        let all_false = gate_caps(&[Some(false), Some(false)], None);
+
+        assert!(optical_flow_gate(&nvidia, Some(&all_false)).is_err());
+        // FidelityFX is never gated, whatever the probe says.
+        assert!(optical_flow_gate(&fidelity, Some(&all_false)).is_ok());
+    }
+
+    #[test]
+    fn optical_flow_gate_allows_unknown_cold_errored_empty_and_mixed_reports() {
+        let nvidia = map_preferences(&prefs("nvidia-slow", true, false, 32, false, "off")).unwrap();
+        assert!(optical_flow_gate(&nvidia, None).is_ok(), "cold cache");
+        assert!(optical_flow_gate(&nvidia, Some(&gate_caps(&[], None))).is_ok(), "no adapters");
+        assert!(optical_flow_gate(&nvidia, Some(&gate_caps(&[], Some("dxgi failed")))).is_ok(), "probe error");
+        assert!(optical_flow_gate(&nvidia, Some(&gate_caps(&[Some(false)], Some("partial")))).is_ok());
+        assert!(optical_flow_gate(&nvidia, Some(&gate_caps(&[None], None))).is_ok(), "unknown");
+        assert!(optical_flow_gate(&nvidia, Some(&gate_caps(&[Some(false), None], None))).is_ok());
+        assert!(optical_flow_gate(&nvidia, Some(&gate_caps(&[Some(false), Some(true)], None))).is_ok());
+    }
+
+    #[test]
+    fn optical_flow_gate_runs_after_validation_and_before_any_write() {
+        // Invalid preferences are rejected by validation before the gate.
+        assert!(map_preferences(&prefs("bogus", false, false, 32, false, "off")).is_err());
+        // The gate itself has no filesystem access: it takes mapped values and
+        // a report only, so a refused arm/apply cannot have written anything.
+        let nvidia = map_preferences(&prefs("nvidia-medium", false, false, 32, false, "off")).unwrap();
+        assert!(optical_flow_gate(&nvidia, Some(&gate_caps(&[Some(false)], None))).is_err());
     }
 
     fn sample_prefs() -> OfxrPreferences {
