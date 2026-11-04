@@ -28,4 +28,4 @@ Choose focused checks for the changed behavior, then run the end-of-plan `tools/
 
 Implementation and validation permission does not authorize deployment, installation, ADB, SteamVR restart, commit, push, workflow dispatch or release. Use only authorization already present in the conversation.
 
-For bounded delegation, read `../../../.opencode/skills/cavecrew/SKILL.md`. Delegation never removes the full build gate or adds authorization.
+For bounded delegation, follow the navigation and delegation contract in `../../../AGENTS.md`. Delegation never removes the full build gate or adds authorization.

@@ -83,7 +83,7 @@ Preview and inspect the allowlist/protections, then add `-Apply`. Standing autho
 
 ## Navigation and delegation
 
-Load `.opencode/skills/galaxyxr-workspace/SKILL.md` and `references/project-map.md` for owners and execution paths; `.opencode/skills/customheadset-gxr/SKILL.md` with the matching add/edit/fix workflow for implementation. Use `.opencode/skills/cavecrew/SKILL.md` for bounded delegation; the workspace copy carries the same contract. A child's summary is a self-report until the main thread re-reads the cited lines and reruns the checks. Delegation never adds build, deployment, commit or push authorization.
+Load `.opencode/skills/galaxyxr-workspace/SKILL.md` and `references/project-map.md` for owners and execution paths; `.opencode/skills/customheadset-gxr/SKILL.md` with the matching add/edit/fix workflow for implementation. Bound each delegation by role, exact paths, evidence, authorization and validation owner; give parallel writers disjoint files. Child reports are unverified until the parent re-reads cited lines and reruns checks. Delegation never adds build, deployment, commit or push authorization.
 
 ## Reporting
 

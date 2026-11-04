@@ -94,7 +94,9 @@ bool IsDriverEnabled(const char* driverName){
 		std::string content = buffer.str();
 		file.close();
 		
-		json settings = json::parse(content);
+		// Lossless: SteamVR may hold out-of-range numeric tokens (e.g. -1e+9999)
+		// elsewhere in the file; they must not make an unrelated driver look disabled.
+		json settings = gxrjson::ParseLossless(content, false);
 		
 		std::string driverKey = "driver_" + std::string(driverName);
 		if(!settings.contains(driverKey)){

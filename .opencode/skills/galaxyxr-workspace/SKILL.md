@@ -11,7 +11,7 @@ Read `../../../AGENTS.md` first. This skill routes work; it does not restate pro
 
 1. Inspect `git status --short` and use `rg --files` / targeted `rg -n` to verify current paths and symbols. The map is a routing aid, not proof of current behavior.
 2. Read the affected section of [the project map](references/project-map.md). Follow settings from native defaults/parser through GUI types, defaults, shared state, page binding and runtime consumption. Follow installation through the Rust backend, ownership journal and runtime confirmation.
-3. For a feature, behavior change or bug fix, load [customheadset-gxr](../customheadset-gxr/SKILL.md) and the matching workflow. Load `cavecrew` only when delegation is requested and give each writer disjoint files.
+3. For a feature, behavior change or bug fix, load [customheadset-gxr](../customheadset-gxr/SKILL.md) and the matching workflow. Follow `AGENTS.md` for bounded delegation and give each writer disjoint files.
 4. Pick focused checks that exercise the changed behavior. Report command outcomes and limitations separately from source inspection, package checks, CI and live headset evidence.
 
 ## Focused native runners

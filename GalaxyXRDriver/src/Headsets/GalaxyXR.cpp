@@ -268,30 +268,45 @@ static void ProbeVrlinkPaths(){}
 // GalaxyXrConfig::vrlinkHeadsetProfile. only writes on difference; on
 // removal only removes keys still holding our values.
 // ---------------------------------------------------------------------------
-static void SetInt32IfDifferent(const char* section, const char* key, int32_t v){
+// These return true when the destination already holds the value or the write
+// succeeded, false when the journaled write failed. Callers must not claim a
+// write happened unless every call they depend on returned true.
+static bool ReportSettingWrite(const char* section, const char* key, vr::EVRSettingsError err){
+	if(err == vr::VRSettingsError_None){ return true; }
+	DriverLog("GalaxyXR: FAILED to write SteamVR setting %s.%s (error %d); the request was not applied", section, key, (int)err);
+	return false;
+}
+static bool SetInt32IfDifferent(const char* section, const char* key, int32_t v){
 	vr::EVRSettingsError err = vr::VRSettingsError_None;
 	int32_t cur = vr::VRSettings()->GetInt32(section, key, &err);
-	if(err != vr::VRSettingsError_None || cur != v){ gxrsettings::SetInt32(section, key, v); }
+	if(err == vr::VRSettingsError_None && cur == v){ return true; }
+	vr::EVRSettingsError writeError = vr::VRSettingsError_None;
+	gxrsettings::SetInt32(section, key, v, &writeError);
+	return ReportSettingWrite(section, key, writeError);
 }
-static void SetBoolIfDifferent(const char* section, const char* key, bool v){
+static bool SetBoolIfDifferent(const char* section, const char* key, bool v){
 	vr::EVRSettingsError err = vr::VRSettingsError_None;
 	bool cur = vr::VRSettings()->GetBool(section, key, &err);
-	if(err != vr::VRSettingsError_None || cur != v){ gxrsettings::SetBool(section, key, v); }
+	if(err == vr::VRSettingsError_None && cur == v){ return true; }
+	vr::EVRSettingsError writeError = vr::VRSettingsError_None;
+	gxrsettings::SetBool(section, key, v, &writeError);
+	return ReportSettingWrite(section, key, writeError);
 }
-static void SetStringSettingIfDifferent(const char* section, const char* key, const char* v){
+static bool SetStringSettingIfDifferent(const char* section, const char* key, const char* v){
 	vr::EVRSettingsError err = vr::VRSettingsError_None;
 	char current[512] = {0};
 	vr::VRSettings()->GetString(section, key, current, sizeof(current), &err);
-	if(err != vr::VRSettingsError_None || current[0] == '\0' || std::string(current) != v){
-		gxrsettings::SetString(section, key, v);
-	}
+	if(err == vr::VRSettingsError_None && current[0] != '\0' && std::string(current) == v){ return true; }
+	vr::EVRSettingsError writeError = vr::VRSettingsError_None;
+	gxrsettings::SetString(section, key, v, &writeError);
+	return ReportSettingWrite(section, key, writeError);
 }
 // 2026-10-21: vrlink only honours an unknown-model custom profile when the section carries
 // "enable" true, and the SAME branch is the one that creates the /eyetracking component from
 // "supportsEyeTracking". The client always reports this identity, so the section copies it
 // verbatim; without the identity strings the enabled branch blanks the HMD name/tracking system.
-static void ApplyGalaxyProfileSectionIdentity(const char* section){
-	SetBoolIfDifferent(section, "enable", true);
+static bool ApplyGalaxyProfileSectionIdentity(const char* section){
+	bool ok = SetBoolIfDifferent(section, "enable", true);
 	const std::pair<const char*, const char*> identity[] = {
 		{"manufacturerName", "Samsung"},
 		{"modelNumber", "xrvst2ue"},
@@ -307,8 +322,9 @@ static void ApplyGalaxyProfileSectionIdentity(const char* section){
 		{"serialNumber", "VRLINKHMDGALAXYXR"},
 	};
 	for(const auto& entry : identity){
-		SetStringSettingIfDifferent(section, entry.first, entry.second);
+		ok &= SetStringSettingIfDifferent(section, entry.first, entry.second);
 	}
+	return ok;
 }
 static void RemoveBoolIfOurs(const char* section, const char* key, bool ours){
 	vr::EVRSettingsError err = vr::VRSettingsError_None;
@@ -351,24 +367,29 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 		const char* sec = section.c_str();
 		// The enabled custom profile is what unlocks vrlink's eye-tracking component; identity
 		// strings must be present because that branch rewrites them from the section.
-		ApplyGalaxyProfileSectionIdentity(sec);
+		bool sectionOk = ApplyGalaxyProfileSectionIdentity(sec);
 		// 2026-09-25: write an explicit OFF even with profile geometry disabled.
 		// Restoring/removing this key could expose an earlier true value. The
 		// journal still keeps that original value for uninstall/recovery.
-		SetBoolIfDifferent(sec, "supports10bit", policy.profileSupports10bit);
+		sectionOk &= SetBoolIfDifferent(sec, "supports10bit", policy.profileSupports10bit);
 		// 2026-10-21: vrlink creates its /eyetracking component only when the profile
 		// section says the headset supports eye tracking (driver_vrlink.dll reads this
 		// exact key; known Quest/PICO models got it from built-in capabilities). The
 		// Galaxy XR client always streams fine-tracking gaze, so request it in both
 		// switch states and let the journal restore the original value.
-		SetBoolIfDifferent(sec, "supportsEyeTracking", true);
+		sectionOk &= SetBoolIfDifferent(sec, "supportsEyeTracking", true);
 		if(policy.profileEnabled){
-			SetInt32IfDifferent(sec, "recommendedRenderWidth", kGalaxyXrRenderWidth);
-			SetInt32IfDifferent(sec, "recommendedRenderHeight", kGalaxyXrRenderHeight);
-			SetInt32IfDifferent(sec, "minStreamFormatWidth", maxSfw);
-			SetInt32IfDifferent(sec, "maxStreamFormatWidth", maxSfw);
-			SetInt32IfDifferent(sec, "minNonFoveatedStreamFormatWidth", maxSfw);
-			SetInt32IfDifferent(sec, "maxNonFoveatedStreamFormatWidth", maxSfw);
+			sectionOk &= SetInt32IfDifferent(sec, "recommendedRenderWidth", kGalaxyXrRenderWidth);
+			sectionOk &= SetInt32IfDifferent(sec, "recommendedRenderHeight", kGalaxyXrRenderHeight);
+			sectionOk &= SetInt32IfDifferent(sec, "minStreamFormatWidth", maxSfw);
+			sectionOk &= SetInt32IfDifferent(sec, "maxStreamFormatWidth", maxSfw);
+			sectionOk &= SetInt32IfDifferent(sec, "minNonFoveatedStreamFormatWidth", maxSfw);
+			sectionOk &= SetInt32IfDifferent(sec, "maxNonFoveatedStreamFormatWidth", maxSfw);
+			if(!sectionOk){
+				DriverLog("GalaxyXR: vrlink headset profile request [%s] was NOT fully applied: at least one journaled SteamVR write failed (see the FAILED lines above). "
+					"vrlink may use its generic/default profile until the failure is resolved.", sec);
+				continue;
+			}
 			DriverLog("GalaxyXR: wrote vrlink headset profile request [%s] (render %dx%d, supports10bit %d, fixed streamFormatWidth %d). "
 				"Known Quest/PICO models use built-in capabilities; profile writes do not prove consumption. Verify driver_vrlink.txt after reconnect.",
 				sec, kGalaxyXrRenderWidth, kGalaxyXrRenderHeight, (int)policy.profileSupports10bit, maxSfw);
@@ -387,6 +408,9 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 			gxrsettings::RestoreOwnedKey(sec, "maxStreamFormatWidth");
 			gxrsettings::RestoreOwnedKey(sec, "minNonFoveatedStreamFormatWidth");
 			gxrsettings::RestoreOwnedKey(sec, "maxNonFoveatedStreamFormatWidth");
+			if(!sectionOk){
+				DriverLog("GalaxyXR: vrlink headset profile identity/capability keys [%s] were NOT fully applied: at least one journaled SteamVR write failed (see the FAILED lines above).", sec);
+			}
 		}
 	}
 	for(const auto& section : gxr::VrlinkTuningSections(g.vrlinkHeadsetProfile)){
@@ -396,10 +420,14 @@ static void ApplyHeadsetProfileSetting(const std::string &modelNumberIn, const g
 		// 2026-09-25: OFF is an explicit request, not recovery of an older
 		// enabled value. Keep originals journaled for uninstall; the caller
 		// applies explicit expert values/removals after this normal request.
-		SetBoolIfDifferent(section.c_str(), "debugRegionColoring", g.vrlinkDebugOverlay);
-		SetBoolIfDifferent(section.c_str(), "showAdvancedGraphs", g.vrlinkDebugOverlay);
-		DriverLog("GalaxyXR: wrote selected-section debugRegionColoring/showAdvancedGraphs = %d (effective at next connect)",
-			(int)g.vrlinkDebugOverlay);
+		bool overlayOk = SetBoolIfDifferent(section.c_str(), "debugRegionColoring", g.vrlinkDebugOverlay);
+		overlayOk &= SetBoolIfDifferent(section.c_str(), "showAdvancedGraphs", g.vrlinkDebugOverlay);
+		if(overlayOk){
+			DriverLog("GalaxyXR: wrote selected-section debugRegionColoring/showAdvancedGraphs = %d (effective at next connect)",
+				(int)g.vrlinkDebugOverlay);
+		}else{
+			DriverLog("GalaxyXR: selected-section debugRegionColoring/showAdvancedGraphs = %d was NOT applied: a journaled SteamVR write failed", (int)g.vrlinkDebugOverlay);
+		}
 	}
 }
 

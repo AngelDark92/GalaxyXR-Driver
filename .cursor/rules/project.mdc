@@ -12,4 +12,4 @@ Read `AGENTS.md` first; it is the canonical project contract. This file only sup
 - End-of-plan gate: `tools/Build-Portable.ps1`. Focused checks: `npm test`, `npm run build:ui`, `tools/Test-*.ps1`, `tools/Test-*.cjs`, `cargo test --locked --lib`.
 - Preserve settings schemas, migrations, defaults, installer rollback, SteamVR journal ownership and both vendor/legacy paths. Never edit `ThirdParty/`.
 - Commit, push, deploy, SteamVR/ADB actions, release and workflow dispatch need explicit authorization.
-- Skills: `@galaxyxr-workspace` for the map, `@customheadset-gxr` for implementation, `@cavecrew` for delegation. Canonical copies live under `.opencode/skills/`.
+- Skills: `@galaxyxr-workspace` for the map and `@customheadset-gxr` for implementation. Canonical copies live under `.opencode/skills/`; follow `AGENTS.md` for delegation.
