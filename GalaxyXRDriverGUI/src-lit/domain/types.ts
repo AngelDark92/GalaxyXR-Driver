@@ -515,6 +515,34 @@ export const HeadsetType = {
 
 export type HeadsetType = typeof HeadsetType[keyof typeof HeadsetType];
 
+export type CodecCaps = {
+  supported?: boolean;
+  tenBit?: boolean;
+  maxWidth?: number;
+  maxHeight?: number;
+  engines?: number;
+  presets?: number[];
+  split?: boolean;
+};
+
+export type AdapterCapabilities = {
+  adapterLuid?: string;
+  gpuName?: string;
+  vendorId?: number;
+  /** NVENC API max supported version: major * 100 + minor (e.g. 1201 for 12.1).
+   *  This is NOT a D3D feature level; it comes from nvEncodeAPI64.dll. */
+  apiVersion?: number;
+  codecs?: { h264?: CodecCaps; hevc?: CodecCaps; av1?: CodecCaps };
+  nvenc?: boolean;
+  opticalFlow?: boolean;
+};
+
+export type GpuCapabilities = {
+  adapters: AdapterCapabilities[];
+  checkedAt: number;
+  error?: string;
+};
+
 export type DriverInfo = {
   about: string;
   defaultSettings: Settings;
@@ -543,6 +571,15 @@ export type DriverInfo = {
     observedAt?: number;
     lastPictureStatus?: number;
     pictureError?: string;
+    /** Optional running-encoder capability snapshot (same schema as GpuCapabilities adapters). */
+    capabilities?: AdapterCapabilities;
+  };
+  /** Optional: the GPU SteamVR reported as the HMD rendering adapter (actual
+   *  runtime property, no fallback). Bound to a driver process by `pid`. */
+  graphicsAdapter?: {
+    adapterLuid: string;
+    pid: number;
+    observedAt: number;
   };
   // 2026-10-21 (S1): encoder ceiling vs the request clamp VRLink honours.
   // Observed request, Max Bitrate and applied target.

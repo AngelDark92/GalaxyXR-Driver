@@ -17,6 +17,11 @@
 // displayed and flagged, never rewritten (settings-authority policy).
 import { streamFrameIntegerError } from '../state/galaxy-settings';
 import { t } from '../locale/i18n';
+import {
+  codecSupport, effectiveAdapter, multipassSupport, presetSupport,
+  splitModeSupport, tileWidthMax, type EffectiveAdapter,
+} from './encoder-capabilities';
+import type { DriverInfo, GpuCapabilities } from './types';
 
 export type ControlUnit = 'Mbit/s' | 'ms' | 'us' | '%' | 'px' | 'deg' | 'cm' | 'mm' | 'frames' | 'MB' | 'fps' | 'bits' | 's' | 'm/s' | 'rad/s';
 
@@ -40,12 +45,17 @@ export interface ControlContext {
   softDuplicates: boolean;
   /** gui-settings.json ofxr.logging. */
   ofxrLogging: boolean;
+  /** GPU probe result from GpuCapabilitiesService. */
+  capabilities?: GpuCapabilities;
+  /** Fresh encoder-tap evidence for the current process. */
+  encoderTap?: DriverInfo['encoderTap'];
 }
 
 export const DEFAULT_CONTROL_CONTEXT: ControlContext = {
   codec: 0, forceCbr: false, enhancements: true, tap: true,
   gripCompensation: false, adaptiveDirectionLead: false, gazeAssist: false,
   deriveMode: false, fastMagnitude: false, softDuplicates: false, ofxrLogging: false,
+  capabilities: undefined, encoderTap: undefined,
 };
 
 /** A row-level "saved but not applied" condition. */
@@ -104,6 +114,10 @@ export interface ChoiceControlSpec {
   appliesWhen?: ControlCondition;
   /** Additional gates; each inactive condition adds its own note. */
   requires?: ControlCondition[];
+  /** Per-option hardware/context gate. Disabled options stay visible. */
+  optionDisabled?: (value: string | number, ctx: ControlContext) => boolean;
+  /** Per-option warning when the option is selected and unavailable. */
+  optionReason?: (value: string | number, ctx: ControlContext) => string | undefined;
   /** A stored value outside the list is shown as "Stored: X (unsupported)". */
   storedFallback: true;
   label: string;
@@ -180,7 +194,7 @@ const ofxrLoggingOn: ControlCondition = {
 export const tileWidthSpec = number({
   key: 'galaxyXr.customStreamFormatWidth',
   min: 1,
-  max: ctx => (ctx.codec === 1 ? 1024 : 2048),
+  max: ctx => tileWidthMax(ctx.capabilities, ctx.encoderTap, ctx.codec),
   step: 1,
   unit: 'px',
   integer: true,
@@ -207,6 +221,14 @@ export const streamQualitySpecs: ControlSpec[] = [
       { value: 2, label: 'AV1' },
     ],
     authority: nvenc,
+    optionDisabled: (value, ctx) => {
+      const adapter = effectiveAdapter(ctx.capabilities, ctx.encoderTap);
+      return codecSupport(adapter, Number(value)).verdict === 'unsupported';
+    },
+    optionReason: (value, ctx) => {
+      const adapter = effectiveAdapter(ctx.capabilities, ctx.encoderTap);
+      return codecSupport(adapter, Number(value)).reason;
+    },
   }),
   number({
     key: 'streamFrame.nvencBandwidthOverrideMbit',
@@ -238,6 +260,14 @@ export const streamQualitySpecs: ControlSpec[] = [
       { value: 7, label: 'P7 — best quality' },
     ],
     authority: nvenc,
+    optionDisabled: (value, ctx) => {
+      const adapter = effectiveAdapter(ctx.capabilities, ctx.encoderTap);
+      return presetSupport(adapter, ctx.codec, Number(value)).verdict === 'unsupported';
+    },
+    optionReason: (value, ctx) => {
+      const adapter = effectiveAdapter(ctx.capabilities, ctx.encoderTap);
+      return presetSupport(adapter, ctx.codec, Number(value)).reason;
+    },
   }),
   number({
     key: 'streamFrame.nvencBitrateConstancyPct',
@@ -257,6 +287,14 @@ export const streamQualitySpecs: ControlSpec[] = [
       { value: 2, label: 'Two passes, full resolution' },
     ],
     authority: nvenc,
+    optionDisabled: (value, ctx) => {
+      const adapter = effectiveAdapter(ctx.capabilities, ctx.encoderTap);
+      return multipassSupport(adapter, ctx.codec, Number(value)).verdict === 'unsupported';
+    },
+    optionReason: (value, ctx) => {
+      const adapter = effectiveAdapter(ctx.capabilities, ctx.encoderTap);
+      return multipassSupport(adapter, ctx.codec, Number(value)).reason;
+    },
   }),
   number({
     key: 'streamFrame.nvencLowDelayKfScale',
@@ -278,6 +316,14 @@ export const streamQualitySpecs: ControlSpec[] = [
     ],
     authority: nvenc,
     appliesWhen: splitNotH264,
+    optionDisabled: (value, ctx) => {
+      const adapter = effectiveAdapter(ctx.capabilities, ctx.encoderTap);
+      return splitModeSupport(adapter, ctx.codec, Number(value)).verdict === 'unsupported';
+    },
+    optionReason: (value, ctx) => {
+      const adapter = effectiveAdapter(ctx.capabilities, ctx.encoderTap);
+      return splitModeSupport(adapter, ctx.codec, Number(value)).reason;
+    },
   }),
   number({
     key: 'streamFrame.nvencQpFovea',

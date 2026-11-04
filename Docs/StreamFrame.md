@@ -71,6 +71,20 @@ Toggle corrections (2026-09-25):
 - Hitch Diagnostics defaults to OFF (2026-09-26). OFF skips its timing samples, counters, event tags and logs. Enabling it starts a fresh measurement window; explicit saved choices remain supported.
 - Legacy encoder imports preserve explicit OFF choices for encoder switches, the headset profile, and CAS. Completed migrations are not repeated; settings already overwritten by an older version cannot be reconstructed automatically.
 
+## GPU capability checks
+
+Hardware gating (2026-11-04) keeps unsupported controls visible with a reason and preserves their saved values. Turning a feature off or choosing a supported alternative remains possible. Unknown support is not treated as unsupported; an editable control is not a promise that the selected GPU will accept it.
+
+The Companion inventories Windows DXGI adapters and reads NVIDIA library information without creating an encoder session. AV1 encoding is unavailable on confirmed pre-Ada NVIDIA architectures. Encoder capacity of zero, missing NVIDIA libraries, failed queries and ambiguous adapter matching remain unknown. The inventory does not guess encoder dimensions, 10-bit support, preset lists or split-frame support from a marketing name.
+
+During encoding, fresh process-bound driver evidence supplies the actual session's codec GUIDs, dimensions, 10-bit capability, engine count and preset GUIDs. Capabilities are cached per encoder handle and retired when that session is destroyed. Unsupported explicit codec, input depth, preset or strip-count requests fail visibly rather than switching codec, reducing the request or rewriting settings. Tap OFF skips these capability probes.
+
+Multiple adapters are not merged into one imaginary GPU. On Intel/AMD plus one NVIDIA systems, the sole NVIDIA adapter that may support NVENC is used as the preferred encoder candidate when the other adapters are confirmed non-candidates. This is not proof of the active GPU or Windows display-primary selection. Multiple NVIDIA candidates or unidentified adapters remain unverified. Fresh encoder-session evidence overrides the candidate; an old session cannot identify the GPU used by a new process.
+
+With NVENC Tap requested, fresh current-process evidence shows an error if the encoder adapter differs from the preferred candidate. The driver also publishes the SteamVR HMD rendering-adapter LUID separately as `graphicsAdapter` in `info.json`, only after a successful nonzero property read. A different renderer produces a separately labeled error even before NVENC opens; different rendering and encoding GPUs alone do not prove streaming will fail. Missing, stale or wrong-process evidence does not establish a mismatch. These notices never switch GPUs, fall back to another codec or rewrite saved settings. Optical Flow continues to use its independent capability check.
+
+NVIDIA Optical Flow is a separate capability from NVENC. Confirmed unsupported NVIDIA modes cannot be armed; FidelityFX and disarming remain available. A failed probe or an ambiguous OpenXR adapter remains unknown, and the running OpenXR layer must still validate its own device. Multipass has no guessed GPU-generation restriction. Hardware fixtures and package builds do not establish headset behavior; that requires a fresh matching SteamVR/OpenXR session.
+
 ## Install
 
 1. Unpack the entire release zip. The GUI folder and the `GalaxyXRNative` folder must stay next to each other.

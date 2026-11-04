@@ -144,7 +144,7 @@ function harness() {
       },
     };
   }
-  return { AppSelect: module.exports.AppSelect, sliderStepMarkerStyle: module.exports.sliderStepMarkerStyle, Dropdown, armed, release, slider };
+  return { AppSelect: module.exports.AppSelect, AppChoice: module.exports.AppChoice, sliderStepMarkerStyle: module.exports.sliderStepMarkerStyle, Dropdown, armed, release, slider };
 }
 
 describe('Fluent control synchronization', () => {
@@ -169,6 +169,97 @@ describe('Fluent control synchronization', () => {
     native.selectedIndex = 2;
     adapter.onNativeChange({ stopPropagation: noop, currentTarget: native });
     expect(adapter.emitted).toEqual([{ type: 'change', detail: 8 }]);
+  });
+
+  it('refuses a disabled dropdown option and restores the previous selection', () => {
+    const { AppSelect, Dropdown } = harness();
+    const adapter = new AppSelect();
+    let currentValue = '1';
+    const native: any = {
+      listbox: {},
+      enabledOptions: [{ value: '0' }, { value: '1' }, { value: '2' }],
+      selectedIndex: 0,
+      selectOption(index: number) { this.selectedIndex = index; },
+    };
+    Object.defineProperty(native, 'value', {
+      set(value: unknown) { currentValue = String(value); native.selectedIndex = native.enabledOptions.findIndex((o: any) => String(o.value) === currentValue); },
+      get() { return currentValue; },
+    });
+    adapter.options = [
+      { value: 0, label: 'HEVC' },
+      { value: 1, label: 'H.264', disabled: true },
+      { value: 2, label: 'AV1' },
+    ];
+    adapter.value = '0';
+    adapter.renderRoot = { querySelector: () => native };
+    adapter.syncValue();
+    expect(native.value).toBe('0');
+    native.value = '1';
+    adapter.onNativeChange({ stopPropagation: noop, currentTarget: native });
+    expect(adapter.emitted).toEqual([]);
+    expect(native.value).toBe('0');
+  });
+
+  it('allows the currently selected option even when marked disabled', () => {
+    const { AppSelect, Dropdown } = harness();
+    const adapter = new AppSelect();
+    let currentValue = '1';
+    const native: any = {
+      listbox: {},
+      enabledOptions: [{ value: '0' }, { value: '1' }],
+      selectedIndex: 1,
+      selectOption(index: number) { this.selectedIndex = index; },
+    };
+    Object.defineProperty(native, 'value', {
+      set(value: unknown) { currentValue = String(value); native.selectedIndex = native.enabledOptions.findIndex((o: any) => String(o.value) === currentValue); },
+      get() { return currentValue; },
+    });
+    adapter.options = [{ value: 0, label: 'HEVC' }, { value: 1, label: 'H.264', disabled: true }];
+    adapter.value = '1';
+    adapter.renderRoot = { querySelector: () => native };
+    adapter.syncValue();
+    adapter.onNativeChange({ stopPropagation: noop, currentTarget: native });
+    expect(adapter.emitted).toEqual([]);
+    expect(native.value).toBe('1');
+  });
+
+  it('renders disabled choice buttons and ignores clicks on them', () => {
+    const { AppChoice } = harness();
+    const adapter = new AppChoice();
+    adapter.options = [
+      { value: 0, label: 'HEVC' },
+      { value: 1, label: 'H.264', disabled: true },
+      { value: 2, label: 'AV1' },
+    ];
+    adapter.value = 0;
+    adapter.select(adapter.options[1]);
+    expect(adapter.value).toBe(0);
+    expect(adapter.emitted).toEqual([]);
+    adapter.select(adapter.options[2]);
+    expect(adapter.value).toBe(2);
+    expect(adapter.emitted).toEqual([{ type: 'change', detail: 2 }]);
+  });
+
+  it('keeps an unavailable choice focusable with aria-disabled and a hidden reason', () => {
+    const { AppChoice } = harness();
+    const adapter = new AppChoice();
+    adapter.options = [
+      { value: 0, label: 'HEVC' },
+      { value: 1, label: 'H.264', disabled: true, reason: 'H.264 is not supported by the current GPU.' },
+    ];
+    adapter.value = 0;
+    const group = adapter.render();
+    const buttons = group.values[1] as Array<{ values: unknown[] }>;
+    // values: pressed, aria-disabled, native disabled, title, click, label, hidden reason
+    expect(buttons[0].values[1]).toBeUndefined();
+    expect(buttons[1].values[1]).toBe('true');
+    expect(buttons[1].values[2]).toBe(false);
+    expect(JSON.stringify(buttons[1].values)).toContain('H.264 is not supported by the current GPU.');
+    expect(JSON.stringify(buttons[0].values)).not.toContain('not supported');
+    // A wholly disabled control still uses the native disabled attribute.
+    adapter.disabled = true;
+    const whole = adapter.render().values[1] as Array<{ values: unknown[] }>;
+    expect(whole[0].values[2]).toBe(true);
   });
 
   it('keeps an out-of-range stored value when Fluent initializes its display', () => {

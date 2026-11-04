@@ -3108,7 +3108,7 @@ Optional: a comma list of segment counts, one per band from INNER to OUTER (e.g.
 Value: streamFrame.distortion.tune.segmentLayout (settings.json). Driver side — per-band segment counts, inner to outer.</source>
       </trans-unit>
       <trans-unit id="1468753268" datatype="html">
-        <source>H.264 is always 8-bit</source>
+        <source>H.264 uses High profile 8-bit</source>
       </trans-unit>
       <trans-unit id="2924050806" datatype="html">
         <source>How the updater installs a new build of the Companion app.
@@ -5204,6 +5204,34 @@ Turning it on also disables the custom shader target for this headset, which wou
 Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit).</source></trans-unit>
       <trans-unit id="settings-reorganization-bdfb36bfdb79" datatype="html"><source>Open controller experiments</source></trans-unit>
       <trans-unit id="settings-reorganization-4631b7cb8ade" datatype="html"><source>Show retired controller and image experiments while Advanced Mode is on. This changes visibility only; hiding experiments never resets or disables their saved values.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-001" datatype="html"><source>No GPU adapters reported.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-002" datatype="html"><source>Multiple GPUs detected; cannot determine which adapter is in use.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-003" datatype="html"><source>GPU capability check unavailable.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-004" datatype="html"><source>{codec} is not supported by the current GPU.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-005" datatype="html"><source>{codec} capability is not reported for this GPU.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-006" datatype="html"><source>10-bit output is not supported for this codec on the current GPU.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-007" datatype="html"><source>10-bit capability is not reported for this codec.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-008" datatype="html"><source>NVIDIA NVENC is not available; NVENC Tap cannot arm.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-009" datatype="html"><source>Preset P{preset} is not supported by the current GPU.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-010" datatype="html"><source>Multi-engine encoding is not available on the current GPU, so this choice has no effect.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-011" datatype="html"><source>Forced split encoding is not supported by the current GPU.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-012" datatype="html"><source>This split count needs {mode} encoder engines; the GPU reports {engines}.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-013" datatype="html"><source>NVIDIA NVENC is not available; multipass encoding cannot run.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-014" datatype="html"><source>NVIDIA Optical Flow is not available on the current GPU.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-015" datatype="html"><source>Your saved value is kept and shown; switch to a supported codec or GPU to apply it.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-016" datatype="html"><source>unavailable</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-017" datatype="html"><source>Multi-engine encoding capability is not reported for this codec.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-018" datatype="html"><source>NVIDIA NVENC is not available; post-pack sharpening cannot run.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-019" datatype="html"><source>H.264 uses High profile 8-bit in this path.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-020" datatype="html"><source>Stored: {value} (unsupported)</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-021" datatype="html"><source>{label} must be a whole number.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261103-022" datatype="html"><source>{label} must be {min} to {max}{unit}.</source></trans-unit>
+      <trans-unit id="gpu-mismatch-20261104-001" datatype="html"><source>Expected GPU {expected}, but the NVENC session opened on {actual}. Saved settings were not changed; the actual GPU decides which options are available.</source></trans-unit>
+      <trans-unit id="gpu-mismatch-20261104-002" datatype="html"><source>Preferred NVIDIA encoder GPU: {expected}. SteamVR is rendering on {actual}. This alone does not prove streaming will fail.</source></trans-unit>
+      <trans-unit id="gpu-mismatch-20261104-003" datatype="html"><source>NVENC session opened on a different GPU</source></trans-unit>
+      <trans-unit id="gpu-mismatch-20261104-005" datatype="html"><source>Driver-verified encoder GPU: {gpu}</source></trans-unit>
+      <trans-unit id="gpu-mismatch-20261104-006" datatype="html"><source>Preferred encoder GPU: {gpu}. Awaiting encoder session verification.</source></trans-unit>
+      <trans-unit id="gpu-mismatch-20261104-004" datatype="html"><source>SteamVR rendering GPU differs from preferred NVIDIA encoder GPU</source></trans-unit>
     </body>
   </file>
 </xliff>

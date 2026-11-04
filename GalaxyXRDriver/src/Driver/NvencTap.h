@@ -5,6 +5,9 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <array>
+#include <optional>
+#include <map>
 #include "CurveMath.h"
 
 // ============================================================================
@@ -337,6 +340,9 @@ struct NvencTapRuntimeState {
 	std::string pictureError;
 	int effectiveRateControl = -1, effectiveSplit = -1;
 	uint32_t encodeWidth = 0, encodeHeight = 0;
+	// 2026-11-03: handle for the session that last published runtime state, so
+	// telemetry can look up the matching capability inventory.
+	void* encoder = nullptr;
 };
 
 // 2026-10-23: the observed request, configured Max Bitrate and applied target.
@@ -346,6 +352,32 @@ struct BitratePolicyState {
 	int ceilingMbit = 0;
 	int requestMbit = 0;
 	int targetMbit = 0;
+};
+
+// 2026-11-03: session-bound NVENC capability inventory for telemetry and
+// explicit-request validation. Missing optional fields mean unknown; a query
+// failure never publishes a false negative.
+struct NvencCodecCapability {
+	std::optional<bool> supported;
+	std::optional<bool> tenBit;
+	std::optional<uint32_t> maxWidth;
+	std::optional<uint32_t> maxHeight;
+	std::optional<uint32_t> engines;
+	std::optional<std::vector<int>> presets;
+	std::optional<bool> split;
+};
+
+struct NvencAdapterIdentity {
+	std::string luid;
+	std::string gpuName;
+	std::optional<uint32_t> vendorId;
+	std::optional<uint32_t> apiVersion;
+};
+
+struct NvencCapabilities {
+	NvencAdapterIdentity adapter;
+	std::array<NvencCodecCapability, 3> codecs; // 0=HEVC, 1=H.264, 2=AV1
+	bool queried = false;
 };
 
 // 2026-10-21 (S0): admission cadence at the DirectMode shim, i.e. what the
@@ -373,6 +405,9 @@ public:
 	NvencTapStats GetStats();
 	NvencTapRuntimeState GetRuntimeState();
 	BitratePolicyState GetBitratePolicyState();
+	// 2026-11-03: session-bound capability inventory. Returns the cached result
+	// for the given encoder handle; an empty result means no query has run.
+	NvencCapabilities GetCapabilities(void* encoder);
 
 	// periodic one-line summary to the log while enabled (10 s)
 	void MaybeHeartbeat();

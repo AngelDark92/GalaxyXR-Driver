@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { signal } from '../reactive';
 import { ofxrDefaults } from '../domain/ofxr';
-import type { AppSetting, OfxrStatus } from '../domain/types';
+import type { AppSetting, GpuCapabilities, OfxrStatus } from '../domain/types';
 import { OfxrSessionService } from './ofxr-session';
 
 const bridge = vi.hoisted(() => ({ status: vi.fn(), arm: vi.fn(), disarm: vi.fn(), apply: vi.fn(), import: vi.fn(), reinstall: vi.fn(), remove: vi.fn() }));
@@ -25,8 +25,9 @@ function fixture(enabled = false, vendor = 'galaxyxr') {
   };
   const driver = { initTask: Promise.resolve(), readFileError: signal<unknown>(undefined), inspecting: false };
   const galaxy = { vendor, settings: {}, save: vi.fn(async () => true) };
-  const service = new OfxrSessionService(app as any, driver as any, galaxy as any);
-  return { service, app, driver, galaxy };
+  const gpu = { caps: vi.fn<() => GpuCapabilities | undefined>(() => undefined), ready: Promise.resolve() };
+  const service = new OfxrSessionService(app as any, driver as any, galaxy as any, gpu as any);
+  return { service, app, driver, galaxy, gpu };
 }
 beforeEach(() => {
   vi.resetAllMocks();
@@ -76,6 +77,53 @@ describe('confirmed preference application', () => {
     const { service, app } = fixture(true); app.save.mockResolvedValueOnce(false);
     await service.update({ bidirectional: true }); expect(bridge.apply).not.toHaveBeenCalled();
     await service.update({ bidirectional: true }); expect(bridge.apply).toHaveBeenCalledWith(expect.objectContaining({ bidirectional: true }));
+  });
+  const noFlow = { adapters: [{ nvenc: true, opticalFlow: false }], checkedAt: Date.now() } as GpuCapabilities;
+  it('refuses to newly select an unsupported NVIDIA mode before saving', async () => {
+    const { service, app, gpu } = fixture(true);
+    gpu.caps.mockReturnValue(noFlow);
+    await service.update({ mode: 'nvidia-fast' });
+    expect(app.save).not.toHaveBeenCalled();
+    expect(bridge.apply).not.toHaveBeenCalled();
+    expect(service.error()).toContain('NVIDIA Optical Flow is not available');
+  });
+  it('allows unrelated edits and switching away while a stored NVIDIA mode is unsupported', async () => {
+    const { service, app, gpu } = fixture(true);
+    gpu.caps.mockReturnValue(noFlow);
+    await service.update({ bidirectional: true });
+    expect(app.values().ofxr).toMatchObject({ bidirectional: true, mode: 'nvidia-medium' });
+    expect(bridge.apply).toHaveBeenCalledTimes(1);
+    expect(service.error()).toBeUndefined();
+    await service.update({ mode: 'fidelityfx' });
+    expect(app.values().ofxr.mode).toBe('fidelityfx');
+    expect(bridge.apply).toHaveBeenCalledTimes(2);
+  });
+  it('allows an NVIDIA mode while the adapter is unknown', async () => {
+    const { service, app } = fixture(true);
+    await service.update({ mode: 'nvidia-slow' });
+    expect(app.values().ofxr.mode).toBe('nvidia-slow');
+  });
+  it('arming and startup restore always validate the stored NVIDIA mode', async () => {
+    const restored = fixture(true);
+    restored.gpu.caps.mockReturnValue(noFlow);
+    await restored.service.start();
+    expect(bridge.arm).not.toHaveBeenCalled();
+    expect(restored.service.error()).toContain('NVIDIA Optical Flow is not available');
+    expect(restored.app.values().ofxr.enabled).toBe(true);
+    const manual = fixture(false);
+    manual.gpu.caps.mockReturnValue(noFlow);
+    await manual.service.setEnabled(true);
+    expect(bridge.arm).not.toHaveBeenCalled();
+    expect(manual.app.values().ofxr.enabled).toBe(false);
+  });
+  it('startup restore waits for the (time-bounded) GPU probe attempt, then arms', async () => {
+    const { service, gpu } = fixture(true);
+    const probe = deferred<void>();
+    gpu.ready = probe.promise;
+    const started = service.start(); await tick();
+    expect(bridge.arm).not.toHaveBeenCalled();
+    probe.resolve(); await started;
+    expect(bridge.arm).toHaveBeenCalledOnce();
   });
   it('rolls back Optical Flow preferences after native arming fails', async () => {
     const { service, app } = fixture(); bridge.arm.mockRejectedValueOnce(new Error('registry denied'));

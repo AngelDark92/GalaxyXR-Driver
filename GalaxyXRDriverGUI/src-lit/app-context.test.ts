@@ -21,6 +21,10 @@ function settle(ctx: AppContext): void {
     ctx.dss.initTask,
     ctx.sds.initTask,
   ];
+  // GPU capabilities are probed once at startup; OFXR restore awaits ready.
+  expect(ctx.gpu).toBeDefined();
+  expect(ctx.gpu.ready).toBeInstanceOf(Promise);
+  tasks.push(ctx.gpu.ready);
   for (const task of tasks) {
     task?.catch(() => {});
   }

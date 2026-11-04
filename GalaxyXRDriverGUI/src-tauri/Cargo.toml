@@ -40,10 +40,13 @@ sysinfo = "0.35.1"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39.1"
 windows-core = "0.62.2"
+# DXGI COM bindings for the read-only GPU capability probe (no hand-written vtables).
+windows = { version = "0.62.2", features = ["Win32_Graphics_Dxgi"] }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_System_Diagnostics_Debug",
+    "Win32_System_LibraryLoader",
     "Win32_System_ProcessStatus",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",

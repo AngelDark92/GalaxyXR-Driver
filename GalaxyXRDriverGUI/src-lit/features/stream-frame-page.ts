@@ -6,12 +6,14 @@
 import { html, nothing, type TemplateResult } from 'lit';
 import { customElement } from 'lit/decorators.js';
 import { css } from 'lit';
-import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionHeading, sectionGroup, fieldStyles, numberControl, choiceControl, sliderControl } from './page-base';
+import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionHeading, sectionGroup, fieldStyles, numberControl, choiceControl, sliderControl, hardwareChoiceNotice } from './page-base';
 import { t } from '../locale/i18n';
 import { pageIntro, statusMessage, type FieldNotice } from '../ui/presentation';
 import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
+import { encoderGpuNotice, gpuMismatch, graphicsAdapterEvidence, encoderMismatchText, rendererMismatchText, ENCODER_MISMATCH_TITLE, RENDERER_MISMATCH_TITLE } from '../domain/gpu-mismatch';
 import { codecSwitchState } from '../domain/codec-selection';
 import { ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
+import { codecSupport, effectiveAdapter, nvencTapSupport, tenBitSupport, tileWidthMax, ofxrNvidiaSupport } from '../domain/encoder-capabilities';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 import { driverDefaults } from '../domain/driver-defaults';
 import { renderLongEdge } from '../state/galaxy-settings';
@@ -84,7 +86,9 @@ export class StreamFramePage extends BasePage {
     // Expired encoder evidence triggers a real refresh of the runtime status
     // (2026-10-16), not merely a waiting re-render: the rejection keeps its
     // age on screen until a newer observation replaces it.
-    const observedAt = this.ctx.dis.values()?.encoderTap?.observedAt;
+    const stamps = [this.ctx.dis.values()?.encoderTap?.observedAt, this.ctx.dis.values()?.graphicsAdapter?.observedAt]
+      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+    const observedAt = stamps.length ? Math.max(...stamps) : undefined;
     if (observedAt !== undefined) this.evidenceExpiryTimer = setTimeout(() => {
       if (document.visibilityState !== 'hidden') void this.ctx.startup.refresh().then(() => this.requestUpdate());
     }, Math.max(0, observedAt + 5001 - Date.now()));
@@ -161,6 +165,16 @@ export class StreamFramePage extends BasePage {
       return;
     }
     if (codec === galaxy.settings.nvencCodec) return;
+    // Refuse a codec the effective adapter is known not to support; an unknown
+    // or unverified adapter is allowed (the driver fails loudly if it cannot).
+    const evidence = encoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
+    const support = codecSupport(effectiveAdapter(this.ctx.gpu.caps(), evidence), codec);
+    if (support.verdict === 'unsupported') {
+      const control = select as unknown as { value?: string } | null;
+      if (control) control.value = String(galaxy.settings.nvencCodec);
+      this.requestUpdate();
+      return;
+    }
     galaxy.settings.nvencCodec = codec;
     galaxy.applyCodecEncoderDefaults(codec);
     this.requestUpdate();
@@ -243,6 +257,7 @@ export class StreamFramePage extends BasePage {
     const save = () => { galaxy.save(); this.requestUpdate(); };
     // 2026-10-30: one context for every spec-driven control. Tile width resolves
     // its ceiling from the selected codec; keyframe budget applies only under CBR.
+    const evidence = encoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
     const controlContext = {
       codec: settings.nvencCodec ?? 0,
       forceCbr: !!settings.nvencForceCbr,
@@ -255,8 +270,15 @@ export class StreamFramePage extends BasePage {
       fastMagnitude: settings.kalmanMagSource === 'fast',
       softDuplicates: settings.kalmanDupMode === 'soft',
       ofxrLogging: !!this.ctx.ofxr.preferences().logging,
+      capabilities: this.ctx.gpu.caps(),
+      encoderTap: evidence,
     };
-    const evidence = encoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
+    // Hardware says NVENC is absent: NVENC-dependent controls (post-pack
+    // sharpening and the encoder-only experiments) become unavailable, while
+    // Off / Pre-encode sharpening, bandwidth and generic pre-encode stay usable.
+    // Saved values are kept and shown; nothing is rewritten.
+    const nvencGone = nvencTapSupport(effectiveAdapter(this.ctx.gpu.caps(), evidence)).verdict === 'unsupported';
+    const nvencGoneReason = t('NVIDIA NVENC is not available; post-pack sharpening cannot run.');
     const parts: TemplateResult[] = [pageIntro(t('Image Settings'), t('Stream quality, color, and sharpening.'))];
 if (settings) {
       parts.push(html`<app-driver-enable-banner .ctx=${this.ctx}></app-driver-enable-banner>`);
@@ -376,7 +398,7 @@ if (vendor) {
         }
           parts.push(fieldRow(t('Tile Width'), html`
       <span class="preset-buttons">
-        ${[1024, 1536, 2048].filter(value => value <= (settings.nvencCodec === 1 ? 1024 : 2048)).map(value => html`<fluent-button
+        ${[1024, 1536, 2048].filter(value => value <= tileWidthMax(this.ctx.gpu.caps(), evidence, settings.nvencCodec ?? 0)).map(value => html`<fluent-button
           appearance=${galaxy.streamQualityValues.width === value ? 'primary' : 'outline'}
           @click=${() => { galaxy.setStreamQualityValue('width', value); save(); }}>${value}</fluent-button>`)}
       </span>
@@ -448,20 +470,51 @@ if (vendor) {
             }
           }
         }
+        // Wrong-GPU errors: only while the NVENC Tap is requested, and only from
+        // fresh process-bound runtime evidence. Informational; nothing is rewritten.
+        if (settings.nvencTap) {
+          const graphics = graphicsAdapterEvidence(this.ctx.dis.values(), this.ctx.startup.status());
+          const mismatch = gpuMismatch(this.ctx.gpu.caps(), evidence, graphics);
+          if (mismatch.encoder) parts.push(statusMessage('error', ENCODER_MISMATCH_TITLE(), encoderMismatchText(mismatch.encoder)));
+          if (mismatch.renderer) parts.push(statusMessage('error', RENDERER_MISMATCH_TITLE(), rendererMismatchText(mismatch.renderer)));
+        }
+        const tapAdapter = effectiveAdapter(this.ctx.gpu.caps(), evidence);
+        const tapVerdict = nvencTapSupport(tapAdapter);
+        const tapNotices: FieldNotice[] = tapVerdict.reason
+          ? [{ intent: 'warning', title: tapVerdict.reason, compact: true }]
+          : [];
+        const gpuNotice = settings.nvencTap ? encoderGpuNotice(this.ctx.gpu.caps(), evidence) : undefined;
+        if (gpuNotice) tapNotices.push(gpuNotice);
+        // Disable the switch only when turning the tap ON is unsupported; a stored
+        // ON value must still be turnable OFF, and the reset must not re-enable it.
+        const tapEnableBlocked = tapVerdict.verdict === 'unsupported' && !settings.nvencTap;
         parts.push(settingFieldRow('streamFrame.nvencTap', html`
-      <app-switch .checked=${!!settings.nvencTap} @change=${(e: CustomEvent) => { settings.nvencTap = e.detail; save(); }}></app-switch>
+      <app-switch .checked=${!!settings.nvencTap} .disabled=${tapEnableBlocked}
+        @change=${(e: CustomEvent) => { settings.nvencTap = e.detail; save(); }}></app-switch>
             `, {
+  notices: tapNotices,
   tip: t("Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.\n\nAn encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.\n\nValue: streamFrame.nvencTap (settings.json). Encoder side — hooks NVIDIA NVENC session creation and reconfiguration."),
-  reset: { can: settings.nvencTap != defaults.nvencTap, on: () => { galaxy.reset('nvencTap'); } }
+  reset: {
+    can: settings.nvencTap != defaults.nvencTap && !(defaults.nvencTap && tapVerdict.verdict === 'unsupported'),
+    on: () => { if (!(defaults.nvencTap && tapVerdict.verdict === 'unsupported')) galaxy.reset('nvencTap'); },
+  }
             }));
         // 2026-10-19 (owner directive): a codec switch made while SteamVR is
         // running would land in settings.json under a live session instead of
         // waiting for the next start, so the selector stays disabled until the
         // runtime is fresh and confirmed stopped.
         const codecState = codecSwitchState(this.ctx.startup.status());
+        const codecDisabled = !settings.nvencTap || codecState !== 'allowed';
+        const codecNotice = hardwareChoiceNotice('streamFrame.nvencCodec', settings.nvencCodec ?? 0, controlContext);
         parts.push(settingFieldRow('streamFrame.nvencCodec', html`
-      <app-select ?disabled=${!settings.nvencTap || codecState !== 'allowed'} .value=${settings.nvencCodec} .options=${[{ value: 0, label: 'HEVC (default)' }, { value: 1, label: 'H.264' }, { value: 2, label: 'AV1' }]} @change=${(e: CustomEvent) => { void this.selectCodec(e.currentTarget, e.detail); }}></app-select>
+      ${choiceControl('streamFrame.nvencCodec', {
+        value: settings.nvencCodec ?? 0,
+        ctx: controlContext,
+        disabled: codecDisabled,
+        onCommit: (value, event) => { void this.selectCodec(event?.target ?? null, Number(value)); },
+      })}
             `, {
+  notices: codecNotice ? [codecNotice] : undefined,
   tip: t("Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Selecting H.264 turns the SDR 10-bit baseline off (its toggle on Driver Settings shows Off and is disabled until another codec is selected). Requires a SteamVR restart and reconnect.\n\nValue: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.")
             }));
         if (!settings.nvencTap) {
@@ -494,9 +547,14 @@ if (vendor) {
 parts.push(sectionHeading(t('Image Processing'), 0, 'image-processing'));
     {
       const baselineNotices: FieldNotice[] = [];
+      const tenBitVerdict = tenBitSupport(effectiveAdapter(this.ctx.gpu.caps(), evidence), settings.nvencCodec ?? 0);
       if (settings.nvencCodec === 1) {
-        baselineNotices.push({ intent: 'info', title: t('H.264 is always 8-bit'),
+        baselineNotices.push({ intent: 'info', title: t('H.264 uses High profile 8-bit'),
           body: t('The 10-bit request is not applied to the H.264 codec. AV1 and HEVC honor it.') });
+      } else if (tenBitVerdict.reason) {
+        baselineNotices.push({ intent: tenBitVerdict.verdict === 'unsupported' ? 'warning' : 'info',
+          title: tenBitVerdict.reason,
+          body: t('Your saved value is kept and shown; switch to a supported codec or GPU to apply it.') });
       } else if (galaxy.baselineRequested) {
         baselineNotices.push({ intent: 'info', title: t('SDR 10-bit baseline is on'),
           body: t('Restart SteamVR and reconnect to apply the 10-bit request.') });
@@ -505,6 +563,12 @@ parts.push(sectionHeading(t('Image Processing'), 0, 'image-processing'));
             body: t('Turn off the custom shader for this headset, then enable the baseline again to clear the conflict.') });
         }
       }
+      // An unsupported 10-bit request blocks only turning the baseline ON; a
+      // stored On stays visible and can still be turned Off. H.264 keeps its
+      // existing fully-disabled policy.
+      const baselineEnableBlocked = tenBitVerdict.verdict === 'unsupported' && !galaxy.baselineRequested;
+      const baselineDisabled = galaxy.imageModeChanging() || settings.nvencCodec === 1 || baselineEnableBlocked;
+
       parts.push(
         // 2026-10-17 (owner directive): H.264 cannot carry 10-bit, so while
         // that codec is selected the switch reads the capability-effective
@@ -514,13 +578,17 @@ parts.push(sectionHeading(t('Image Processing'), 0, 'image-processing'));
         // again under a codec that honors it — never rewritten on load.
         settingFieldRow('galaxyXr.sdr10Baseline', html`<app-switch
           .checked=${galaxy.baselineRequested && settings.nvencCodec !== 1}
-          .disabled=${galaxy.imageModeChanging() || settings.nvencCodec === 1}
-          @change=${(e: CustomEvent<boolean>) => { void this.changeBaseline(e.detail, e.currentTarget as AppSwitch); }}></app-switch>`, {
+          .disabled=${baselineDisabled}
+          @change=${(e: CustomEvent<boolean>) => {
+            if (settings.nvencCodec === 1 || galaxy.imageModeChanging()) return;
+            if (e.detail && tenBitVerdict.verdict === 'unsupported') return;
+            void this.changeBaseline(e.detail, e.currentTarget as AppSwitch);
+          }}></app-switch>`, {
           notices: baselineNotices,
           tip: t("Send the stream as 10-bit SDR. On by default. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off. Switching back to HEVC or AV1 turns it on again; a saved Off on HEVC or AV1 is restored to On by the next codec switch.\n\nTurning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit)."),
           reset: {
-            can: settings.nvencCodec !== 1 && !!galaxy.baselineRequested !== (driverDefaults.galaxyXr?.sdr10Baseline ?? true),
-            on: () => { void galaxy.setSdr10Baseline(driverDefaults.galaxyXr?.sdr10Baseline ?? true); },
+            can: !baselineDisabled && !!galaxy.baselineRequested !== (driverDefaults.galaxyXr?.sdr10Baseline ?? true),
+            on: () => { if (!baselineDisabled) void galaxy.setSdr10Baseline(driverDefaults.galaxyXr?.sdr10Baseline ?? true); },
           },
         }),
       );
@@ -608,40 +676,51 @@ if (galaxy.imageEnhancementsEnabled) {
   tip: t("Reduce jagged edges with a post-processing filter. The quality mode does more work than the fast mode and may cost performance.\n\nFXAA applied BEFORE CAS so sharpening enhances resolved edges instead of amplifying jagged staircases. Best for titles with heavy edge shimmer (specular geometry, foliage, thin railings); slightly softens fine text - leave off for text-heavy apps. Fast: integrated into the main pass; CAS sharpens raw neighbors around the AA-resolved center (can faintly re-jag very strong edges at high CAS strength). Quality: a separate FXAA pre-pass, so CAS sees fully resolved edges - costs one extra full-frame pass and VRAM for an intermediate texture; falls back to Fast automatically (with a log line) if the pass shader or intermediate is unavailable. Check 'pixel shader ready (... fxaa: yes, fxaaPass: yes)' in the log after updating.\n\nValue: streamFrame.fxaa (settings.json). Driver side — FXAA pass applied before CAS."),
   reset: { can: settings.fxaa != defaults.fxaa, on: () => { galaxy.reset('fxaa'); } }
           }));
-          const casNotices: FieldNotice[] = galaxy.casMode === 'postpack' && !settings.nvencTap
-            ? [{ intent: 'info', title: t('Post-pack sharpening needs NVENC Tap'),
-                body: t('Enable NVENC Tap in Encoder, or choose Pre-encode sharpening.') }]
-            : [];
+          const casNotices: FieldNotice[] = galaxy.casMode === 'postpack' && nvencGone
+            ? [{ intent: 'warning', title: nvencGoneReason, compact: true }]
+            : galaxy.casMode === 'postpack' && !settings.nvencTap
+              ? [{ intent: 'info', title: t('Post-pack sharpening needs NVENC Tap'),
+                  body: t('Enable NVENC Tap in Encoder, or choose Pre-encode sharpening.') }]
+              : [];
+          const casOptions = [
+            { value: 'off', label: 'Off' },
+            { value: 'postpack', label: 'Post-pack — on the encoded frame (recommended)',
+              disabled: nvencGone && galaxy.casMode !== 'postpack', reason: nvencGone ? nvencGoneReason : undefined },
+            { value: 'preencode', label: 'Pre-encode — full-resolution pass (AMD / tap off)' },
+          ];
           parts.push(settingFieldRow('cas-sharpening', html`
-      <app-select .width=${300} .value=${galaxy.casMode} .options=${[{ value: 'off', label: 'Off' }, { value: 'postpack', label: 'Post-pack — on the encoded frame (recommended)' }, { value: 'preencode', label: 'Pre-encode — full-resolution pass (AMD / tap off)' }]} @change=${(e: CustomEvent) => { galaxy.casMode = e.detail; save(); }}></app-select>
+      <app-select .width=${300} .value=${galaxy.casMode} .options=${casOptions} @change=${(e: CustomEvent) => {
+        if (e.detail === 'postpack' && nvencGone && galaxy.casMode !== 'postpack') { this.requestUpdate(); return; }
+        galaxy.casMode = e.detail; save();
+      }}></app-select>
           `, {
   notices: casNotices,
   tip: t("Choose where contrast-adaptive sharpening is applied. The modes use different processing paths; avoid adding the same sharpening twice.\n\nContrast adaptive sharpening. POST-PACK (recommended, NVIDIA + NVENC Tap): runs on the frame the encoder actually sends - the foveated transport image - with separate strengths for the gaze region and the periphery; the periphery is sharpened after Steam Link downscales it, so it survives to the panel, at ~0.04 ms per frame. PRE-ENCODE: the older full-resolution pass on the eye textures; only for AMD GPUs or with the NVENC Tap off. Never run both.\n\nValue: streamFrame.cas.enable + streamFrame.postPack.enable/casEnable (settings.json). Driver + encoder sides — post-pack sharpening runs on the encoded frame through the tap; pre-encode is the full-resolution driver pass.")
           }));
 if (galaxy.casMode === 'postpack') {
             parts.push(fieldRow(t('Center Sharpness'), html`
-      ${numberControl('streamFrame.postPack.foveaStrength', { value: settings.postPack.foveaStrength, ctx: controlContext, onCommit: value => { settings.postPack.foveaStrength = value; save(); } })}
-      ${sliderControl('streamFrame.postPack.foveaStrength', { value: settings.postPack.foveaStrength, onChange: value => { settings.postPack.foveaStrength = value; save(); } })}
+      ${numberControl('streamFrame.postPack.foveaStrength', { value: settings.postPack.foveaStrength, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.postPack.foveaStrength = value; save(); } })}
+      ${sliderControl('streamFrame.postPack.foveaStrength', { value: settings.postPack.foveaStrength, disabled: nvencGone, onChange: value => { settings.postPack.foveaStrength = value; save(); } })}
             `, {
   tip: t("Adjust sharpening in the high-detail center of the streamed image. Too much sharpening can create bright outlines or noise.\n\nSharpening for the gaze cut-out tile (1:1 render-target pixels), 0 to 1. Under CBR sharpening costs bits: spend them here.\n\nValue: streamFrame.postPack.foveaStrength (settings.json). Encoder side — post-pack sharpening of the gaze tile."),
-  reset: { can: settings.postPack.foveaStrength != defaults.postPack.foveaStrength, on: () => { settings.postPack.foveaStrength = defaults.postPack.foveaStrength; save(); } }
+  reset: { can: !nvencGone && settings.postPack.foveaStrength != defaults.postPack.foveaStrength, on: () => { if (nvencGone) return; settings.postPack.foveaStrength = defaults.postPack.foveaStrength; save(); } }
             }));
             parts.push(fieldRow(t('Edge Sharpness'), html`
-      ${numberControl('streamFrame.postPack.peripheryStrength', { value: settings.postPack.peripheryStrength, ctx: controlContext, onCommit: value => { settings.postPack.peripheryStrength = value; save(); } })}
-      ${sliderControl('streamFrame.postPack.peripheryStrength', { value: settings.postPack.peripheryStrength, onChange: value => { settings.postPack.peripheryStrength = value; save(); } })}
+      ${numberControl('streamFrame.postPack.peripheryStrength', { value: settings.postPack.peripheryStrength, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.postPack.peripheryStrength = value; save(); } })}
+      ${sliderControl('streamFrame.postPack.peripheryStrength', { value: settings.postPack.peripheryStrength, disabled: nvencGone, onChange: value => { settings.postPack.peripheryStrength = value; save(); } })}
             `, {
   tip: t("Adjust sharpening outside the high-detail center. This affects the lower-detail edges of the streamed image.\n\nSharpening for the downscaled whole-view tile, 0 to 1. Applied after the downscale, so it is visible on the panel; keep it lower than the fovea to avoid haloing on the stretched periphery.\n\nValue: streamFrame.postPack.peripheryStrength (settings.json). Encoder side — post-pack sharpening of the downscaled whole-view tile."),
-  reset: { can: settings.postPack.peripheryStrength != defaults.postPack.peripheryStrength, on: () => { settings.postPack.peripheryStrength = defaults.postPack.peripheryStrength; save(); } }
+  reset: { can: !nvencGone && settings.postPack.peripheryStrength != defaults.postPack.peripheryStrength, on: () => { if (nvencGone) return; settings.postPack.peripheryStrength = defaults.postPack.peripheryStrength; save(); } }
             }));
             parts.push(fieldRow(t('Center-Edge Blend'), html`
-      ${numberControl('streamFrame.postPack.edgeFalloff', { value: settings.postPack.edgeFalloff ?? defaults.postPack.edgeFalloff ?? 0.12, ctx: controlContext, onCommit: value => { settings.postPack.edgeFalloff = value; save(); } })}
-      ${sliderControl('streamFrame.postPack.edgeFalloff', { value: settings.postPack.edgeFalloff ?? defaults.postPack.edgeFalloff ?? 0.12, onChange: value => { settings.postPack.edgeFalloff = value; save(); } })}
+      ${numberControl('streamFrame.postPack.edgeFalloff', { value: settings.postPack.edgeFalloff ?? defaults.postPack.edgeFalloff ?? 0.12, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.postPack.edgeFalloff = value; save(); } })}
+      ${sliderControl('streamFrame.postPack.edgeFalloff', { value: settings.postPack.edgeFalloff ?? defaults.postPack.edgeFalloff ?? 0.12, disabled: nvencGone, onChange: value => { settings.postPack.edgeFalloff = value; save(); } })}
             `, {
   tip: t("Smooth the transition between center and edge sharpening. Use this when a visible boundary appears around the sharp region.\n\nFraction of the fovea tile over which its sharpening ramps down to the periphery strength at the tile border, so the seam where the headset composites the cut-out over the stretched periphery is not a sharpness step. 0 = hard edge. The native contract accepts 0 to 1; the slider covers the tested 0 to 0.5 band.\n\nValue: streamFrame.postPack.edgeFalloff (settings.json). Encoder side — ramp width of the center-to-edge sharpening transition."),
-  reset: { can: settings.postPack.edgeFalloff != defaults.postPack.edgeFalloff, on: () => { settings.postPack.edgeFalloff = defaults.postPack.edgeFalloff ?? 0.12; save(); } }
+  reset: { can: !nvencGone && settings.postPack.edgeFalloff != defaults.postPack.edgeFalloff, on: () => { if (nvencGone) return; settings.postPack.edgeFalloff = defaults.postPack.edgeFalloff ?? 0.12; save(); } }
             }));
             parts.push(settingFieldRow('streamFrame.postPack.foveaTop', html`
-      <app-switch .checked=${!!settings.postPack.foveaTop} @change=${(e: CustomEvent) => { settings.postPack.foveaTop = e.detail; save(); }}></app-switch>
+      <app-switch .checked=${!!settings.postPack.foveaTop} ?disabled=${nvencGone} @change=${(e: CustomEvent) => { settings.postPack.foveaTop = e.detail; save(); }}></app-switch>
             `, {
   tip: t("Adjust sharpening for the upper and lower center tiles. These values fine-tune the streamed image layout.\n\nWhich tile of each eye's pair is the gaze cut-out. On = upper tile (what the streamer's shader indicates). If the wrong region looks sharpened - e.g. periphery crisp, fovea soft - flip this.\n\nValue: streamFrame.postPack.foveaTop (settings.json). Encoder side — selects which tile is the gaze cut-out.")
             }));
@@ -729,14 +808,23 @@ if (vendor && settings) {
   notices: [ofxrRuntimeNotice],
   tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, quitting the Companion disarms it; minimizing or closing to the tray keeps it running.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
             }));
+        const ofxrNvidiaVerdict = ofxrNvidiaSupport(this.ctx.gpu.caps());
+        const ofxrModeOptions = [
+          { value: 'fidelityfx', label: t('FidelityFX (any card)') },
+          { value: 'nvidia-fast', label: t('NVIDIA Fast (test)'), disabled: ofxrNvidiaVerdict.verdict === 'unsupported', reason: ofxrNvidiaVerdict.reason },
+          { value: 'nvidia-medium', label: t('NVIDIA Medium (recommended)'), disabled: ofxrNvidiaVerdict.verdict === 'unsupported', reason: ofxrNvidiaVerdict.reason },
+          { value: 'nvidia-slow', label: t('NVIDIA Slow (best quality)'), disabled: ofxrNvidiaVerdict.verdict === 'unsupported', reason: ofxrNvidiaVerdict.reason },
+        ];
+        const ofxrModeNotice = ofxrNvidiaVerdict.reason && ofxr.mode.startsWith('nvidia')
+          ? { intent: 'warning' as const, title: ofxrNvidiaVerdict.reason, compact: true }
+          : undefined;
+        // Mode can be edited while disarmed so a stored unsupported NVIDIA mode
+        // can be recovered by switching to FidelityFX; disabled NVIDIA options
+        // still refuse selection, and arming validates the mode before applying.
         parts.push(settingFieldRow('ofxr.mode', html`
-      <app-select .value=${ofxr.mode} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed()} .options=${[
-        { value: 'fidelityfx', label: t('FidelityFX (any card)') },
-        { value: 'nvidia-fast', label: t('NVIDIA Fast (test)') },
-        { value: 'nvidia-medium', label: t('NVIDIA Medium (recommended)') },
-        { value: 'nvidia-slow', label: t('NVIDIA Slow (best quality)') }
-      ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ mode: e.detail }); }}></app-select>
+      <app-select .value=${ofxr.mode} ?disabled=${this.ctx.ofxr.changing()} .options=${ofxrModeOptions} @change=${(e: CustomEvent) => { void this.updateOfxr({ mode: e.detail }); }}></app-select>
             `, {
+  notices: ofxrModeNotice ? [ofxrModeNotice] : undefined,
   tip: t("Choose who computes the optical flow. FidelityFX runs on any graphics card. The NVIDIA options use the GPU's hardware Optical Flow engine and require an NVIDIA Turing generation or newer card with Optical Flow support (TU117-based GTX 1650 class cards are not supported). NVIDIA Medium with 50% resolution is the recommended starting point; the GPU cost and quality trade off against each other.\n\nValue: ofxr.mode (gui-settings.json). Companion side — writes backend and nvidia_preset into the OFXR layer configuration; applies at the next game start.")
             }));
         parts.push(settingFieldRow('ofxr.bidirectional', html`
@@ -873,6 +961,7 @@ if (settings.nvencTap) {
   tip: t("Request an NVENC VBV buffer budget in nominal frame units. A smaller budget can reduce buffering but makes complex scenes harder to encode cleanly.\n\nFor N > 0, requested VBV = (target bits/s / nominal fps) × N, in bits. 0 preserves the caller's VBV value. This is a rate-control buffer request, not a guaranteed maximum encoded frame size or a transport limit. Requires a SteamVR restart.\n\nValue: streamFrame.nvencVbvFrames (settings.json). Encoder side — requested VBV buffer size in bits."),
   reset: { can: settings.nvencVbvFrames != codecDef.vbvFrames, on: () => { settings.nvencVbvFrames = codecDef.vbvFrames; save(); } }
                 }));
+                const presetNotice = hardwareChoiceNotice('streamFrame.nvencPreset', settings.nvencPreset, controlContext);
                 parts.push(fieldRow(t('Encoder Quality Preset'), html`
       ${choiceControl('streamFrame.nvencPreset', {
         value: settings.nvencPreset,
@@ -880,6 +969,7 @@ if (settings.nvencTap) {
         onCommit: value => { settings.nvencPreset = Number(value); save(); },
       })}
                 `, {
+  notices: presetNotice ? [presetNotice] : undefined,
   tip: t("Choose the NVIDIA encoding preset. Keep automatic selection unless you are testing a specific quality or latency trade-off.\n\n0 = automatic by NVENC engine count (3 engines: P7, 2: P5, 1: P4; logged as 'preset AUTO'). Higher presets spend more encoder time for better quality at the same bitrate; P7 needs the split across three engines to hold 90 fps. Auto resolves to P2 for H.264 (P7/P5/P4 by engine count otherwise).\n\nValue: streamFrame.nvencPreset (settings.json). Encoder side — NVENC preset selector; 0 = automatic by engine count."),
   reset: { can: settings.nvencPreset != defaults.nvencPreset, on: () => { galaxy.reset('nvencPreset'); } }
                 }));
@@ -937,13 +1027,15 @@ if (settings.nvencTap) {
                     parts.push(noteRow(html`${t('The graph window could not be opened: {reason}', { reason: this.curveWindowError })}`));
                   }
                 }
+                const multiPassNotice = hardwareChoiceNotice('streamFrame.nvencMultiPass', settings.nvencMultiPass ?? -1, controlContext);
                 parts.push(settingFieldRow('streamFrame.nvencMultiPass', html`
                   ${choiceControl('streamFrame.nvencMultiPass', {
                     value: settings.nvencMultiPass ?? -1,
                     ctx: controlContext,
                     onCommit: value => { settings.nvencMultiPass = Number(value); save(); },
                   })}
-                `, { tip: t('Explicit multipass selection applies even when preset merge is off. Automatic keeps the codec and preset recommendation. Unsupported requests fail without fallback.\n\nValue: streamFrame.nvencMultiPass (settings.json). Encoder side — pass count hint; automatic follows the codec/preset recommendation.'),
+                `, { notices: multiPassNotice ? [multiPassNotice] : undefined,
+                  tip: t('Explicit multipass selection applies even when preset merge is off. Automatic keeps the codec and preset recommendation. Unsupported requests fail without fallback.\n\nValue: streamFrame.nvencMultiPass (settings.json). Encoder side — pass count hint; automatic follows the codec/preset recommendation.'),
                   reset: { can: settings.nvencMultiPass !== defaults.nvencMultiPass, on: () => galaxy.reset('nvencMultiPass') } }));
                 if (settings.nvencCodec === 1) {
                   parts.push(noteRow(html`${t('H.264 compatibility defaults are editable below. Reset arrows restore the tested values. Split-Frame is not applicable to H.264; its saved choice is retained.')}`));
@@ -1025,6 +1117,8 @@ if (settings.nvencTap) {
   tip: t("With Force CBR, request the keyframe-to-P-frame size ratio (0–255, NVENC byte field). NVENC documents this ratio for CBR with a single-frame VBV buffer. It is not a hard keyframe size limit or a transport limit. The optimized recommendation is 2. Unsupported requests fail without rewriting the value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — requested low-delay keyframe ratio under CBR."),
   reset: { can: settings.nvencLowDelayKfScale != codecDef.lowDelayKfScale, on: () => { settings.nvencLowDelayKfScale = codecDef.lowDelayKfScale; save(); } }
                 }));
+                const splitNotice = hardwareChoiceNotice('streamFrame.nvencSplitMode', settings.nvencSplitMode, controlContext);
+                const splitNotices = splitNotice ? [splitNotice] : undefined;
                 parts.push(fieldRow(t('Multi-Engine Encoding'), html`
       ${choiceControl('streamFrame.nvencSplitMode', {
         value: settings.nvencSplitMode,
@@ -1034,6 +1128,7 @@ if (settings.nvencTap) {
                 `, {
   noticeKey: 'streamFrame.nvencSplitMode',
   ctx: controlContext,
+  notices: splitNotices,
   tip: t("0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencSplitMode (settings.json). Encoder side — multi-engine split; nonzero opens the API 12.1 encoder session."),
   reset: { can: settings.nvencSplitMode != codecDef.splitMode, on: () => { settings.nvencSplitMode = codecDef.splitMode; save(); } }
                 }));
@@ -1059,7 +1154,7 @@ if (settings.nvencTap) {
   reset: { can: settings.nvencQpFovea != 0 || settings.nvencQpPeriphery != 0, on: () => { settings.nvencQpFovea = 0; settings.nvencQpPeriphery = 0; save(); } }
                 }));
                 parts.push(settingFieldRow('streamFrame.postPack.limitedRange', html`
-      <app-switch .checked=${!!settings.postPack.limitedRange} @change=${(e: CustomEvent) => { settings.postPack.limitedRange = e.detail; settings.postPack.enable = settings.postPack.enable || settings.postPack.limitedRange; save(); }}></app-switch>
+      <app-switch .checked=${!!settings.postPack.limitedRange} ?disabled=${nvencGone && !settings.postPack.limitedRange} @change=${(e: CustomEvent) => { settings.postPack.limitedRange = e.detail; settings.postPack.enable = settings.postPack.enable || settings.postPack.limitedRange; save(); }}></app-switch>
                 `, {
   tip: t("Correct a mismatch between full-range and limited-range video levels. Off by default; turn it on only if the headset shows washed-out blacks or crushed shadows. The reset arrow restores Off; it requires the NVIDIA encoder adjustment path.\n\nSteam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the Galaxy XR client (xrvst2ue). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.\n\nValue: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range."),
   reset: { can: settings.postPack.limitedRange != false, on: () => { settings.postPack.limitedRange = false; save(); } }
@@ -1119,25 +1214,25 @@ parts.push(settingFieldRow('streamFrame.zeroCopyV3', html`
   reset: { can: settings.zeroCopyV3 != defaults.zeroCopyV3, on: () => { galaxy.reset('zeroCopyV3'); } }
             }));
 parts.push(fieldRow(t('NVENC (retired): AQ Strength'), html`
-      ${numberControl('streamFrame.nvencAqStrength', { value: settings.nvencAqStrength, ctx: controlContext, onCommit: value => { settings.nvencAqStrength = value; save(); } })}
+      ${numberControl('streamFrame.nvencAqStrength', { value: settings.nvencAqStrength, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.nvencAqStrength = value; save(); } })}
             `, {
   tip: "Do not use spatial adaptive quantization for normal play in this build. It has caused encoder stalls in testing, and the driver's safety checks may reset it.\n\nDO NOT USE. Any spatial AQ, at any strength, makes nvEncEncodePicture block 4-6 ms per frame on these tall frames and trips the streamer's 10 ms watchdog (encoder resets, soft key frames, storms). No longer forced to 0; leave at 0 unless measuring.",
   reset: { can: settings.nvencAqStrength != defaults.nvencAqStrength, on: () => { galaxy.reset('nvencAqStrength'); } }
             }));
 parts.push(fieldRow(t('NVENC (retired): Max QP'), html`
-      ${numberControl('streamFrame.nvencMaxQp', { value: settings.nvencMaxQp, ctx: controlContext, onCommit: value => { settings.nvencMaxQp = value; save(); } })}
+      ${numberControl('streamFrame.nvencMaxQp', { value: settings.nvencMaxQp, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.nvencMaxQp = value; save(); } })}
             `, {
   tip: t("Set the encoder's quantization constraint. This is an advanced quality/bandwidth constraint, not a simple quality slider.\n\nA quality floor can fight CBR and increase encoded frame sizes in complex scenes. VBV and keyframe ratios do not guarantee a hard encoded frame size limit."),
   reset: { can: settings.nvencMaxQp != defaults.nvencMaxQp, on: () => { galaxy.reset('nvencMaxQp'); } }
             }));
 parts.push(fieldRow(t('NVENC (retired): Min QP / Min QP intra'), html`
-      ${numberControl('streamFrame.nvencMinQp', { value: settings.nvencMinQp, ctx: controlContext, onCommit: value => { settings.nvencMinQp = value; save(); } })}
-      ${numberControl('streamFrame.nvencMinQpIntra', { value: settings.nvencMinQpIntra, ctx: controlContext, onCommit: value => { settings.nvencMinQpIntra = value; save(); } })}
+      ${numberControl('streamFrame.nvencMinQp', { value: settings.nvencMinQp, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.nvencMinQp = value; save(); } })}
+      ${numberControl('streamFrame.nvencMinQpIntra', { value: settings.nvencMinQpIntra, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.nvencMinQpIntra = value; save(); } })}
             `, {
   tip: t("Request a lower quantizer bound for P/B pictures and, separately, intra pictures. A higher bound can reduce quality and encoded size where supported by the selected codec and rate-control mode.\n\nThis request is not a hard encoded-output size limit. Validate its actual effect on the running encoder.")
             }));
 parts.push(settingFieldRow('streamFrame.nvencPresetMerge', html`
-      <app-switch .checked=${!!settings.nvencPresetMerge} @change=${(e: CustomEvent) => { settings.nvencPresetMerge = e.detail; save(); }}></app-switch>
+      <app-switch .checked=${!!settings.nvencPresetMerge} ?disabled=${nvencGone} @change=${(e: CustomEvent) => { settings.nvencPresetMerge = e.detail; save(); }}></app-switch>
             `, {
   tip: t("Preset merge adopts canonical preset settings. Explicit multipass and H.264 controls below remain authoritative. Automatic multipass uses the tested H.264 single-pass default or the HEVC/AV1 preset recommendation.\n\nValue: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset merge adoption on encoder session setup; the H.264 multipass adoption stays 0."),
   reset: { can: settings.nvencPresetMerge != defaults.nvencPresetMerge, on: () => { galaxy.reset('nvencPresetMerge'); } }

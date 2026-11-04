@@ -6,6 +6,8 @@ import { ofxr_apply, ofxr_arm, ofxr_disarm, ofxr_import, ofxr_remove, ofxr_reins
 import type { AppSettingService } from './app-setting';
 import type { DriverSettingService } from './driver-setting';
 import type { GalaxySettingsBase } from '../state/galaxy-settings';
+import type { GpuCapabilitiesService } from './gpu-capabilities';
+import { ofxrNvidiaSupport } from '../domain/encoder-capabilities';
 
 /** One application-owned queue, including startup restoration and page remounts. */
 export class OfxrSessionService {
@@ -20,6 +22,7 @@ export class OfxrSessionService {
     private readonly app: AppSettingService,
     private readonly driver: DriverSettingService,
     private readonly galaxy: GalaxySettingsBase,
+    private readonly gpu: GpuCapabilitiesService,
   ) {}
 
   preferences(): OfxrPreferences { return normalizeOfxrPreferences(this.app.values().ofxr); }
@@ -27,6 +30,14 @@ export class OfxrSessionService {
   setError(message: string | undefined): void { this.error.set(message); }
   idle(): Promise<void> { return this.queue; }
   dispose(): void { this.disposed = true; }
+
+  private checkNvidiaMode(prefs: OfxrPreferences): void {
+    if (!prefs.mode.startsWith('nvidia')) return;
+    const verdict = ofxrNvidiaSupport(this.gpu.caps());
+    if (verdict.verdict === 'unsupported') {
+      throw new Error(verdict.reason ?? t('NVIDIA Optical Flow is not available on the current GPU.'));
+    }
+  }
 
   private serialize(task: () => Promise<void>): Promise<void> {
     const next = this.queue.then(async () => {
@@ -42,7 +53,7 @@ export class OfxrSessionService {
 
   start(): Promise<void> {
     return this.started ??= this.serialize(async () => {
-      await Promise.all([this.app.initTask, this.driver.initTask]);
+      await Promise.all([this.app.initTask, this.driver.initTask, this.gpu.ready]);
       if (this.disposed || !this.galaxy.vendor) return;
       // Restore only a successfully read preference, never an optimistic draft.
       if (this.app.readFileError() || !this.app.confirmedValues()?.ofxr?.enabled) return;
@@ -87,6 +98,7 @@ export class OfxrSessionService {
     try {
       const prefs = restoring ? this.preferences() : await this.save({ enabled: true });
       savedEnable = !restoring;
+      this.checkNvidiaMode(prefs);
       if (this.disposed) return;
       this.status.set(await ofxr_arm(prefs));
       this.error.set(undefined);
@@ -103,6 +115,13 @@ export class OfxrSessionService {
 
   update(patch: Partial<OfxrPreferences>): Promise<void> {
     return this.serialize(async () => {
+      // Only a newly requested mode is validated before persisting: choosing an
+      // unsupported NVIDIA mode must not be saved and left unapplied, but other
+      // edits (and switching away) stay allowed while a stored unsupported mode
+      // is kept. Arming always validates the stored mode.
+      if (patch.mode !== undefined && patch.mode !== this.preferences().mode) {
+        this.checkNvidiaMode({ ...this.preferences(), ...patch });
+      }
       const prefs = await this.save(patch);
       try { await ofxr_apply(prefs); this.error.set(undefined); }
       finally { await this.refreshStatus(); }

@@ -78,6 +78,8 @@ export interface AppSelectOption {
    *  hand this exact value back to the page on change. */
   value: string | number;
   label: string;
+  disabled?: boolean;
+  reason?: string;
 }
 
 /**
@@ -123,6 +125,11 @@ export class AppSelect extends LitElement {
     const raw = String(el.value ?? '');
     const opt = this.options.find(o => String(o.value) === raw);
     if (!opt) return; // An unselected/unknown option is not a settings change.
+    if (opt.disabled) {
+      // Refuse the disabled choice and restore the previous selection.
+      this.syncValue();
+      return;
+    }
     const detail: string | number = opt.value;
     this.value = String(detail);
     this.dispatchEvent(new CustomEvent('change', { detail, bubbles: true, composed: true }));
@@ -188,7 +195,13 @@ export class AppSelect extends LitElement {
       aria-label=${accessibleLabel(this, this.label)}
       style=${`width: ${this.width}px; max-width: 100%;`}
       @change=${this.onNativeChange}
-    ><fluent-listbox>${this.options.map(o => html`<fluent-option .value=${String(o.value)} ?selected=${String(o.value) === String(this.value)}>${o.label}</fluent-option>`)}</fluent-listbox></fluent-dropdown>`;
+    ><fluent-listbox>${this.options.map(o => html`<fluent-option
+        .value=${String(o.value)}
+        ?disabled=${!!o.disabled}
+        title=${o.reason ?? ''}
+        aria-description=${o.reason ?? nothing}
+        ?selected=${String(o.value) === String(this.value)}
+      >${o.label}${o.disabled ? ' — ' + t('unavailable') : ''}</fluent-option>`)}</fluent-listbox></fluent-dropdown>`;
   }
 }
 
@@ -229,7 +242,12 @@ export class AppChoice extends LitElement {
       color: var(--colorNeutralForegroundOnBrand, #fff);
     }
     button[aria-pressed='true']:hover:not(:disabled) { background: var(--colorBrandBackgroundHover, #115ea3); }
-    button:disabled { cursor: not-allowed; }
+    button:disabled, button[aria-disabled='true'] { cursor: not-allowed; }
+    button[aria-disabled='true'] { opacity: 0.55; }
+    .vh {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
   `;
 
   @property({ attribute: false }) options: AppSelectOption[] = [];
@@ -238,17 +256,23 @@ export class AppChoice extends LitElement {
   @property({ type: String }) label = '';
 
   private select(option: AppSelectOption): void {
-    if (this.disabled || String(option.value) === String(this.value)) return;
+    if (this.disabled || option.disabled || String(option.value) === String(this.value)) return;
     this.value = option.value;
     this.dispatchEvent(new CustomEvent('change', { detail: option.value, bubbles: true, composed: true }));
   }
 
   render() {
+    // An unavailable option stays focusable (aria-disabled, not `disabled`) so
+    // keyboard and screen-reader users can reach it and hear the reason; the
+    // click handler refuses it. Only a wholly disabled control uses `disabled`.
     return html`<div class="segmented" role="group" aria-label=${accessibleLabel(this, this.label)}>
       ${this.options.map(option => html`<button type="button"
         aria-pressed=${String(option.value) === String(this.value) ? 'true' : 'false'}
+        aria-disabled=${option.disabled ? 'true' : nothing}
         ?disabled=${this.disabled}
-        @click=${() => this.select(option)}>${option.label}</button>`)}
+        title=${option.reason ?? ''}
+        @click=${() => this.select(option)}>${option.label}${option.disabled && option.reason
+          ? html`<span class="vh">${' — ' + option.reason}</span>` : nothing}</button>`)}
     </div>`;
   }
 }
