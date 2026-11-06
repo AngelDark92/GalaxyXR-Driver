@@ -178,6 +178,14 @@ export function tenBitSupport(adapter: EffectiveAdapter, codec: number): { verdi
   return { verdict: 'unverified', reason: t('10-bit capability is not reported for this codec.') };
 }
 
+/** Reason to show beside the 10-bit switch. Only an explicit negative warns:
+ *  "not reported" (the GPU probe never carries tenBit, and the encoder session
+ *  report goes stale when no stream is running) is unknown, not unsupported,
+ *  and must not tell the user their working 10-bit setting cannot apply. */
+export function tenBitNoticeReason(support: { verdict: SupportVerdict; reason?: string }): string | undefined {
+  return support.verdict === 'unsupported' ? support.reason : undefined;
+}
+
 /** Whether the NVENC Tap can arm on the effective adapter. */
 export function nvencTapSupport(adapter: EffectiveAdapter): { verdict: SupportVerdict; reason?: string } {
   if (!adapter.known) return { verdict: 'unverified', reason: adapter.reason };

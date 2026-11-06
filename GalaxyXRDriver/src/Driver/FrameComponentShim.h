@@ -25,6 +25,10 @@ public:
 	// unless GXR_OF_INJECT=1 armed the spike.
 	~DirectModeComponentShim();
 	vr::IVRDriverDirectModeComponent* original;
+	// Steam Link ownership epoch (0 = ungated). Observation/processing runs only
+	// while this epoch is admitted; otherwise every call forwards unchanged.
+	uint64_t galaxyLinkLineage = 0;
+	bool GalaxyLinkAllows() const;
 
 	void CreateSwapTextureSet(uint32_t unPid, const SwapTextureSetDesc_t* pSwapTextureSetDesc, SwapTextureSet_t* pOutSwapTextureSet) override;
 	void DestroySwapTextureSet(vr::SharedTextureHandle_t sharedTextureHandle) override;
@@ -276,6 +280,8 @@ class VirtualDisplayShim : public vr::IVRVirtualDisplay{
 public:
 	explicit VirtualDisplayShim(vr::IVRVirtualDisplay* original);
 	vr::IVRVirtualDisplay* original;
+	uint64_t galaxyLinkLineage = 0; // see DirectModeComponentShim::galaxyLinkLineage
+	bool GalaxyLinkAllows() const;
 
 	void Present(const vr::PresentInfo_t* pPresentInfo, uint32_t unPresentInfoSize) override;
 	void WaitForPresent() override;

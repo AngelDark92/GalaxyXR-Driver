@@ -57,6 +57,8 @@ MH_STATUS WINAPI MH_CreateHook(LPVOID, LPVOID, LPVOID*){ std::abort(); }
 MH_STATUS WINAPI MH_EnableHook(LPVOID){ std::abort(); }
 NvencPostPackStats NvencPostPack::GetStats(){ std::abort(); }
 void NvencPostPack::ResetIntervalStats(){ std::abort(); }
+size_t NvencPostPack::ReleaseTextures(void* const*, size_t){ return 0; }
+size_t NvencPostPack::CachedTextureCount(){ return 0; }
 bool NvencPostPack::Process(void* texture, uint32_t format){
 	calls += 'P';
 	Check(texture == &textureToken && format == NV_ENC_BUFFER_FORMAT_NV12, "registered texture/format passed to CAS");

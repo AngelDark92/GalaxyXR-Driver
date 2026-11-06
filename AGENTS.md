@@ -1,6 +1,6 @@
 # AGENTS.md — GalaxyXR-Driver
 
-Read `../AGENTS.md` for workspace rules. This file is the project contract for this checkout. User instructions override both. Edit a canonical file, never a mirror.
+Read `../AGENTS.md`; user instructions override both contracts. Edit canonical files, never mirrors.
 
 ## Identity and scope
 
@@ -16,7 +16,7 @@ Vendor runtime state is `%APPDATA%/GalaxyXR/CustomHeadset/`; neutral is `%APPDAT
 4. The loaded skill or workflow.
 5. A host adapter or role prompt.
 
-A lower tier may add stricter rules; it may not weaken or contradict a higher tier.
+Lower tiers may tighten, never weaken or contradict higher tiers.
 
 Source edits and focused checks for an authorized task may proceed. Deployment, install/uninstall, SteamVR settings or process changes, ADB/device actions, commits, pushes, release publication and manual workflow dispatch require explicit authorization. Editing their implementation does not authorize executing them. Report inherited CI triggers separately.
 
@@ -29,6 +29,7 @@ Source edits and focused checks for an authorized task may proceed. Deployment, 
 5. SteamVR `settings.vrjson` writes stay ownership-safe through `SteamVRSettingsJournal.h` and the Rust `driver_installation*` cleanup paths.
 6. New visible strings use `t(...)` and `GalaxyXRDriverGUI/src/locale/messages.xlf`. Do not hand-edit `zh-Hant` or `ja` unless requested.
 7. Static source/package checks prove only what they test. Runtime claims need fresh matching process/module/build evidence.
+8. Never hardcode DLL addresses/RVAs/build-specific offsets: updates move them. Resolve named APIs/imports and versioned interfaces at runtime; validate ownership, fail closed. Analysis addresses are evidence, never code constants.
 
 ## Settings authority (owner policy)
 
@@ -50,7 +51,7 @@ Selected codecs are running codecs: no codec-to-codec fallback. A failed selecti
 
 ## External artifacts
 
-All generated output — compiler/cache/toolchain files, test executables and fixtures, frontend bundles, packages and build logs — belongs under `../builds/GalaxyXR-Driver/` relative to this checkout. Use `build/`, `output/`, `gui/` and `release/`. Never create `build/`, `dist/`, `target/` or compiler caches in source. Runtime `%APPDATA%` files are not build artifacts.
+All generated output (compiler/cache/toolchain files, tests/fixtures, frontend bundles, packages/logs) belongs under `../builds/GalaxyXR-Driver/`: use `build/`, `output/`, `gui/`, `release/`. Never create `build/`, `dist/`, `target/` or compiler caches in source. Runtime `%APPDATA%` is not build output.
 
 Resolve paths from the repository/script root, never from a caller's working directory. Portable scripts must not hardcode a machine drive. Never relocate vendored source directories named `build`, `lib` or `output`; `ThirdParty/` is immutable. Keep `build.js`, `Directory.Build.*`, CMake, npm/Vite/Tauri/Cargo configs, packaging, test runners and CI consumers aligned.
 
@@ -83,8 +84,8 @@ Preview and inspect the allowlist/protections, then add `-Apply`. Standing autho
 
 ## Navigation and delegation
 
-Load `.opencode/skills/galaxyxr-workspace/SKILL.md` and `references/project-map.md` for owners and execution paths; `.opencode/skills/customheadset-gxr/SKILL.md` with the matching add/edit/fix workflow for implementation. Bound each delegation by role, exact paths, evidence, authorization and validation owner; give parallel writers disjoint files. Child reports are unverified until the parent re-reads cited lines and reruns checks. Delegation never adds build, deployment, commit or push authorization.
+Load `.opencode/skills/galaxyxr-workspace/SKILL.md` and `references/project-map.md` for owners/paths; `.opencode/skills/customheadset-gxr/SKILL.md` with matching add/edit/fix workflow. Delegations specify role, exact paths, evidence, authorization and validation owner; parallel writers own disjoint files. Parent must re-read cited lines and rerun checks before trusting child reports. Delegation never adds build, deployment, commit or push authorization.
 
 ## Reporting
 
-State what changed, checks and results, remaining limits, cleanup evidence and protected skips. Cite absolute `file:line` for technical claims. Separate static/fixture, compilation, package, CI and fresh runtime evidence. Do not report complete while required checks or authorized work remain.
+Report changes, checks/results, limits, cleanup evidence and protected skips. Cite absolute `file:line` for claims. Distinguish static/fixture, compilation, package, CI and fresh runtime evidence. Never claim complete with required checks or authorized work remaining.

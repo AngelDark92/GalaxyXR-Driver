@@ -2127,6 +2127,8 @@ namespace NvencPostPack {
 bool Process(void*, uint32_t){ std::abort(); }
 NvencPostPackStats GetStats(){ std::abort(); }
 void ResetIntervalStats(){ std::abort(); }
+size_t ReleaseTextures(void* const*, size_t){ return 0; }
+size_t CachedTextureCount(){ return 0; }
 }
 namespace {
 bool hookTest = false, hookEntered = false, hookRelease = false;

@@ -14,6 +14,8 @@ void DriverLog(const char*, ...) {}
 class RenderTargetTestShim : public ShimDefinition {
 public:
     bool active = true;
+    bool admitted = true; // Steam Link epoch admission (production: lineage query)
+    bool EpochAdmitted() const { return admitted; }
     bool displayComponentUnrecognizedLogged = false;
     uint32_t loggedRenderWidth = 0, loggedRenderHeight = 0;
     void PosTrackedDeviceGetComponent(const char*&, void*&) override;
@@ -68,6 +70,16 @@ int main() {
     wrapper->GetRecommendedRenderTargetSize(&w, &h);
     Check(w == 100 && h == 4096, "OFF preserves original driver behavior");
     driverConfig.galaxyXr.nativeResolution = true;
+    shim.admitted = false;
+    wrapper->GetRecommendedRenderTargetSize(&w, &h);
+    Check(w == 100 && h == 4096, "closed/unadmitted Steam Link epoch preserves original behavior");
+    {
+        RenderTargetTestShim foreign; foreign.admitted = false;
+        void* original = &display; const char* v = vr::IVRDisplayComponent_Version;
+        foreign.PosTrackedDeviceGetComponent(v, original);
+        Check(original == &display, "an unadmitted epoch hands the original display component back unwrapped");
+    }
+    shim.admitted = true;
     shim.active = false;
     wrapper->GetRecommendedRenderTargetSize(&w, &h);
     Check(w == 100 && h == 4096, "inactive HMD preserves original behavior");

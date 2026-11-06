@@ -8,6 +8,8 @@
 #include "../Config/GameLinkLayoutPolicy.h"
 #include "../Config/StreamTiers.h"
 #include "../Config/VrlinkSettingsRouting.h"
+#include "../Driver/GalaxyLinkEpoch.h"
+#include "../Driver/Hooking/VrlinkSettingsHook.h"
 #include "GalaxyXRStatusIcons.h"
 #include <filesystem>
 #include <fstream>
@@ -468,6 +470,12 @@ static void ApplyVrlinkExtraKeysIn(const char* section){
             DriverLog("GalaxyXR: ignoring reserved vrlink extra key %s; driver registration is managed separately", name.c_str());
             continue;
         }
+        if(kind != 'x' && !gxr::IsVrlinkTuningKey(name)){
+            // Never a silent editable no-op: say exactly where the value lives and
+            // what can consume it. It is NOT written to the shared driver_vrlink.
+            DriverLog("GalaxyXR: vrlink extra key %s is not a routed tuning key; it is stored only in %s and takes effect only if VRLink reads it from that model profile (or the admitted-epoch driver_vrlink read overlay), otherwise it is inert",
+                name.c_str(), section);
+        }
 		vr::EVRSettingsError err = vr::VRSettingsError_None;
 		switch(kind){
 			case 'i': gxrsettings::SetInt32(section, name.c_str(), (int32_t)v); DriverLog("GalaxyXR: vrlink extra key %s = %d (int)", name.c_str(), (int)v); break;
@@ -486,6 +494,17 @@ static void ApplyVrlinkExtraKeysIn(const char* section){
 }
 
 static void ApplyVrlinkExtraKeys(){
+    // Explicit expert entries (set values, not removals) are the only
+    // non-routed keys the scoped driver_vrlink read overlay may answer. They
+    // live ONLY in the canonical profile; whether VRLink consumes a given name
+    // from there or through the admitted-epoch overlay is VRLink's contract,
+    // so an unknown key stays an inert request rather than a global write.
+    std::vector<std::string> overlayKeys;
+    for(const auto& entry : driverConfig.galaxyXr.vrlinkExtraKeys){
+        if(std::get<1>(entry) != 'x' && !std::get<0>(entry).empty() && !gxr::IsVrlinkReservedKey(std::get<0>(entry)))
+            overlayKeys.push_back(std::get<0>(entry));
+    }
+    gxr::vrlinksettings::SetExpertKeys(overlayKeys);
     for(const auto& section : gxr::VrlinkTuningSections(driverConfig.galaxyXr.vrlinkHeadsetProfile))
         ApplyVrlinkExtraKeysIn(section.c_str());
 }
@@ -531,7 +550,126 @@ static void ApplyNativeResolutionSetting(){
     }
 }
 
+// ---------------- HMD: Steam Link ownership (admission evidence) ----------------
+
+// Parent-driver evidence shared by the HMD and controller registrars:
+// Prop_ParentDriver_Uint64 must be readable AND equal the valid "vrlink"
+// driver handle. Returns false on any failure (never guesses).
+static bool ParentIsVrlink(uint32_t deviceId, vr::ETrackedPropertyError* errorOut = nullptr){
+	vr::ETrackedPropertyError propertyError = vr::TrackedProp_Success;
+	const vr::PropertyContainerHandle_t container = vr::VRProperties()->TrackedDeviceToPropertyContainer(deviceId);
+	const uint64_t owner = container == vr::k_ulInvalidPropertyContainer ? 0
+		: vr::VRProperties()->GetUint64Property(container, vr::Prop_ParentDriver_Uint64, &propertyError);
+	if(container == vr::k_ulInvalidPropertyContainer){ propertyError = vr::TrackedProp_InvalidContainer; }
+	if(errorOut){ *errorOut = propertyError; }
+	const vr::DriverHandle_t vrlink = vr::VRDriverManager()->GetDriverHandle("vrlink");
+	return propertyError == vr::TrackedProp_Success && vrlink != vr::k_ulInvalidDriverHandle && owner == vrlink;
+}
+
+bool GalaxyLinkHmdOwnershipShim::PreTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &){
+	// bind the device index BEFORE the original Activate (and any capability
+	// work); this does not admit anything
+	gxr::galaxylink::BindHmd(unObjectId);
+	return true;
+}
+
+void GalaxyLinkHmdOwnershipShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue){
+	vr::ETrackedPropertyError propertyError = vr::TrackedProp_Success;
+	const bool owned = returnValue == vr::VRInitError_None && ParentIsVrlink(unObjectId, &propertyError);
+	// original (pre-stamp) model: this shim is innermost, so no Galaxy XR
+	// stamp exists yet. It may reflect the vrlink profile, so it can only
+	// CORROBORATE: a conflicting non-empty model denies, a match never admits
+	// by itself (the handshake + module + parent evidence already did).
+	const vr::PropertyContainerHandle_t container = vr::VRProperties()->TrackedDeviceToPropertyContainer(unObjectId);
+	const std::string model = container == vr::k_ulInvalidPropertyContainer ? std::string()
+		: vr::VRProperties()->GetStringProperty(container, vr::Prop_ModelNumber_String);
+	const bool corroborated = model.empty() || model == gxr::galaxylink::kOriginalModel;
+	gxr::galaxylink::ConfirmHmd(unObjectId, owned && corroborated);
+	const bool admitted = gxr::galaxylink::IsAdmittedDevice(unObjectId);
+	DriverLog("GalaxyLink: HMD device %u activate=%d vrlink-parent=%d (property error %d) model=\"%s\" corroborated=%d -> %s (epoch %llu)",
+		unObjectId, (int)returnValue, (int)owned, (int)propertyError, model.c_str(), (int)corroborated,
+		admitted ? "ADMITTED" : "denied, foreign pass-through", (unsigned long long)gxr::galaxylink::CurrentEpoch());
+}
+
+bool GalaxyLinkHmdOwnershipShim::PreTrackedDeviceDeactivate(){
+	// synchronous close; only this shim's own epoch (a newer one is untouched)
+	gxr::galaxylink::CloseIfLineage(galaxyLinkLineage);
+	return true;
+}
+
+bool GalaxyLinkControllerOwnershipShim::Owned() const{
+	return registeredLineage != 0 && gxr::galaxylink::IsOpenLineage(registeredLineage);
+}
+
+bool GalaxyLinkControllerOwnershipShim::TryRegister(){
+	if(!deviceProvider || deviceId == vr::k_unTrackedDeviceIndexInvalid || !gxr::galaxylink::TargetOpen()){
+		return false;
+	}
+	if(!ParentIsVrlink(deviceId)){
+		return false;
+	}
+	registeredLineage = gxr::galaxylink::CurrentLineage();
+	deviceProvider->RegisterOwnedDevice(deviceId, registeredLineage);
+	DriverLog("GalaxyLink: controller device %u registered under Steam Link epoch %llu (parent driver vrlink)", deviceId, (unsigned long long)registeredLineage);
+	return true;
+}
+
+bool GalaxyLinkControllerOwnershipShim::PreTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &){
+	// registered BEFORE the original Activate so the input components that
+	// vrlink creates during Activate are already attributable
+	deviceId = unObjectId;
+	activated = true;
+	TryRegister();
+	return true;
+}
+
+void GalaxyLinkControllerOwnershipShim::PosTrackedDeviceActivate(uint32_t &, vr::EVRInitError &returnValue){
+	if(returnValue != vr::VRInitError_None && deviceProvider && deviceId != vr::k_unTrackedDeviceIndexInvalid){
+		deviceProvider->UnregisterOwnedDevice(deviceId);
+		registeredLineage = 0;
+		activated = false;
+	}
+}
+
+bool GalaxyLinkControllerOwnershipShim::PreTrackedDeviceDeactivate(){
+	if(deviceProvider && deviceId != vr::k_unTrackedDeviceIndexInvalid){
+		deviceProvider->UnregisterOwnedDevice(deviceId);
+	}
+	registeredLineage = 0;
+	activated = false;
+	return true;
+}
+
+void GalaxyLinkControllerOwnershipShim::RunFrame(){
+	// a controller that activated before the HMD opened its epoch is adopted
+	// once the open epoch exists (same exact-vrlink-parent evidence)
+	if(activated && !Owned() && gxr::galaxylink::TargetOpen()){
+		TryRegister();
+	}
+}
+
 // ---------------- HMD ----------------
+
+bool GalaxyXRHmdShim::EpochAdmitted() const{
+	return galaxyLinkLineage != 0 && gxr::galaxylink::IsAdmittedLineage(galaxyLinkLineage);
+}
+
+void GalaxyXRHmdShim::ReleaseOwnership(const char* reason){
+	if(ownershipReleased){ return; }
+	ownershipReleased = true;
+	DriverLog("GalaxyXRHmdShim: releasing Steam Link ownership (%s)", reason);
+	RestoreTrackingCapabilities();
+	if(active && haveBackup && identityApplied){
+		// only the properties this shim itself wrote
+		vr::VRProperties()->SetStringProperty(container, vr::Prop_ModelNumber_String, origModelNumber.c_str());
+		vr::VRProperties()->SetStringProperty(container, vr::Prop_ManufacturerName_String, origManufacturer.c_str());
+		vr::VRProperties()->SetStringProperty(container, vr::Prop_InputProfilePath_String, origHmdInputProfile.c_str());
+		identityApplied = false;
+	}
+	active = false;
+	// this object may return with fresh evidence (same lineage): remember it
+	rearmObjectId = lastObjectId;
+}
 
 // Identify the component by its implementation module, not the spoofable headset
 // identity. Leave other headsets and their display components untouched.
@@ -554,6 +692,8 @@ static bool IsVrlinkDisplayComponent(vr::IVRDisplayComponent*){ return false; }
 
 void GalaxyXRHmdShim::PosTrackedDeviceGetComponent(const char *&pchComponentNameAndVersion, void *&returnComponent){
 	if(!returnComponent || std::strcmp(pchComponentNameAndVersion, vr::IVRDisplayComponent_Version) != 0) return;
+	// an unadmitted / closed epoch hands the original display component back
+	if(!EpochAdmitted()) return;
 	auto* original = static_cast<vr::IVRDisplayComponent*>(returnComponent);
 	if(IsVrlinkDisplayComponent(original)){
 		returnComponent = new ShimDisplayComponent(this, original);
@@ -566,7 +706,7 @@ void GalaxyXRHmdShim::PosTrackedDeviceGetComponent(const char *&pchComponentName
 void GalaxyXRHmdShim::PosDisplayComponentGetRecommendedRenderTargetSize(uint32_t *&pnWidth, uint32_t *&pnHeight){
 	std::lock_guard<std::mutex> lock(driverConfigLock);
 	const auto& config = driverConfig.galaxyXr;
-	if(!active || !config.nativeResolution || !pnWidth || !pnHeight) return;
+	if(!active || !EpochAdmitted() || !config.nativeResolution || !pnWidth || !pnHeight) return;
 	// 2026-10-15: VRLink clamps each recommended dimension to 4096 even
 	// after accepting larger renderWidth/renderHeight settings. Override its
 	// final OpenVR recommendation, before SteamVR applies supersampling.
@@ -592,20 +732,27 @@ void GalaxyXRHmdShim::PosDisplayComponentGetRecommendedRenderTargetSize(uint32_t
 void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue){
 	identityApplied = false;
 	iconPollFrames = 0;
+	ownershipReleased = false;
 	if(returnValue != vr::VRInitError_None){
 		return;
 	}
 	container = vr::VRProperties()->TrackedDeviceToPropertyContainer(unObjectId);
 
-	// only act on the vrlink-streamed Galaxy XR. on the wire the HMD's
-	// tracking system is "oculus" (vrlink's Quest Pro profile asserts it;
-	// SamsungVST only survives on the controllers), so gate on the serial
-	// with the tracking system as a fallback
-	// no identity gate (2026-08-26): the patched Steam Link APK says
-	// SamsungVST, the stock one says GENERICHMD1 / vrlink with an empty
-	// model, and neither is a promise about future builds. the user installed
-	// a Galaxy XR driver and asked for the Galaxy XR identity; stamp it and
-	// report what was there, so a bug report still shows the APK identity.
+	// 2026-11-06 fail closed: only the Steam Link Galaxy XR whose ORIGINAL
+	// handshake model is xrvst2ue may be touched, and only after the inner
+	// ownership shim admitted this exact epoch (Activate success + vrlink
+	// parent + model corroboration). There is no accept-all and no identity,
+	// GPU, PID or cosmetic-toggle fallback; SteamVR's null-driver placeholder,
+	// foreign headsets and other Steam Link models never reach this point
+	// wrapped, and an unadmitted device is left completely untouched.
+	if(!EpochAdmitted() || !gxr::galaxylink::IsAdmittedDevice(unObjectId)){
+		DriverLog("GalaxyXRHmdShim: device %u is not an admitted Steam Link Galaxy XR (epoch %llu); no settings, identity or capability change",
+			unObjectId, (unsigned long long)galaxyLinkLineage);
+		active = false;
+		return;
+	}
+	lastObjectId = unObjectId;
+	rearmObjectId = vr::k_unTrackedDeviceIndexInvalid;
 	std::string serial = vr::VRProperties()->GetStringProperty(container, vr::Prop_SerialNumber_String);
 	std::string trackingSystem = vr::VRProperties()->GetStringProperty(container, vr::Prop_TrackingSystemName_String);
 	origModelNumber = vr::VRProperties()->GetStringProperty(container, vr::Prop_ModelNumber_String);
@@ -613,16 +760,6 @@ void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInit
 		serial.c_str(), trackingSystem.c_str(), origModelNumber.c_str());
 	origManufacturer = vr::VRProperties()->GetStringProperty(container, vr::Prop_ManufacturerName_String);
 	origHmdInputProfile = vr::VRProperties()->GetStringProperty(container, vr::Prop_InputProfilePath_String);
-	// 2026-10-21: SteamVR's own "null" driver publishes a placeholder HMD (tracking
-	// system "null", empty model) whenever no headset is running, so the compositor
-	// can start. It is not our headset: stamping the Galaxy XR identity on it made
-	// SteamVR report a connected Galaxy XR with nothing attached (the 2026-10-21
-	// phantom-HMD report came from a hook that handed that device a serial). Leave
-	// the placeholder untouched and say so.
-	if(trackingSystem == "null" && origModelNumber.empty()){
-		DriverLog("GalaxyXRHmdShim: serial \"%s\" is SteamVR's null-driver placeholder HMD — leaving identity/settings untouched", serial.c_str());
-		return;
-	}
 	haveBackup = true;
 	active = true;
 	DriverLog("GalaxyXRHmdShim: activating settings/identity shim (was model=\"%s\" manufacturer=\"%s\")",
@@ -686,6 +823,8 @@ void GalaxyXRHmdShim::ApplyIdentity(){
 }
 
 bool GalaxyXRHmdShim::PreTrackedDeviceDeactivate(){
+	// the object is going away: it can never be re-armed
+	rearmObjectId = vr::k_unTrackedDeviceIndexInvalid;
 	RestoreTrackingCapabilities();
 	if(active && haveBackup && identityApplied){
 		DriverLog("GalaxyXRHmdShim: restoring original identity on deactivate");
@@ -723,8 +862,10 @@ void GalaxyXRHmdShim::UpdateTrackingCapabilities(){
 		return;
 	}
 
-	// The identity shim intentionally accepts several APK identities. Restrict
-	// these GLOBAL VRLink paths to a connected HMD actually owned by VRLink.
+	// These GLOBAL VRLink paths are published only for the admitted Steam Link
+	// Galaxy XR epoch (handshake + exact vrlink module + vrlink parent) while
+	// its pose is connected. The cosmetic nativeIdentity switch is NOT an
+	// eligibility input: it never grants or withholds this authority.
 	vr::ETrackedPropertyError propertyError = vr::TrackedProp_Success;
 	const auto owner = vr::VRProperties()->GetUint64Property(container, vr::Prop_ParentDriver_Uint64, &propertyError);
 	const auto vrlink = vr::VRDriverManager()->GetDriverHandle("vrlink");
@@ -736,10 +877,11 @@ void GalaxyXRHmdShim::UpdateTrackingCapabilities(){
 	}
 	const bool ownedByVrlink = propertyError == vr::TrackedProp_Success
 		&& vrlink != vr::k_ulInvalidDriverHandle && owner == vrlink;
-	const unsigned eligibility = (driverConfig.galaxyXr.nativeIdentity ? 1u : 0u)
+	const bool admitted = EpochAdmitted() && gxr::galaxylink::IsAdmittedDevice(capabilityDeviceId);
+	const unsigned eligibility = (admitted ? 1u : 0u)
 		| (connected ? 2u : 0u) | (ownedByVrlink ? 4u : 0u);
 	if(eligibility != lastCapabilityEligibility){
-		DriverLog("GalaxyXR: tracking capability eligibility=%u (nativeIdentity=1 connected=2 VRLink-owner=4), owner query error=%d", eligibility, (int)propertyError);
+		DriverLog("GalaxyXR: tracking capability eligibility=%u (admitted-epoch=1 connected=2 VRLink-owner=4), owner query error=%d", eligibility, (int)propertyError);
 		lastCapabilityEligibility = eligibility;
 	}
 	const bool publish = eligibility == 7;
@@ -780,6 +922,20 @@ void GalaxyXRHmdShim::RestoreTrackingCapabilities(){
 }
 
 void GalaxyXRHmdShim::RunFrame(){
+    // the epoch closed (disconnect, session change, deactivate, cleanup):
+    // stop acting and restore only what this shim itself changed
+    if(active && !EpochAdmitted()){ ReleaseOwnership("epoch no longer admitted"); }
+    // the SAME HMD object was re-admitted with a fresh session + handshake
+    // (galaxylink::RebindHmd): re-run activation. A different HMD object never
+    // reaches here (new lineage, new shims).
+    if(!active && ownershipReleased && rearmObjectId != vr::k_unTrackedDeviceIndexInvalid
+            && EpochAdmitted() && gxr::galaxylink::IsAdmittedDevice(rearmObjectId)){
+        uint32_t id = rearmObjectId;
+        rearmObjectId = vr::k_unTrackedDeviceIndexInvalid;
+        vr::EVRInitError rearmError = vr::VRInitError_None;
+        DriverLog("GalaxyXRHmdShim: device %u re-admitted with fresh evidence; re-arming", id);
+        PosTrackedDeviceActivate(id, rearmError);
+    }
     UpdateTrackingCapabilities();
     // vrlink can replace icon properties without delivering PropertyChanged.
     if(active && ++iconPollFrames >= 90){
@@ -872,10 +1028,19 @@ void GalaxyXRControllerShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::
 		return;
 	}
 	container = vr::VRProperties()->TrackedDeviceToPropertyContainer(unObjectId);
+	lastObjectId = unObjectId;
 
-	// no identity gate (see GalaxyXRHmdShim): stamp on request, log what
-	// vrlink had put there. "oculus" / Quest2 model on the stock APK,
-	// SamsungVST on the patched one.
+	// 2026-11-06 fail closed: a stock Quest-style VRLINKQ2_Controller_* serial
+	// proves nothing. The inner ownership shim must have registered this device
+	// under the OPEN Steam Link epoch (exact driver_vrlink parent); otherwise
+	// the controller is left completely untouched.
+	if(galaxyLinkOwnership && !galaxyLinkOwnership->Owned()){
+		DriverLog("GalaxyXRControllerShim: %s is not owned by an open Steam Link epoch; leaving identity/profile untouched", serial.c_str());
+		active = false;
+		pendingObjectId = unObjectId; // adopted from RunFrame if the epoch opens later
+		return;
+	}
+	pendingObjectId = vr::k_unTrackedDeviceIndexInvalid;
 	std::string trackingSystem = vr::VRProperties()->GetStringProperty(container, vr::Prop_TrackingSystemName_String);
 	std::string origModel = vr::VRProperties()->GetStringProperty(container, vr::Prop_ModelNumber_String);
 	DriverLog("GalaxyXRControllerShim: %s tracking system \"%s\" / model \"%s\"",
@@ -1336,8 +1501,33 @@ void GalaxyXRControllerShim::ApplyIdentity(){
 	}
 }
 
+bool GalaxyXRControllerShim::StillAuthorized(){
+	if(!active){ return false; }
+	if(galaxyLinkOwnership && !galaxyLinkOwnership->Owned()){
+		DriverLog("GalaxyXRControllerShim: %s left the Steam Link epoch; restoring own writes", serial.c_str());
+		if(haveBackup){
+			vr::VRProperties()->SetStringProperty(container, vr::Prop_RenderModelName_String, origRenderModel.c_str());
+			vr::VRProperties()->SetStringProperty(container, vr::Prop_InputProfilePath_String, origInputProfile.c_str());
+			vr::VRProperties()->SetStringProperty(container, vr::Prop_ControllerType_String, origControllerType.c_str());
+		}
+		active = false;
+		// the SAME controller object may be re-owned by a later fresh-evidence
+		// epoch of its HMD lineage; RunFrame re-arms it then
+		pendingObjectId = lastObjectId;
+		return false;
+	}
+	return true;
+}
+
 void GalaxyXRControllerShim::RunFrame(){
-	if(!active || driverConfig.galaxyXr.controllerBypass){
+	if(!active && pendingObjectId != vr::k_unTrackedDeviceIndexInvalid
+			&& galaxyLinkOwnership && galaxyLinkOwnership->Owned()){
+		uint32_t adoptedId = pendingObjectId;
+		pendingObjectId = vr::k_unTrackedDeviceIndexInvalid;
+		vr::EVRInitError adoptedError = vr::VRInitError_None;
+		PosTrackedDeviceActivate(adoptedId, adoptedError);
+	}
+	if(!active || driverConfig.galaxyXr.controllerBypass || !StillAuthorized()){
 		return;
 	}
 	if(!driverConfig.galaxyXr.nativeIdentity){
@@ -1361,6 +1551,7 @@ void GalaxyXRControllerShim::RunFrame(){
 }
 
 bool GalaxyXRControllerShim::PreTrackedDeviceDeactivate(){
+	pendingObjectId = vr::k_unTrackedDeviceIndexInvalid; // the object is going away
 	if(active && haveBackup){
 		vr::VRProperties()->SetStringProperty(container, vr::Prop_RenderModelName_String, origRenderModel.c_str());
 		vr::VRProperties()->SetStringProperty(container, vr::Prop_InputProfilePath_String, origInputProfile.c_str());
@@ -1371,7 +1562,8 @@ bool GalaxyXRControllerShim::PreTrackedDeviceDeactivate(){
 }
 
 void GalaxyXRControllerShim::HandleEvent(const vr::VREvent_t &event){
-	if(active && event.eventType == vr::VREvent_PropertyChanged && event.data.property.container == container){
+	if(active && event.eventType == vr::VREvent_PropertyChanged && event.data.property.container == container
+			&& StillAuthorized()){
 		ApplyIdentity();
 	}
 }

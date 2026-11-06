@@ -4,7 +4,18 @@
 #include "NvencFrameProbe.h"
 #include "CurveMath.h"
 #include "DriverLog.h"
+#ifdef VENDOR_GALAXYXR
+// Galaxy XR vendor build: the Steam Link GalaxyXR original vrlink module only.
+// Module-local IAT patches replace the process-wide MinHook export hook.
+#include "../Hooking/ModuleImportHook.h"
+#ifndef GXR_GALAXYLINK_EPOCH_HEADER
+#define GXR_GALAXYLINK_EPOCH_HEADER "GalaxyLinkEpoch.h"
+#endif
+#include GXR_GALAXYLINK_EPOCH_HEADER
+#include <intrin.h>
+#else
 #include "../../../ThirdParty/minhook/include/MinHook.h"
+#endif
 #include "../../../ThirdParty/nvenc/nvEncodeAPI.h"
 #include "../Config/Config.h"
 #include "../Config/StreamTiers.h"
@@ -108,7 +119,7 @@ PNVENCUNMAPINPUTRESOURCE origUnmapInputResource = nullptr;
 // mapped). Resolve the registered texture before mapping it; once mapped,
 // NVENC owns the resource and no D3D writes are allowed until it is unmapped.
 std::mutex resLock;
-struct RegInfo { void* texture; uint32_t fmt; uint32_t type; };
+struct RegInfo { void* texture; uint32_t fmt; uint32_t type; void* encoder = nullptr; };
 std::map<void*, RegInfo> registered;   // NV_ENC_REGISTERED_PTR -> texture
 std::map<void*, void*> mappedToReg;    // NV_ENC_INPUT_PTR (mapped) -> NV_ENC_REGISTERED_PTR
 // ---- foveated QP delta map ----
@@ -422,6 +433,7 @@ void PublishFailure(void* encoder, const NvencTapConfig& cfg, NVENCSTATUS status
 // ---- session upgrade state ----
 std::mutex upgradedLock;
 std::set<void*> upgradedSessions;         // encoder handles opened as 12.1
+std::map<void*, int> sessionCodecs;       // guarded by upgradedLock
 std::atomic<bool> sessionUpgradeRejected{false};
 std::atomic<int> sessionNoteLogged{0};
 // fresh-connect split deferral (2026-10-18): one-shot explanation per process
@@ -523,16 +535,115 @@ bool UpgradeWanted(){
 	return cfg.enabled && (cfg.codec == 2 || cfg.splitMode > 0);
 }
 bool Upgraded(void* encoder){ std::lock_guard<std::mutex> g(upgradedLock); return upgradedSessions.count(encoder) != 0; }
+
+// ---- per-session authority ----
+// Vendor build: only a session opened while a Galaxy link epoch was admitted
+// is ever touched by tap policy. Live  = opened in the CURRENT epoch (existing
+// behaviour); Stale = opened in an epoch that has since closed or been replaced
+// (ABI retag, resource bookkeeping and drain only: no caps/codec/QP/bitrate/
+// post-pack writes, no stats, no published failure); Pristine = opened with no
+// admitted epoch or unknown handle (original NVENC untouched, never adopted
+// retroactively). The neutral build keeps legacy behaviour: every handle is Live.
+enum class Auth { Live, Stale, Pristine };
+
+// Drop the registered/mapped bookkeeping of every resource registered through
+// `encoder` (destroyed session / recycled handle). Lock order: records are
+// collected and removed under resLock only; the post-pack cache release runs
+// AFTER resLock is dropped (resLock -> post-pack mutex is the Map order, and
+// no path takes them the other way). A texture still referenced by another
+// registration (aliases map the same texture) keeps its cache entry.
+// Returns whether anything was dropped.
+bool EraseSessionResources(void* encoder){
+	std::vector<void*> textures;
+	bool any = false;
+	{
+		std::lock_guard<std::mutex> g(resLock);
+		for(auto it = registered.begin(); it != registered.end();){
+			if(it->second.encoder == encoder){
+				any = true;
+				for(auto m = mappedToReg.begin(); m != mappedToReg.end();){ if(m->second == it->first){ m = mappedToReg.erase(m); }else{ ++m; } }
+				if(it->second.texture){ textures.push_back(it->second.texture); }
+				it = registered.erase(it);
+			}else{ ++it; }
+		}
+		for(auto t = textures.begin(); t != textures.end();){
+			bool stillUsed = false;
+			for(const auto& r : registered){ if(r.second.texture == *t){ stillUsed = true; break; } }
+			t = stillUsed ? textures.erase(t) : t + 1;
+		}
+	}
+	if(!textures.empty()){ NvencPostPack::ReleaseTextures(textures.data(), textures.size()); }
+	return any;
+}
+#ifdef VENDOR_GALAXYXR
+struct SessionRecord { bool owned; uint64_t epoch; };
+std::map<void*, SessionRecord> sessionRecords; // guarded by upgradedLock
+Auth AuthorityOf(void* encoder){
+	SessionRecord record{false, 0};
+	{
+		std::lock_guard<std::mutex> g(upgradedLock);
+		const auto it = sessionRecords.find(encoder);
+		if(it == sessionRecords.end()){ return Auth::Pristine; }
+		record = it->second;
+	}
+	if(!record.owned){ return Auth::Pristine; }
+	const uint64_t current = gxr::galaxylink::CurrentEpoch();
+	return (current != 0 && current == record.epoch) ? Auth::Live : Auth::Stale;
+}
+void RecordSession(void* encoder, bool owned, uint64_t epoch){
+	std::lock_guard<std::mutex> g(upgradedLock);
+	sessionRecords[encoder] = { owned, epoch };
+}
+// one-shot diagnostics recorded by lock-free paths; flushed by FlushDeferredDiagnostics
+enum DeferredBit : uint32_t {
+	DeferredExportMismatch = 1u << 0, DeferredUnsupportedList = 1u << 1, DeferredListInconsistent = 1u << 2,
+	DeferredOrphanReused = 1u << 3, DeferredPrivateListRejected = 1u << 4, DeferredForeignCaller = 1u << 5,
+	DeferredImportsUnsupported = 1u << 6, DeferredPatchFailed = 1u << 7, DeferredStalePolicyCall = 1u << 8,
+};
+std::atomic<uint32_t> deferredPending{0};
+std::atomic<uint32_t> deferredLogged{0};
+// lock-free; skips the atomic read-modify-write once the note was reported
+void Defer(uint32_t bit){
+	if(deferredLogged.load(std::memory_order_relaxed) & bit){ return; }
+	deferredPending.fetch_or(bit, std::memory_order_relaxed);
+}
+// The real NvEncodeAPICreateInstance, published by the GetProcAddress hook. The
+// shim reads ONLY this atomic (never a second plain pointer), so a thunk handed
+// to vrlink can never be called before the function it forwards to is visible.
+std::atomic<void*> realCreateInstance{nullptr};
+void ForgetSessionCaches(void* encoder); // capability / preset caches (defined with presetCache)
+void ForgetSessionBookkeeping(void* encoder){
+	bool orphan;
+	{
+		std::lock_guard<std::mutex> g(upgradedLock);
+		// every erase runs unconditionally: a recycled handle must not keep the
+		// previous session's ABI upgrade, codec, API version or authority
+		const size_t records = sessionRecords.erase(encoder);
+		const size_t upgraded = upgradedSessions.erase(encoder);
+		orphan = records != 0 || upgraded != 0;
+		sessionCodecs.erase(encoder);
+		sessionApiVersion.erase(encoder);
+	}
+	ForgetSessionCaches(encoder);
+	if(EraseSessionResources(encoder)){ orphan = true; } // also releases their post-pack cache entries
+	if(orphan){ Defer(DeferredOrphanReused); }
+}
+#else
+inline Auth AuthorityOf(void*){ return Auth::Live; }
+#endif
 inline bool Is111(uint32_t v){ return (v & 0xFFFFu) == 11u; }
 inline uint32_t Tag121(uint32_t digit, bool b31){ return kApi121 | (digit << 16) | (0x7u << 28) | (b31 ? (1u << 31) : 0u); }
 // re-tag one version word for the duration of a call; restores on scope exit
 struct Retag {
 	uint32_t* slot[6]; uint32_t old[6]; int n = 0;
+	void* owner = nullptr; // session whose authority decides whether the retag is counted
+	Retag() = default;
+	explicit Retag(void* encoder) : owner(encoder) {}
 	void add(uint32_t* p, uint32_t digit, bool b31){
 		if(!p || n >= 6 || !Is111(*p)){ return; }
 		slot[n] = p; old[n] = *p; *p = Tag121(digit, b31); n++;
 	}
-	~Retag(){ for(int i = n - 1; i >= 0; i--){ *slot[i] = old[i]; } if(n && NvencTap::Get().GetConfig().enabled){ std::lock_guard<std::mutex> g(statsLock); stats.retagCalls++; } }
+	~Retag(){ for(int i = n - 1; i >= 0; i--){ *slot[i] = old[i]; } if(n && NvencTap::Get().GetConfig().enabled && (!owner || AuthorityOf(owner) == Auth::Live)){ std::lock_guard<std::mutex> g(statsLock); stats.retagCalls++; } }
 };
 void RetagInitParams(Retag &r, NV_ENC_INITIALIZE_PARAMS* p){
 	if(!p){ return; }
@@ -623,7 +734,6 @@ bool IsH264(const GUID &g){ return memcmp(&g, &NV_ENC_CODEC_H264_GUID, sizeof(GU
 // (0 HEVC / 1 H264 / 2 AV1). The per-frame map paths key off this, not the
 // tap config: failed reconfiguration leaves the last accepted session
 // codec live; map conversion must follow that accepted codec.
-std::map<void*, int> sessionCodecs;   // guarded by upgradedLock
 int CodecOfGuid(const GUID &g){
 	if(IsH264(g)){ return 1; }
 	if(memcmp(&g, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0){ return 2; }
@@ -968,6 +1078,10 @@ struct PresetCacheEntry {
 	NV_ENC_PRESET_CONFIG pc{};
 };
 std::map<void*, std::vector<PresetCacheEntry>> presetCache;
+void ForgetSessionCaches(void* encoder){
+	{ std::lock_guard<std::mutex> g(capsLock); capCache.erase(encoder); }
+	{ std::lock_guard<std::mutex> g(presetCacheLock); presetCache.erase(encoder); }
+}
 std::atomic<int> presetDiffLogged{0};
 std::atomic<int> presetFetchFailLogged{0};
 std::atomic<int> presetAutoLogged{0};
@@ -1883,13 +1997,25 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 
 // ---------------------------------------------------------------------------
 NVENCSTATUS NVENCAPI NvencTapShims::InitializeEncoder(void* encoder, NV_ENC_INITIALIZE_PARAMS* params){
+	{
+		const Auth auth = AuthorityOf(encoder);
+		if(auth == Auth::Pristine){ return origInitializeEncoder(encoder, params); }
+		if(auth == Auth::Stale){
+			// closed epoch: required 12.1 ABI adaptation only, nothing recorded or published
+#ifdef VENDOR_GALAXYXR
+			Defer(DeferredStalePolicyCall);
+#endif
+			Retag rt(encoder); if(params && Upgraded(encoder)){ RetagInitParams(rt, params); }
+			return origInitializeEncoder(encoder, params);
+		}
+	}
 	if(!params){
 		const NVENCSTATUS status = origInitializeEncoder(encoder, params);
 		if(status != NV_ENC_SUCCESS){ PublishFailure(encoder, NvencTap::Get().GetConfig(), status, "nvEncInitializeEncoder rejected null parameters (NVENC status " + std::to_string((unsigned)status) + ")", true); }
 		return status;
 	}
 	// re-tag first so the caps probe below and Guarded see the session's version
-	Retag rt; if(Upgraded(encoder)){ RetagInitParams(rt, params); }
+	Retag rt(encoder); if(Upgraded(encoder)){ RetagInitParams(rt, params); }
 	const NvencTapConfig initConfig = NvencTap::Get().GetConfig();
 	if(!initConfig.enabled){
 		const NVENCSTATUS status = origInitializeEncoder(encoder, params);
@@ -1924,6 +2050,17 @@ NVENCSTATUS NVENCAPI NvencTapShims::InitializeEncoder(void* encoder, NV_ENC_INIT
 }
 
 NVENCSTATUS NVENCAPI NvencTapShims::ReconfigureEncoder(void* encoder, NV_ENC_RECONFIGURE_PARAMS* params){
+	{
+		const Auth auth = AuthorityOf(encoder);
+		if(auth == Auth::Pristine){ return origReconfigureEncoder(encoder, params); }
+		if(auth == Auth::Stale){
+#ifdef VENDOR_GALAXYXR
+			Defer(DeferredStalePolicyCall);
+#endif
+			Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 1, true); RetagInitParams(rt, &params->reInitEncodeParams); }
+			return origReconfigureEncoder(encoder, params);
+		}
+	}
 	if(!params){ return origReconfigureEncoder(encoder, params); }
 	NvencTapConfig cfg = NvencTap::Get().GetConfig();
 	// 2026-10-19 reconnect deferral (AV1): vrlink stops encoding when the
@@ -1947,7 +2084,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::ReconfigureEncoder(void* encoder, NV_ENC_REC
 			}
 		}
 	}
-	Retag rt; if(Upgraded(encoder)){ rt.add(&params->version, 1, true); RetagInitParams(rt, &params->reInitEncodeParams); }
+	Retag rt(encoder); if(Upgraded(encoder)){ rt.add(&params->version, 1, true); RetagInitParams(rt, &params->reInitEncodeParams); }
 	if(!cfg.enabled){
 		const NVENCSTATUS status = origReconfigureEncoder(encoder, params);
 		if(status == NV_ENC_SUCCESS){ SetSessionCodec(encoder, CodecOfGuid(params->reInitEncodeParams.encodeGUID)); PublishSuccess(encoder, cfg, &params->reInitEncodeParams); }
@@ -1963,10 +2100,14 @@ NVENCSTATUS NVENCAPI NvencTapShims::ReconfigureEncoder(void* encoder, NV_ENC_REC
 }
 
 NVENCSTATUS NVENCAPI NvencTapShims::RegisterResource(void* encoder, NV_ENC_REGISTER_RESOURCE* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 4, false); }
+	const Auth auth = AuthorityOf(encoder);
+	if(auth == Auth::Pristine){ return origRegisterResource(encoder, params); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 4, false); }
 	// 2026-09-30: retain lifetime ownership even while OFF. A newly
 	// registered alias may map the same texture as an older ON handle.
-	const bool enabled = NvencTap::Get().GetConfig().enabled;
+	// A stale (closed-epoch) session keeps bookkeeping so its resources stay
+	// consistent, but records no statistics or diagnostics.
+	const bool enabled = NvencTap::Get().GetConfig().enabled && auth == Auth::Live;
 	if(enabled){ std::lock_guard<std::mutex> g(statsLock); stats.registerCalls++; }
 	if(enabled && params && registerLogged.fetch_add(1) < 12){
 		DriverLog("NvencTap: nvEncRegisterResource encoder=%p type=%u %ux%u pitch=%u fmt=0x%x usage=%u res=%p — a LAYER-sized DX resource here is the direct-encode substitution site",
@@ -1976,17 +2117,34 @@ NVENCSTATUS NVENCAPI NvencTapShims::RegisterResource(void* encoder, NV_ENC_REGIS
 	NVENCSTATUS st = origRegisterResource(encoder, params);
 	if(st == NV_ENC_SUCCESS && params && params->registeredResource){
 		std::lock_guard<std::mutex> g(resLock);
-		registered[params->registeredResource] = { params->resourceToRegister, (uint32_t)params->bufferFormat, (uint32_t)params->resourceType };
+		registered[params->registeredResource] = { params->resourceToRegister, (uint32_t)params->bufferFormat, (uint32_t)params->resourceType, encoder };
 	}
 	return st;
 }
 NVENCSTATUS NVENCAPI NvencTapShims::UnregisterResource(void* encoder, NV_ENC_REGISTERED_PTR reg){
-	std::lock_guard<std::mutex> g(resLock);
-	NVENCSTATUS st = origUnregisterResource(encoder, reg);
-	if(st == NV_ENC_SUCCESS){ registered.erase(reg); }
+	if(AuthorityOf(encoder) == Auth::Pristine){ return origUnregisterResource(encoder, reg); }
+	void* releasedTexture = nullptr;
+	NVENCSTATUS st;
+	{
+		std::lock_guard<std::mutex> g(resLock);
+		st = origUnregisterResource(encoder, reg);
+		if(st == NV_ENC_SUCCESS){
+			const auto it = registered.find(reg);
+			if(it != registered.end()){
+				void* const texture = it->second.texture;
+				registered.erase(it);
+				bool stillUsed = false; // an alias registration of the same texture keeps the cache entry
+				for(const auto& r : registered){ if(r.second.texture == texture){ stillUsed = true; break; } }
+				if(!stillUsed){ releasedTexture = texture; }
+			}
+		}
+	}
+	// success only, outside resLock; a failed unregister retains everything
+	if(releasedTexture){ NvencPostPack::ReleaseTextures(&releasedTexture, 1); }
 	return st;
 }
 NVENCSTATUS NVENCAPI NvencTapShims::UnmapInputResource(void* encoder, NV_ENC_INPUT_PTR mapped){
+	if(AuthorityOf(encoder) == Auth::Pristine){ return origUnmapInputResource(encoder, mapped); }
 	std::lock_guard<std::mutex> g(resLock);
 	NVENCSTATUS st = origUnmapInputResource(encoder, mapped);
 	if(st == NV_ENC_SUCCESS){ mappedToReg.erase(mapped); }
@@ -1994,16 +2152,23 @@ NVENCSTATUS NVENCAPI NvencTapShims::UnmapInputResource(void* encoder, NV_ENC_INP
 }
 
 NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARAMS* params){
+	const Auth auth = AuthorityOf(encoder);
+	if(auth == Auth::Pristine){ return origEncodePicture(encoder, params); }
+#ifdef VENDOR_GALAXYXR
+	if(auth == Auth::Stale){ Defer(DeferredStalePolicyCall); }
+#endif
 	const NvencTapConfig qcfg = NvencTap::Get().GetConfig();
 	// 2026-09-30: OFF keeps only the ABI adapter required by live 12.1 sessions.
-	if(!qcfg.enabled){
+	// A stale (closed-epoch) session is drained through the same adapter: no QP
+	// map, geometry enforcement, stats or published result.
+	if(!qcfg.enabled || auth == Auth::Stale){
 		NVENCSTATUS status;
 		if(params && Upgraded(encoder) && Is111(params->version)){
 			// explicit 11.1 -> 12.1 field copy (see CopyPicParams111To121)
 			alignas(16) unsigned char scratch[kScratch] = {};
 			status = origEncodePicture(encoder, CopyPicParams111To121(params, (NV_ENC_PIC_PARAMS*)scratch));
 		}else{ status = origEncodePicture(encoder, params); }
-		if(status == NV_ENC_SUCCESS && params && params->inputBuffer){ PublishPictureResult(encoder, status, {}, false); }
+		if(auth == Auth::Live && status == NV_ENC_SUCCESS && params && params->inputBuffer){ PublishPictureResult(encoder, status, {}, false); }
 		return status;
 	}
 	// 2026-10-16: the QP-map validation applies only when the map is actually
@@ -2177,6 +2342,8 @@ NVENCSTATUS NVENCAPI NvencTapShims::EncodePicture(void* encoder, NV_ENC_PIC_PARA
 }
 
 NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BITSTREAM* params){
+	const Auth auth = AuthorityOf(encoder);
+	if(auth == Auth::Pristine){ return origLockBitstream(encoder, params); }
 	NVENCSTATUS st;
 	if(params && Upgraded(encoder) && Is111(params->version)){
 		// NV_ENC_LOCK_BITSTREAM grew 11.1 -> 12.1 and has [out] fields: call
@@ -2188,11 +2355,11 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 		st = origLockBitstream(encoder, (NV_ENC_LOCK_BITSTREAM*)scratch);
 		memcpy(params, scratch, kLockBitstream11Size);
 		params->version = saved;
-		if(NvencTap::Get().GetConfig().enabled){ std::lock_guard<std::mutex> g(statsLock); stats.retagCalls++; }
+		if(auth == Auth::Live && NvencTap::Get().GetConfig().enabled){ std::lock_guard<std::mutex> g(statsLock); stats.retagCalls++; }
 	}else{
 		st = origLockBitstream(encoder, params);
 	}
-	if(!NvencTap::Get().GetConfig().enabled || st != NV_ENC_SUCCESS || !params){ return st; }
+	if(auth != Auth::Live || !NvencTap::Get().GetConfig().enabled || st != NV_ENC_SUCCESS || !params){ return st; }
 	lockCalls.fetch_add(1);
 	lockLastSize.store(params->bitstreamSizeInBytes);
 	if(firstLockLogged.fetch_add(1) < 1){
@@ -2289,9 +2456,42 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 }
 
 // ---- session upgrade shims ----
+#ifdef VENDOR_GALAXYXR
+namespace {
+// The old design presented the function list as 12.1 so the runtime's view of
+// the client matched a 12.1 session. The caller's cached list stays untouched;
+// instead, only an ADMITTED OPEN that is about to upgrade registers a private
+// local 12.1 list first. Its status is diagnostic: a real rejection surfaces
+// as the open's own status.
+void RegisterPrivateList121(){
+	const PFN_CreateInstance real = reinterpret_cast<PFN_CreateInstance>(realCreateInstance.load(std::memory_order_acquire));
+	if(!real){ return; }
+	NV_ENCODE_API_FUNCTION_LIST local = {};
+	local.version = Tag121(2, false);
+	if(real(&local) != NV_ENC_SUCCESS){ Defer(DeferredPrivateListRejected); }
+}
+}
+#endif
 NVENCSTATUS NVENCAPI NvencTapShims::OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS* params, void** encoder){
 	if(!params || !encoder || !origOpenEncodeSessionEx){ return NV_ENC_ERR_INVALID_PTR; }
+#ifdef VENDOR_GALAXYXR
+	// Authority is decided ONCE, at OPEN. No admitted epoch (or a caller that is
+	// not the Galaxy vrlink module): the original call runs with exact caller
+	// params/version/apiVersion, and the returned handle is recorded Pristine so
+	// a later admission can never adopt it retroactively.
+	const uint64_t openEpoch = gxr::galaxylink::CurrentEpoch();
+	const bool vrlinkCaller = gxr::galaxylink::IsVrlinkAddress(_ReturnAddress());
+	if(openEpoch == 0 || !vrlinkCaller){
+		if(openEpoch != 0){ Defer(DeferredForeignCaller); }
+		const NVENCSTATUS pristine = origOpenEncodeSessionEx(params, encoder);
+		if(pristine == NV_ENC_SUCCESS && *encoder){ ForgetSessionBookkeeping(*encoder); RecordSession(*encoder, false, 0); }
+		return pristine;
+	}
+#endif
 	const bool upgrade = UpgradeWanted() && params->apiVersion == kApi111;
+#ifdef VENDOR_GALAXYXR
+	if(upgrade){ RegisterPrivateList121(); }
+#endif
 	const uint32_t sessionApi = upgrade ? kApi121 : params->apiVersion;
 	uint32_t savedVer = params->version, savedApi = params->apiVersion;
 	if(upgrade){
@@ -2316,6 +2516,10 @@ NVENCSTATUS NVENCAPI NvencTapShims::OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSI
 			std::lock_guard<std::mutex> g(presetCacheLock);
 			presetCache.erase(*encoder);
 		}
+#ifdef VENDOR_GALAXYXR
+		ForgetSessionBookkeeping(*encoder);
+		RecordSession(*encoder, true, openEpoch);
+#endif
 		// OFF keeps pass-through and performs no capability/identity probes.
 		const bool tapEnabled = OpenDecisionConfig().enabled;
 		if(tapEnabled){
@@ -2356,6 +2560,13 @@ NVENCSTATUS NVENCAPI NvencTapShims::OpenEncodeSessionEx(NV_ENC_OPEN_ENCODE_SESSI
 NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
 	const NVENCSTATUS status = origDestroyEncoder(encoder);
 	if(status != NV_ENC_SUCCESS){ return status; }
+	// successful destroy only: resources of the destroyed session (their post-pack
+	// cache entries too), then its authority record; a recycled handle is a fresh
+	// session decided only by its own OPEN
+	EraseSessionResources(encoder);
+#ifdef VENDOR_GALAXYXR
+	{ std::lock_guard<std::mutex> guard(upgradedLock); sessionRecords.erase(encoder); }
+#endif
 	{ std::lock_guard<std::mutex> guard(upgradedLock); upgradedSessions.erase(encoder); sessionCodecs.erase(encoder); sessionApiVersion.erase(encoder); }
 	{ std::lock_guard<std::mutex> guard(capsLock); capCache.erase(encoder); }
 	{ std::lock_guard<std::mutex> guard(presetCacheLock); presetCache.erase(encoder); }
@@ -2381,7 +2592,10 @@ NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
 	return status;
 }
 NVENCSTATUS NVENCAPI NvencTapShims::GetEncodeCaps(void* encoder, GUID encodeGUID, NV_ENC_CAPS_PARAM* params, int* capsVal){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
+	const Auth auth = AuthorityOf(encoder);
+	if(auth == Auth::Pristine){ return origGetEncodeCaps(encoder, encodeGUID, params, capsVal); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
+	if(auth == Auth::Stale){ return origGetEncodeCaps(encoder, encodeGUID, params, capsVal); }
 	NvencTapConfig cfg = NvencTap::Get().GetConfig();
 	if(!NvencTap::Get().ConfigPublished()){
 		// A caps probe may precede provider publication. Read only this
@@ -2453,37 +2667,39 @@ NVENCSTATUS NVENCAPI NvencTapShims::GetEncodePresetGUIDs(void* encoder, GUID enc
 	return origGetEncodePresetGUIDs(encoder, encodeGUID, presetGuids, guidArraySize, guidCount);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::GetEncodePresetConfig(void* encoder, GUID encodeGUID, GUID presetGUID, NV_ENC_PRESET_CONFIG* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 4, true); rt.add(&params->presetCfg.version, 8, true); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 4, true); rt.add(&params->presetCfg.version, 8, true); }
 	return origGetPresetConfig(encoder, encodeGUID, presetGUID, params);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::GetEncodePresetConfigEx(void* encoder, GUID encodeGUID, GUID presetGUID, NV_ENC_TUNING_INFO tuning, NV_ENC_PRESET_CONFIG* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 4, true); rt.add(&params->presetCfg.version, 8, true); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 4, true); rt.add(&params->presetCfg.version, 8, true); }
 	return origGetPresetConfigEx(encoder, encodeGUID, presetGUID, tuning, params);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::CreateInputBuffer(void* encoder, NV_ENC_CREATE_INPUT_BUFFER* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
 	return origCreateInputBuffer(encoder, params);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::CreateBitstreamBuffer(void* encoder, NV_ENC_CREATE_BITSTREAM_BUFFER* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
 	return origCreateBitstreamBuffer(encoder, params);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::CreateMVBuffer(void* encoder, NV_ENC_CREATE_MV_BUFFER* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
 	return origCreateMVBuffer(encoder, params);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::RegisterAsyncEvent(void* encoder, NV_ENC_EVENT_PARAMS* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
 	return origRegisterAsyncEvent(encoder, params);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::UnregisterAsyncEvent(void* encoder, NV_ENC_EVENT_PARAMS* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
 	return origUnregisterAsyncEvent(encoder, params);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::MapInputResource(void* encoder, NV_ENC_MAP_INPUT_RESOURCE* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 4, false); }
-	if(!NvencTap::Get().GetConfig().enabled){
-		// Keep ownership while OFF: re-enabling must never sharpen an
+	const Auth auth = AuthorityOf(encoder);
+	if(auth == Auth::Pristine){ return origMapInputResource(encoder, params); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 4, false); }
+	if(!NvencTap::Get().GetConfig().enabled || auth != Auth::Live){
+		// Keep ownership while OFF or after the epoch closed (no post-pack): re-enabling must never sharpen an
 		// input mapped through an alias while processing was disabled.
 		std::lock_guard<std::mutex> g(resLock);
 		NVENCSTATUS st = origMapInputResource(encoder, params);
@@ -2507,19 +2723,103 @@ NVENCSTATUS NVENCAPI NvencTapShims::MapInputResource(void* encoder, NV_ENC_MAP_I
 	return st;
 }
 NVENCSTATUS NVENCAPI NvencTapShims::LockInputBuffer(void* encoder, NV_ENC_LOCK_INPUT_BUFFER* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
 	return origLockInputBuffer(encoder, params);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::GetSequenceParams(void* encoder, NV_ENC_SEQUENCE_PARAM_PAYLOAD* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 1, false); }
 	return origGetSequenceParams(encoder, params);
 }
 NVENCSTATUS NVENCAPI NvencTapShims::RunMotionEstimationOnly(void* encoder, NV_ENC_MEONLY_PARAMS* params){
-	Retag rt; if(params && Upgraded(encoder)){ rt.add(&params->version, 3, false); }
+	Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 3, false); }
 	return origRunMotionEstimationOnly(encoder, params);
 }
 
+#ifdef VENDOR_GALAXYXR
+namespace {
+std::mutex listLock;
+bool listCaptured = false; // guarded by listLock: first supported table fixed the originals
+struct ListSlot { void** member; void* shim; void** orig; };
+// Wrap (or leave entirely pristine) the returned function table. The table
+// vrlink caches may be requested before any link is admitted; every forwarder
+// checks per-session authority, so wrapping early is safe and a table cached
+// before admission works for a later admitted OPEN.
+// Capture-once: the first supported table fixes the original pointers; a later
+// table that disagrees with them is left untouched as a whole.
+void WrapListVendor(NV_ENCODE_API_FUNCTION_LIST* list){
+	ListSlot slots[] = {
+#define SLOT(member, shim, orig) { reinterpret_cast<void**>(&list->member), reinterpret_cast<void*>(&NvencTapShims::shim), reinterpret_cast<void**>(&orig) }
+		SLOT(nvEncInitializeEncoder, InitializeEncoder, origInitializeEncoder),
+		SLOT(nvEncReconfigureEncoder, ReconfigureEncoder, origReconfigureEncoder),
+		SLOT(nvEncRegisterResource, RegisterResource, origRegisterResource),
+		SLOT(nvEncEncodePicture, EncodePicture, origEncodePicture),
+		SLOT(nvEncLockBitstream, LockBitstream, origLockBitstream),
+		SLOT(nvEncOpenEncodeSessionEx, OpenEncodeSessionEx, origOpenEncodeSessionEx),
+		SLOT(nvEncDestroyEncoder, DestroyEncoder, origDestroyEncoder),
+		SLOT(nvEncGetEncodeCaps, GetEncodeCaps, origGetEncodeCaps),
+		SLOT(nvEncGetEncodeGUIDCount, GetEncodeGUIDCount, origGetEncodeGUIDCount),
+		SLOT(nvEncGetEncodeGUIDs, GetEncodeGUIDs, origGetEncodeGUIDs),
+		SLOT(nvEncGetEncodePresetCount, GetEncodePresetCount, origGetEncodePresetCount),
+		SLOT(nvEncGetEncodePresetGUIDs, GetEncodePresetGUIDs, origGetEncodePresetGUIDs),
+		SLOT(nvEncGetEncodePresetConfig, GetEncodePresetConfig, origGetPresetConfig),
+		SLOT(nvEncGetEncodePresetConfigEx, GetEncodePresetConfigEx, origGetPresetConfigEx),
+		SLOT(nvEncCreateInputBuffer, CreateInputBuffer, origCreateInputBuffer),
+		SLOT(nvEncCreateBitstreamBuffer, CreateBitstreamBuffer, origCreateBitstreamBuffer),
+		SLOT(nvEncCreateMVBuffer, CreateMVBuffer, origCreateMVBuffer),
+		SLOT(nvEncRegisterAsyncEvent, RegisterAsyncEvent, origRegisterAsyncEvent),
+		SLOT(nvEncUnregisterAsyncEvent, UnregisterAsyncEvent, origUnregisterAsyncEvent),
+		SLOT(nvEncMapInputResource, MapInputResource, origMapInputResource),
+		SLOT(nvEncLockInputBuffer, LockInputBuffer, origLockInputBuffer),
+		SLOT(nvEncGetSequenceParams, GetSequenceParams, origGetSequenceParams),
+		SLOT(nvEncRunMotionEstimationOnly, RunMotionEstimationOnly, origRunMotionEstimationOnly),
+		SLOT(nvEncUnregisterResource, UnregisterResource, origUnregisterResource),
+		SLOT(nvEncUnmapInputResource, UnmapInputResource, origUnmapInputResource),
+#undef SLOT
+	};
+	// capture-only member: the driver names the exact violated rule
+	void** const lastError = reinterpret_cast<void**>(&list->nvEncGetLastErrorString);
+	std::lock_guard<std::mutex> guard(listLock);
+	if(listCaptured){
+		for(const ListSlot& s : slots){
+			void* const current = *s.member;
+			if(current != s.shim && current != *s.orig){ Defer(DeferredListInconsistent); return; }
+		}
+		if(*lastError != reinterpret_cast<void*>(origGetLastErrorString)){ Defer(DeferredListInconsistent); return; }
+	}else{
+		for(const ListSlot& s : slots){
+			// a member already holding our shim has no recoverable original
+			if(*s.member == s.shim && !*s.orig){ Defer(DeferredListInconsistent); return; }
+		}
+		for(const ListSlot& s : slots){ if(*s.member && *s.member != s.shim){ *s.orig = *s.member; } }
+		origGetLastErrorString = list->nvEncGetLastErrorString;
+		listCaptured = true;
+	}
+	for(const ListSlot& s : slots){ if(*s.orig){ *s.member = s.shim; } }
+}
+NVENCSTATUS CreateInstanceVendor(NV_ENCODE_API_FUNCTION_LIST* list, const void* caller){
+	const PFN_CreateInstance real = reinterpret_cast<PFN_CreateInstance>(realCreateInstance.load(std::memory_order_acquire));
+	if(!real){ return NV_ENC_ERR_INVALID_PTR; }
+	// Exactly one real call, with the caller's list and version word untouched:
+	// negotiation for an unadmitted client (any other Steam Link headset) is
+	// never altered, and no speculative extra call is made. The table is wrapped
+	// whenever it is a supported vrlink table, independent of the tap toggle and
+	// of admission: every forwarder checks per-session authority, so a table
+	// cached before admission (or while the tap is OFF) serves a later admitted
+	// OPEN. The private 12.1 list registration happens only at that OPEN.
+	const NVENCSTATUS status = real(list);
+	if(status != NV_ENC_SUCCESS || !list){ return status; }
+	if(!gxr::galaxylink::IsVrlinkAddress(caller)){ Defer(DeferredForeignCaller); return status; } // foreign: untouched
+	if(!ApiSupported(ApiMajor(list->version))){ Defer(DeferredUnsupportedList); return status; }
+	WrapListVendor(list);
+	return status;
+}
+} // namespace
+#endif
+
 NVENCSTATUS NVENCAPI NvencTapShims::CreateInstance(NV_ENCODE_API_FUNCTION_LIST* list){
+#ifdef VENDOR_GALAXYXR
+	return CreateInstanceVendor(list, _ReturnAddress());
+#else
 	// 2026-10-16: pre-publish, the wrap decision consults the same
 	// settings.json probe as the open decisions (OpenDecisionConfig); the
 	// published snapshot is authoritative from the first SetConfig on.
@@ -2586,6 +2886,7 @@ NVENCSTATUS NVENCAPI NvencTapShims::CreateInstance(NV_ENCODE_API_FUNCTION_LIST* 
 	{ std::lock_guard<std::mutex> g(statsLock); stats.apiMajor = major; }
 	DriverLog("NvencTap: function list wrapped (API major %u, list version 0x%08x): init/reconfigure/register/encode/lockBitstream", major, list->version);
 	return status;
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -2629,6 +2930,150 @@ NvencTapStats NvencTap::GetStats(){
 NvencCapabilities NvencTap::GetCapabilities(void* encoder){
 	return GetCapabilitiesForEncoder(encoder);
 }
+
+#ifdef VENDOR_GALAXYXR
+// ---- vendor: module-local import hooks for the Steam Link GalaxyXR vrlink ----
+// Replaces the process-wide MinHook export hook and any DLL pre-load. Two IAT
+// families inside driver_vrlink.dll only:
+//   * GetProcAddress (loader imports): resolved for NvEncodeAPICreateInstance,
+//     answered with our CreateInstance shim bound to the REAL export;
+//   * __stdio_common_vsnprintf_s (CRT stdio): the original call always runs
+//     first and unchanged, then the formatted text is handed to the Galaxy link
+//     epoch observer (handshake / new-session detection).
+// Callbacks never log, allocate or touch the caller's arguments; anything
+// unexpected is recorded in an atomic bit and reported later from TryInstall.
+namespace {
+struct GpaTag {}; struct CrtTag {};
+using GpaPool = gxr::hooking::HookPool<GpaTag, FARPROC(HMODULE, LPCSTR)>;
+using CrtPool = gxr::hooking::HookPool<CrtTag, int(unsigned long long, char*, size_t, size_t, const char*, void*, char*)>;
+std::vector<gxr::hooking::PatchRecord> vendorPatches; // guarded by installationLock
+bool EndsWithNvenc(const wchar_t* path){
+	static const wchar_t kName[] = L"nvEncodeAPI64.dll";
+	const size_t length = wcslen(path), name = (sizeof(kName) / sizeof(kName[0])) - 1;
+	if(length < name){ return false; }
+	if(_wcsicmp(path + length - name, kName) != 0){ return false; }
+	return length == name || path[length - name - 1] == L'\\' || path[length - name - 1] == L'/';
+}
+// The resolved address must live inside the very module the caller queried, and
+// that module must be nvEncodeAPI64.dll.
+bool ExportBelongsToNvenc(HMODULE queried, FARPROC resolved){
+	HMODULE owner = nullptr;
+	if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		reinterpret_cast<LPCWSTR>(resolved), &owner) || owner != queried){ return false; }
+	wchar_t path[MAX_PATH];
+	const DWORD length = GetModuleFileNameW(queried, path, MAX_PATH);
+	if(length == 0 || length >= MAX_PATH){ return false; }
+	return EndsWithNvenc(path);
+}
+FARPROC BindCreateInstance(HMODULE queried, FARPROC resolved){
+	if(resolved == reinterpret_cast<FARPROC>(&NvencTapShims::CreateInstance)){ return resolved; }
+	if(!ExportBelongsToNvenc(queried, resolved)){ Defer(DeferredExportMismatch); return resolved; }
+	void* expected = nullptr;
+	void* const wanted = reinterpret_cast<void*>(resolved);
+	if(!realCreateInstance.compare_exchange_strong(expected, wanted, std::memory_order_acq_rel) && expected != wanted){
+		Defer(DeferredExportMismatch); return resolved; // second, different export: unbound
+	}
+	return reinterpret_cast<FARPROC>(&NvencTapShims::CreateInstance);
+}
+FARPROC GpaImpl(FARPROC (*next)(HMODULE, LPCSTR), HMODULE module, LPCSTR name){
+	const FARPROC result = next(module, name);
+	if(!result || !name || (reinterpret_cast<uintptr_t>(name) >> 16) == 0){ return result; } // ordinal
+	if(std::strcmp(name, "NvEncodeAPICreateInstance") != 0){ return result; }
+	return BindCreateInstance(module, result);
+}
+int CrtImpl(int (*next)(unsigned long long, char*, size_t, size_t, const char*, void*, char*),
+		unsigned long long options, char* buffer, size_t bufferCount, size_t maxCount, const char* format, void* locale, char* args){
+	const int written = next(options, buffer, bufferCount, maxCount, format, locale, args);
+	if(written >= 0 && buffer && format && bufferCount != 0 && static_cast<size_t>(written) < bufferCount){
+		const void* end = std::memchr(buffer, 0, bufferCount);
+		if(end){ gxr::galaxylink::ObserveLog(format, buffer, static_cast<size_t>(static_cast<const char*>(end) - buffer)); }
+	}
+	return written;
+}
+bool IsLoaderDll(const char* dll){
+	return _stricmp(dll, "kernel32.dll") == 0 || _stricmp(dll, "kernelbase.dll") == 0
+		|| _strnicmp(dll, "api-ms-win-core-libraryloader-", 30) == 0;
+}
+bool IsCrtStdioDll(const char* dll){
+	return _stricmp(dll, "ucrtbase.dll") == 0 || _strnicmp(dll, "api-ms-win-crt-stdio-", 21) == 0;
+}
+bool MatchGetProcAddress(const char* dll, const char* name){ return std::strcmp(name, "GetProcAddress") == 0 && IsLoaderDll(dll); }
+bool MatchCrtFormat(const char* dll, const char* name){ return std::strcmp(name, "__stdio_common_vsnprintf_s") == 0 && IsCrtStdioDll(dll); }
+} // namespace
+
+void NvencTap::FlushDeferredDiagnostics(){
+	const uint32_t pending = deferredPending.exchange(0, std::memory_order_relaxed);
+	if(!pending){ return; }
+	struct Note { uint32_t bit; const char* text; };
+	static const Note notes[] = {
+		{ DeferredExportMismatch, "NvEncodeAPICreateInstance export did not belong to the exact nvEncodeAPI64.dll module (or a second distinct export appeared); left unbound and unwrapped" },
+		{ DeferredUnsupportedList, "NVENC function list has an unsupported API major version; whole table left pristine" },
+		{ DeferredListInconsistent, "a later NVENC function table disagreed with the originals captured first; whole table left pristine" },
+		{ DeferredOrphanReused, "an NVENC session handle was reused while its previous session record still existed (orphaned session); records dropped, new session decided by its own OPEN" },
+		{ DeferredPrivateListRejected, "NVENC rejected the private 12.1 function-list registration; the caller's list was unaffected, a required 12.1 session open will report its own status" },
+		{ DeferredStalePolicyCall, "a session from a closed link epoch is still making policy-bearing calls (init/reconfigure/encode); only ABI adaptation and cleanup are applied, no settings, no failure" },
+		{ DeferredForeignCaller, "an NVENC call from a module that is not the Galaxy vrlink module reached the tap; passed through untouched" },
+	};
+	for(const Note& n : notes){
+		if(!(pending & n.bit)){ continue; }
+		if(deferredLogged.fetch_or(n.bit, std::memory_order_relaxed) & n.bit){ continue; }
+		DriverLog("NvencTap: %s", n.text);
+	}
+}
+
+void NvencTap::Cleanup(){
+	std::lock_guard<std::mutex> installationGuard(installationLock);
+	GpaPool::SetActive(false);
+	CrtPool::SetActive(false);
+	const size_t total = vendorPatches.size();
+	const size_t restored = gxr::hooking::RestorePatches(vendorPatches);
+	const bool was = installed.exchange(false);
+	if(was){ DriverLog("NvencTap: module-local import hooks cleaned up (%zu of %zu slots restored; thunks remain as passthrough)", restored, total); }
+}
+
+void NvencTap::TryInstall(){
+	FlushDeferredDiagnostics();
+	std::lock_guard<std::mutex> installationGuard(installationLock);
+	// Installed independently of the NVENC tap toggle: the CRT observer feeds
+	// the Galaxy link epoch (identity/frame/settings admission). Only per-session
+	// encoder policy depends on the toggle. Not throttled: the module lookup is
+	// cheap, a miss records nothing, and an image that fails validation is
+	// remembered (vendorFailedModule), so a vrlink that loads right after an
+	// early miss is patched by the very next call.
+	if(installed.load(std::memory_order_relaxed) || failedPermanently.load(std::memory_order_relaxed)){ return; }
+	HMODULE vrlink = GetModuleHandleW(L"driver_vrlink.dll");
+	if(!vrlink){ return; } // not loaded yet: retry on the next call
+	if(vendorFailedModule == reinterpret_cast<void*>(vrlink)){ return; }
+	const auto gpa = gxr::hooking::ScanImports(vrlink, &MatchGetProcAddress);
+	const auto crt = gxr::hooking::ScanImports(vrlink, &MatchCrtFormat);
+	if(gpa.status != gxr::hooking::ScanStatus::Ok || crt.status != gxr::hooking::ScanStatus::Ok){
+		vendorFailedModule = reinterpret_cast<void*>(vrlink);
+		DriverLog("NvencTap: driver_vrlink.dll imports not recognised (GetProcAddress slots %zu, CRT vsnprintf_s slots %zu) — failing closed: no hook installed, NVENC left untouched", gpa.slots.size(), crt.slots.size());
+		return;
+	}
+	if(!gxr::hooking::PinModuleContaining(reinterpret_cast<const void*>(&GpaImpl))){
+		vendorFailedModule = reinterpret_cast<void*>(vrlink);
+		DriverLog("NvencTap: could not pin this driver module — failing closed: no hook installed");
+		return;
+	}
+	GpaPool::SetImpl(&GpaImpl);
+	CrtPool::SetImpl(&CrtImpl);
+	std::vector<gxr::hooking::PatchRecord> records;
+	if(!gxr::hooking::PatchWithPool<GpaPool>(gpa.slots, records) || !gxr::hooking::PatchWithPool<CrtPool>(crt.slots, records)){
+		gxr::hooking::RestorePatches(records);
+		vendorFailedModule = reinterpret_cast<void*>(vrlink);
+		DriverLog("NvencTap: module-local import patch failed (pool exhausted or slot changed concurrently) — rolled back, NVENC left untouched");
+		return;
+	}
+	GpaPool::SetActive(true);
+	CrtPool::SetActive(true);
+	vendorPatches.insert(vendorPatches.end(), records.begin(), records.end());
+	installed.store(true);
+	DriverLog("NvencTap: installed module-local import hooks in driver_vrlink.dll (GetProcAddress x%zu, CRT vsnprintf_s x%zu); no process-wide NVENC hook and no DLL pre-load", gpa.slots.size(), crt.slots.size());
+}
+#else
+void NvencTap::FlushDeferredDiagnostics(){}
+void NvencTap::Cleanup(){}
 
 void NvencTap::TryInstall(){
 	std::lock_guard<std::mutex> installationGuard(installationLock);
@@ -2676,8 +3121,10 @@ void NvencTap::TryInstall(){
 	installed.store(true);
 	DriverLog("NvencTap: installed on NvEncodeAPICreateInstance (nvEncodeAPI64.dll pre-loaded by us; encoders created from now on are wrapped)");
 }
+#endif
 
 void NvencTap::MaybeHeartbeat(){
+	FlushDeferredDiagnostics();
 	if(!GetConfig().enabled){ return; }
 	double now = NowSecondsNv();
 	if(now - lastHeartbeat < 10.0){ return; }

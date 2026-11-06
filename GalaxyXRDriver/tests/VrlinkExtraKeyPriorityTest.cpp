@@ -53,7 +53,8 @@ void RemoveKeyInSection(const char*, const char* key, vr::EVRSettingsError* erro
 void SetBoolIfDifferent(const char*, const char* key, bool value) { values[key] = value; }
 // Execute the production extra-key policy; only its external writers are fake.
 #include "VrlinkExtraKeysWriter.generated.h"
-void ApplyVrlinkExtraKeys() { calls += 'E'; ApplyVrlinkExtraKeysIn("driver_vrlink"); }
+// Expert keys are written ONLY to the canonical profile (never driver_vrlink).
+void ApplyVrlinkExtraKeys() { calls += 'E'; ApplyVrlinkExtraKeysIn(gxr::kGalaxyProfileSection); }
 
 struct PriorityShim {
     bool active = true;

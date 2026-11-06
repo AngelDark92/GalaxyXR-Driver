@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { AdapterCapabilities, DriverInfo, GpuCapabilities } from './types';
 import {
   codecSupport, effectiveAdapter, multipassSupport, nvencTapSupport,
-  ofxrNvidiaSupport, presetSupport, splitModeSupport, tenBitSupport, tileWidthMax,
+  ofxrNvidiaSupport, presetSupport, splitModeSupport, tenBitNoticeReason, tenBitSupport, tileWidthMax,
 } from './encoder-capabilities';
 
 const now = 100_000;
@@ -131,6 +131,52 @@ describe('tenBitSupport', () => {
 
   it('is unverified when the adapter is unknown', () => {
     expect(tenBitSupport(effectiveAdapter(undefined, undefined, now), 0).verdict).toBe('unverified');
+  });
+
+  it('does not warn when tenBit is merely not reported (probe-only inventory, HEVC and AV1)', () => {
+    const probeOnly = adapter({ codecs: { hevc: { supported: true }, h264: { supported: true }, av1: { supported: true } } });
+    for (const codec of [0, 2]) {
+      const s = tenBitSupport({ adapter: probeOnly, known: true, ambiguous: false }, codec);
+      expect(s.verdict).toBe('unverified');
+      expect(tenBitNoticeReason(s)).toBeUndefined();
+    }
+    expect(tenBitNoticeReason(tenBitSupport(effectiveAdapter(undefined, undefined, now), 2))).toBeUndefined();
+  });
+
+  const probeLacking10bit = () => gpu({ adapters: [adapter({
+    codecs: { hevc: { supported: true }, h264: { supported: true }, av1: { supported: true } },
+  })] });
+  const sessionCaps = () => adapter({
+    codecs: { hevc: { supported: true, tenBit: true }, h264: { supported: true, tenBit: false }, av1: { supported: true, tenBit: true } },
+  });
+
+  it('fresh tap session reporting tenBit true is supported for HEVC and AV1 over a probe lacking tenBit', () => {
+    const eff = effectiveAdapter(probeLacking10bit(), tap({ capabilities: sessionCaps() }), now);
+    expect(eff.source).toBe('encoder-session');
+    for (const codec of [0, 2]) {
+      const s = tenBitSupport(eff, codec);
+      expect(s.verdict).toBe('supported');
+      expect(tenBitNoticeReason(s)).toBeUndefined();
+    }
+  });
+
+  it('stale tap + probe lacking tenBit stays unknown: no unsupported verdict, no warning', () => {
+    const stale = tap({ capabilities: sessionCaps(), observedAt: now - 60_000 });
+    const eff = effectiveAdapter(probeLacking10bit(), stale, now);
+    expect(eff.source).toBe('single-adapter');
+    for (const codec of [0, 2]) {
+      const s = tenBitSupport(eff, codec);
+      expect(s.verdict).toBe('unverified');
+      expect(s.verdict).not.toBe('unsupported');
+      expect(tenBitNoticeReason(s)).toBeUndefined();
+    }
+  });
+
+  it('still warns for explicit tenBit false and for H.264', () => {
+    const a = adapter({ codecs: { hevc: { tenBit: false }, h264: {}, av1: { tenBit: false } } });
+    expect(tenBitNoticeReason(tenBitSupport({ adapter: a, known: true, ambiguous: false }, 2))).toBeTruthy();
+    expect(tenBitNoticeReason(tenBitSupport({ adapter: a, known: true, ambiguous: false }, 0))).toBeTruthy();
+    expect(tenBitNoticeReason(tenBitSupport(effectiveAdapter(gpu(), undefined, now), 1))).toBeTruthy();
   });
 });
 

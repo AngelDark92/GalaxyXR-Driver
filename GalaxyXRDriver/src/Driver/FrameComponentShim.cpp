@@ -1,6 +1,7 @@
 #include "FrameComponentShim.h"
 #include "DriverLog.h"
 #include "EyeTrackingTap.h"
+#include "GalaxyLinkEpoch.h"
 #include "NvencTap.h"
 #include "DeviceProvider.h"
 #include "ZeroCopy.h"
@@ -182,7 +183,18 @@ void DirectModeComponentShim::GetNextSwapTextureSetIndex(vr::SharedTextureHandle
 	original->GetNextSwapTextureSetIndex(sharedTextureHandles, pIndices);
 }
 
+bool DirectModeComponentShim::GalaxyLinkAllows() const{
+	return galaxyLinkLineage == 0 || gxr::galaxylink::IsAdmittedLineage(galaxyLinkLineage);
+}
+
 void DirectModeComponentShim::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]){
+	if(!GalaxyLinkAllows()){
+		// Disconnected / foreign epoch: forward byte-for-byte, no observation.
+		haveSceneLayer = false;
+		layersThisFrame = 0;
+		original->SubmitLayer(perEye);
+		return;
+	}
 	// 2026-10-21 (S0): admission cadence at the compositor->vrlink seam. One
 	// event per submitted layer pair; the heartbeat reports count and worst gap.
 	FrameShimNoteSubmit();
@@ -1855,6 +1867,12 @@ bool DirectModeComponentShim::GetActiveSettings(FrameProcessSettings &settings, 
 }
 
 void DirectModeComponentShim::Present(vr::SharedTextureHandle_t syncTexture){
+	if(!GalaxyLinkAllows()){
+		haveSceneLayer = false;
+		layersThisFrame = 0;
+		original->Present(syncTexture);
+		return;
+	}
 	// OF-SPIKE 2026-10-17 (brief W3A; remove or replace at W3C): capture the
 	// frame's cadence facts at entry, before the state below is consumed and
 	// reset. Inert unless the OFSpike env gates are set.
@@ -2196,7 +2214,15 @@ VirtualDisplayShim::VirtualDisplayShim(vr::IVRVirtualDisplay* original){
 	DriverLog("FrameComponentShim: wrapping IVRVirtualDisplay %p", (void*)original);
 }
 
+bool VirtualDisplayShim::GalaxyLinkAllows() const{
+	return galaxyLinkLineage == 0 || gxr::galaxylink::IsAdmittedLineage(galaxyLinkLineage);
+}
+
 void VirtualDisplayShim::Present(const vr::PresentInfo_t* pPresentInfo, uint32_t unPresentInfoSize){
+	if(!GalaxyLinkAllows()){
+		original->Present(pPresentInfo, unPresentInfoSize);
+		return;
+	}
 	if(frameCount < 20 || frameCount % 1000 == 0){
 		DriverLog("FrameComponentShim: VirtualDisplay Present frame=%llu backbuffer=%llx frameId=%llu",
 			(unsigned long long)frameCount,
