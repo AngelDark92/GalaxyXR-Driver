@@ -3,11 +3,14 @@
 #include "DriverLockout.h"
 #include "DeviceShim.h"
 #include "EyeTrackingTap.h"
+#include "GalaxyLinkEpoch.h"
+#include "NvencTap.h"
 #include "CompositorPlugin.h"
 #include "HidModifier.h"
 #include "FrameProcessor.h"
 
 #include "Hooking/InterfaceHookInjector.h"
+#include "Hooking/VrlinkSettingsHook.h"
 #include "Hooking/ControllerPoseVelocity.h"
 
 #include "../Headsets/GalaxyXR.h"
@@ -118,6 +121,10 @@ vr::EVRInitError GalaxyXRDeviceProvider::Init(vr::IVRDriverContext *pDriverConte
 	// inject hooks into functions
 	InjectHooks(this, pDriverContext);
 	hidModifier.InjectHooks();
+	// module-load retry: if driver_vrlink.dll is already resident its NVENC
+	// imports can be patched now; otherwise the vrlink-caller getter detour
+	// retries before the original getter runs. Self-throttled and idempotent.
+	NvencTap::Get().TryInstall();
 	
 	// arm the host hooks. the TrackedDeviceAdded/PoseUpdated hooks are only installed when a
 	// driver requests IVRServerDriverHost through the hooked GetGenericInterface. drivers fetch
@@ -136,6 +143,10 @@ vr::EVRInitError GalaxyXRDeviceProvider::Init(vr::IVRDriverContext *pDriverConte
 	// UpdateEyeTrackingComponent detours for every caller regardless of load
 	// order.
 	pDriverContext->GetGenericInterface(vr::IVRDriverInput_Version, &hostHookError);
+	// arm the scoped VRLink settings overlay on the shared IVRSettings object
+	// the same way: VRLink cached its pointer during its own init, so the
+	// shared getters must be hooked now, independent of driver load order
+	pDriverContext->GetGenericInterface(vr::IVRSettings_Version, &hostHookError);
 	
 	// the shim classes can be used to implement entirely new headsets, not just shim existing ones
 	if(driverConfig.fakeHeadset.enable){
@@ -164,6 +175,15 @@ bool GalaxyXRDeviceProvider::ShouldBlockStandbyMode(){
 }
 void GalaxyXRDeviceProvider::Cleanup(){
 	driverConfigLoader.info.runtimeInitialized = false;
+	// Close the Steam Link epoch synchronously so every wrapper turns
+	// transparent before the host tears the devices down, then let the NVENC
+	// lane restore its own patches (N exposes NvencTap::Cleanup).
+	gxr::galaxylink::Close();
+	ResetGalaxyLinkTaps();
+#ifdef VENDOR_GALAXYXR
+	gxr::vrlinksettings::Uninstall(); // restore the shared IVRSettings getters
+#endif
+	NvencTap::Get().Cleanup();
 	std::lock_guard<std::mutex> guard(controllerPoseEpochLock);
 	for(auto& epoch : controllerPoseEpochs){ epoch.Reset(); }
 }
@@ -498,6 +518,10 @@ void GalaxyXRDeviceProvider::OnInputComponentCreated(vr::PropertyContainerHandle
 		}
 		return;
 	}
+#ifdef VENDOR_GALAXYXR
+	// only components published for the Steam Link target / its controllers
+	if(!IsContainerOwned(container)){ return; }
+#endif
 	InputComponentInfo info;
 	info.container = container;
 	info.openVRID = ResolveContainerId(container);
@@ -542,6 +566,9 @@ void GalaxyXRDeviceProvider::OnScalarComponentCreated(vr::PropertyContainerHandl
 		}
 		return;
 	}
+#ifdef VENDOR_GALAXYXR
+	if(!IsContainerOwned(container)){ return; }
+#endif
 	InputComponentInfo info;
 	info.container = container;
 	info.openVRID = ResolveContainerId(container);
@@ -642,6 +669,9 @@ void GalaxyXRDeviceProvider::RefreshGripTouch(){
 }
 
 void GalaxyXRDeviceProvider::OnScalarComponentUpdated(vr::VRInputComponentHandle_t handle, float value, double timeOffset, vr::EVRInputError error){
+#ifdef VENDOR_GALAXYXR
+	if(!gxr::galaxylink::TargetOpen()){ return; } // closed epoch: stale handles are inert
+#endif
 	{
 		double now = std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now().time_since_epoch()).count() / 1000000.0;
@@ -736,6 +766,9 @@ void GalaxyXRDeviceProvider::OnScalarComponentUpdated(vr::VRInputComponentHandle
 }
 
 void GalaxyXRDeviceProvider::OnBooleanComponentUpdated(vr::VRInputComponentHandle_t handle, bool value, double timeOffset, vr::EVRInputError error){
+#ifdef VENDOR_GALAXYXR
+	if(!gxr::galaxylink::TargetOpen()){ return; }
+#endif
 	{
 		bool doLog = false;
 		std::string name;
@@ -1081,6 +1114,9 @@ void GalaxyXRDeviceProvider::OnPoseComponentCreated(vr::PropertyContainerHandle_
 	}
 	// always log: gaze published as a pose component would be exactly the
 	// "openvr paths" channel DFR tools bind (AngelDark report)
+#ifdef VENDOR_GALAXYXR
+	if(!IsContainerOwned(container)){ return; }
+#endif
 	DriverLog("InputTap: pose component container=%llu path=%s handle=%llu",
 		(unsigned long long)container, name, (unsigned long long)handle);
 	PoseComponentInfo info;
@@ -1143,6 +1179,9 @@ void GalaxyXRDeviceProvider::OnSkeletonComponentCreated(vr::PropertyContainerHan
 
 bool GalaxyXRDeviceProvider::HandleSkeletonUpdate(vr::VRInputComponentHandle_t handle, const vr::VRBoneTransform_t *bones, uint32_t count, vr::VRBoneTransform_t *outBones){
 	if(driverConfig.galaxyXr.controllerBypass){ return false; }
+#ifdef VENDOR_GALAXYXR
+	if(!gxr::galaxylink::TargetOpen()){ return false; } // original bones stay untouched
+#endif
 	double x = driverConfig.galaxyXr.skeletonOffsetXCm * 0.01;
 	double y = driverConfig.galaxyXr.skeletonOffsetYCm * 0.01;
 	double z = driverConfig.galaxyXr.skeletonOffsetZCm * 0.01;
@@ -1171,6 +1210,9 @@ bool GalaxyXRDeviceProvider::HandleSkeletonUpdate(vr::VRInputComponentHandle_t h
 }
 
 void GalaxyXRDeviceProvider::OnPoseComponentUpdated(vr::VRInputComponentHandle_t handle, const vr::HmdMatrix34_t* offset, double timeOffset){
+#ifdef VENDOR_GALAXYXR
+	if(!gxr::galaxylink::TargetOpen()){ return; }
+#endif
 	double now = std::chrono::duration_cast<std::chrono::microseconds>(
 		std::chrono::steady_clock::now().time_since_epoch()).count() / 1000000.0;
 	std::string name;
@@ -1330,6 +1372,14 @@ void GalaxyXRDeviceProvider::CorrectControllerPoseEpoch(uint32_t openVRID,
 }
 
 bool GalaxyXRDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose){
+#ifdef VENDOR_GALAXYXR
+	// Foreign headsets, streamers, SteamVR's null driver, native hands and any
+	// device outside the open Steam Link epoch: full pass-through. The pose is
+	// never edited, filtered, forced valid or dropped.
+	if(!IsOwnedByTarget(openVRID)){
+		return true;
+	}
+#endif
 	// Native hand devices are published by vrlink with Controller class but
 	// are not physical Galaxy XR controllers. Their pose, tracking state,
 	// velocity and timing must reach SteamVR byte-for-byte unchanged.
@@ -4794,7 +4844,111 @@ bool GalaxyXRDeviceProvider::IsNativeHand(uint32_t openVRID){
 }
 
 bool GalaxyXRDeviceProvider::IsStreamedController(uint32_t openVRID){
-	return GetStreamedDeviceKind(openVRID) == StreamedDeviceKind::PhysicalController;
+	if(GetStreamedDeviceKind(openVRID) != StreamedDeviceKind::PhysicalController){
+		return false;
+	}
+#ifdef VENDOR_GALAXYXR
+	// A stock Quest-style VRLINKQ2_Controller_* serial alone proves nothing:
+	// the controller must be registered by the Steam Link ownership shim
+	// (exact driver_vrlink provenance) under the OPEN target epoch.
+	return IsOwnedByTarget(openVRID);
+#else
+	return true;
+#endif
+}
+
+void GalaxyXRDeviceProvider::RegisterOwnedDevice(uint32_t openVRID, uint64_t lineage){
+	if(openVRID < ownedDeviceLineage.size()){
+		ownedDeviceLineage[openVRID].store(lineage, std::memory_order_release);
+	}
+}
+
+bool GalaxyXRDeviceProvider::TryRebindHmd(uint32_t openVRID, const void *caller, bool connected){
+#ifdef VENDOR_GALAXYXR
+	static std::atomic<long long> lastRebindLogMs{ 0 }; // CurrentEpoch() is 0 while closed, so throttle by time
+	if(connected && !gxr::galaxylink::TargetOpen() && gxr::galaxylink::RetainedDevice() == openVRID
+			&& !gxr::galaxylink::CanRebind(openVRID, true)){
+		// the previously admitted HMD object is publishing a connected pose again
+		// but no fresh session + xrvst2ue handshake was observed since the
+		// disconnect: never adopt it, and say so once per closed epoch
+		const long long nowMs = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+		long long lastMs = lastRebindLogMs.load();
+		if(nowMs - lastMs >= 5000 && lastRebindLogMs.compare_exchange_strong(lastMs, nowMs)){
+			DriverLog("GalaxyLink: HMD device %u is connected again but no fresh VRLink session + xrvst2ue handshake was observed after its disconnect; Steam Link features stay OFF for it. If this persists after reconnecting from the headset, restart SteamVR.", openVRID);
+		}
+		return false;
+	}
+	if(!gxr::galaxylink::CanRebind(openVRID, connected)){
+		return false;
+	}
+	// parent-driver evidence for the live object (property read only after the
+	// cheap preconditions above, never per pose)
+	const vr::PropertyContainerHandle_t container = vr::VRProperties()->TrackedDeviceToPropertyContainer(openVRID);
+	vr::ETrackedPropertyError propertyError = vr::TrackedProp_Success;
+	const uint64_t owner = container == vr::k_ulInvalidPropertyContainer ? 0
+		: vr::VRProperties()->GetUint64Property(container, vr::Prop_ParentDriver_Uint64, &propertyError);
+	const vr::DriverHandle_t vrlink = vr::VRDriverManager()->GetDriverHandle("vrlink");
+	const bool parentOwned = container != vr::k_ulInvalidPropertyContainer && propertyError == vr::TrackedProp_Success
+		&& vrlink != vr::k_ulInvalidDriverHandle && owner == vrlink;
+	const bool rebound = gxr::galaxylink::RebindHmd(openVRID, caller, connected, parentOwned);
+	static std::atomic<long long> deniedLogMs{ 0 };
+	const long long deniedNow = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	long long deniedLast = deniedLogMs.load();
+	if(rebound || (deniedNow - deniedLast >= 5000 && deniedLogMs.compare_exchange_strong(deniedLast, deniedNow))){ // a denial repeats per pose: throttle
+		DriverLog("GalaxyLink: HMD device %u reconnect with fresh session + handshake: caller-in-vrlink=%d vrlink-parent=%d (property error %d) -> %s (lineage %llu, epoch %llu)",
+			openVRID, (int)gxr::galaxylink::IsVrlinkAddress(caller), (int)parentOwned, (int)propertyError,
+			rebound ? "RE-ADMITTED" : "denied, stays closed",
+			(unsigned long long)gxr::galaxylink::CurrentLineage(), (unsigned long long)gxr::galaxylink::CurrentEpoch());
+	}
+	return rebound;
+#else
+	(void)openVRID; (void)caller; (void)connected;
+	return false;
+#endif
+}
+
+void GalaxyXRDeviceProvider::UnregisterOwnedDevice(uint32_t openVRID){
+	if(openVRID < ownedDeviceLineage.size()){
+		ownedDeviceLineage[openVRID].store(0, std::memory_order_release);
+	}
+}
+
+// The bound/admitted Steam Link HMD, or a controller registered under the
+// currently open epoch. Lock free: safe on every pose/input hot path.
+bool GalaxyXRDeviceProvider::IsOwnedByTarget(uint32_t openVRID){
+	if(openVRID >= ownedDeviceLineage.size()){ return false; }
+	if(openVRID == gxr::galaxylink::TargetDevice()){ return true; }
+	return gxr::galaxylink::IsOpenLineage(ownedDeviceLineage[openVRID].load(std::memory_order_acquire));
+}
+
+bool GalaxyXRDeviceProvider::IsContainerOwned(vr::PropertyContainerHandle_t container){
+	if(!gxr::galaxylink::TargetOpen() || container == vr::k_ulInvalidPropertyContainer){ return false; }
+	const uint32_t id = ResolveContainerId(container);
+	return id != vr::k_unTrackedDeviceIndexInvalid && IsOwnedByTarget(id);
+}
+
+void GalaxyXRDeviceProvider::ResetGalaxyLinkTaps(){
+	{
+		std::lock_guard<std::mutex> guard(poseLogLock);
+		inputComponents.clear();
+		poseComponents.clear();
+		containerHand.clear();
+		containerTipHand.clear();
+		openVRIDHand.clear();
+	}
+	{
+		std::lock_guard<std::mutex> guard(skeletonTapMutex);
+		skeletonTapHands.clear();
+	}
+	{
+		std::lock_guard<std::mutex> guard(streamedIdentityLock);
+		streamedDeviceKindCache.clear();
+	}
+	for(auto& epoch : ownedDeviceLineage){ epoch.store(0, std::memory_order_release); }
+	hmdDevice = nullptr;
+	hmdProjectionQueried = false;
+	hmdProjectionValid = false;
+	eyeTrackingTap.Clear();
 }
 
 // direction secant over the full derive ring: raw displacement newest-oldest
@@ -5237,62 +5391,106 @@ void GalaxyXRDeviceProvider::LogDevicePose(uint32_t openVRID, const vr::DriverPo
 	}
 }
 
-bool GalaxyXRDeviceProvider::HandleDeviceAdded(const char *&pchDeviceSerialNumber, vr::ETrackedDeviceClass &eDeviceClass, vr::ITrackedDeviceServerDriver *&pDriver){
+bool GalaxyXRDeviceProvider::HandleDeviceAdded(const char *&pchDeviceSerialNumber, vr::ETrackedDeviceClass &eDeviceClass, vr::ITrackedDeviceServerDriver *&pDriver, const void *caller){
 	#ifdef HAS_PRIVATE
 	if(driverConfig.onlyHandlePrivateFunctionality){
 		return true;
 	}
 	#endif
 	DriverLog("HandleDeviceAdded %s\n", pchDeviceSerialNumber);
+	#ifdef VENDOR_GALAXYXR
+	// Steam Link Galaxy XR only (original handshake model xrvst2ue). Anything
+	// else - a foreign headset or streamer, another Steam Link model, SteamVR's
+	// own null driver - is registered by the host exactly as supplied: return
+	// true with pDriver untouched so the detour forwards the original call.
+	if(eDeviceClass == vr::TrackedDeviceClass_HMD){
+		if(!gxr::galaxylink::BeginHmd(pDriver, caller)){
+			DriverLog("GalaxyLink: HMD \"%s\" is not the Steam Link Galaxy XR target (no fresh xrvst2ue handshake from driver_vrlink.dll); registered unchanged", pchDeviceSerialNumber ? pchDeviceSerialNumber : "(null)");
+			return true;
+		}
+		// lineage = this HMD OBJECT: wrappers created below gate on it, so a
+		// same-object reconnect (fresh evidence, RebindHmd) wakes them again
+		// while a different HMD object can never inherit them
+		const uint64_t lineage = gxr::galaxylink::CurrentLineage();
+		ResetGalaxyLinkTaps(); // a new HMD object starts with no inherited state
+		DriverLog("GalaxyLink: provisional lineage %llu (epoch %llu) opened for HMD \"%s\"; admission needs Activate + vrlink parent + model corroboration", (unsigned long long)lineage, (unsigned long long)gxr::galaxylink::CurrentEpoch(), pchDeviceSerialNumber ? pchDeviceSerialNumber : "(null)");
+		// keep the source device for projection queries; GetComponent forwards
+		// through the shims either way
+		hmdDevice = pDriver;
+
+		// Innermost wrapper: binds the device index before Activate and
+		// admits/denies after it. Every later (outer) shim sees the verdict.
+		GalaxyLinkHmdOwnershipShim* ownership = new GalaxyLinkHmdOwnershipShim();
+		ownership->deviceProvider = this;
+		ownership->galaxyLinkLineage = lineage;
+		shims.insert(ownership);
+		pDriver = new ShimTrackedDeviceDriver(ownership, pDriver);
+
+		GenericHeadsetShim* genericHeadsetShim = new GenericHeadsetShim();
+		genericHeadsetShim->deviceProvider = this;
+		genericHeadsetShim->galaxyLinkLineage = lineage;
+		shims.insert(genericHeadsetShim);
+		pDriver = new ShimTrackedDeviceDriver(genericHeadsetShim, pDriver);
+
+		{ // Keep settings hot reload active even when identity stamping is off.
+			GalaxyXRHmdShim* galaxyXrHmdShim = new GalaxyXRHmdShim();
+			galaxyXrHmdShim->deviceProvider = this;
+			galaxyXrHmdShim->galaxyLinkLineage = lineage;
+			shims.insert(galaxyXrHmdShim);
+			pDriver = new ShimTrackedDeviceDriver(galaxyXrHmdShim, pDriver);
+		}
+		return true;
+	}
+	if(eDeviceClass == vr::TrackedDeviceClass_Controller){
+		// A controller is ours only when driver_vrlink.dll itself adds it AND
+		// a Steam Link target epoch is open (or about to open: the activation
+		// time check and RunFrame retry decide). Stock Quest VRLINKQ2 serials
+		// alone are never enough.
+		if(!caller || !gxr::galaxylink::IsVrlinkAddress(caller)){
+			return true;
+		}
+		std::string serial = pchDeviceSerialNumber ? pchDeviceSerialNumber : "";
+		if(!PhysicalGalaxyControllerSerial(serial.c_str())){
+			return true;
+		}
+		GalaxyLinkControllerOwnershipShim* ownership = new GalaxyLinkControllerOwnershipShim();
+		ownership->deviceProvider = this;
+		shims.insert(ownership);
+		pDriver = new ShimTrackedDeviceDriver(ownership, pDriver);
+		if(!driverConfig.galaxyXr.controllerBypass
+				&& (driverConfig.galaxyXr.nativeIdentity || driverConfig.galaxyXr.nativeInputProfile)){
+			GalaxyXRControllerShim* controllerShim = new GalaxyXRControllerShim(serial);
+			controllerShim->galaxyLinkOwnership = ownership;
+			shims.insert(controllerShim);
+			pDriver = new ShimTrackedDeviceDriver(controllerShim, pDriver);
+		}
+		return true;
+	}
+	return true;
+	#else
 	if(eDeviceClass == vr::TrackedDeviceClass_HMD){
 		// keep the (possibly later wrapped) source device for projection
 		// queries; GetComponent forwards through shims either way
 		hmdDevice = pDriver;
-		
+
 		// add more shims here, they can stack and none of the functions are particularly hot
 		// later shims can override earlier shims
 		// the PosTrackedDeviceActivate function will likely have enough information that you can decide if it is the device you want and can then set shimActive to false to deactivate the shim
-		
+
 		// TODO: validate the interface versions of drivers and make the shims conform to versions to prevent potential crashes
-		
-		
+
+
 		GenericHeadsetShim* genericHeadsetShim = new GenericHeadsetShim();
 		genericHeadsetShim->deviceProvider = this;
 		shims.insert(genericHeadsetShim);
 		pDriver = new ShimTrackedDeviceDriver(genericHeadsetShim, pDriver);
-		
-		#ifdef VENDOR_GALAXYXR
-		{ // Keep settings hot reload active even when identity stamping is off.
-			GalaxyXRHmdShim* galaxyXrHmdShim = new GalaxyXRHmdShim();
-			galaxyXrHmdShim->deviceProvider = this;
-			shims.insert(galaxyXrHmdShim);
-			pDriver = new ShimTrackedDeviceDriver(galaxyXrHmdShim, pDriver);
-		}
-		#endif
 	}
-	#ifdef VENDOR_GALAXYXR
-	// the controller shim carries identity (models, icons), the input
-	// profile and the official pose components. it is created for every
-	// streamed controller whenever any of those is wanted; no identity
-	// checks beyond the serial (2026-08-26: APK identities are unreliable,
-	// the user picked this driver for a Galaxy XR, stamp on request).
-	if(eDeviceClass == vr::TrackedDeviceClass_Controller && !driverConfig.galaxyXr.controllerBypass
-			&& (driverConfig.galaxyXr.nativeIdentity || driverConfig.galaxyXr.nativeInputProfile)){
-		std::string serial = pchDeviceSerialNumber ? pchDeviceSerialNumber : "";
-		// SamsungVST-Controller-* on the patched APK, VRLINKQ2_Controller_* on
-		// the stock one. "Controller" excludes the VRLINKQ_Hand_* hand trackers.
-		bool streamedController = PhysicalGalaxyControllerSerial(serial.c_str());
-		if(streamedController){
-			GalaxyXRControllerShim* controllerShim = new GalaxyXRControllerShim(serial);
-			shims.insert(controllerShim);
-			pDriver = new ShimTrackedDeviceDriver(controllerShim, pDriver);
-		}
-	}
-	#endif
+	(void)caller; // module provenance is a Steam Link (vendor) concept
 	// you can change eDeviceClass to change what an existing device shows up as
 	
 	// if false is returned the device will not be added
 	return true;
+	#endif
 }
 
 void GalaxyXRDeviceProvider::GetTunerInput(TunerInputState &out){

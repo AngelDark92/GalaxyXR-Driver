@@ -3,33 +3,40 @@
 #include <string>
 #include <vector>
 
-// UI profile enablement selects additional profile destinations, independently
-// from Sdr10BaselinePolicy::profileEnabled (the baseline can request 10-bit
-// capabilities even when the saved profile switch is off).
+// 2026-11-06 Steam Link Galaxy XR routing (approved plan 20d64fee). The only
+// supported client is the Steam Link Galaxy XR whose ORIGINAL handshake model
+// is `xrvst2ue`; every other vrlink headset/streamer must keep its own
+// settings. Therefore:
+//   * tuning AND capability requests are written ONLY to the canonical
+//     `vrlink_xrvst2ue` profile section (never to the shared `driver_vrlink`
+//     section and never to a foreign `vrlink_<original model>` section);
+//   * the old `driver_vrlink` / `vrlink_<other>` copies this driver wrote
+//     earlier are restored through the existing journal (current == last
+//     only; foreign, reserved and malformed entries are preserved);
+//   * keys VRLink only reads from `driver_vrlink` (for example
+//     automaticBandwidth/targetBandwidth) reach it through the epoch-gated
+//     scoped read overlay on the shared IVRSettings getters
+//     (Driver/Hooking/VrlinkSettingsHook.h), never through a persisted
+//     global write.
+// The `useGalaxyProfile` / `originalModel` parameters are kept so call sites
+// and the profile switch (Sdr10BaselinePolicy::profileEnabled) stay source
+// compatible; they no longer select a destination.
 namespace gxr {
 inline constexpr const char* kGalaxyProfileSection = "vrlink_xrvst2ue";
+inline constexpr const char* kVrlinkGlobalSection = "driver_vrlink";
 inline const char* VrlinkTuningSection(bool /*useGalaxyProfile*/) {
-    return "driver_vrlink";
+    return kGalaxyProfileSection;
 }
-inline std::string VrlinkCapabilitySection(bool useGalaxyProfile, const std::string& originalModel) {
-    // OFF preserves the previous per-model capability/baseline destination.
-    return useGalaxyProfile ? kGalaxyProfileSection : "vrlink_" + (originalModel.empty() ? "xrvst2ue" : originalModel);
+inline std::string VrlinkCapabilitySection(bool /*useGalaxyProfile*/, const std::string& /*originalModel*/) {
+    // NEVER vrlink_<foreign original model>: that section belongs to a
+    // different headset/streamer.
+    return kGalaxyProfileSection;
 }
-// 2026-10-21: the Steam Link client reports a single identity (`xrvst2ue`), so
-// the Galaxy profile section is the only additional destination. The former
-// Quest Pro / PICO 4 Pro alias mirrors are gone.
 inline std::vector<std::string> VrlinkCapabilitySections(bool useGalaxyProfile, const std::string& originalModel) {
-    if(useGalaxyProfile)
-        return {kGalaxyProfileSection};
-    return {VrlinkCapabilitySection(false, originalModel)};
+    return {VrlinkCapabilitySection(useGalaxyProfile, originalModel)};
 }
 inline std::vector<std::string> VrlinkTuningSections(bool useGalaxyProfile) {
-    // 2026-09-23: installed VRLink reads tuning from driver_vrlink, and known
-    // Quest/PICO identities bypass the unknown-model profile loader entirely.
-    // Retain the requested mirrors without removing the consumed global keys.
-    auto sections = useGalaxyProfile ? VrlinkCapabilitySections(true, "") : std::vector<std::string>{};
-    sections.insert(sections.begin(), VrlinkTuningSection(useGalaxyProfile));
-    return sections;
+    return {VrlinkTuningSection(useGalaxyProfile)};
 }
 inline bool IsVrlinkCapabilityKey(const std::string& key) {
     return key == "recommendedRenderWidth" || key == "recommendedRenderHeight"
@@ -38,10 +45,11 @@ inline bool IsVrlinkCapabilityKey(const std::string& key) {
         || key == "minNonFoveatedStreamFormatWidth" || key == "maxNonFoveatedStreamFormatWidth";
 }
 // The enabled custom profile also carries the identity strings vrlink rewrites when it applies
-// the section, so they follow the same active/inactive routing as the capability keys.
+// the section, so they follow the same routing as the capability keys.
 inline bool IsVrlinkProfileIdentityKey(const std::string& key) {
     return key == "manufacturerName" || key == "modelNumber" || key == "trackingSystemName"
-        || key == "controllerType" || key == "resourceRoot" || key == "inputProfilePath";
+        || key == "controllerType" || key == "resourceRoot" || key == "inputProfilePath"
+        || key == "serialNumber";
 }
 inline bool IsVrlinkTuningKey(const std::string& key) {
     return key == "encodeWidth" || key == "streamFormatWidth" || key == "automaticStreamFormatWidth"
@@ -58,18 +66,13 @@ inline bool IsVrlinkSettingsSection(const std::string& section) {
     return section == "driver_vrlink" || section.rfind("vrlink_", 0) == 0;
 }
 // Used ONLY for keys already present in this driver's recovery journal.
-// Include historical expert keys even if they are no longer in the current UI.
+// Every vrlink section except the canonical profile is legacy for this driver:
+// restore (current == last is enforced by the journal) anything we wrote there
+// before, and never touch reserved lifecycle keys. Foreign sections that this
+// driver never journaled are not in the journal and therefore never selected.
 inline bool ShouldRestoreInactiveVrlinkKey(const std::string& section, const std::string& key,
-    bool useGalaxyProfile, const std::string& originalModel) {
+    bool /*useGalaxyProfile*/, const std::string& /*originalModel*/) {
     if(!IsVrlinkSettingsSection(section) || IsVrlinkReservedKey(key)) return false;
-    if(IsVrlinkCapabilityKey(key) || IsVrlinkProfileIdentityKey(key)) {
-        // Before HMD activation, an OFF route does not yet know the patched
-        // model. Do not remove its previous profile using a guessed fallback.
-        if(!useGalaxyProfile && originalModel.empty()) return false;
-        const auto sections = VrlinkCapabilitySections(useGalaxyProfile, originalModel);
-        return std::find(sections.begin(), sections.end(), section) == sections.end();
-    }
-    const auto sections = VrlinkTuningSections(useGalaxyProfile);
-    return std::find(sections.begin(), sections.end(), section) == sections.end();
+    return section != kGalaxyProfileSection;
 }
 } // namespace gxr

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <set>
 #include <map>
 #include <vector>
@@ -39,8 +40,25 @@ public:
 	void ResetControllerPoseEpoch(uint32_t openVRID);
 	void CorrectControllerPoseEpoch(uint32_t openVRID, const vr::DriverPose_t& source,
 		vr::DriverPose_t& processed, double receipt, bool publishCorrections);
-	// handle hook of TrackedDeviceAdded
-	bool HandleDeviceAdded(const char* &pchDeviceSerialNumber, vr::ETrackedDeviceClass &eDeviceClass, vr::ITrackedDeviceServerDriver* &pDriver);
+	// handle hook of TrackedDeviceAdded. `caller` is the ORIGINAL
+	// IVRServerDriverHost::TrackedDeviceAdded return address, captured in the
+	// detour itself (never in a helper): it proves which module added the device.
+	bool HandleDeviceAdded(const char* &pchDeviceSerialNumber, vr::ETrackedDeviceClass &eDeviceClass, vr::ITrackedDeviceServerDriver* &pDriver, const void* caller);
+	// Steam Link Galaxy XR ownership (vendor build). A controller wrapped while
+	// the target epoch is open registers here at Activate; consumers (pose,
+	// input, skeleton, tracking) act only on owned devices of the open epoch.
+	// Same-object HMD reconnect (no new TrackedDeviceAdded): called from the pose
+	// detour with the pose-update call site captured IN the detour. Admits only
+	// with a fresh session marker + xrvst2ue handshake, an exact driver_vrlink
+	// caller, a connected pose and the vrlink parent driver (see
+	// galaxylink::RebindHmd). Anything else leaves the target closed.
+	bool TryRebindHmd(uint32_t openVRID, const void* caller, bool connected);
+	void RegisterOwnedDevice(uint32_t openVRID, uint64_t lineage);
+	void UnregisterOwnedDevice(uint32_t openVRID);
+	bool IsOwnedByTarget(uint32_t openVRID);
+	bool IsContainerOwned(vr::PropertyContainerHandle_t container);
+	// Drop every cached tap/classifier entry bound to a closed epoch.
+	void ResetGalaxyLinkTaps();
 	// set of driver conexts collected by the hooking process
 	std::set<vr::IVRDriverContext*> driverContexts = {};
 	// map of driver contexts by device id
@@ -59,6 +77,8 @@ public:
 private:
 	std::array<gxr::ControllerPoseEpoch, vr::k_unMaxTrackedDeviceCount> controllerPoseEpochs{};
 	std::mutex controllerPoseEpochLock;
+	// epoch each owned (non-HMD) device was registered under; 0 = not owned
+	std::array<std::atomic<uint64_t>, vr::k_unMaxTrackedDeviceCount> ownedDeviceLineage{};
 	struct QueuedEvent {
 		vr::EVREventType eventType;
 		vr::VREvent_Data_t eventData;

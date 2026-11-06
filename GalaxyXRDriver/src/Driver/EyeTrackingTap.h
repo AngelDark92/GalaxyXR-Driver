@@ -59,6 +59,10 @@ public:
 	// estimated publish rate in Hz over the last measurement window (0 if idle)
 	double GetSampleRate();
 
+	// forget every stored sample (a closed Steam Link epoch must not leave a
+	// gaze sample for later consumers)
+	void Clear();
+
 private:
 	std::mutex lock;
 	Sample latest = {};

@@ -1,10 +1,20 @@
 
 #include "GenericHeadset.h"
+#include "../Driver/GalaxyLinkEpoch.h"
 #include "../Config/ConfigLoader.h"
 
 #include "../../../ThirdParty/easywsclient/easywsclient.hpp"
 
 void GenericHeadsetShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue){
+#ifdef VENDOR_GALAXYXR
+	// Vendor build: this shim only ever wraps the Steam Link Galaxy XR target.
+	// If the inner ownership shim did not admit this epoch (failed Activate,
+	// foreign parent, conflicting model) do not touch the device at all.
+	if(galaxyLinkLineage != 0 && !gxr::galaxylink::IsAdmittedLineage(galaxyLinkLineage)){
+		shimActive = false;
+		return;
+	}
+#endif
 	vr::PropertyContainerHandle_t container = vr::VRProperties()->TrackedDeviceToPropertyContainer(unObjectId);
 	
 	std::string modelNumber = vr::VRProperties()->GetStringProperty(container, vr::Prop_ModelNumber_String);
@@ -42,12 +52,22 @@ void GenericHeadsetShim::HandleEvent(const vr::VREvent_t &event){
 		websocket->poll(); // final poll to close the connection
 		delete websocket;
 	}
-	if(driverConfig.forceTracking && event.eventType == vr::VREvent_TrackedDeviceActivated){
+	if(driverConfig.forceTracking && event.eventType == vr::VREvent_TrackedDeviceActivated
+#ifdef VENDOR_GALAXYXR
+			// never publish a synthetic pose for a device outside the open
+			// Steam Link epoch (foreign HMDs/controllers stay untouched)
+			&& deviceProvider && deviceProvider->IsOwnedByTarget(event.trackedDeviceIndex)
+#endif
+			){
 		// initial pose
 		vr::DriverPose_t pose = {};
 		pose.qWorldFromDriverRotation.w = 1.f;
 		pose.qDriverFromHeadRotation.w = 1.f;
 		pose.qRotation.w = 1.f;
+#ifdef VENDOR_GALAXYXR
+		// our own synthetic (disconnected) pose is not stream evidence
+		gxr::galaxylink::OwnPoseScope ownPose;
+#endif
 		vr::VRServerDriverHost()->TrackedDevicePoseUpdated(event.trackedDeviceIndex, pose, sizeof(vr::DriverPose_t));
 	}
 }

@@ -13,7 +13,7 @@ import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../do
 import { encoderGpuNotice, gpuMismatch, graphicsAdapterEvidence, encoderMismatchText, rendererMismatchText, ENCODER_MISMATCH_TITLE, RENDERER_MISMATCH_TITLE } from '../domain/gpu-mismatch';
 import { codecSwitchState } from '../domain/codec-selection';
 import { ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
-import { codecSupport, effectiveAdapter, nvencTapSupport, tenBitSupport, tileWidthMax, ofxrNvidiaSupport } from '../domain/encoder-capabilities';
+import { codecSupport, effectiveAdapter, nvencTapSupport, tenBitNoticeReason, tenBitSupport, tileWidthMax, ofxrNvidiaSupport } from '../domain/encoder-capabilities';
 import type { OfxrPreferences, OfxrStatus } from '../domain/types';
 import { driverDefaults } from '../domain/driver-defaults';
 import { renderLongEdge } from '../state/galaxy-settings';
@@ -551,9 +551,9 @@ parts.push(sectionHeading(t('Image Processing'), 0, 'image-processing'));
       if (settings.nvencCodec === 1) {
         baselineNotices.push({ intent: 'info', title: t('H.264 uses High profile 8-bit'),
           body: t('The 10-bit request is not applied to the H.264 codec. AV1 and HEVC honor it.') });
-      } else if (tenBitVerdict.reason) {
-        baselineNotices.push({ intent: tenBitVerdict.verdict === 'unsupported' ? 'warning' : 'info',
-          title: tenBitVerdict.reason,
+      } else if (tenBitNoticeReason(tenBitVerdict)) {
+        baselineNotices.push({ intent: 'warning',
+          title: tenBitNoticeReason(tenBitVerdict)!,
           body: t('Your saved value is kept and shown; switch to a supported codec or GPU to apply it.') });
       } else if (galaxy.baselineRequested) {
         baselineNotices.push({ intent: 'info', title: t('SDR 10-bit baseline is on'),

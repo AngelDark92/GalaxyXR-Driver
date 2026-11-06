@@ -4,9 +4,33 @@
 #include "ControllerPoseDispatch.h"
 #include "../DeviceProvider.h"
 #include "../EyeTrackingTap.h"
+#include "../GalaxyLinkEpoch.h"
+#include "../NvencTap.h"
+#include "VrlinkSettingsHook.h"
 #include <atomic>
+#include <cstddef>
+#include <cstring>
+#include <memory>
+#include <mutex>
+#ifdef _WIN32
+#include <intrin.h>
+#endif
 
 static GalaxyXRDeviceProvider *Driver = nullptr;
+
+#ifdef VENDOR_GALAXYXR
+// Steam Link target eye component: handle + the HMD-object lineage it was created under.
+// Updates from any other component (a foreign driver, another HMD object) never
+// reach the tap; the original call and its result are always preserved.
+static std::atomic<uint64_t> galaxyEyeHandle{ vr::k_ulInvalidInputComponentHandle };
+static std::atomic<uint64_t> galaxyEyeLineage{ 0 };
+
+// Logged once per key by the overlay hook (never from inside a lock).
+static void ReportSettingsOverlay(const char* key, const char* type)
+{
+	DriverLog("VrlinkSettingsHook: driver_vrlink.%s (%s) answered from vrlink_xrvst2ue for the admitted Steam Link Galaxy XR epoch", key, type);
+}
+#endif
 
 static Hook<void*(*)(vr::IVRDriverContext *, const char *, vr::EVRInitError *)> 
 	GetGenericInterfaceHook("IVRDriverContext::GetGenericInterface");
@@ -78,8 +102,45 @@ static void PoseAbiWarn(uint32_t unPoseStructSize)
 	}
 }
 
+#ifdef VENDOR_GALAXYXR
+// Returns true when the pose belongs to the Steam Link target (admitted HMD or
+// an owned controller) and may therefore be processed. The target HMD's
+// disconnected edge closes the epoch FIRST, before any pose is mutated, so the
+// very sample that carries the edge is already treated as unowned. Every other
+// device is a foreign full pass-through: never edited, never dropped.
+// `caller` is the pose-update call site, captured IN the detour: it is the
+// module evidence for a same-object HMD reconnect (connected-up edge).
+static bool GalaxyOwnsPose(uint32_t unWhichDevice, const vr::DriverPose_t &newPose, uint32_t unPoseStructSize, const void *caller)
+{
+	if (unPoseStructSize > offsetof(vr::DriverPose_t, deviceIsConnected))
+	{
+		const bool connected = newPose.deviceIsConnected;
+		if (connected)
+		{
+			// cheap atomic precheck inside; only a retained, freshly re-identified
+			// HMD object can ever be re-admitted here
+			Driver->TryRebindHmd(unWhichDevice, caller, true);
+		}
+		gxr::galaxylink::ObservePose(unWhichDevice, connected);
+	}
+	return Driver->IsOwnedByTarget(unWhichDevice);
+}
+#endif
+
 static void DetourTrackedDevicePoseUpdated005(vr::IVRServerDriverHost *_this, uint32_t unWhichDevice, const vr::DriverPose_t &newPose, uint32_t unPoseStructSize)
 {
+#ifdef VENDOR_GALAXYXR
+#ifdef _WIN32
+	const void *poseCaller = _ReturnAddress();
+#else
+	const void *poseCaller = __builtin_return_address(0);
+#endif
+	if (!GalaxyOwnsPose(unWhichDevice, newPose, unPoseStructSize, poseCaller))
+	{
+		TrackedDevicePoseUpdatedHook005.originalFunc(_this, unWhichDevice, newPose, unPoseStructSize);
+		return;
+	}
+#endif
 	PoseAbiWarn(unPoseStructSize);
 	gxr::DispatchControllerPoseUpdate(*Driver, unWhichDevice, newPose, unPoseStructSize,
 		[&](const vr::DriverPose_t& submittedPose, uint32_t submittedSize) {
@@ -89,6 +150,18 @@ static void DetourTrackedDevicePoseUpdated005(vr::IVRServerDriverHost *_this, ui
 
 static void DetourTrackedDevicePoseUpdated006(vr::IVRServerDriverHost *_this, uint32_t unWhichDevice, const vr::DriverPose_t &newPose, uint32_t unPoseStructSize)
 {
+#ifdef VENDOR_GALAXYXR
+#ifdef _WIN32
+	const void *poseCaller = _ReturnAddress();
+#else
+	const void *poseCaller = __builtin_return_address(0);
+#endif
+	if (!GalaxyOwnsPose(unWhichDevice, newPose, unPoseStructSize, poseCaller))
+	{
+		TrackedDevicePoseUpdatedHook006.originalFunc(_this, unWhichDevice, newPose, unPoseStructSize);
+		return;
+	}
+#endif
 	PoseAbiWarn(unPoseStructSize);
 	gxr::DispatchControllerPoseUpdate(*Driver, unWhichDevice, newPose, unPoseStructSize,
 		[&](const vr::DriverPose_t& submittedPose, uint32_t submittedSize) {
@@ -98,6 +171,15 @@ static void DetourTrackedDevicePoseUpdated006(vr::IVRServerDriverHost *_this, ui
 
 static void DetourTrackedDeviceAdded006(vr::IVRServerDriverHost *_this, const char *pchDeviceSerialNumber, vr::ETrackedDeviceClass eDeviceClass, vr::ITrackedDeviceServerDriver *pDriver)
 {
+	// The ORIGINAL caller of TrackedDeviceAdded: captured here, in the detour
+	// itself (never in a helper), because it is the module-ownership evidence
+	// for the Steam Link target. The vtable slot is patched directly, so this
+	// is the real driver_vrlink.dll call site.
+#ifdef _WIN32
+	const void *caller = _ReturnAddress();
+#else
+	const void *caller = __builtin_return_address(0);
+#endif
 	// 2026-10-21: do NOT invent a serial for an empty-serial HMD add. In the
 	// observed startup log only SteamVR's own "null" placeholder driver
 	// publishes one, and rewriting it turned that dummy into the active HMD
@@ -106,7 +188,7 @@ static void DetourTrackedDeviceAdded006(vr::IVRServerDriverHost *_this, const ch
 	// branch takes its serial from the profile section, written before vrlink
 	// reads the settings (GalaxyXR.cpp ApplyGalaxyProfileSectionIdentity); an
 	// empty serial there is a settings defect to fix at the source.
-	if (Driver->HandleDeviceAdded(pchDeviceSerialNumber, eDeviceClass, pDriver))
+	if (Driver->HandleDeviceAdded(pchDeviceSerialNumber, eDeviceClass, pDriver, caller))
 	{
 		TrackedDeviceAddedHook006.originalFunc(_this, pchDeviceSerialNumber, eDeviceClass, pDriver);
 		// // Add 19 more copies with random serial numbers
@@ -168,15 +250,37 @@ static vr::EVRInputError DetourUpdatePoseComponent004(vr::IVRDriverInput *_this,
 static vr::EVRInputError DetourCreateEyeTrackingComponent004(vr::IVRDriverInput *_this, vr::PropertyContainerHandle_t ulContainer, const char *pchName, vr::VRInputComponentHandle_t *pHandle)
 {
 	auto error = CreateEyeTrackingComponentHook004.originalFunc(_this, ulContainer, pchName, pHandle);
-	eyeTrackingTap.OnCreateComponent(ulContainer, pchName,
-		pHandle ? *pHandle : vr::k_ulInvalidInputComponentHandle, error);
+	const vr::VRInputComponentHandle_t handle = pHandle ? *pHandle : vr::k_ulInvalidInputComponentHandle;
+#ifdef VENDOR_GALAXYXR
+	// Only the Steam Link target's component feeds the tap. Anything else (a
+	// foreign driver, an unowned container) keeps its original result untouched.
+	if (error == vr::VRInputError_None && handle != vr::k_ulInvalidInputComponentHandle
+		&& Driver->IsContainerOwned(ulContainer))
+	{
+		galaxyEyeLineage.store(gxr::galaxylink::CurrentLineage(), std::memory_order_release);
+		galaxyEyeHandle.store(handle, std::memory_order_release);
+		eyeTrackingTap.OnCreateComponent(ulContainer, pchName, handle, error);
+	}
 	return error;
+#else
+	eyeTrackingTap.OnCreateComponent(ulContainer, pchName, handle, error);
+	return error;
+#endif
 }
 
 static vr::EVRInputError DetourUpdateEyeTrackingComponent004(vr::IVRDriverInput *_this, vr::VRInputComponentHandle_t ulComponent, const vr::VREyeTrackingData_t *pEyeTrackingData, double fTimeOffset)
 {
 	auto error = UpdateEyeTrackingComponentHook004.originalFunc(_this, ulComponent, pEyeTrackingData, fTimeOffset);
+#ifdef VENDOR_GALAXYXR
+	if (error == vr::VRInputError_None
+		&& ulComponent == galaxyEyeHandle.load(std::memory_order_acquire)
+		&& gxr::galaxylink::IsOpenLineage(galaxyEyeLineage.load(std::memory_order_acquire)))
+	{
+		eyeTrackingTap.OnUpdateComponent(ulComponent, pEyeTrackingData, fTimeOffset);
+	}
+#else
 	eyeTrackingTap.OnUpdateComponent(ulComponent, pEyeTrackingData, fTimeOffset);
+#endif
 	return error;
 }
 
@@ -202,9 +306,36 @@ static vr::EVRInputError DetourUpdateSkeletonComponent004(vr::IVRDriverInput *_t
 static void *DetourGetGenericInterface(vr::IVRDriverContext *_this, const char *pchInterfaceVersion, vr::EVRInitError *peError)
 {
 	Driver->driverContexts.insert(_this);  // Store the driver context for later use
+
+	// The caller of the hooked getter, captured in the detour itself.
+#ifdef _WIN32
+	const void *getterCaller = _ReturnAddress();
+#else
+	const void *getterCaller = __builtin_return_address(0);
+#endif
+	// Exact driver_vrlink.dll caller only: give the NVENC lane its module-load
+	// retry BEFORE the original getter runs (vrlink's NVENC imports exist once
+	// the module is mapped; self-throttled and idempotent).
+	const bool vrlinkCaller = gxr::galaxylink::IsVrlinkAddress(getterCaller);
+	if (vrlinkCaller)
+	{
+		NvencTap::Get().TryInstall();
+	}
 	
 	// TRACE("ServerTrackedDeviceProvider::DetourGetGenericInterface(%s)", pchInterfaceVersion);
 	auto originalInterface = GetGenericInterfaceHook.originalFunc(_this, pchInterfaceVersion, peError);
+
+#ifdef VENDOR_GALAXYXR
+	// Scoped VRLink settings overlay: VRLink reads some tuning keys through an
+	// IVRSettings pointer it cached during its own init, so the shared getters
+	// are detoured (see VrlinkSettingsHook.h). The hook is armed for ANY
+	// requester (the object is shared) and decides per call by call site.
+	if (originalInterface && pchInterfaceVersion
+		&& std::strcmp(pchInterfaceVersion, vr::IVRSettings_Version) == 0)
+	{
+		gxr::vrlinksettings::Install(static_cast<vr::IVRSettings *>(originalInterface));
+	}
+#endif
 
 	std::string iface(pchInterfaceVersion);
 	if (iface == "IVRServerDriverHost_005")
@@ -308,10 +439,16 @@ void InjectHooks(GalaxyXRDeviceProvider *driver, vr::IVRDriverContext *pDriverCo
 	// }
 	GetGenericInterfaceHook.CreateHookInObjectVTable(pDriverContext, 0, &DetourGetGenericInterface);
 	IHook::Register(&GetGenericInterfaceHook);
+#ifdef VENDOR_GALAXYXR
+	gxr::vrlinksettings::S().observer = &ReportSettingsOverlay;
+#endif
 }
 
 void DisableHooks()
 {
+#ifdef VENDOR_GALAXYXR
+	gxr::vrlinksettings::Uninstall();
+#endif
 	IHook::DestroyAll();
 	// MH_Uninitialize();
 }

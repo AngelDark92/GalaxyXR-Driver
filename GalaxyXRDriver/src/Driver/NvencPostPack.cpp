@@ -235,6 +235,35 @@ TexCache* EnsureCache(ID3D11Texture2D* tex){
 
 } // namespace
 
+// Targeted release of the per-texture cache entries of textures whose NVENC
+// registration ended. Why it matters: the cached RTVs are views ON vrlink's
+// packed texture and each view holds a COM reference to it, so an entry that
+// outlives the registration keeps vrlink's texture alive; `src` is a raw
+// pointer, so an address reused by a later texture of the same device could
+// also match a stale entry (views of the old texture). Only entries whose
+// `src` equals a listed pointer value are released (the pointers are compared,
+// never dereferenced: the caller's texture may already be gone). Other
+// textures and all device-level objects (shaders, contexts, states) are kept.
+// No context Flush/ClearState: D3D11 defers the destruction of an object until
+// the GPU work that references it has completed.
+size_t NvencPostPack::ReleaseTextures(void* const* textures, size_t count){
+	if(!textures || !count){ return 0; }
+	std::lock_guard<std::mutex> g(lock);
+	size_t released = 0;
+	for(int i = 0; i < cacheCount;){
+		bool match = false;
+		for(size_t t = 0; t < count && !match; t++){ match = textures[t] && cache[i].src == static_cast<ID3D11Texture2D*>(textures[t]); }
+		if(!match){ i++; continue; }
+		Release(cache[i].scratch); Release(cache[i].srvY); Release(cache[i].srvC); Release(cache[i].rtvY); Release(cache[i].rtvC);
+		cache[i] = cache[cacheCount - 1];      // compact (order is irrelevant)
+		cache[cacheCount - 1] = TexCache{};
+		cacheCount--; released++;
+	}
+	return released;
+}
+
+size_t NvencPostPack::CachedTextureCount(){ std::lock_guard<std::mutex> g(lock); return static_cast<size_t>(cacheCount); }
+
 void NvencPostPack::SetConfig(const NvencPostPackConfig &c){
 	std::lock_guard<std::mutex> g(lock);
 	cfg = c;

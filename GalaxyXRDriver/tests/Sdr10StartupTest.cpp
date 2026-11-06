@@ -6,6 +6,7 @@
 #include "Config/VrlinkSettingsRouting.h"
 #include "Config/SteamVRSettingsJournal.h"
 #include "Config/StreamTiers.h"
+#include "Driver/Hooking/VrlinkSettingsHook.h"
 #include <atomic>
 #include <algorithm>
 #include <cstring>
@@ -30,10 +31,10 @@ void Mutate(const char* section, const char* key, bool present, const Json& valu
     else settings[section].erase(key);
     ++writes;
 }
-void SetInt32(const char* s,const char* k,int32_t v) { Mutate(s,k,true,v); }
-void SetFloat(const char* s,const char* k,float v) { Mutate(s,k,true,v); }
-void SetBool(const char* s,const char* k,bool v) { Mutate(s,k,true,v); }
-void SetString(const char* s,const char* k,const char* v) { Mutate(s,k,true,Json(v)); }
+void SetInt32(const char* s,const char* k,int32_t v,vr::EVRSettingsError* error=nullptr) { Mutate(s,k,true,v); if(error) *error=vr::VRSettingsError_None; }
+void SetFloat(const char* s,const char* k,float v,vr::EVRSettingsError* error=nullptr) { Mutate(s,k,true,v); if(error) *error=vr::VRSettingsError_None; }
+void SetBool(const char* s,const char* k,bool v,vr::EVRSettingsError* error=nullptr) { Mutate(s,k,true,v); if(error) *error=vr::VRSettingsError_None; }
+void SetString(const char* s,const char* k,const char* v,vr::EVRSettingsError* error=nullptr) { Mutate(s,k,true,Json(v)); if(error) *error=vr::VRSettingsError_None; }
 void RemoveKeyInSection(const char* s,const char* k,vr::EVRSettingsError* error) {
     Mutate(s,k,false,nullptr); if(error) *error=vr::VRSettingsError_None;
 }
@@ -350,6 +351,53 @@ int main() {
         CheckKeyOriginal(sections,kOverlayKeys[editedKey],deleted?-1:static_cast<int>(!overlay),
             "overlay recovery preserves external edit/deletion");
         CheckKeyOriginal(sections,kOverlayKeys[1-editedKey],original,"overlay untouched sibling restores");
+    }
+    // 2026-11-06 routing: the production startup/activation writers (stream
+    // tier, profile, geometry, overlay, expert keys, 10-bit) write ONLY to the
+    // canonical vrlink_xrvst2ue profile. driver_vrlink and any foreign
+    // vrlink_<model> section stay byte-untouched for every model/route, and a
+    // pre-existing foreign section is never created, edited or cleaned.
+    for(bool profile:{false,true}) for(const char* model:{"","xrvst2ue","Oculus Quest Pro","PICO 4 Pro"}) {
+        Reset(profile,-1);
+        driverConfig.debugMode=true;
+        driverConfig.galaxyXr.nativeResolution=true;
+        driverConfig.galaxyXr.streamQuality="custom";
+        driverConfig.galaxyXr.vrlinkDebugOverlay=true;
+        driverConfig.galaxyXr.vrlinkMaxVideoQueueLatencyUs=20000;
+        driverConfig.galaxyXr.vrlinkBackoffRecoveryCoefficient=0.5;
+        driverConfig.galaxyXr.vrlinkExtraKeys={{"targetBandwidth",'i',900},{"enable",'b',0},{"customFlag",'b',1}};
+        settings["vrlink_Oculus Quest Pro"]["supports10bit"]=true;
+        settings["driver_vrlink"]["enable"]=true;
+        const Json foreign=settings;
+        GalaxyXR_EarlyApplyVrlinkSettings();
+        RestoreInactiveVrlinkSettings(model);
+        ApplyHeadsetProfileSetting(model,ResolveSdr10PolicyLocked());
+        ApplyVrlinkExtraKeys();
+        Check(settings["driver_vrlink"]==foreign["driver_vrlink"],std::string("driver_vrlink is never written, including lifecycle keys, model=")+model);
+        Check(settings["vrlink_Oculus Quest Pro"]==foreign["vrlink_Oculus Quest Pro"],std::string("a foreign vrlink_<model> section is never written, model=")+model);
+        Check(!settings.contains("vrlink_PICO 4 Pro")&&!settings.contains("vrlink_Patched"),"no foreign-model section is created");
+        Check(settings.contains("vrlink_xrvst2ue")&&settings["vrlink_xrvst2ue"]["targetBandwidth"]==900,"explicit expert value reaches the canonical profile only");
+        Check(settings["vrlink_xrvst2ue"].contains("customFlag"),"unknown explicit expert key stays in the canonical profile");
+    }
+    // Legacy writes this driver journaled into the shared section or a foreign
+    // model section are restored; a value edited afterwards, a lifecycle key
+    // and an un-journaled foreign key are preserved.
+    {
+        Reset(true,-1);
+        settings["driver_vrlink"]={{"targetBandwidth",111},{"streamFormatWidth",1024},{"enable",true},{"foreignKey",5}};
+        settings["vrlink_Patched"]["supports10bit"]=false;
+        gxrsettings::RecordChange(journal,settings,"driver_vrlink","targetBandwidth",true,350);
+        settings["driver_vrlink"]["targetBandwidth"]=350;
+        gxrsettings::RecordChange(journal,settings,"driver_vrlink","streamFormatWidth",true,1536);
+        settings["driver_vrlink"]["streamFormatWidth"]=1536;
+        gxrsettings::RecordChange(journal,settings,"vrlink_Patched","supports10bit",true,true);
+        settings["vrlink_Patched"]["supports10bit"]=true;
+        settings["driver_vrlink"]["streamFormatWidth"]=2222; // user edit after our write
+        RestoreInactiveVrlinkSettings("xrvst2ue");
+        Check(settings["driver_vrlink"]["targetBandwidth"]==111,"unchanged legacy shared-section write is restored to its original");
+        Check(settings["driver_vrlink"]["streamFormatWidth"]==2222,"a later user edit of a legacy key is preserved");
+        Check(settings["driver_vrlink"]["enable"]==true&&settings["driver_vrlink"]["foreignKey"]==5,"lifecycle and un-journaled foreign keys are preserved");
+        Check(settings["vrlink_Patched"]["supports10bit"]==false,"unchanged legacy foreign-model write is restored");
     }
     std::cout << "SDR10 actual startup writer: " << checks << " checks, " << failures << " failures\n";
     return failures?1:0;

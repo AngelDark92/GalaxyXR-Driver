@@ -1,6 +1,7 @@
 #include "DeviceShim.h"
 #include "DriverLog.h"
 #include "FrameComponentShim.h"
+#include "GalaxyLinkEpoch.h"
 #include <cstring>
 
 ShimTrackedDeviceDriver::ShimTrackedDeviceDriver(ShimDefinition* shimDefinition, vr::ITrackedDeviceServerDriver* original){
@@ -44,11 +45,25 @@ void *ShimTrackedDeviceDriver::GetComponent(const char *pchComponentNameAndVersi
 	// before the headset driver (e.g. vrlink) consumes them.
 	// only wrap on an exact version match with the interface this was compiled against,
 	// otherwise pass through unwrapped to avoid a mismatched vtable.
-	if(returnValue && shimDefinition->shimFrameComponent){
+	// The wrappers act only while their lineage is ADMITTED and re-check per
+	// call, so they are transparent after a disconnect while still forwarding
+	// every call (including cleanup).
+	const uint64_t frameGate = shimDefinition->galaxyLinkLineage;
+	// Shims carrying a lineage exist ONLY for a proven target HMD object (created
+	// at HandleDeviceAdded after BeginHmd), so the wrappers attach even if the
+	// target is momentarily closed (reconnect, early fetch): otherwise a cached
+	// unwrapped component would never enable later. The per-call lineage gate
+	// below keeps closed / foreign states a byte-for-byte passthrough.
+	const bool frameWrapAllowed = true;
+	if(returnValue && shimDefinition->shimFrameComponent && frameWrapAllowed){
 		if(strcmp(pchComponentNameAndVersion, vr::IVRDriverDirectModeComponent_Version) == 0){
-			returnValue = new DirectModeComponentShim((vr::IVRDriverDirectModeComponent*)returnValue);
+			auto* wrapped = new DirectModeComponentShim((vr::IVRDriverDirectModeComponent*)returnValue);
+			wrapped->galaxyLinkLineage = frameGate;
+			returnValue = wrapped;
 		}else if(strcmp(pchComponentNameAndVersion, vr::IVRVirtualDisplay_Version) == 0){
-			returnValue = new VirtualDisplayShim((vr::IVRVirtualDisplay*)returnValue);
+			auto* wrapped = new VirtualDisplayShim((vr::IVRVirtualDisplay*)returnValue);
+			wrapped->galaxyLinkLineage = frameGate;
+			returnValue = wrapped;
 		}
 	}
 	if(shimDefinition->shimActive){

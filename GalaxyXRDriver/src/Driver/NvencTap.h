@@ -393,6 +393,15 @@ public:
 	// idempotent, self-throttled (1/s), safe to call every frame
 	void TryInstall();
 	bool Installed() const { return installed.load(std::memory_order_relaxed); }
+	// Vendor (VENDOR_GALAXYXR) only: turn the module-local import patches into
+	// passthrough and restore every slot that still holds our thunk. Wrapped
+	// function lists, per-session ownership records and resource bookkeeping stay
+	// alive so already-returned tables and live sessions keep working. No-op in
+	// the neutral build. Safe to call repeatedly; TryInstall may install again.
+	void Cleanup();
+	// Vendor only: emit one-shot diagnostics recorded by lock-free callbacks
+	// (never from the callbacks themselves). Also runs inside TryInstall.
+	void FlushDeferredDiagnostics();
 
 	// snapshot the live config for the shims (called from our threads;
 	// shims run on vrlink's encode thread and read under the same mutex)
@@ -419,6 +428,8 @@ private:
 
 	std::atomic<bool> installed{false};
 	std::atomic<bool> failedPermanently{false};
+	// vendor: driver_vrlink.dll image whose imports did not match (retry only for a new image)
+	void* vendorFailedModule = nullptr;
 	double lastAttempt = 0;
 	double lastHeartbeat = 0;
 	// 2026-09-30: prevent premature OFF confirmation while hook enable is in flight.

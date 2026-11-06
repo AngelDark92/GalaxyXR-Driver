@@ -27,6 +27,10 @@ pub struct SettingChange {
     value: Value,
 }
 
+fn lifecycle_key(section: &str, key: &str) -> bool {
+    section.starts_with("driver_") && ["enable", "blocked_by_safe_mode", "hasBeenRun"].contains(&key)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UninstallReport {
@@ -46,6 +50,7 @@ pub struct InstallReport {
     managed_root: String,
     used_default_root: bool,
     legacy_detected: bool,
+    warnings: Vec<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -753,7 +758,8 @@ fn default_native_identity(config:&mut Value)->Result<()> {
     Ok(())
 }
 
-// 2026-10-16: first-install vrlink SteamVR seed. The values mirror the GalaxyXR
+// 2026-11-06: first-install vrlink SteamVR seed targets the Galaxy XR
+// device-specific section only. The values mirror the GalaxyXR
 // nativeResolution/streamQuality defaults in GalaxyXRDriver/src/Config/Config.h
 // (streamQuality "custom": customEncodeWidth, customStreamFormatWidth,
 // customBandwidthMbit) and src/Headsets/GalaxyXR.cpp (kGalaxyXrRenderWidth/
@@ -770,7 +776,7 @@ const VRLINK_SEED_RENDER_HEIGHT: i64 = 3840;
 const VRLINK_SEED_ENCODE_WIDTH: i64 = 3072;
 const VRLINK_SEED_STREAM_FORMAT_WIDTH: i64 = 1536;
 const VRLINK_SEED_BANDWIDTH_MBIT: i64 = 350;
-const VRLINK_SEED_TUNING_SECTIONS: [&str; 2] = ["driver_vrlink", "vrlink_xrvst2ue"];
+const VRLINK_SEED_TUNING_SECTIONS: [&str; 1] = ["vrlink_xrvst2ue"];
 const VRLINK_SEED_CAPABILITY_SECTIONS: [&str; 1] = ["vrlink_xrvst2ue"];
 
 fn seed_vrlink_defaults(ctx: &Context) -> Result<()> {
@@ -799,6 +805,45 @@ fn seed_vrlink_defaults(ctx: &Context) -> Result<()> {
         for section in VRLINK_SEED_CAPABILITY_SECTIONS { changes.push(SettingChange { section: section.into(), key: key.into(), present: true, value: value.clone() }); }
     }
     apply_changes(ctx, changes)
+}
+
+/// 2026-11-06: older installs seeded vrlink tuning into the global
+/// `driver_vrlink` section. New installs only seed the device-specific
+/// `vrlink_xrvst2ue` section. On upgrade, retire the legacy global entries
+/// that are still unchanged from the seeded values, restoring the original
+/// value or absence. Foreign changes and lifecycle keys are preserved; the
+/// journal entry is removed only for keys that are actually retired.
+fn retire_legacy_vrlink_overrides(settings: &mut Value, journal: &mut Value, warnings: &mut Vec<String>) -> Result<usize> {
+    let section = "driver_vrlink";
+    // Reuse the validated uninstall restore logic on a journal subset that
+    // excludes lifecycle keys and legacyKeys; malformed entries fail loudly.
+    let Some(section_entries) = journal["entries"].get(section) else { return Ok(0) };
+    let section_entries = section_entries.as_object().ok_or("Invalid journal section")?;
+    let mut subset = serde_json::Map::new();
+    for (key, entry) in section_entries {
+        if !lifecycle_key(section, key) { subset.insert(key.clone(), entry.clone()); }
+    }
+    if subset.is_empty() { return Ok(0); }
+    let mut sub_journal = json!({"entries":{},"sectionPresence":{}});
+    sub_journal["entries"][section] = Value::Object(subset.clone());
+    if let Some(presence) = journal["sectionPresence"].get(section) { sub_journal["sectionPresence"][section] = presence.clone(); }
+    let count = restore_settings(settings, &sub_journal, warnings)?;
+    // Drop only keys now at their original state; foreign changes keep their entry.
+    let mut retired = Vec::new();
+    for (key, entry) in &subset {
+        let current = settings.get(section).and_then(|s| s.get(key));
+        let original = entry["present"].as_bool().ok_or("Invalid journal entry")?.then(|| entry["value"].clone());
+        if setting_equal(current, original.as_ref()) { retired.push(key.clone()); }
+    }
+    let entries = journal["entries"].as_object_mut().ok_or("Invalid journal entries")?;
+    if let Some(section_entries) = entries.get_mut(section).and_then(Value::as_object_mut) {
+        for key in &retired { section_entries.remove(key); }
+        if section_entries.is_empty() { entries.remove(section); }
+    }
+    if !journal["entries"].as_object().map(|e| e.contains_key(section)).unwrap_or(false) {
+        if let Some(presence) = journal["sectionPresence"].as_object_mut() { presence.remove(section); }
+    }
+    Ok(count)
 }
 
 #[tauri::command]
@@ -845,9 +890,12 @@ fn install_driver_to(ctx:&Context,source:&Path,exe:&Path,install_root:Option<&Pa
     // the file.
     let fresh_install=!config_path.exists() && receipt.is_none() && !ctx.journal().exists() && !legacy;
     let mut config=read_settings(&config_path)?;
+    let mut settings=read_settings(&ctx.settings)?;
     if legacy && journal.get("legacyKeys").is_none() {
-        record_legacy_keys(&mut journal,&read_settings(&ctx.settings)?,&config,previous.iter().any(|p|fork_kind(p).ok().flatten()==Some(true)))?;
+        record_legacy_keys(&mut journal,&settings,&config,previous.iter().any(|p|fork_kind(p).ok().flatten()==Some(true)))?;
     }
+    let mut retire_warnings=vec![];
+    let retired_count=retire_legacy_vrlink_overrides(&mut settings,&mut journal,&mut retire_warnings)?;
     default_native_identity(&mut config)?;
     let snapshots=[ctx.settings.clone(),ctx.journal(),config_path.clone(),ctx.receipt()].into_iter()
         .map(|path|snapshot_file(&path).map(|bytes|(path,bytes))).collect::<Result<Vec<_>>>()?;
@@ -893,6 +941,12 @@ fn install_driver_to(ctx:&Context,source:&Path,exe:&Path,install_root:Option<&Pa
     // Write ownership before copying; interrupted copies remain safely recoverable.
     atomic_json(&ctx.receipt(),&attempt_receipt)?;
     let install=(|| {
+        // Retired settings first, then the journal that forgets them. A crash
+        // between the writes leaves the old journal on disk with settings
+        // already at baseline; the next install retires those entries as
+        // already-original. The reverse order could drop ownership while the
+        // legacy override remained. Snapshots cover returned errors.
+        if retired_count > 0 { atomic_json(&ctx.settings,&settings)?; }
         atomic_json(&ctx.journal(),&journal)?;
         fs::create_dir_all(&managed).map_err(|e|error(&managed,e))?;
         copy_package(&source,&staging)?;
@@ -949,7 +1003,7 @@ fn install_driver_to(ctx:&Context,source:&Path,exe:&Path,install_root:Option<&Pa
         cleanup_retirement_parents(ctx,&packages,&mut errors);
         return Err(errors.join("; "));
     }
-    Ok(InstallReport { registered_path:path.to_string_lossy().into_owned(),managed_root:managed.to_string_lossy().into_owned(),used_default_root:!custom,legacy_detected:legacy })
+    Ok(InstallReport { registered_path:path.to_string_lossy().into_owned(),managed_root:managed.to_string_lossy().into_owned(),used_default_root:!custom,legacy_detected:legacy,warnings:retire_warnings })
 }
 
 fn cleanup_retirement_parents(ctx:&Context,packages:&[PathBuf],warnings:&mut Vec<String>) {
@@ -1672,25 +1726,25 @@ mod tests {
     #[test]
     fn install_seed_restores_exact_out_of_range_stream_format_width_and_preserves_external_change() {
         let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
-        let raw=b"{\n\"driver_vrlink\":{\"streamFormatWidth\":-1e+9999,\"targetBandwidth\":-1e+9998,\"note\":\"1536-ish text\"}\n}\n";
+        let raw=b"{\n\"vrlink_xrvst2ue\":{\"streamFormatWidth\":-1e+9999,\"targetBandwidth\":-1e+9998,\"note\":\"1536-ish text\"}\n}\n";
         atomic_bytes(&f.ctx.settings,raw).unwrap();
         install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         let settings=read_settings(&f.ctx.settings).unwrap();
-        assert_eq!(settings["driver_vrlink"]["streamFormatWidth"],json!(1536));
-        assert_eq!(settings["driver_vrlink"]["targetBandwidth"],json!(350));
-        assert_eq!(settings["driver_vrlink"]["note"],"1536-ish text");
+        assert_eq!(settings["vrlink_xrvst2ue"]["streamFormatWidth"],json!(1536));
+        assert_eq!(settings["vrlink_xrvst2ue"]["targetBandwidth"],json!(350));
+        assert_eq!(settings["vrlink_xrvst2ue"]["note"],"1536-ish text");
         let journal=load_journal(&f.ctx).unwrap();
-        let sf_entry=&journal["entries"]["driver_vrlink"]["streamFormatWidth"];
+        let sf_entry=&journal["entries"]["vrlink_xrvst2ue"]["streamFormatWidth"];
         assert_eq!(sf_entry["value"],p_big("-1e+9999"));
         assert_eq!(sf_entry["lastValue"],json!(1536));
         assert_eq!(sf_entry["lastPresent"],true);
-        assert_eq!(settings["driver_vrlink"]["streamFormatWidth"],sf_entry["lastValue"]);
-        let tb_entry=&journal["entries"]["driver_vrlink"]["targetBandwidth"];
+        assert_eq!(settings["vrlink_xrvst2ue"]["streamFormatWidth"],sf_entry["lastValue"]);
+        let tb_entry=&journal["entries"]["vrlink_xrvst2ue"]["targetBandwidth"];
         assert_eq!(tb_entry["value"],p_big("-1e+9998"));
         assert_eq!(tb_entry["lastValue"],json!(350));
         // Simulate a later external SteamVR edit (not through apply_changes).
         let mut modified=read_settings(&f.ctx.settings).unwrap();
-        modified["driver_vrlink"]["targetBandwidth"]=p_big("-1e+9997");
+        modified["vrlink_xrvst2ue"]["targetBandwidth"]=p_big("-1e+9997");
         atomic_json(&f.ctx.settings,&modified).unwrap();
         let report=uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         assert_eq!(report.outcome,"attention-required");
@@ -1701,9 +1755,9 @@ mod tests {
         assert!(text.contains("\"1536-ish text\""),"string became number: {text}");
         assert!(report.warnings.iter().any(|w|w.contains("targetBandwidth")&&w.contains("Preserved later external change")),"missing external change warning: {:?}",report.warnings);
         let final_settings=read_settings(&f.ctx.settings).unwrap();
-        assert_eq!(final_settings["driver_vrlink"]["streamFormatWidth"],p_big("-1e+9999"));
-        assert_eq!(final_settings["driver_vrlink"]["targetBandwidth"],p_big("-1e+9997"));
-        assert_eq!(final_settings["driver_vrlink"]["note"],"1536-ish text");
+        assert_eq!(final_settings["vrlink_xrvst2ue"]["streamFormatWidth"],p_big("-1e+9999"));
+        assert_eq!(final_settings["vrlink_xrvst2ue"]["targetBandwidth"],p_big("-1e+9997"));
+        assert_eq!(final_settings["vrlink_xrvst2ue"]["note"],"1536-ish text");
     }
     #[test]
     fn setting_equal_never_equates_distinct_out_of_range_or_overflowing_numbers() {
@@ -1769,10 +1823,7 @@ mod tests {
         let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
         install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
         let settings=read_settings(&f.ctx.settings).unwrap();
-        for (key,value) in [("renderWidth",json!(3552)),("overrideRenderHeight",json!(3840)),("encodeWidth",json!(3072)),
-            ("streamFormatWidth",json!(1536)),("automaticBandwidth",json!(false)),("targetBandwidth",json!(350))] {
-            assert_eq!(settings["driver_vrlink"][key],value,"driver_vrlink.{key}");
-        }
+        assert!(settings.get("driver_vrlink").is_none(),"global driver_vrlink tuning is no longer seeded");
         for section in VRLINK_SEED_TUNING_SECTIONS { assert_eq!(settings[section]["renderWidth"],3552,"{section}.renderWidth"); }
         assert_eq!(settings["vrlink_xrvst2ue"]["supports10bit"],false);
         assert_eq!(settings["vrlink_xrvst2ue"]["maxStreamFormatWidth"],1536);
@@ -1780,11 +1831,147 @@ mod tests {
         assert!(settings.get("vrlink_Oculus Quest Pro").is_none(),"alias section not seeded");
         assert!(settings.get("vrlink_PICO 4 Pro").is_none(),"alias section not seeded");
         let journal=load_journal(&f.ctx).unwrap();
-        assert_eq!(journal["entries"]["driver_vrlink"]["renderWidth"]["present"],false);
-        assert_eq!(journal["entries"]["driver_vrlink"]["renderWidth"]["lastValue"],3552);
+        assert!(journal["entries"].get("driver_vrlink").is_none(),"driver_vrlink journal entries should not exist");
         assert_eq!(journal["entries"]["vrlink_xrvst2ue"]["supports10bit"]["present"],false);
         assert_eq!(journal["entries"]["vrlink_xrvst2ue"]["maxStreamFormatWidth"]["present"],false);
         assert_eq!(journal["entries"]["vrlink_xrvst2ue"]["targetBandwidth"]["lastPresent"],true);
+    }
+    #[test]
+    fn fresh_install_never_adds_global_tuning() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let settings=read_settings(&f.ctx.settings).unwrap();
+        assert!(settings.get("driver_vrlink").is_none(),"fresh install must not seed global driver_vrlink tuning");
+        assert_eq!(settings["vrlink_xrvst2ue"]["renderWidth"],3552);
+        assert!(load_journal(&f.ctx).unwrap()["entries"].get("driver_vrlink").is_none());
+    }
+    #[test]
+    fn upgrade_retires_legacy_driver_vrlink_overrides() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        // A pre-existing settings.json makes this an upgrade, not a fresh install,
+        // so no new vrlink seeding runs.
+        atomic_json(&f.ctx.data.join("settings.json"),&json!({"other":17})).unwrap();
+        let baseline=json!({
+            "driver_vrlink":{
+                "targetBandwidth":100, // original value, seeded to 350, unchanged -> restore
+                "encodeWidth":4096,    // original value, seeded to 3072, user changed -> preserve
+                "enable":true,         // lifecycle key, never retired
+                "blocked_by_safe_mode":false,
+                "hasBeenRun":"1.0.0"
+            },
+            "vrlink_xrvst2ue":{"targetBandwidth":100}, // not a legacy seed target
+            "steamvr":{"unrelated":"keep"}
+        });
+        atomic_json(&f.ctx.settings,&baseline).unwrap();
+        let old_journal=json!({
+            "schema":1,"driver":DRIVER,"settingsPath":f.ctx.settings,"legacy":false,
+            "sectionPresence":{"driver_vrlink":true},
+            "entries":{"driver_vrlink":{
+                "targetBandwidth":{"present":true,"value":100,"lastPresent":true,"lastValue":350},
+                "renderWidth":{"present":false,"value":null,"lastPresent":true,"lastValue":3552},
+                "encodeWidth":{"present":true,"value":4096,"lastPresent":true,"lastValue":3072},
+                "enable":{"present":true,"value":true,"lastPresent":true,"lastValue":true}
+            }}
+        });
+        atomic_json(&f.ctx.journal(),&old_journal).unwrap();
+        // Current settings reflect the seeded values (encodeWidth was later edited).
+        let mut current=baseline.clone();
+        current["driver_vrlink"]["targetBandwidth"]=json!(350);
+        current["driver_vrlink"]["renderWidth"]=json!(3552);
+        current["driver_vrlink"]["encodeWidth"]=json!(2048);
+        atomic_json(&f.ctx.settings,&current).unwrap();
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let settings=read_settings(&f.ctx.settings).unwrap();
+        // Unchanged seeded keys restore to original value or absence.
+        assert_eq!(settings["driver_vrlink"]["targetBandwidth"],100);
+        assert!(settings["driver_vrlink"].get("renderWidth").is_none());
+        // User-changed and lifecycle keys survive.
+        assert_eq!(settings["driver_vrlink"]["encodeWidth"],2048);
+        assert_eq!(settings["driver_vrlink"]["enable"],true);
+        assert_eq!(settings["driver_vrlink"]["blocked_by_safe_mode"],false);
+        assert_eq!(settings["driver_vrlink"]["hasBeenRun"],"1.0.0");
+        // Foreign sections are untouched.
+        assert_eq!(settings["vrlink_xrvst2ue"]["targetBandwidth"],100);
+        assert_eq!(settings["steamvr"]["unrelated"],"keep");
+        // Retired entries are removed from the journal; changed/lifecycle entries remain.
+        let journal=load_journal(&f.ctx).unwrap();
+        assert!(journal["entries"]["driver_vrlink"].get("targetBandwidth").is_none());
+        assert!(journal["entries"]["driver_vrlink"].get("renderWidth").is_none());
+        assert!(journal["entries"]["driver_vrlink"].get("encodeWidth").is_some());
+        assert!(journal["entries"]["driver_vrlink"].get("enable").is_some());
+    }
+    fn legacy_upgrade_fixture(f:&Fixture,journal_entry:Value)->(Value,Value) {
+        atomic_json(&f.ctx.data.join("settings.json"),&json!({"other":17})).unwrap();
+        let journal=json!({"schema":1,"driver":DRIVER,"settingsPath":f.ctx.settings,"legacy":false,
+            "sectionPresence":{"driver_vrlink":true},"entries":{"driver_vrlink":{"targetBandwidth":journal_entry}}});
+        atomic_json(&f.ctx.journal(),&journal).unwrap();
+        let current=json!({"driver_vrlink":{"targetBandwidth":350,"enable":true}});
+        atomic_json(&f.ctx.settings,&current).unwrap();
+        (journal,current)
+    }
+    #[test]
+    fn failed_install_rolls_back_legacy_retirement() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        let (journal,current)=legacy_upgrade_fixture(&f,json!({"present":true,"value":100,"lastPresent":true,"lastValue":350}));
+        let before_settings=fs::read(&f.ctx.settings).unwrap();let before_journal=fs::read(f.ctx.journal()).unwrap();
+        let err=install_driver(&f.ctx,&source,&exe,|_,_|Err("boom".to_string())).unwrap_err();
+        assert!(err.contains("boom"),"{err}");
+        assert_eq!(fs::read(&f.ctx.settings).unwrap(),before_settings,"settings restored");
+        assert_eq!(fs::read(f.ctx.journal()).unwrap(),before_journal,"journal restored");
+        let _=(journal,current);
+    }
+    #[test]
+    fn install_recovers_after_crash_between_settings_and_journal_writes() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        legacy_upgrade_fixture(&f,json!({"present":true,"value":100,"lastPresent":true,"lastValue":350}));
+        // Simulated crash state: settings already restored, old journal still on disk.
+        atomic_json(&f.ctx.settings,&json!({"driver_vrlink":{"targetBandwidth":100,"enable":true}})).unwrap();
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert_eq!(read_settings(&f.ctx.settings).unwrap()["driver_vrlink"]["targetBandwidth"],100);
+        assert!(load_journal(&f.ctx).unwrap()["entries"].get("driver_vrlink").is_none());
+    }
+    #[test]
+    fn upgrade_reports_foreign_change_warning_and_keeps_entry() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        legacy_upgrade_fixture(&f,json!({"present":true,"value":100,"lastPresent":true,"lastValue":200}));
+        let report=install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        assert!(report.warnings.iter().any(|w|w.contains("targetBandwidth")&&w.contains("Preserved later external change")),"{:?}",report.warnings);
+        assert_eq!(read_settings(&f.ctx.settings).unwrap()["driver_vrlink"]["targetBandwidth"],350);
+        assert!(load_journal(&f.ctx).unwrap()["entries"]["driver_vrlink"].get("targetBandwidth").is_some());
+    }
+    #[test]
+    fn upgrade_with_malformed_legacy_journal_entry_fails_before_mutation() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        legacy_upgrade_fixture(&f,json!({"present":"yes","lastPresent":true,"lastValue":350}));
+        let before=fs::read(&f.ctx.settings).unwrap();
+        assert!(install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).is_err());
+        assert_eq!(fs::read(&f.ctx.settings).unwrap(),before);
+    }
+    #[test]
+    fn uninstall_roundtrip_restores_original_driver_vrlink_after_upgrade() {
+        let f=Fixture::new();let source=f.package("bundle/GalaxyXRNative");let exe=f.root.join("gui.exe");
+        atomic_json(&f.ctx.data.join("settings.json"),&json!({"other":17})).unwrap();
+        let baseline=json!({"driver_vrlink":{"targetBandwidth":100,"encodeWidth":4096},"steamvr":{"unrelated":"keep"}});
+        atomic_json(&f.ctx.settings,&baseline).unwrap();
+        let old_journal=json!({
+            "schema":1,"driver":DRIVER,"settingsPath":f.ctx.settings,"legacy":false,
+            "sectionPresence":{"driver_vrlink":true},
+            "entries":{"driver_vrlink":{
+                "targetBandwidth":{"present":true,"value":100,"lastPresent":true,"lastValue":350},
+                "renderWidth":{"present":false,"value":null,"lastPresent":true,"lastValue":3552},
+                "encodeWidth":{"present":true,"value":4096,"lastPresent":true,"lastValue":3072}
+            }}
+        });
+        atomic_json(&f.ctx.journal(),&old_journal).unwrap();
+        let mut current=baseline.clone();
+        current["driver_vrlink"]["targetBandwidth"]=json!(350);
+        current["driver_vrlink"]["renderWidth"]=json!(3552);
+        current["driver_vrlink"]["encodeWidth"]=json!(3072);
+        atomic_json(&f.ctx.settings,&current).unwrap();
+        install_driver(&f.ctx,&source,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        uninstall_driver(&f.ctx,&exe,|p,a|fake_registration(&f.ctx,p,a)).unwrap();
+        let settings=read_settings(&f.ctx.settings).unwrap();
+        assert_eq!(settings,baseline);
     }
     #[test]
     fn existing_settings_json_suppresses_install_vrlink_seeding() {

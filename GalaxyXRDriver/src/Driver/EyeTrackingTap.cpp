@@ -163,6 +163,17 @@ bool EyeTrackingTap::GetLatestSample(Sample &out, double maxAgeSeconds){
 	return true;
 }
 
+void EyeTrackingTap::Clear(){
+	std::lock_guard<std::mutex> guard(lock);
+	latest = Sample();
+	sampleCount = 0;
+	haveFlagBaseline = false;
+	rateWindowStart = 0;
+	rateWindowCount = 0;
+	measuredRate = 0;
+	haveRaw = false;
+}
+
 double EyeTrackingTap::GetSampleRate(){
 	std::lock_guard<std::mutex> guard(lock);
 	return measuredRate;

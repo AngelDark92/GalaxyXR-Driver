@@ -20,6 +20,11 @@
 class ShimDefinition{
 public:
 	bool shimActive = true;
+	// Steam Link Galaxy XR ownership epoch this shim was created under
+	// (vendor build; see GalaxyLinkEpoch.h). 0 = ungated (neutral build and
+	// every non-Steam-Link shim). A gated shim turns transparent the instant
+	// its epoch is no longer admitted.
+	uint64_t galaxyLinkLineage = 0;
 	
 	// original tracked device
 	vr::ITrackedDeviceServerDriver *trackedDevice = NULL;

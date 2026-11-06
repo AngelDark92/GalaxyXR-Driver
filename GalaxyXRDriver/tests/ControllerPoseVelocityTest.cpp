@@ -36,6 +36,10 @@ struct GalaxyXRDeviceProvider {
     std::unordered_map<uint32_t, int> openVRIDHand{{1, 0}, {2, 1}};
     bool IsNativeHand(uint32_t) const { return nativeHand; }
     bool IsStreamedController(uint32_t) const { return streamed; }
+    // Steam Link ownership of the pose's device (vendor build). Foreign or
+    // unowned devices must be a full pass-through.
+    bool owned = true;
+    bool IsOwnedByTarget(uint32_t) const { return owned; }
     int GetDeviceClass(uint32_t) const { return deviceClass; }
     bool HandleDevicePoseUpdated(uint32_t, vr::DriverPose_t&);
 };
@@ -104,6 +108,21 @@ double Oracle(const vr::DriverPose_t& src,const vr::DriverPose_t& out) {
     return error;
 }
 void Tests() {
+#ifdef VENDOR_GALAXYXR
+    // Devices outside the open Steam Link epoch (foreign HMD/controllers, native
+    // hands, a disconnected target) are never edited, forced valid or dropped.
+    for(bool forceTracking : {false, true}) for(bool grip : {false, true}) for(uint32_t id : {0u, 1u, 2u}) {
+        GalaxyXRDeviceProvider p; p.owned = false;
+        p.driverConfig.forceTracking = forceTracking;
+        p.driverConfig.galaxyXr.gripConvention = grip;
+        p.driverConfig.controllers.positionOffsetCm[1] = 2.0;
+        p.driverConfig.controllers.rotationOffsetDeg[1] = 9.0;
+        auto src = Pose(); src.poseIsValid = false; src.result = vr::TrackingResult_Running_OutOfRange;
+        auto out = src;
+        Check(p.HandleDevicePoseUpdated(id, out), "unowned device pose is accepted (never dropped)");
+        Check(std::memcmp(&src, &out, sizeof(src)) == 0, "unowned device pose is byte-identical (no force-valid, grip, offsets or velocity edits)");
+    }
+#endif
     for(int i=0;i<200;++i) {
         GalaxyXRDeviceProvider p;auto src=Pose();
         src.qRotation=Exp({.013*i,-.009*i,.007*i});

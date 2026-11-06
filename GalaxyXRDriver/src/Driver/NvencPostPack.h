@@ -27,6 +27,7 @@
 // protection. Any failure disables the feature for the session with a log
 // line; the encoder then sees vrlink's untouched frame.
 // ============================================================================
+#include <cstddef>
 #include <cstdint>
 
 struct NvencPostPackConfig {
@@ -52,6 +53,12 @@ namespace NvencPostPack {
 	// process the packed frame before NVENC maps it. returns false if
 	// nothing was done (disabled, unsupported, error).
 	bool Process(void* d3d11Texture2D, uint32_t nvencBufferFormat);
+	// release the cached views/scratch of exactly these source textures (raw
+	// pointer values, never dereferenced). Called by the tap after a SUCCESSFUL
+	// nvEncUnregisterResource / nvEncDestroyEncoder and when a recycled handle's
+	// dead session is dropped; takes only the post-pack mutex. Returns entries released.
+	size_t ReleaseTextures(void* const* textures, size_t count);
+	size_t CachedTextureCount();
 	NvencPostPackStats GetStats();
 	void ResetIntervalStats();
 }

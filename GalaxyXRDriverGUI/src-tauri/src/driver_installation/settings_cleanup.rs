@@ -38,10 +38,6 @@ impl FileChange {
         Ok(Self { path, before, after })
     }
 }
-fn lifecycle_key(section: &str, key: &str) -> bool {
-    section.starts_with("driver_") && ["enable", "blocked_by_safe_mode", "hasBeenRun"].contains(&key)
-}
-
 /// Only recorded writes are reversible. Keep installation/safe-mode entries
 /// in the recovery journal so a later uninstall still restores them correctly.
 fn reset_owned_steamvr(settings: &mut Value, journal: Option<&Value>, _config: &Value)

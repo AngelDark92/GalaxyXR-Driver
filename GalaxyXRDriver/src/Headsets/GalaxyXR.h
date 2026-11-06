@@ -33,6 +33,42 @@ void GalaxyXR_EarlyApplyVrlinkSettings();
 int GalaxyXR_EffectiveTileWidth();
 int GalaxyXR_EffectiveBandwidthMbit();
 
+// Innermost wrapper of the Steam Link Galaxy XR HMD (vendor build). It binds
+// the device index before the original Activate runs and admits or denies the
+// epoch right after it: Activate succeeded AND Prop_ParentDriver_Uint64 is the
+// valid "vrlink" driver handle AND the pre-stamp model corroborates. A
+// deactivate closes the epoch synchronously. It never writes a property.
+class GalaxyLinkHmdOwnershipShim : public ShimDefinition{
+public:
+	GalaxyXRDeviceProvider* deviceProvider = nullptr;
+
+	virtual bool PreTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue) override;
+	virtual void PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue) override;
+	virtual bool PreTrackedDeviceDeactivate() override;
+};
+
+// Innermost wrapper of a controller added by driver_vrlink.dll (vendor build).
+// Registers the device as owned by the open Steam Link epoch when its parent
+// driver is "vrlink"; the registration is also retried from RunFrame and is
+// dropped at deactivate or when the epoch closes. Never writes a property.
+class GalaxyLinkControllerOwnershipShim : public ShimDefinition{
+public:
+	GalaxyXRDeviceProvider* deviceProvider = nullptr;
+
+	virtual bool PreTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue) override;
+	virtual void PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue) override;
+	virtual bool PreTrackedDeviceDeactivate() override;
+	virtual void RunFrame() override;
+	// true once registered under a still-open epoch
+	bool Owned() const;
+
+private:
+	bool TryRegister();
+	uint32_t deviceId = vr::k_unTrackedDeviceIndexInvalid;
+	uint64_t registeredLineage = 0;
+	bool activated = false;
+};
+
 class GalaxyXRHmdShim : public ShimDefinition{
 public:
 	GalaxyXRDeviceProvider* deviceProvider = nullptr;
@@ -46,6 +82,16 @@ public:
 	virtual void RunFrame() override;
 
 private:
+	// Stop acting (epoch closed or never admitted): release capability
+	// overrides and restore ONLY the identity values this shim itself wrote.
+	void ReleaseOwnership(const char* reason);
+	bool EpochAdmitted() const;
+	bool ownershipReleased = false;
+	// same-object reconnect: this HMD object was admitted as `lastObjectId`; after
+	// its epoch closed it re-arms (settings, identity, capabilities) only when the
+	// SAME lineage is admitted again with fresh evidence (RebindHmd)
+	uint32_t lastObjectId = vr::k_unTrackedDeviceIndexInvalid;
+	uint32_t rearmObjectId = vr::k_unTrackedDeviceIndexInvalid;
 	// write identity + icon properties; only touches values that differ
 	void ApplyIdentity();
 	void UpdateTrackingCapabilities();
@@ -88,6 +134,10 @@ private:
 class GalaxyXRControllerShim : public ShimDefinition{
 public:
 	explicit GalaxyXRControllerShim(const std::string &serial);
+	// ownership registrar wrapped beneath this shim (vendor build); identity,
+	// icons, input profile and render model are stamped only while it says the
+	// controller belongs to the open Steam Link epoch
+	GalaxyLinkControllerOwnershipShim* galaxyLinkOwnership = nullptr;
 
 	virtual void PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue) override;
 	virtual bool PreTrackedDeviceDeactivate() override;
@@ -96,6 +146,9 @@ public:
 	virtual void RunFrame() override;
 
 private:
+	// false (after restoring only this shim's own writes) once the controller
+	// no longer belongs to the open Steam Link epoch
+	bool StillAuthorized();
 	void ApplyIdentity();
 	// resolve the current model name from config (variant or default)
 	std::string TargetModelName();
@@ -103,6 +156,10 @@ private:
 
 	std::string appliedModel;
 	int iconPollFrames = 0;
+	// activated before its epoch opened (or released when it closed): adopted
+	// from RunFrame once the same ownership registration is open again
+	uint32_t pendingObjectId = vr::k_unTrackedDeviceIndexInvalid;
+	uint32_t lastObjectId = vr::k_unTrackedDeviceIndexInvalid;
 	std::string serial;
 	bool isLeft = false;
 	vr::PropertyContainerHandle_t container = vr::k_ulInvalidPropertyContainer;
