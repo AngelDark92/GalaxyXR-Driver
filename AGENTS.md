@@ -72,6 +72,8 @@ Resolve paths from the repository/script root, never from a caller's working dir
 
 CI: `.github/workflows/build-tools.yml` runs tool/service/GUI tests; `release.yml` only builds both vendors and packages — no unit, Rust, service or NVENC suites. CI is not proof for an unrun commit; run the relevant suites locally. `Build-Portable.ps1` is the local package gate; `node build.js` staging is partial validation only.
 
+For graph, bitrate-policy or monitor changes, build fresh production frontend assets and run `tools/Test-CurvePreviewBrowser.cjs`, `tools/Test-BitrateMonitorBrowser.cjs` and `tools/Test-CompanionBrowser.cjs` before requesting a push. Use the same external Playwright setup as `build-tools.yml`. Unit tests and a successful package build do not cover these browser assertions. Update behavior-specific browser expectations together with the domain policy; never skip or weaken the smoke step to get green CI.
+
 ## Cleanup
 
 Follow `Docs/PortableBuildCleanup.md`. After any artifact-producing task, retain one latest verified complete package total and run:
