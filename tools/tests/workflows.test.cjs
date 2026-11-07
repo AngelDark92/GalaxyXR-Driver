@@ -126,6 +126,14 @@ test('graph CI builds real assets and tests them, while release stays build-only
   assert.doesNotMatch(release, /Test-CurvePreviewBrowser|Test-BitrateMonitorBrowser|Test-CompanionBrowser/);
 });
 
+test('graph browser smoke keeps the Force CBR policy of the curve domain (CBR never changes the target)', () => {
+  const curve = read('GalaxyXRDriverGUI/src-lit/domain/bitrate-curve.ts');
+  const smoke = read('tools/Test-CurvePreviewBrowser.cjs');
+  assert.doesNotMatch(curve, /if \(forceCbr\) return/);
+  assert.doesNotMatch(smoke, /Force CBR remains at Max Bitrate|flat Max Bitrate policy/);
+  assert.match(smoke, /Force CBR draws the same final line as VBR/);
+});
+
 test('PR creation and release sync can use the same automation identity without claiming skip bypasses approval', () => {
   assert.match(read('.github/workflows/open_pull_request.yml'), /GH_TOKEN: \$\{\{ secrets.PR_AUTOMATION_TOKEN \|\| github.token \}\}/);
   assert.match(release, /token: \$\{\{ secrets.PR_AUTOMATION_TOKEN \|\| github.token \}\}/);

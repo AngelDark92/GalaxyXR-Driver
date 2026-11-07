@@ -228,8 +228,9 @@ export class BitrateCurvePanel extends LitElement {
     }
     ctx.stroke();
 
-    // Final average target: the same request-domain, constancy, headroom and
-    // Force CBR policy as the driver, without the temporal request filter.
+    // Final average target: the same request-domain, constancy and
+    // headroom policy as the driver, without the temporal request filter.
+    // Force CBR only selects the rate-control mode and does not alter this line.
     ctx.strokeStyle = '#5f9fdf';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -447,9 +448,7 @@ export class BitrateCurvePanel extends LitElement {
       : this.editable
         ? t('P1 is fixed at request 0 with an editable floor. P2–P5 move freely. P6 starts the flat Max Bitrate section; drag it left to begin the plateau earlier. P7 is the fixed endpoint and cannot be selected. Request must increase left-to-right and target must never decrease. The thin line shows the base curve before constancy and headroom.')
         : '';
-    const policyHint = this.forceCbr
-      ? t('Force CBR fixes the final average target at Max Bitrate; curve, constancy and headroom do not apply.')
-      : this.pct >= 100
+    const policyHint = this.pct >= 100
         ? t('At 100% constancy, positive requests reach the final average limit after any headroom reservation. The points still shape the base curve.')
         : this.headroomPct > 0
           ? t('Headroom reserves part of Max Bitrate for the VBR peak and can limit the final average target below the base curve.')

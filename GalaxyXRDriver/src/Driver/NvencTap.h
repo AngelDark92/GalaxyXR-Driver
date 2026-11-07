@@ -312,6 +312,8 @@ struct NvencTapStats {
 	uint32_t presetCfgVerUsed = 0;
 	uint32_t lastAvgBitrate = 0, lastMaxBitrate = 0;
 	uint32_t lastWidth = 0, lastHeight = 0;
+	// lastBitDepth: configured encoder OUTPUT depth in bits (8 or 10) after
+	// overrides, 0 = unstated. Configuration only, not decoder proof.
 	uint32_t lastLevel = 0, lastTier = 0, lastBitDepth = 0;
 	// colour-depth fix A (2026-10-17): the raw NV_ENC_BUFFER_FORMAT vrlink
 	// passed at the last guarded init/reconfigure, unmodified by any override

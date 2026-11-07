@@ -619,9 +619,8 @@ void CheckCodecOverride(void* encoder){
 	Check(seenBitrate == 270000000u && seenBitrate <= 300000000u && seenMaxBitrate == 300000000u,
 		"custom curve: x=0.4 maps to 0.9 * 300 and never exceeds the maximum");
 
-	// 2026-10-27 (owner directive): Force CBR treats Max Bitrate as the
-	// constant average and peak. The streamer request cannot lower it, and the
-	// curve, constancy and headroom are inert.
+	// Force CBR selects NVENC CBR only; target shaping is identical to VBR and
+	// maxBitRate is set equal to the average (ignored by the SDK in CBR).
 	NvencTapConfig cbrBudget; cbrBudget.enabled = true; cbrBudget.codec = 1; cbrBudget.splitMode = 1;
 	cbrBudget.bitrateMbit = 500; cbrBudget.forceCbr = true;
 	cbrBudget.bitrateCurve = 3; cbrBudget.bitrateConstancyPct = 50; cbrBudget.maxBitrateHeadroomPct = 15;
@@ -633,10 +632,20 @@ void CheckCodecOverride(void* encoder){
 	NV_ENC_INITIALIZE_PARAMS cbrBudgetInit = {}; cbrBudgetInit.version = Tag111(5, true);
 	cbrBudgetInit.encodeGUID = NV_ENC_CODEC_H264_GUID; cbrBudgetInit.encodeConfig = &cbrBudgetRc;
 	cbrBudgetInit.frameRateNum = 90; cbrBudgetInit.frameRateDen = 1;
-	Check(NvencTapShims::InitializeEncoder(h264Enc, &cbrBudgetInit) == NV_ENC_SUCCESS,
-		"CBR budget: init delegated");
-	Check(seenBitrate == 500000000u && seenMaxBitrate == 500000000u && seenRcMode == NV_ENC_PARAMS_RC_CBR,
-		"CBR budget: Max Bitrate is the constant average and peak; the 280 request cannot lower it");
+	for(int i = 0; i < 5; ++i){
+		Check(NvencTapShims::InitializeEncoder(h264Enc, &cbrBudgetInit) == NV_ENC_SUCCESS,
+			"CBR budget: init delegated");
+	}
+	{
+		// Force CBR only selects the rate-control mode: the average is the
+		// same curve/constancy/headroom target as VBR, and the SDK-ignored
+		// maxBitRate follows it.
+		const double expectedCurve = 500e6 * GxrCurveTarget(280.0 / 500.0, 3, 50, cbrBudget.bitrateCurvePoints);
+		const uint32_t expectedAvg = (uint32_t)(std::min)(expectedCurve, 500e6 * 100.0 / 115.0);
+		Check(seenBitrate == expectedAvg && seenMaxBitrate == expectedAvg && seenBitrate < 500000000u
+			&& seenRcMode == NV_ENC_PARAMS_RC_CBR,
+			"CBR budget: curve, constancy and headroom shape the CBR average; max equals average");
+	}
 
 	// 2026-10-27: headroom reserves part of the VBR budget for the peak.
 	NvencTapConfig headroomCfg; headroomCfg.enabled = true; headroomCfg.codec = 1; headroomCfg.splitMode = 1;
@@ -701,7 +710,8 @@ void CheckBitrateRequestReference(){
 			init.encodeWidth = codec == 1 ? 1024 : 1536; init.encodeHeight = init.encodeWidth * 4;
 			const auto savedConfig = config; const auto savedInit = init;
 			Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS, (label + " init accepted").c_str());
-			Check(seenBitrate == expected && seenMaxBitrate == (uint32_t)cfg.bitrateMbit * 1000000u
+			const uint32_t expectedPeak = cfg.forceCbr ? expected : (uint32_t)cfg.bitrateMbit * 1000000u;
+			Check(seenBitrate == expected && seenMaxBitrate == expectedPeak
 				&& NvencTap::Get().GetRuntimeState().effectiveCodec == codec,
 				(label + " init applies expected average, budget peak and selected codec").c_str());
 			Check(memcmp(&config, &savedConfig, sizeof(config)) == 0 && memcmp(&init, &savedInit, sizeof(init)) == 0,
@@ -735,7 +745,7 @@ void CheckBitrateRequestReference(){
 					&& memcmp(&reconfigure, &savedReconfigure, sizeof(reconfigure)) == 0,
 					(label + " restores every reconfigure/config byte").c_str());
 			}
-			Check(seenBitrate == expected && seenMaxBitrate == (uint32_t)cfg.bitrateMbit * 1000000u
+			Check(seenBitrate == expected && seenMaxBitrate == expectedPeak
 				&& seenVbvSize == 2500000u && seenVbvDelay == 123456u,
 				(label + " reconfigure applies target and preserves caller VBV").c_str());
 			if(cfg.forceCbr){ Check(seenRcMode == NV_ENC_PARAMS_RC_CBR, (label + " applies CBR").c_str()); }
@@ -786,8 +796,14 @@ void CheckBitrateRequestReference(){
 		cfg.maxBitrateHeadroomPct = 15;
 		checkCase(cfg, 320000000u, 434782608u, "headroom reserves budget after scaling");
 		checkCase(cfg, 0u, 434782608u, "zero linear request retains headroom behavior");
-		cfg.forceCbr = true; cfg.bitrateCurve = 2; cfg.bitrateConstancyPct = 35;
-		checkCase(cfg, 175000000u, 500000000u, "Force CBR applies direct budget");
+		cfg.maxBitrateHeadroomPct = 0; cfg.forceCbr = true; cfg.bitrateCurve = 0; cfg.bitrateConstancyPct = 0;
+		checkCase(cfg, 320000000u, 457142857u, "Force CBR linear keeps request scaling");
+		cfg.maxBitrateHeadroomPct = 15;
+		checkCase(cfg, 320000000u, 434782608u, "Force CBR linear keeps headroom cap");
+		cfg.maxBitrateHeadroomPct = 0; cfg.bitrateCurve = 2; cfg.bitrateConstancyPct = 35;
+		checkCase(cfg, 175000000u,
+			(uint32_t)(500000000.0 * GxrCurveTarget(175.0 / 350.0, 2, 35, cfg.bitrateCurvePoints)),
+			"Force CBR keeps curve and constancy");
 	}
 	reconfigureDriverStatus = oldReconfigureStatus;
 	ConfigureCodec(true, 0);
@@ -1234,6 +1250,60 @@ void CheckMapSubmissionLifetime(){
 	}
 	origEncodePicture = savedEncode;
 	encodeMapCallback = {};
+	ConfigureCodec(true, 0);
+}
+
+// Recorded configured output depth (stats.lastBitDepth, what the heartbeat
+// prints as cfgOutBits). Configuration only: neither it nor the input buffer
+// format proves what the headset decoder renders. Reads the REAL recorded
+// stat after InitializeEncoder, so a recorder that ignores AV1, the 12.1
+// packed layout or the SDK 13 typed layout fails here.
+void CheckRecordedBitDepth(){
+	constexpr uint32_t kApi131 = 13u | (1u << 24);
+	const auto initWith = [](void* enc, const GUID& guid, uint32_t apiMajorTag, NV_ENC_BUFFER_FORMAT fmt, NV_ENC_CONFIG& cfg){
+		cfg = {}; cfg.version = Tag111(7, true); cfg.rcParams.version = Tag111(1);
+		cfg.rcParams.averageBitRate = 42000000; cfg.gopLength = 60;
+		cfg.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+		cfg.encodeCodecConfig.hevcConfig.level = NV_ENC_LEVEL_HEVC_61;
+		NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag111(5, true);
+		if(apiMajorTag){ init.version = apiMajorTag | (5u << 16) | (0x7u << 28) | (1u << 31); }
+		init.encodeGUID = guid; init.encodeConfig = &cfg;
+		init.frameRateNum = 90; init.frameRateDen = 1; init.bufferFormat = fmt;
+		const NVENCSTATUS st = NvencTapShims::InitializeEncoder(enc, &init);
+		return st;
+	};
+	NV_ENC_CONFIG cfg;
+	const auto depth = []{ return NvencTap::Get().GetStats().lastBitDepth; };
+
+	// HEVC, no codec override: the 10-bit surface class gets Main10 (12.1 packed layout)
+	ConfigureCodec(true, 0);
+	void* hevc = OpenSession();
+	Check(initWith(hevc, NV_ENC_CODEC_HEVC_GUID, 0, NV_ENC_BUFFER_FORMAT_YUV420_10BIT, cfg) == NV_ENC_SUCCESS, "depth: HEVC 10-bit init delegated");
+	Check(depth() == 10u, "depth: HEVC 10-bit surface records configured 10");
+	Check(initWith(hevc, NV_ENC_CODEC_HEVC_GUID, 0, NV_ENC_BUFFER_FORMAT_NV12, cfg) == NV_ENC_SUCCESS, "depth: HEVC 8-bit init delegated");
+	Check(depth() == 8u, "depth: HEVC 8-bit surface records configured 8");
+	// HEVC, SDK 13 typed layout
+	Check(initWith(hevc, NV_ENC_CODEC_HEVC_GUID, kApi131, NV_ENC_BUFFER_FORMAT_YUV420_10BIT, cfg) == NV_ENC_SUCCESS, "depth: HEVC API13 10-bit init delegated");
+	Check(depth() == 10u, "depth: HEVC API13 typed layout records configured 10");
+	Check(initWith(hevc, NV_ENC_CODEC_HEVC_GUID, kApi131, NV_ENC_BUFFER_FORMAT_NV12, cfg) == NV_ENC_SUCCESS, "depth: HEVC API13 8-bit init delegated");
+	Check(depth() == 0u || depth() == 8u, "depth: HEVC API13 8-bit surface never records 10");
+
+	// AV1 override: upgraded 12.1 packed layout follows the input surface class
+	ConfigureCodec(true, 2);
+	void* av1 = OpenSession();
+	Check(initWith(av1, NV_ENC_CODEC_HEVC_GUID, 0, NV_ENC_BUFFER_FORMAT_YUV420_10BIT, cfg) == NV_ENC_SUCCESS, "depth: AV1 10-bit init delegated");
+	Check(depth() == 10u, "depth: AV1 10-bit surface records configured 10 (was 0: HEVC-only recorder)");
+	Check(initWith(av1, NV_ENC_CODEC_HEVC_GUID, 0, NV_ENC_BUFFER_FORMAT_NV12, cfg) == NV_ENC_SUCCESS, "depth: AV1 8-bit init delegated");
+	Check(depth() == 8u, "depth: AV1 8-bit surface records configured 8");
+	// AV1, SDK 13 typed layout
+	Check(initWith(av1, NV_ENC_CODEC_HEVC_GUID, kApi131, NV_ENC_BUFFER_FORMAT_YUV420_10BIT, cfg) == NV_ENC_SUCCESS, "depth: AV1 API13 10-bit init delegated");
+	Check(depth() == 10u, "depth: AV1 API13 typed layout records configured 10");
+
+	// H.264 override: High profile is 8-bit only
+	ConfigureCodec(true, 1);
+	void* h264 = OpenSession();
+	Check(initWith(h264, NV_ENC_CODEC_HEVC_GUID, 0, NV_ENC_BUFFER_FORMAT_NV12, cfg) == NV_ENC_SUCCESS, "depth: H264 init delegated");
+	Check(depth() == 8u, "depth: H264 records honest 8");
 	ConfigureCodec(true, 0);
 }
 
@@ -2207,6 +2277,7 @@ int main(){
 	CheckDeltaMapConversion();
 	CheckMapSubmissionLifetime();
 	CheckSessionCodecGating();
+	CheckRecordedBitDepth();
 	CheckObserveOnlyInit();
 	CheckSplitGateAndRefusalKeys();
 	CheckStartupAllocationAndPictures();

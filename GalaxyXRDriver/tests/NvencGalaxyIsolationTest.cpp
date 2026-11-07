@@ -170,7 +170,8 @@ NV_ENC_INITIALIZE_PARAMS MakeInit(NV_ENC_CONFIG* c){
 	return i;
 }
 
-// Force CBR makes the applied average and maximum both exactly `bitrate`.
+// Force CBR selects CBR only: the average follows the shaped request (budget
+// `bitrate`, linear, reference = budget) and maxBitRate is set equal to it.
 void Configure(bool enabled, int bitrate = 0, int qpFovea = 0, int qpPeriphery = 0, bool enforceTile = false){
 	NvencTapConfig c; c.enabled = enabled; c.splitMode = 1; c.bitrateMbit = bitrate; c.forceCbr = bitrate > 0;
 	c.qpFovea = qpFovea; c.qpPeriphery = qpPeriphery; c.enforceTile = enforceTile; c.effectiveTileWidth = 1536;
@@ -332,7 +333,7 @@ void TestAdmittedPositive(){
 	const NVENCSTATUS initResult = gTable.nvEncInitializeEncoder(live, &init);
 	Check(initResult == NV_ENC_SUCCESS, "admitted init: succeeds");
 	if(initResult != NV_ENC_SUCCESS){ std::cerr << "  init status " << initResult << ": " << NvencTap::Get().GetRuntimeState().initError << '\n'; }
-	Check(seenBitrate == 100000000u && seenMaxBitrate == 100000000u && sInit.version == Tag121(6, true) && seenConfigVersion == Tag121(8, true),
+	Check(seenBitrate == 42000000u && seenMaxBitrate == 42000000u && sInit.version == Tag121(6, true) && seenConfigVersion == Tag121(8, true),
 		"admitted init: existing settings applied with 12.1 ABI");
 	Check(Bytes(init) == initBytes && Bytes(cfg) == cfgBytes, "admitted init: caller bytes restored");
 	Check(NvencTap::Get().GetStats().initCalls == statsBefore.initCalls + 1, "admitted init: counted");

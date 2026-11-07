@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [2.1.2-dev.1] - 2026-11-07
+
+### Fixes
+
+- fixed NVENC configuration and bitrate handling (`affa18b`)
+
 ## [2.1.1] - 2026-11-06
 
 ### Fixes

@@ -192,7 +192,8 @@ async function checkScaledGraph(page, canvas) {
   }
 
   // The final average can sit below the base curve after a VBR headroom
-  // reservation. Force CBR is a separate flat Max Bitrate policy.
+  // reservation. Force CBR only selects the rate-control mode: it must not
+  // change the requested target, so the final line is identical with it on.
   await updateGraph(page, { ceilingMbit: 500, constancyPct: 100, headroomPct: 25, points: defaults });
   const reserved = await graphDrawing(page);
   const reservedLine = reserved.plot.strokes.find(stroke => stroke.width === 2 && stroke.path.length === 81);
@@ -201,7 +202,9 @@ async function checkScaledGraph(page, canvas) {
   await updateGraph(page, { forceCbr: true });
   const cbr = await graphDrawing(page);
   const cbrLine = cbr.plot.strokes.find(stroke => stroke.width === 2 && stroke.path.length === 81);
-  for (const point of cbrLine.path) close(point.y, 16, 'Force CBR remains at Max Bitrate');
+  for (const point of cbrLine.path.slice(1)) close(point.y, reservedY, 'Force CBR leaves the final target unchanged');
+  assert.deepEqual(cbrLine.path.map(point => point.y), reservedLine.path.map(point => point.y),
+    'Force CBR draws the same final line as VBR');
   await updateGraph(page, { forceCbr: false, headroomPct: 0, constancyPct: 0, requestReferenceMbit: 0 });
   const neutral = await graphDrawing(page);
   assert.deepEqual(neutral.inputs[5].map(input => input.value), [500, 500], 'neutral request domain remains Max Bitrate');
