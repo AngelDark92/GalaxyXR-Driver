@@ -1640,21 +1640,15 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		// 2026-10-27 (owner directive): Max Bitrate is the applied budget.
 		// Under VBR the requested average is the curve-shaped streamer request
 		// capped by the budget (and by the headroom reservation), and
-		// maxBitRate is exactly the budget. Under Force CBR the budget is the
-		// constant average and peak: the curve, constancy and headroom cannot
-		// reshape it, and a lower streamer request cannot lower it.
+		// maxBitRate is exactly the budget. Force CBR only selects the NVENC
+		// rate-control mode: the average is computed identically (request
+		// scaling, curve, constancy, headroom) and maxBitRate follows it,
+		// because the SDK ignores maxBitRate in CBR mode.
 		const int64_t ceiling = (int64_t)cfg.bitrateMbit * 1000000ll;
 		const int requestReferenceMbit = cfg.bitrateRequestReferenceMbit > 0
 			? (std::min)(cfg.bitrateMbit, cfg.bitrateRequestReferenceMbit) : cfg.bitrateMbit;
 		int64_t target = ceiling;
-		if(cfg.forceCbr){
-			target = ceiling;
-			static std::atomic<bool> cbrPolicyLogged{false};
-			if((cfg.bitrateCurve != 0 || cfg.bitrateConstancyPct != 0 || cfg.maxBitrateHeadroomPct != 0)
-				&& !cbrPolicyLogged.exchange(true)){
-				DriverLog("NvencTap: Force CBR applies streamFrame.nvencBitrateMbit directly as the constant average and maximum; the bitrate curve, constancy and headroom are not applied.");
-			}
-		}else if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0){
+		if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0){
 			// Keep the raw request's integer-bit precision. The internal
 			// reference only scales upward when Max Bitrate exceeds it;
 			// the budget and headroom caps still apply below.
@@ -1675,15 +1669,15 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		}
 		// Linear at 0% historically left a zero request alone rather than
 		// writing an invalid zero average into the encoder session.
-		if(!cfg.forceCbr && cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0 && rc.averageBitRate <= 0){
+		if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0 && rc.averageBitRate <= 0){
 			target = ceiling;
 		}
 		target = (std::min<int64_t>)(target, ceiling);
 		// 2026-10-27: headroom reserves part of the budget for the VBR peak.
 		// The average is capped at budget/(1+pct/100); maxBitRate stays the
-		// budget. 0 leaves the average free to use the whole budget. Force CBR
-		// is constant rate, so headroom is inert there (max == average).
-		if(!cfg.forceCbr && cfg.maxBitrateHeadroomPct > 0){
+		// budget. 0 leaves the average free to use the whole budget. Applies
+		// in CBR too; there maxBitRate is set equal to the average below.
+		if(cfg.maxBitrateHeadroomPct > 0){
 			const int64_t reserved = ceiling * 100ll / (100ll + (int64_t)cfg.maxBitrateHeadroomPct);
 			target = (std::min<int64_t>)(target, reserved);
 		}
@@ -1805,6 +1799,32 @@ double RequestMedian(){
 	return (n & 1u) ? v[n / 2u] : 0.5 * (v[n / 2u - 1u] + v[n / 2u]);
 }
 
+// Configured encoder OUTPUT bit depth in bits (8 or 10), 0 = not stated by the
+// struct (SDK 13 typed member NV_ENC_BIT_DEPTH_INVALID) or not a known codec.
+// Reads the struct era the session is stamped with, exactly like the writers
+// in ApplyOverrides: >= 13 the typed members; older the packed flags word at
+// +16 (HEVC pixelBitDepthMinus8 bits 11-13, AV1 output bits 15-17). H.264 High
+// carries 8-bit only. This is the CONFIGURED value only: neither it nor the
+// input buffer format proves what the headset decoder actually renders.
+uint32_t ConfiguredOutputBitDepth(const NV_ENC_INITIALIZE_PARAMS* p){
+	if(!p || !p->encodeConfig){ return 0; }
+	const NV_ENC_CODEC_CONFIG &cc = p->encodeConfig->encodeCodecConfig;
+	if(IsH264(p->encodeGUID)){ return 8; }
+	const bool typed = ApiMajor(p->version) >= 13;
+	if(IsHevc(p->encodeGUID)){
+		if(typed){ const uint32_t d = (uint32_t)cc.hevcConfig.outputBitDepth; return d == 8 || d == 10 ? d : 0; }
+		const uint32_t flags = *(const uint32_t*)((const unsigned char*)&cc.hevcConfig + 16);
+		return 8 + ((flags >> 11) & 0x7u);
+	}
+	if(memcmp(&p->encodeGUID, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0){
+		if(typed){ const uint32_t d = (uint32_t)cc.av1Config.outputBitDepth; return d == 8 || d == 10 ? d : 0; }
+		if(ApiMajor(p->version) < 12){ return 0; } // AV1 does not exist before 12.0
+		const uint32_t flags = *(const uint32_t*)((const unsigned char*)&cc.av1Config + 16);
+		return 8 + ((flags >> 15) & 0x7u);
+	}
+	return 0;
+}
+
 void RecordLast(const NV_ENC_INITIALIZE_PARAMS* p){
 	std::lock_guard<std::mutex> g(statsLock);
 	stats.apiMajor = ApiMajor(p->version);
@@ -1815,8 +1835,9 @@ void RecordLast(const NV_ENC_INITIALIZE_PARAMS* p){
 		if(IsHevc(p->encodeGUID)){
 			stats.lastLevel = p->encodeConfig->encodeCodecConfig.hevcConfig.level;
 			stats.lastTier = p->encodeConfig->encodeCodecConfig.hevcConfig.tier;
-			stats.lastBitDepth = (uint32_t)p->encodeConfig->encodeCodecConfig.hevcConfig.outputBitDepth;
 		}
+		// after ApplyOverrides: the depth the encoder is about to receive
+		stats.lastBitDepth = ConfiguredOutputBitDepth(p);
 	}
 }
 
@@ -3138,7 +3159,7 @@ void NvencTap::MaybeHeartbeat(){
 	const uint32_t hbLastEncFailStatus = lastEncFailStatus.load();
 	char errCopy[96];
 	{ std::lock_guard<std::mutex> g(statsLock); snprintf(errCopy, sizeof(errCopy), "%s", lastEncFailStr); }
-	DriverLog("NvencTap: heartbeat api=%u enabled=%d %ux%u avg=%.0fM max=%.0fM level=%u tier=%u bitDepth=%u inBf=0x%x | init %u (ovr %u, ovrFail->ok %u, fail %u) | reconf %u (ovr %u, ovrFail->ok %u, fail %u, stockFail %u) | register %u encode %u lock %lld (last %u bytes) encFail %lld | lastEncFail %u \"%s\"",
+	DriverLog("NvencTap: heartbeat api=%u enabled=%d %ux%u avg=%.0fM max=%.0fM level=%u tier=%u cfgOutBits=%u(0=unstated) inBf=0x%x | init %u (ovr %u, ovrFail->ok %u, fail %u) | reconf %u (ovr %u, ovrFail->ok %u, fail %u, stockFail %u) | register %u encode %u lock %lld (last %u bytes) encFail %lld | lastEncFail %u \"%s\"",
 		s.apiMajor, (int)c.enabled, s.lastWidth, s.lastHeight, s.lastAvgBitrate / 1e6, s.lastMaxBitrate / 1e6, s.lastLevel, s.lastTier, s.lastBitDepth, s.lastInputBufferFormat,
 		s.initCalls, s.initOverridden, s.initFailedThenPristineOk, s.initFailed,
 		s.reconfCalls, s.reconfOverridden, s.reconfFailedThenPristineOk, s.reconfFailed, s.reconfFailedStock,

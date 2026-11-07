@@ -4231,9 +4231,6 @@ Value: none (diagnostic only). Native side — read-only process telemetry and A
       <trans-unit id="dismiss-20261027" datatype="html">
         <source>Dismiss</source>
       </trans-unit>
-      <trans-unit id="force-cbr-uses-max-bitrate-20261027" datatype="html">
-        <source>Force CBR uses Max Bitrate directly</source>
-      </trans-unit>
       <trans-unit id="gxr-bitrate-reference-eb3afc576bc5132f" datatype="plaintext">
         <source>H.264 tile width above 1024</source>
       </trans-unit>
@@ -4243,7 +4240,7 @@ Value: none (diagnostic only). Native side — read-only process telemetry and A
       <trans-unit id="gxr-bitrate-reference-fc0db454713dbc33" datatype="plaintext">
         <source>Set the stream bandwidth budget and the applied encoder budget.
 
-For Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. The entered Max Bitrate is the encoder maximum; Force CBR applies it directly as both average and maximum. Headroom can reserve part of the budget and lower the average. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.
+For Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. In VBR the entered Max Bitrate is the encoder maximum; under CBR the encoder maximum equals the average. Force CBR only selects the rate-control mode and does not change the requested target. Headroom can reserve part of the budget and lower the average. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.
 
 A target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.
 
@@ -4272,14 +4269,14 @@ Value: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder
         <source>Constant QP</source>
       </trans-unit>
       <trans-unit id="gxr-bitrate-reference-37d6a2886cc716fd" datatype="plaintext">
-        <source>Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off is the default for every codec and preserves upstream rate control, which may already be CBR. Turn it on whenever it helps. When on, Max Bitrate is both the constant average and the maximum; the bitrate curve, constancy and headroom do not apply. The reset arrow restores Off. Requires a SteamVR restart.
+        <source>Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off is the default for every codec and preserves upstream rate control, which may already be CBR. Turn it on whenever it helps. It does not change the requested target: the bitrate curve, constancy and headroom apply the same way with it on or off. The reset arrow restores Off. Requires a SteamVR restart.
 
-Value: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes; Max Bitrate becomes the constant target.</source>
+Value: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes.</source>
       </trans-unit>
       <trans-unit id="gxr-bitrate-reference-a5c1bb22d6e3200f" datatype="plaintext">
         <source>Choose how the streamer's adaptive request becomes the requested encoder target.
 
-Galaxy XR uses a request domain of min(Max Bitrate, 350 Mbit/s). Above 350, default Linear at 0% scales each request by Max Bitrate / 350; below 350 it follows the request up to Max Bitrate. Power knee raises the middle of this domain; soft knee reaches the base ceiling from 60% upward. Custom uses seven normalized points: P1 has a request-zero floor, P2-P5 are free, P6 starts the plateau, and hidden P7 is the fixed endpoint. Point edits change the native encoder override; the scale is applied once. Bitrate Constancy lifts this base curve, then any headroom reservation limits the average. Force CBR applies Max Bitrate directly instead. Close SteamVR to change this. Requires a SteamVR restart.
+Galaxy XR uses a request domain of min(Max Bitrate, 350 Mbit/s). Above 350, default Linear at 0% scales each request by Max Bitrate / 350; below 350 it follows the request up to Max Bitrate. Power knee raises the middle of this domain; soft knee reaches the base ceiling from 60% upward. Custom uses seven normalized points: P1 has a request-zero floor, P2-P5 are free, P6 starts the plateau, and hidden P7 is the fixed endpoint. Point edits change the native encoder override; the scale is applied once. Bitrate Constancy lifts this base curve, then any headroom reservation limits the average. Force CBR does not change this target; it only selects the rate-control mode. Close SteamVR to change this. Requires a SteamVR restart.
 
 These are requested targets, not measured encoded or wire rates. Neutral builds retain normalization against Max Bitrate.
 
@@ -4288,7 +4285,7 @@ Value: streamFrame.nvencBitrateCurve and streamFrame.nvencBitrateCurvePoints (se
       <trans-unit id="gxr-bitrate-reference-280f1762d3b34bc2" datatype="plaintext">
         <source>Lift the selected curve toward Max Bitrate.
 
-0 leaves the selected base curve unchanged; 100 selects the base ceiling for positive requests. A headroom reservation can lower the final average. Force CBR uses Max Bitrate directly and ignores this percentage. For Galaxy XR with Max Bitrate 500 and a request of 320 Mbit/s, Linear at 0% requests about 457.14 Mbit/s before headroom. With Max Bitrate 280 and a request of 200, it requests 200. Higher constancy reduces the response to congestion. Close SteamVR to change this. Requires a SteamVR restart.
+0 leaves the selected base curve unchanged; 100 selects the base ceiling for positive requests. A headroom reservation can lower the final average. Force CBR does not change this percentage or the requested target. For Galaxy XR with Max Bitrate 500 and a request of 320 Mbit/s, Linear at 0% requests about 457.14 Mbit/s before headroom. With Max Bitrate 280 and a request of 200, it requests 200. Higher constancy reduces the response to congestion. Close SteamVR to change this. Requires a SteamVR restart.
 
 A requested average does not guarantee constant encoded output or constant sent bits.
 
@@ -4296,9 +4293,6 @@ Value: streamFrame.nvencBitrateConstancyPct (settings.json).</source>
       </trans-unit>
       <trans-unit id="gxr-bitrate-reference-f1a013f634fc77c5" datatype="plaintext">
         <source>P1 is fixed at request 0 with an editable floor. P2–P5 move freely. P6 starts the flat Max Bitrate section; drag it left to begin the plateau earlier. P7 is the fixed endpoint and cannot be selected. Request must increase left-to-right and target must never decrease. The thin line shows the base curve before constancy and headroom.</source>
-      </trans-unit>
-      <trans-unit id="gxr-bitrate-reference-0a21e2d3fa8e7bb7" datatype="plaintext">
-        <source>Force CBR fixes the final average target at Max Bitrate; curve, constancy and headroom do not apply.</source>
       </trans-unit>
       <trans-unit id="gxr-bitrate-reference-6110ac9c2b7f77a0" datatype="plaintext">
         <source>At 100% constancy, positive requests reach the final average limit after any headroom reservation. The points still shape the base curve.</source>
@@ -4315,7 +4309,7 @@ Value: streamFrame.nvencBitrateConstancyPct (settings.json).</source>
       <trans-unit id="gxr-bitrate-reference-4970721b9cb6b22e" datatype="plaintext">
         <source>Open the curve graph in its own resizable window.
 
-For Galaxy XR, the request axis always ends at 350 Mbit/s and the target axis ends at the higher of 350 or the entered Max Bitrate. Dashed line: the streamer standard ending at (350, 350). Thin line and P1-P6: the editable base curve. Solid line: the final requested average after constancy and headroom, or the fixed Max Bitrate under Force CBR. Above 350, default Linear is raised by Max Bitrate / 350. Below 350, it follows the request and then holds Max Bitrate. Custom point edits are validated and saved by the main Companion and affect the native encoder override.
+For Galaxy XR, the request axis always ends at 350 Mbit/s and the target axis ends at the higher of 350 or the entered Max Bitrate. Dashed line: the streamer standard ending at (350, 350). Thin line and P1-P6: the editable base curve. Solid line: the final requested average after constancy and headroom, with or without Force CBR. Above 350, default Linear is raised by Max Bitrate / 350. Below 350, it follows the request and then holds Max Bitrate. Custom point edits are validated and saved by the main Companion and affect the native encoder override.
 
 The graph shows positive-request, steady-state targets, not measured encoded output or wire rates. The five-frame request filter and zero or missing request fallback are not drawn. The graph follows edits immediately, is locked while SteamVR runs, hides with the Companion tray lifecycle and closes when the Companion quits.
 
@@ -4382,7 +4376,7 @@ Value: streamFrame.nvencBitrateCurve + streamFrame.nvencBitrateCurvePoints (sett
         <source>Periphery QP offset</source>
       </trans-unit>
       <trans-unit id="companion-20261030-021" datatype="html">
-        <source>Reserve part of the Max Bitrate budget as VBR peak headroom. The requested average is capped at Max Bitrate / (1 + this percentage); the encoder maximum remains Max Bitrate. Inert under Force CBR, where the budget is both the constant average and the maximum. 0 lets the average use the whole budget. This is a rate-control reservation, not a hard encoded-output cap; oversized frames remain a measured-transport risk. Value: streamFrame.nvencMaxBitrateHeadroomPct (settings.json). Encoder side — VBR average cap reserved below the Max Bitrate peak.</source>
+        <source>Reserve part of the Max Bitrate budget as VBR peak headroom. The requested average is capped at Max Bitrate / (1 + this percentage); in VBR the encoder maximum remains Max Bitrate. Under Force CBR the encoder maximum equals the average (the SDK ignores a separate maximum in CBR), so no separate peak is reserved. 0 lets the average use the whole budget. This is a rate-control reservation, not a hard encoded-output cap; oversized frames remain a measured-transport risk. Value: streamFrame.nvencMaxBitrateHeadroomPct (settings.json). Encoder side — VBR average cap reserved below the Max Bitrate peak.</source>
       </trans-unit>
       <trans-unit id="companion-20261030-022" datatype="html">
         <source>Set the reference-frame count (0 to 16). Unsupported requests fail instead of falling back.</source>
