@@ -140,10 +140,6 @@ const number = (spec: Omit<NumberControlSpec, 'kind'>): NumberControlSpec =>
 // These are rendered next to the control as "saved, not applied" notes. They
 // never change a value; they only explain which state makes it take effect.
 
-const forceCbrOnly: ControlCondition = {
-  active: ctx => ctx.forceCbr,
-  message: 'Turn on Force CBR to apply this.',
-};
 const h264Only: ControlCondition = {
   active: ctx => ctx.codec === 1,
   message: 'H.264 only; the saved value is kept.',
@@ -281,7 +277,7 @@ export const streamQualitySpecs: ControlSpec[] = [
     key: 'streamFrame.nvencMultiPass',
     label: 'Encoder multipass',
     options: [
-      { value: -1, label: 'Automatic (codec / preset)' },
+      { value: -1, label: 'Automatic (preserve caller / codec default)' },
       { value: 0, label: 'Single pass' },
       { value: 1, label: 'Two passes, quarter resolution' },
       { value: 2, label: 'Two passes, full resolution' },
@@ -300,7 +296,6 @@ export const streamQualitySpecs: ControlSpec[] = [
     key: 'streamFrame.nvencLowDelayKfScale',
     min: 0, max: 255, step: 1, unit: 'frames', integer: true,
     authority: nvenc,
-    appliesWhen: forceCbrOnly,
     label: 'Keyframe size budget',
   }),
   choice({

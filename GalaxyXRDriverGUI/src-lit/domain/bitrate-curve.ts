@@ -179,7 +179,10 @@ export function bitrateCurveMbit(requestMbit: number, ceilingMbit: number, curve
   pct: number, points?: readonly BitrateCurvePoint[], requestReferenceMbit = 0,
   headroomPct = 0, forceCbr = false): number {
   const ceiling = ceilingMbit > 0 ? ceilingMbit : 1;
-  if (forceCbr) return ceiling;
+  // 2026-11-13 (owner directive): Force CBR pins the applied average to the
+  // user's Max Bitrate budget. The saved curve, constancy and headroom are
+  // preserved but not applied while CBR is on.
+  if (forceCbr) return Math.max(0, ceilingMbit);
   const x = Math.max(0, Math.min(1, requestMbit / bitrateCurveRequestDomain(ceiling, requestReferenceMbit)));
   const budget = headroomPct > 0
     ? Math.floor(ceiling * 1e6 * 100 / (100 + headroomPct)) / 1e6 : ceiling;
