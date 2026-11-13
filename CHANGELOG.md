@@ -6,6 +6,16 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [2.1.2-dev.3] - 2026-11-13
+
+### Fixes
+
+- nvenc: apply live policy to closed-epoch reconnect calls (`78de1ed`)
+
+### Other changes
+
+- test: expect the restored Force CBR budget pin in the preview smoke (`3789275`)
+
 ## [2.1.2-dev.2] - 2026-11-13
 
 ### Fixes
