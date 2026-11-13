@@ -342,6 +342,17 @@ struct NvencTapRuntimeState {
 	std::string pictureError;
 	int effectiveRateControl = -1, effectiveSplit = -1;
 	uint32_t encodeWidth = 0, encodeHeight = 0;
+	// 2026-11-13: the rate-control shape NVENC actually accepted, captured from
+	// the SUCCESSFUL init/reconfigure parameters (never from an ApplyOverrides
+	// candidate or the global streamer request). Each field is optional: absent
+	// means unknown and is omitted from telemetry instead of defaulted.
+	std::optional<int> effectiveTuningInfo;          // NV_ENC_TUNING_INFO value
+	std::optional<int> effectivePreset;             // P1..P7; 0 = unknown/not a preset GUID
+	std::optional<int> effectiveMultiPass;          // NV_ENC_MULTI_PASS 0..2
+	std::optional<double> effectiveAverageBitrateMbit;
+	std::optional<double> effectiveMaxBitrateMbit;
+	std::optional<uint32_t> effectiveVbvBufferSizeBits;
+	std::optional<uint32_t> effectiveVbvInitialDelayBits;
 	// 2026-11-03: handle for the session that last published runtime state, so
 	// telemetry can look up the matching capability inventory.
 	void* encoder = nullptr;

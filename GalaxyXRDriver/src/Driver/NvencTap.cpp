@@ -277,6 +277,16 @@ int submitHead = 0;
 std::mutex policyLock;
 BitratePolicyState policyState;
 
+// 2026-11-11: the rate-control state the tap last wrote into the session,
+// reported next to an oversized locked frame so an overshoot can be tied to
+// the mode, budget and VBV that were actually in force.
+struct RcDiagState {
+	int mode = -1;
+	unsigned avgM = 0, maxM = 0, kf = 0;
+	double vbvM = 0.0;
+};
+RcDiagState rcDiagState;
+
 // 2026-10-21 (S0): one admission event at the DirectMode shim. Measures the
 // cadence the compositor offers vrlink, independently of NVENC. Declared in
 // NvencTap.h; defined after the stats block below.
@@ -291,6 +301,9 @@ int frameProbeCodec = -2;
 // 2026-10-19: defined beside RecordRequest (which fills the window); declared
 // here because ApplyOverrides reads it earlier in the file.
 double RequestMedian();
+// 2026-11-13: defined with the preset tables below; PublishSuccess needs the
+// P1..P7 GUID mapping before that definition.
+const GUID* PresetGuid(int p);
 std::mutex runtimeLock;
 NvencTapRuntimeState runtime;
 void* runtimeEncoder = nullptr;
@@ -347,6 +360,10 @@ void PublishFailure(void* encoder, const NvencTapConfig& cfg, NVENCSTATUS status
 	if(runtimeEncoder != encoder){
 		runtime.effectiveCodec = -1; runtime.effectiveRateControl = -1;
 		runtime.effectiveSplit = -1; runtime.encodeWidth = 0; runtime.encodeHeight = 0;
+		runtime.effectiveTuningInfo.reset(); runtime.effectivePreset.reset();
+		runtime.effectiveMultiPass.reset(); runtime.effectiveAverageBitrateMbit.reset();
+		runtime.effectiveMaxBitrateMbit.reset(); runtime.effectiveVbvBufferSizeBits.reset();
+		runtime.effectiveVbvInitialDelayBits.reset();
 	}
 	runtimeEncoder = encoder; runtime.encoder = encoder; runtime.requestedCodec = cfg.codec;
 	runtime.lastStatus = (uint32_t)status; runtime.error = error;
@@ -420,15 +437,40 @@ void PublishFailure(void* encoder, const NvencTapConfig& cfg, NVENCSTATUS status
 		: memcmp(&p->encodeGUID, &NV_ENC_CODEC_AV1_GUID, sizeof(GUID)) == 0 ? 2
 		: memcmp(&p->encodeGUID, &NV_ENC_CODEC_HEVC_GUID, sizeof(GUID)) == 0 ? 0 : -1;
 	const int rc = p->encodeConfig ? (int)p->encodeConfig->rcParams.rateControlMode : -1;
+	int appliedPreset = 0;
+	for(int n = 1; n <= 7; ++n){
+		const GUID* pg = PresetGuid(n);
+		if(pg && memcmp(&p->presetGUID, pg, sizeof(GUID)) == 0){ appliedPreset = n; break; }
+	}
+	const int appliedMultiPass = p->encodeConfig ? (int)p->encodeConfig->rcParams.multiPass : -1;
 	if(cfg.enabled && (runtime.lastStatus || !runtime.error.empty() || runtimeEncoder != encoder || runtime.effectiveCodec != codec
 		|| runtime.effectiveRateControl != rc
-		|| runtime.encodeWidth != p->encodeWidth || runtime.encodeHeight != p->encodeHeight)){
-		DriverLog("NvencTap: applied requested codec=%d effective codec=%d RC=%d size=%ux%u", cfg.codec, codec, rc, p->encodeWidth, p->encodeHeight);
+		|| runtime.encodeWidth != p->encodeWidth || runtime.encodeHeight != p->encodeHeight
+		|| runtime.effectiveTuningInfo != (int)p->tuningInfo || runtime.effectivePreset != appliedPreset
+		|| runtime.effectiveMultiPass != appliedMultiPass)){
+		DriverLog("NvencTap: applied requested codec=%d effective codec=%d RC=%d size=%ux%u tuning=%u preset=P%d multipass=%d",
+			cfg.codec, codec, rc, p->encodeWidth, p->encodeHeight, (unsigned)p->tuningInfo, appliedPreset, appliedMultiPass);
 	}
 	runtimeEncoder = encoder; runtime.encoder = encoder; runtime.requestedCodec = cfg.codec; runtime.effectiveCodec = codec;
 	runtime.lastStatus = NV_ENC_SUCCESS; runtime.error.clear();
 	runtime.effectiveRateControl = rc; runtime.encodeWidth = p->encodeWidth; runtime.encodeHeight = p->encodeHeight;
 	runtime.effectiveSplit = codec == 1 ? -1 : ((p->version & 0xFFFFu) >= 12 ? (int)p->splitEncodeMode : -1);
+	// 2026-11-13: publish the applied rate-control shape. This runs only after
+	// NVENC accepted the parameters and before Guarded restores the caller's
+	// bytes, so it describes what the session really got, not the request.
+	runtime.effectiveTuningInfo = (int)p->tuningInfo;
+	runtime.effectivePreset = appliedPreset;
+	runtime.effectiveMultiPass.reset(); runtime.effectiveAverageBitrateMbit.reset();
+	runtime.effectiveMaxBitrateMbit.reset(); runtime.effectiveVbvBufferSizeBits.reset();
+	runtime.effectiveVbvInitialDelayBits.reset();
+	if(p->encodeConfig){
+		const NV_ENC_RC_PARAMS &applied = p->encodeConfig->rcParams;
+		runtime.effectiveMultiPass = (int)applied.multiPass;
+		runtime.effectiveAverageBitrateMbit = applied.averageBitRate / 1000000.0;
+		runtime.effectiveMaxBitrateMbit = applied.maxBitRate / 1000000.0;
+		runtime.effectiveVbvBufferSizeBits = applied.vbvBufferSize;
+		runtime.effectiveVbvInitialDelayBits = applied.vbvInitialDelay;
+	}
 }
 // ---- session upgrade state ----
 std::mutex upgradedLock;
@@ -1198,6 +1240,7 @@ inline size_t WhatRem(const char* w, const char* what, size_t whatLen){
 // AV1 window produced INVALID_PARAM on a live driver; the canonical seed
 // removes every hand-built-field risk).
 void ApplyCodecFields(NV_ENC_CONFIG* c, NV_ENC_INITIALIZE_PARAMS* p, int targetCodec, char* &w, size_t whatLen, const char* what){
+	(void)w; (void)whatLen; (void)what; // no codec-field rewrite needs a log fragment yet
 	if(targetCodec == 1){
 		NV_ENC_CONFIG_H264 &h = c->encodeCodecConfig.h264Config;
 		h.level = NV_ENC_LEVEL_AUTOSELECT;
@@ -1245,12 +1288,10 @@ void ApplyCodecFields(NV_ENC_CONFIG* c, NV_ENC_INITIALIZE_PARAMS* p, int targetC
 			default:
 				break;
 		}
-		if(p->tuningInfo == NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY){
-			// the Application Note lists AV1 combos only at LL/HQ; ULL has
-			// no headroom for a 3200x8192@90 frame on 3 engines.
-			p->tuningInfo = NV_ENC_TUNING_INFO_LOW_LATENCY;
-			w += snprintf(w, WhatRem(w, what, whatLen), "tuning ULL->LL; ");
-		}
+		// 2026-11-13: the caller's tuningInfo is preserved for AV1 too. The
+		// old unconditional ULL->LL rewrite silently retuned vrlink's request;
+		// if NVENC does not support the requested tuning for AV1 the init fails
+		// visibly with its status instead of being downgraded here.
 	}
 }
 
@@ -1420,7 +1461,11 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 				if(cfg.multiPass < 0 && cfg.codec == 1){
 					// 2026-10-15: H.264 runs pinned to multiPass=0 (single-pass). The canonical P2/P7@ULL reports 1, which wedged the first encode on 2026-10-15; SteamFrame's verified H.264 profile is single-pass as well.
 					if(rc.multiPass != 0){ w += snprintf(w, WhatRem(w, what, whatLen), "multipass %u->0 [h264]; ", (unsigned)rc.multiPass); rc.multiPass = (NV_ENC_MULTI_PASS)0; changed = true; }
-				}else if(cfg.multiPass < 0 && rc.multiPass != prc.multiPass){
+				}else if(cfg.multiPass < 0 && CodecOfGuid(p->encodeGUID) != 2 && rc.multiPass != prc.multiPass){
+					// 2026-11-13: AV1 keeps the caller's multiPass when the user
+					// left the setting automatic (vrlink's own AV1 tuning); the
+					// canonical preset no longer overrides it. Explicit 0/1/2
+					// still wins in the [explicit] block below.
 					w += snprintf(w, WhatRem(w, what, whatLen), "multipass %u->%u; ", (unsigned)rc.multiPass, (unsigned)prc.multiPass);
 					rc.multiPass = prc.multiPass; changed = true;
 				}
@@ -1640,15 +1685,23 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		// 2026-10-27 (owner directive): Max Bitrate is the applied budget.
 		// Under VBR the requested average is the curve-shaped streamer request
 		// capped by the budget (and by the headroom reservation), and
-		// maxBitRate is exactly the budget. Force CBR only selects the NVENC
-		// rate-control mode: the average is computed identically (request
-		// scaling, curve, constancy, headroom) and maxBitRate follows it,
-		// because the SDK ignores maxBitRate in CBR mode.
+		// maxBitRate is exactly the budget. Under Force CBR the budget is the
+		// constant average and peak: the curve, constancy and headroom cannot
+		// reshape it, and a lower streamer request cannot lower it.
+		// 2026-11-13: restored the v2.1.1 CBR pin after the intermediate change
+		// that shaped CBR with the VBR request/curve.
 		const int64_t ceiling = (int64_t)cfg.bitrateMbit * 1000000ll;
 		const int requestReferenceMbit = cfg.bitrateRequestReferenceMbit > 0
 			? (std::min)(cfg.bitrateMbit, cfg.bitrateRequestReferenceMbit) : cfg.bitrateMbit;
 		int64_t target = ceiling;
-		if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0){
+		if(cfg.forceCbr){
+			target = ceiling;
+			static std::atomic<bool> cbrPolicyLogged{false};
+			if((cfg.bitrateCurve != 0 || cfg.bitrateConstancyPct != 0 || cfg.maxBitrateHeadroomPct != 0)
+				&& !cbrPolicyLogged.exchange(true)){
+				DriverLog("NvencTap: Force CBR applies streamFrame.nvencBitrateMbit directly as the constant average and maximum; the bitrate curve, constancy and headroom are not applied.");
+			}
+		}else if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0){
 			// Keep the raw request's integer-bit precision. The internal
 			// reference only scales upward when Max Bitrate exceeds it;
 			// the budget and headroom caps still apply below.
@@ -1669,15 +1722,15 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		}
 		// Linear at 0% historically left a zero request alone rather than
 		// writing an invalid zero average into the encoder session.
-		if(cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0 && rc.averageBitRate <= 0){
+		if(!cfg.forceCbr && cfg.bitrateCurve == 0 && cfg.bitrateConstancyPct == 0 && rc.averageBitRate <= 0){
 			target = ceiling;
 		}
 		target = (std::min<int64_t>)(target, ceiling);
 		// 2026-10-27: headroom reserves part of the budget for the VBR peak.
 		// The average is capped at budget/(1+pct/100); maxBitRate stays the
-		// budget. 0 leaves the average free to use the whole budget. Applies
-		// in CBR too; there maxBitRate is set equal to the average below.
-		if(cfg.maxBitrateHeadroomPct > 0){
+		// budget. 0 leaves the average free to use the whole budget. Force CBR
+		// is constant rate, so headroom is inert there (max == average).
+		if(!cfg.forceCbr && cfg.maxBitrateHeadroomPct > 0){
 			const int64_t reserved = ceiling * 100ll / (100ll + (int64_t)cfg.maxBitrateHeadroomPct);
 			target = (std::min<int64_t>)(target, reserved);
 		}
@@ -1715,6 +1768,15 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			w += snprintf(w, WhatRem(w, what, whatLen), "vbv %.2fM->%.2fM(%d fr); ", rc.vbvBufferSize / 1e6, vbv / 1e6, vbvFr);
 			rc.vbvBufferSize = vbv; changed = true;
 		}
+		// 2026-11-13: AV1/HEVC derive the initial delay from the applied buffer
+		// so the session starts full rather than with a caller-carried delay.
+		// Policy choice for this tap, not a historical replication; H.264 keeps
+		// its explicit recipe control above, and vbvFrames=0 leaves both caller
+		// fields untouched.
+		if(vbv && !IsH264(p->encodeGUID) && rc.vbvInitialDelay != rc.vbvBufferSize){
+			w += snprintf(w, WhatRem(w, what, whatLen), "vbvInitDelay %.2fM->%.2fM [derived]; ", rc.vbvInitialDelay / 1e6, rc.vbvBufferSize / 1e6);
+			rc.vbvInitialDelay = rc.vbvBufferSize; changed = true;
+		}
 	}
 	if(cfg.maxQp > 0){
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
@@ -1734,13 +1796,26 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			rc.enableMinQP = 1; rc.minQP.qpInterP = q; rc.minQP.qpInterB = qb; rc.minQP.qpIntra = qi; changed = true;
 		}
 	}
-	if(cfg.forceCbr){
+	// 2026-11-11: keyframe size budget. NVENC bounds I-frame bits through
+	// lowDelayKeyFrameScale, and the tap wrote it only on the Force-CBR
+	// branch. VBR sessions (and CBR chosen by Steam Link with the switch off)
+	// therefore left keyframes unbounded: measured 3.3-4.0 MiB IDRs at a
+	// 500 Mbit budget, which Steam Link drops as "Packet too big", resets the
+	// encoder, and the reset's forced IDR repeats the fault. Write the user's
+	// budget whenever a bitrate budget is in force; Force CBR additionally
+	// selects the mode and pins maxBitRate to the average.
+	if(cfg.bitrateMbit > 0 || cfg.forceCbr){
 		NV_ENC_RC_PARAMS &rc = c->rcParams;
-		uint8_t kf = (uint8_t)cfg.lowDelayKfScale;
-		if(rc.rateControlMode != NV_ENC_PARAMS_RC_CBR || rc.lowDelayKeyFrameScale != kf || rc.maxBitRate != rc.averageBitRate){
-			w += snprintf(w, WhatRem(w, what, whatLen), "rc %s->CBR lowDelayKF %u->%u; ", RcName(rc.rateControlMode), rc.lowDelayKeyFrameScale, (unsigned)kf);
-			rc.rateControlMode = NV_ENC_PARAMS_RC_CBR; rc.lowDelayKeyFrameScale = kf;
-			if(rc.maxBitRate != rc.averageBitRate){ rc.maxBitRate = rc.averageBitRate; }
+		const uint8_t kf = (uint8_t)cfg.lowDelayKfScale;
+		const bool cbr = cfg.forceCbr;
+		if(rc.lowDelayKeyFrameScale != kf || (cbr && rc.rateControlMode != NV_ENC_PARAMS_RC_CBR)
+			|| (cbr && rc.maxBitRate != rc.averageBitRate)){
+			w += snprintf(w, WhatRem(w, what, whatLen), "%slowDelayKF %u->%u; ", cbr ? "rc->CBR " : "", rc.lowDelayKeyFrameScale, (unsigned)kf);
+			rc.lowDelayKeyFrameScale = kf;
+			if(cbr){
+				rc.rateControlMode = NV_ENC_PARAMS_RC_CBR;
+				if(rc.maxBitRate != rc.averageBitRate){ rc.maxBitRate = rc.averageBitRate; }
+			}
 			changed = true;
 		}
 	}
@@ -1751,6 +1826,15 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			w += snprintf(w, WhatRem(w, what, whatLen), "AQ %u(%u)->on(%u); ", rc.enableAQ, rc.aqStrength, s);
 			rc.enableAQ = 1; rc.aqStrength = s; changed = true;
 		}
+	}
+	{
+		std::lock_guard<std::mutex> g(policyLock);
+		const NV_ENC_RC_PARAMS &rc = c->rcParams;
+		rcDiagState.mode = (int)rc.rateControlMode;
+		rcDiagState.avgM = (unsigned)((rc.averageBitRate + 500000ull) / 1000000ull);
+		rcDiagState.maxM = (unsigned)((rc.maxBitRate + 500000ull) / 1000000ull);
+		rcDiagState.kf = (unsigned)rc.lowDelayKeyFrameScale;
+		rcDiagState.vbvM = rc.vbvBufferSize / 1e6;
 	}
 	return changed;
 }
@@ -2470,8 +2554,15 @@ NVENCSTATUS NVENCAPI NvencTapShims::LockBitstream(void* encoder, NV_ENC_LOCK_BIT
 	// Record individual NVENC output buffers above 1 MiB. These observations
 	// alone do not establish complete-frame, transport or decoder limits.
 	if(newMax && n >= 1048576 && bigFrameLogged.fetch_add(1) < 40){
-		DriverLog("NvencTap: new largest encoded output buffer: %u bytes (%.2f MiB) picType=%u%s frameIdx=%u avgQP=%u slices=%u",
-			n, n / 1048576.0, (unsigned)params->pictureType, idr ? " IDR/I" : "", params->frameIdx, params->frameAvgQP, params->numSlices);
+		int rcMode; unsigned rcAvgM, rcMaxM, rcKf; double rcVbvM;
+		{
+			std::lock_guard<std::mutex> g(policyLock);
+			rcMode = rcDiagState.mode; rcAvgM = rcDiagState.avgM; rcMaxM = rcDiagState.maxM;
+			rcKf = rcDiagState.kf; rcVbvM = rcDiagState.vbvM;
+		}
+		DriverLog("NvencTap: new largest encoded output buffer: %u bytes (%.2f MiB) picType=%u%s frameIdx=%u avgQP=%u slices=%u | rc mode=%d avg=%uM max=%uM vbv=%.2fM lowDelayKF=%u",
+			n, n / 1048576.0, (unsigned)params->pictureType, idr ? " IDR/I" : "", params->frameIdx, params->frameAvgQP, params->numSlices,
+			rcMode, rcAvgM, rcMaxM, rcVbvM, rcKf);
 	}
 	return st;
 }
@@ -2604,6 +2695,10 @@ NVENCSTATUS NVENCAPI NvencTapShims::DestroyEncoder(void* encoder){
 		if(runtimeEncoder == encoder){
 			runtimeEncoder = nullptr; runtime.encoder = nullptr; runtime.effectiveCodec = -1;
 			runtime.effectiveRateControl = -1; runtime.effectiveSplit = -1; runtime.encodeWidth = 0; runtime.encodeHeight = 0;
+			runtime.effectiveTuningInfo.reset(); runtime.effectivePreset.reset();
+			runtime.effectiveMultiPass.reset(); runtime.effectiveAverageBitrateMbit.reset();
+			runtime.effectiveMaxBitrateMbit.reset(); runtime.effectiveVbvBufferSizeBits.reset();
+			runtime.effectiveVbvInitialDelayBits.reset();
 			// Keep a rejected request visible until a configuration succeeds.
 		}
 		if(runtimePictureEncoder == encoder){

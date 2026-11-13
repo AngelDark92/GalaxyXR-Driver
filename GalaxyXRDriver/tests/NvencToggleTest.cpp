@@ -218,7 +218,7 @@ void CheckCodecOverride(void* encoder){
 	Check(seenAv1Level == NV_ENC_LEVEL_AV1_AUTOSELECT, "codec AV1: level AUTOSELECT");
 	Check(seenAv1BitDepth == 0u && seenAv1InputBitDepth == 0u, "codec AV1: SDK13 tail depths untouched (reserved in the 12.1 ABI)");
 	Check((seenAv1Flags & 0x3F000u) == 0x12000u, "codec AV1: 12.1 flags depth bits set to 10-bit (2/2)");
-	Check(seenTuning == NV_ENC_TUNING_INFO_LOW_LATENCY, "codec AV1: ULL re-tuned to LL for the big frame");
+	Check(seenTuning == NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY, "codec AV1: caller ULL tuning preserved (no silent ULL->LL retune)");
 	Check(init2.tuningInfo == NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY, "codec AV1: caller tuning restored");
 	Check(seenAv1RepeatSeqHdr == 1, "codec AV1: repeatSeqHdr");
 	Check(memcmp(&cfg2, &savedCfg2, sizeof(cfg2)) == 0, "codec AV1: caller config fully restored");
@@ -619,8 +619,9 @@ void CheckCodecOverride(void* encoder){
 	Check(seenBitrate == 270000000u && seenBitrate <= 300000000u && seenMaxBitrate == 300000000u,
 		"custom curve: x=0.4 maps to 0.9 * 300 and never exceeds the maximum");
 
-	// Force CBR selects NVENC CBR only; target shaping is identical to VBR and
-	// maxBitRate is set equal to the average (ignored by the SDK in CBR).
+	// Force CBR pins the budget as the constant average and peak (v2.1.1
+	// semantics restored 2026-11-13); the curve, constancy and headroom cannot
+	// reshape it and a lower streamer request cannot lower it.
 	NvencTapConfig cbrBudget; cbrBudget.enabled = true; cbrBudget.codec = 1; cbrBudget.splitMode = 1;
 	cbrBudget.bitrateMbit = 500; cbrBudget.forceCbr = true;
 	cbrBudget.bitrateCurve = 3; cbrBudget.bitrateConstancyPct = 50; cbrBudget.maxBitrateHeadroomPct = 15;
@@ -637,14 +638,12 @@ void CheckCodecOverride(void* encoder){
 			"CBR budget: init delegated");
 	}
 	{
-		// Force CBR only selects the rate-control mode: the average is the
-		// same curve/constancy/headroom target as VBR, and the SDK-ignored
-		// maxBitRate follows it.
-		const double expectedCurve = 500e6 * GxrCurveTarget(280.0 / 500.0, 3, 50, cbrBudget.bitrateCurvePoints);
-		const uint32_t expectedAvg = (uint32_t)(std::min)(expectedCurve, 500e6 * 100.0 / 115.0);
-		Check(seenBitrate == expectedAvg && seenMaxBitrate == expectedAvg && seenBitrate < 500000000u
+		// v2.1.1: the entered Max Bitrate is the CBR average and maximum; the
+		// curve, constancy and headroom are inert, and a lower request cannot
+		// drag the average down.
+		Check(seenBitrate == 500000000u && seenMaxBitrate == 500000000u
 			&& seenRcMode == NV_ENC_PARAMS_RC_CBR,
-			"CBR budget: curve, constancy and headroom shape the CBR average; max equals average");
+			"CBR budget: average and maximum pinned to Max Bitrate; curve, constancy and headroom ignored");
 	}
 
 	// 2026-10-27: headroom reserves part of the VBR budget for the peak.
@@ -797,13 +796,15 @@ void CheckBitrateRequestReference(){
 		checkCase(cfg, 320000000u, 434782608u, "headroom reserves budget after scaling");
 		checkCase(cfg, 0u, 434782608u, "zero linear request retains headroom behavior");
 		cfg.maxBitrateHeadroomPct = 0; cfg.forceCbr = true; cfg.bitrateCurve = 0; cfg.bitrateConstancyPct = 0;
-		checkCase(cfg, 320000000u, 457142857u, "Force CBR linear keeps request scaling");
+		checkCase(cfg, 320000000u, 500000000u, "Force CBR pins the average to Max Bitrate despite a lower request");
 		cfg.maxBitrateHeadroomPct = 15;
-		checkCase(cfg, 320000000u, 434782608u, "Force CBR linear keeps headroom cap");
+		checkCase(cfg, 320000000u, 500000000u, "Force CBR ignores headroom and keeps the full budget");
 		cfg.maxBitrateHeadroomPct = 0; cfg.bitrateCurve = 2; cfg.bitrateConstancyPct = 35;
-		checkCase(cfg, 175000000u,
-			(uint32_t)(500000000.0 * GxrCurveTarget(175.0 / 350.0, 2, 35, cfg.bitrateCurvePoints)),
-			"Force CBR keeps curve and constancy");
+		checkCase(cfg, 175000000u, 500000000u, "Force CBR ignores curve and constancy");
+		cfg.bitrateCurve = GxrCurveCustom; cfg.bitrateConstancyPct = 0;
+		cfg.bitrateCurvePoints = {{0.0, 0.1}, {0.1, 0.15}, {0.4, 0.3}, {0.6, 0.8}, {0.7, 0.9}, {0.8, 1.0}, {1.0, 1.0}};
+		checkCase(cfg, 0u, 500000000u, "Force CBR ignores a custom curve floor");
+		cfg.bitrateCurve = 0; cfg.bitrateCurvePoints.clear();
 	}
 	reconfigureDriverStatus = oldReconfigureStatus;
 	ConfigureCodec(true, 0);
@@ -860,6 +861,123 @@ NVENCSTATUS NVENCAPI CaptureEncodePresetGUIDs(void*, GUID codec, GUID* guids, ui
 		if(pg){ guids[(*fetched)++] = *pg; }
 	}
 	return NV_ENC_SUCCESS;
+}
+
+void CheckAppliedRateControlTelemetry(){
+	const auto savedPresetFunction = origGetPresetConfigEx;
+	origGetPresetConfigEx = CaptureCanonicalPreset;
+	auto mbitBits = [](double mbit){ return (uint32_t)(mbit * 1000000.0 + 0.5); };
+
+	// CBR: telemetry mirrors the applied session, which is the pinned budget,
+	// never the lower streamer request or the ignored curve/headroom request.
+	Configure(true, 1);
+	NvencTapConfig cfg; cfg.enabled = true; cfg.codec = 0; cfg.splitMode = 1;
+	cfg.bitrateMbit = 500; cfg.forceCbr = true;
+	cfg.bitrateCurve = 2; cfg.bitrateConstancyPct = 35; cfg.maxBitrateHeadroomPct = 15;
+	cfg.vbvFrames = 2; cfg.forceFps = 90; cfg.preset = 5; cfg.presetMerge = true;
+	NvencTap::Get().SetConfig(cfg);
+	void* encoder = OpenSession();
+	NV_ENC_CONFIG config = {}; config.version = Tag111(7, true); config.rcParams.version = Tag111(1);
+	config.rcParams.averageBitRate = 120000000; config.rcParams.maxBitRate = 300000000;
+	config.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+	config.rcParams.vbvBufferSize = 2500000; config.rcParams.vbvInitialDelay = 123456;
+	config.rcParams.multiPass = (NV_ENC_MULTI_PASS)2;
+	config.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+	NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag111(5, true);
+	init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init.encodeConfig = &config;
+	init.frameRateNum = 90; init.frameRateDen = 1;
+	init.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
+	init.presetGUID = *PresetGuid(5);
+	const auto savedConfig = config; const auto savedInit = init;
+	const uint32_t derivedVbv = (uint32_t)(500000000.0 / 90.0 * 2);
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS,
+		"applied telemetry: CBR init delegated");
+	Check(seenBitrate == 500000000u && seenMaxBitrate == 500000000u,
+		"applied telemetry: CBR sends the pinned budget, not the 120M request");
+	Check(seenVbvSize == derivedVbv && seenVbvDelay == derivedVbv,
+		"applied telemetry: HEVC derives the VBV initial delay from the applied buffer");
+	Check(seenMultiPass == 1u,
+		"applied telemetry: HEVC automatic multipass still adopts the canonical preset");
+	auto applied = NvencTap::Get().GetRuntimeState();
+	Check(applied.effectiveTuningInfo.has_value() && applied.effectiveTuningInfo.value() == (int)NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY
+		&& applied.effectivePreset.has_value() && applied.effectivePreset.value() == 5
+		&& applied.effectiveMultiPass.has_value() && applied.effectiveMultiPass.value() == 1,
+		"applied telemetry: tuning, preset and multipass mirror the accepted session");
+	Check(applied.effectiveAverageBitrateMbit.has_value() && mbitBits(applied.effectiveAverageBitrateMbit.value()) == 500000000u
+		&& applied.effectiveMaxBitrateMbit.has_value() && mbitBits(applied.effectiveMaxBitrateMbit.value()) == 500000000u,
+		"applied telemetry: average and maximum are the applied 500M pin");
+	Check(applied.effectiveVbvBufferSizeBits.has_value() && applied.effectiveVbvBufferSizeBits.value() == derivedVbv
+		&& applied.effectiveVbvInitialDelayBits.has_value() && applied.effectiveVbvInitialDelayBits.value() == derivedVbv,
+		"applied telemetry: VBV size and derived delay are the applied bits");
+	Check(memcmp(&config, &savedConfig, sizeof(config)) == 0 && memcmp(&init, &savedInit, sizeof(init)) == 0,
+		"applied telemetry: caller bytes restored");
+
+	// A rejected request must not replace the last successful applied shape.
+	NvencTapConfig rejected = cfg; rejected.bitrateMbit = 300; rejected.vbvFrames = 4; rejected.preset = 7;
+	NvencTap::Get().SetConfig(rejected);
+	nextInitStatus = NV_ENC_ERR_INVALID_PARAM;
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_ERR_INVALID_PARAM,
+		"applied telemetry: rejected CBR request surfaces its status");
+	applied = NvencTap::Get().GetRuntimeState();
+	Check(applied.lastStatus == NV_ENC_ERR_INVALID_PARAM
+		&& applied.effectiveAverageBitrateMbit.has_value() && mbitBits(applied.effectiveAverageBitrateMbit.value()) == 500000000u
+		&& applied.effectivePreset.has_value() && applied.effectivePreset.value() == 5
+		&& applied.effectiveVbvBufferSizeBits.has_value() && applied.effectiveVbvBufferSizeBits.value() == derivedVbv,
+		"applied telemetry: failed request keeps the last successful shape visible");
+
+	// vbvFrames=0 still leaves both caller VBV fields untouched.
+	NvencTapConfig vbvZero; vbvZero.enabled = true; vbvZero.codec = 0; vbvZero.splitMode = 1;
+	vbvZero.bitrateMbit = 500;
+	NvencTap::Get().SetConfig(vbvZero);
+	config.rcParams.vbvBufferSize = 2500000; config.rcParams.vbvInitialDelay = 123456;
+	Check(NvencTapShims::InitializeEncoder(encoder, &init) == NV_ENC_SUCCESS,
+		"applied telemetry: vbvFrames=0 init delegated");
+	Check(seenVbvSize == 2500000u && seenVbvDelay == 123456u,
+		"applied telemetry: vbvFrames=0 writes neither VBV field");
+	Check(memcmp(&config, &savedConfig, sizeof(config)) == 0 && memcmp(&init, &savedInit, sizeof(init)) == 0,
+		"applied telemetry: vbvFrames=0 caller bytes restored");
+
+	// AV1: automatic multipass keeps vrlink's own value; explicit wins; ULL is
+	// preserved and the derived VBV delay follows the applied buffer.
+	NvencTapConfig av1; av1.enabled = true; av1.codec = 2; av1.splitMode = 1;
+	av1.bitrateMbit = 500; av1.forceCbr = true; av1.vbvFrames = 2; av1.forceFps = 90; av1.preset = 7;
+	NvencTap::Get().SetConfig(av1);
+	void* av1Encoder = OpenSession();
+	NV_ENC_CONFIG av1Config = {}; av1Config.version = Tag111(7, true); av1Config.rcParams.version = Tag111(1);
+	av1Config.rcParams.averageBitRate = 120000000; av1Config.rcParams.maxBitRate = 300000000;
+	av1Config.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+	av1Config.rcParams.vbvBufferSize = 2500000; av1Config.rcParams.vbvInitialDelay = 123456;
+	av1Config.rcParams.multiPass = (NV_ENC_MULTI_PASS)0;
+	av1Config.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+	NV_ENC_INITIALIZE_PARAMS av1Init = {}; av1Init.version = Tag111(5, true);
+	av1Init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; av1Init.encodeConfig = &av1Config;
+	av1Init.frameRateNum = 90; av1Init.frameRateDen = 1;
+	av1Init.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
+	av1Init.presetGUID = *PresetGuid(7);
+	const auto savedAv1Config = av1Config; const auto savedAv1Init = av1Init;
+	Check(NvencTapShims::InitializeEncoder(av1Encoder, &av1Init) == NV_ENC_SUCCESS,
+		"applied telemetry: AV1 init delegated");
+	Check(seenMultiPass == 0u, "applied telemetry: AV1 automatic multipass preserves the caller's value");
+	Check(seenTuning == NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY, "applied telemetry: AV1 preserves the caller ULL tuning");
+	Check(seenVbvSize == derivedVbv && seenVbvDelay == derivedVbv,
+		"applied telemetry: AV1 derives the VBV initial delay from the applied buffer");
+	applied = NvencTap::Get().GetRuntimeState();
+	Check(applied.effectiveMultiPass.has_value() && applied.effectiveMultiPass.value() == 0
+		&& applied.effectivePreset.has_value() && applied.effectivePreset.value() == 7,
+		"applied telemetry: AV1 reports the preserved multipass and applied preset");
+	Check(memcmp(&av1Config, &savedAv1Config, sizeof(av1Config)) == 0 && memcmp(&av1Init, &savedAv1Init, sizeof(av1Init)) == 0,
+		"applied telemetry: AV1 caller bytes restored");
+
+	av1.multiPass = 2;
+	NvencTap::Get().SetConfig(av1);
+	Check(NvencTapShims::InitializeEncoder(av1Encoder, &av1Init) == NV_ENC_SUCCESS && seenMultiPass == 2u,
+		"applied telemetry: explicit AV1 multipass wins");
+	Check(memcmp(&av1Init, &savedAv1Init, sizeof(av1Init)) == 0, "applied telemetry: explicit AV1 multipass caller restored");
+
+	Check(NvencTapShims::DestroyEncoder(av1Encoder) == NV_ENC_SUCCESS, "applied telemetry: AV1 session destroyed");
+	Check(NvencTapShims::DestroyEncoder(encoder) == NV_ENC_SUCCESS, "applied telemetry: HEVC session destroyed");
+	origGetPresetConfigEx = savedPresetFunction;
+	Configure(true, 0);
 }
 
 void CheckExplicitSettings(){
@@ -1031,6 +1149,11 @@ void CheckExplicitSettings(){
 	Check(destroyed.effectiveCodec == -1 && destroyed.effectiveRateControl == -1
 		&& destroyed.encodeWidth == 0 && destroyed.encodeHeight == 0 && destroyed.error.empty() && destroyed.pictureError.empty(),
 		"successful encoder destroy: no stale effective state or error");
+	Check(!destroyed.effectiveTuningInfo.has_value() && !destroyed.effectivePreset.has_value()
+		&& !destroyed.effectiveMultiPass.has_value() && !destroyed.effectiveAverageBitrateMbit.has_value()
+		&& !destroyed.effectiveMaxBitrateMbit.has_value() && !destroyed.effectiveVbvBufferSizeBits.has_value()
+		&& !destroyed.effectiveVbvInitialDelayBits.has_value(),
+		"successful encoder destroy: applied rate-control telemetry cleared, not defaulted");
 	Configure(true, 0);
 }
 void CheckDeltaMapConversion(){
@@ -2272,6 +2395,7 @@ int main(){
 	Check(seenCapsVersion == Tag111(1), "new OFF session continues with stock ABI");
 	CheckCodecOverride(stock);
 	CheckBitrateRequestReference();
+	CheckAppliedRateControlTelemetry();
 	CheckExplicitSettings();
 	CheckOutputBufferLog();
 	CheckDeltaMapConversion();

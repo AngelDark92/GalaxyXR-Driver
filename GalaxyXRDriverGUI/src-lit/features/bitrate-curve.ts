@@ -230,7 +230,8 @@ export class BitrateCurvePanel extends LitElement {
 
     // Final average target: the same request-domain, constancy and
     // headroom policy as the driver, without the temporal request filter.
-    // Force CBR only selects the rate-control mode and does not alter this line.
+    // Force CBR pins the applied average to the Max Bitrate ceiling, so this
+    // line is flat at Max Bitrate while CBR is on.
     ctx.strokeStyle = '#5f9fdf';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -448,7 +449,9 @@ export class BitrateCurvePanel extends LitElement {
       : this.editable
         ? t('P1 is fixed at request 0 with an editable floor. P2–P5 move freely. P6 starts the flat Max Bitrate section; drag it left to begin the plateau earlier. P7 is the fixed endpoint and cannot be selected. Request must increase left-to-right and target must never decrease. The thin line shows the base curve before constancy and headroom.')
         : '';
-    const policyHint = this.pct >= 100
+    const policyHint = this.forceCbr
+      ? t('Force CBR pins the applied average to Max Bitrate. The saved curve, constancy and headroom are kept but not shown here.')
+      : this.pct >= 100
         ? t('At 100% constancy, positive requests reach the final average limit after any headroom reservation. The points still shape the base curve.')
         : this.headroomPct > 0
           ? t('Headroom reserves part of Max Bitrate for the VBR peak and can limit the final average target below the base curve.')
@@ -461,7 +464,7 @@ export class BitrateCurvePanel extends LitElement {
           @pointerup=${this.onPointerUp} @pointercancel=${this.onPointerUp}
           @keydown=${this.onKeyDown}></canvas>
         <div class="legend">
-          <span class="item"><span class="swatch solid"></span>${t('Final average target')} — ${familyLabel}, ${this.pct}%</span>
+          <span class="item"><span class="swatch solid"></span>${this.forceCbr ? t('Fixed Max Bitrate target (CBR)') : t('Final average target') + ' — ' + familyLabel + ', ' + this.pct + '%'}</span>
           <span class="item"><span class="swatch base"></span>${t('Base curve (points)')}</span>
           <span class="item"><span class="swatch dashed"></span>${t('Streamer standard (linear)')}</span>
           <span class="item"><span class="swatch max"></span>${t('Max Bitrate {value} Mbit/s', { value: String(Math.round(this.ceiling)) })}</span>

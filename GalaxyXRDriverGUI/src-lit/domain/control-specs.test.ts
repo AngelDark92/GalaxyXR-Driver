@@ -140,9 +140,9 @@ describe('cross-field rules', () => {
 });
 
 describe('saved-but-not-applied notes', () => {
-  it('explains a low-delay keyframe budget while Force CBR is off', () => {
+  it('keeps the keyframe budget active without Force CBR', () => {
     const spec = controlSpec('streamFrame.nvencLowDelayKfScale') as NumberControlSpec;
-    expect(inertReasons(spec, ctx(0))).toEqual(['Turn on Force CBR to apply this.']);
+    expect(inertReasons(spec, ctx(0))).toEqual([]);
     expect(inertReasons(spec, { ...ctx(0), forceCbr: true })).toEqual([]);
   });
 

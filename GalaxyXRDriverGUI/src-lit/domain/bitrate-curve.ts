@@ -177,10 +177,12 @@ export function bitrateCurveRequestDomain(ceilingMbit: number, requestReferenceM
 /** Steady-state positive-request map; native no-request recovery is separate. */
 export function bitrateCurveMbit(requestMbit: number, ceilingMbit: number, curve: number,
   pct: number, points?: readonly BitrateCurvePoint[], requestReferenceMbit = 0,
-  headroomPct = 0, _forceCbr = false): number {
-  // Force CBR only selects the NVENC rate-control mode; it never changes the
-  // requested target. The trailing parameter is kept for call compatibility.
+  headroomPct = 0, forceCbr = false): number {
   const ceiling = ceilingMbit > 0 ? ceilingMbit : 1;
+  // 2026-11-13 (owner directive): Force CBR pins the applied average to the
+  // user's Max Bitrate budget. The saved curve, constancy and headroom are
+  // preserved but not applied while CBR is on.
+  if (forceCbr) return Math.max(0, ceilingMbit);
   const x = Math.max(0, Math.min(1, requestMbit / bitrateCurveRequestDomain(ceiling, requestReferenceMbit)));
   const budget = headroomPct > 0
     ? Math.floor(ceiling * 1e6 * 100 / (100 + headroomPct)) / 1e6 : ceiling;
