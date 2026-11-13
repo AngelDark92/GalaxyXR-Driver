@@ -25,6 +25,10 @@ Config driverConfig;
 std::atomic<int> logCalls{0};
 std::mutex capturedLogLock;
 std::string largestBufferLog;
+// 2026-11-13: closed-epoch rejection note (one per process), captured verbatim
+// so its raw-vs-applied fields can be asserted.
+std::atomic<int> closedEpochLogs{0};
+std::string closedEpochLog;
 void DriverLog(const char* format, ...) {
 	++logCalls;
 	if(std::strstr(format, "new largest encoded")){
@@ -34,6 +38,15 @@ void DriverLog(const char* format, ...) {
 		va_end(args);
 		std::lock_guard<std::mutex> guard(capturedLogLock);
 		largestBufferLog = message;
+	}
+	if(std::strstr(format, "closed-epoch session")){
+		char message[2048];
+		va_list args; va_start(args, format);
+		std::vsnprintf(message, sizeof(message), format, args);
+		va_end(args);
+		std::lock_guard<std::mutex> guard(capturedLogLock);
+		closedEpochLog = message;
+		closedEpochLogs.fetch_add(1);
 	}
 }
 
@@ -2314,6 +2327,163 @@ void CheckCapabilityInventory(){
 	ConfigureCodec(true, 0);
 }
 
+// 2026-11-13: a closed-epoch (reconnect) session is the session NVENC is still
+// running, and it was created with the tap's overrides. Guarded must apply the
+// same policy as a live call (so vrlink's raw request matches the session) and
+// publish/count nothing. A rejection must produce exactly one diagnostic line
+// naming the caller's raw request and the applied one.
+void CheckClosedEpochQuietPolicy(){
+	void* enc = OpenSession();
+	NvencTapConfig quietCfg;
+	quietCfg.enabled = true;
+	quietCfg.splitMode = 1;          // HEVC applies split immediately (no AV1 deferral)
+	quietCfg.bitrateMbit = 100;
+	quietCfg.forceCbr = true;
+	quietCfg.lowDelayKfScale = 1;
+	quietCfg.vbvFrames = 0;          // preserve the caller's buffer + initial delay
+	quietCfg.presetMerge = false;    // no preset fetch on this fixture
+	quietCfg.effectiveTileWidth = 1536;
+	NvencTap::Get().SetConfig(quietCfg);
+
+	NV_ENC_CONFIG config = {}; config.version = Tag121(8, true); config.rcParams.version = Tag121(1, false);
+	config.rcParams.averageBitRate = 42000000; config.rcParams.maxBitRate = 42000000;
+	config.rcParams.lowDelayKeyFrameScale = 0; config.rcParams.vbvBufferSize = 1000000;
+	config.rcParams.vbvInitialDelay = 500000; config.gopLength = 60;
+	config.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+	config.encodeCodecConfig.hevcConfig.level = NV_ENC_LEVEL_HEVC_61;
+	NV_ENC_INITIALIZE_PARAMS init = {}; init.version = Tag121(6, true);
+	init.encodeGUID = NV_ENC_CODEC_HEVC_GUID; init.encodeConfig = &config;
+	init.frameRateNum = 90; init.frameRateDen = 1;
+	init.encodeWidth = 1536; init.encodeHeight = 6144;
+	init.maxEncodeWidth = 1536; init.maxEncodeHeight = 6144;
+	init.bufferFormat = NV_ENC_BUFFER_FORMAT_NV12;
+	const auto savedConfig = config; const auto savedInit = init;
+
+	// what the encoder call itself observes: the overridden struct, in place
+	uint32_t seenAvg = 0, seenMax = 0, seenKf = 0, seenSplit = 0, seenVbv = 0, seenVbvInit = 0, seenRc = 0;
+	const auto observe = [&]{
+		seenAvg = config.rcParams.averageBitRate; seenMax = config.rcParams.maxBitRate;
+		seenKf = config.rcParams.lowDelayKeyFrameScale; seenVbv = config.rcParams.vbvBufferSize;
+		seenVbvInit = config.rcParams.vbvInitialDelay; seenRc = config.rcParams.rateControlMode;
+		seenSplit = ((&init.enablePTD)[1] >> 5) & 0xFu;
+		return NV_ENC_SUCCESS;
+	};
+
+	// (a)/(b) quiet stale call: full policy, no publication, no counters
+	const auto stats0 = NvencTap::Get().GetStats();
+	const auto runtime0 = NvencTap::Get().GetRuntimeState();
+	const auto policy0 = NvencTap::Get().GetBitratePolicyState();
+	const int logs0 = logCalls;
+	Check(Guarded("nvEncReconfigureEncoder", enc, &init, observe, false,
+			stats.reconfCalls, stats.reconfOverridden, stats.reconfFailedThenPristineOk, stats.reconfFailed,
+			nullptr, nullptr, false, true) == NV_ENC_SUCCESS,
+		"closed epoch: quiet reconfigure delegates");
+	Check(seenAvg == 100000000u && seenMax == 100000000u && seenKf == 1u && seenRc == NV_ENC_PARAMS_RC_CBR,
+		"closed epoch: quiet call applies the bitrate/VBV/keyframe policy");
+	Check(seenSplit == 1u, "closed epoch: quiet call applies the split bits");
+	Check(memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&config, &savedConfig, sizeof(config)) == 0,
+		"closed epoch: caller init/config bytes restored");
+	const auto statsQuiet = NvencTap::Get().GetStats();
+	const auto runtimeQuiet = NvencTap::Get().GetRuntimeState();
+	const auto policyQuiet = NvencTap::Get().GetBitratePolicyState();
+	Check(memcmp(&stats0, &statsQuiet, sizeof(stats0)) == 0, "closed epoch: quiet call records no statistics");
+	Check(runtimeQuiet.lastStatus == runtime0.lastStatus && runtimeQuiet.error == runtime0.error
+		&& runtimeQuiet.effectiveCodec == runtime0.effectiveCodec
+		&& runtimeQuiet.effectiveRateControl == runtime0.effectiveRateControl
+		&& runtimeQuiet.effectiveSplit == runtime0.effectiveSplit
+		&& runtimeQuiet.encodeWidth == runtime0.encodeWidth && runtimeQuiet.encodeHeight == runtime0.encodeHeight
+		&& runtimeQuiet.effectiveTuningInfo == runtime0.effectiveTuningInfo
+		&& runtimeQuiet.effectivePreset == runtime0.effectivePreset
+		&& runtimeQuiet.effectiveMultiPass == runtime0.effectiveMultiPass
+		&& runtimeQuiet.effectiveAverageBitrateMbit == runtime0.effectiveAverageBitrateMbit
+		&& runtimeQuiet.effectiveMaxBitrateMbit == runtime0.effectiveMaxBitrateMbit
+		&& runtimeQuiet.effectiveVbvBufferSizeBits == runtime0.effectiveVbvBufferSizeBits
+		&& runtimeQuiet.effectiveVbvInitialDelayBits == runtime0.effectiveVbvInitialDelayBits,
+		"closed epoch: quiet call publishes no effective* telemetry");
+	Check(policyQuiet.ceilingMbit == policy0.ceilingMbit && policyQuiet.requestMbit == policy0.requestMbit
+		&& policyQuiet.targetMbit == policy0.targetMbit, "closed epoch: quiet call leaves the policy diagnostics alone");
+	Check(logCalls == logs0, "closed epoch: quiet success emits no log line");
+
+	// (c) a live call still applies the same overrides and publishes
+	const auto quietApplied = std::vector<uint32_t>{ seenAvg, seenMax, seenKf, seenVbv, seenVbvInit, seenRc, seenSplit };
+	Check(Guarded("nvEncReconfigureEncoder", enc, &init, observe, false,
+			stats.reconfCalls, stats.reconfOverridden, stats.reconfFailedThenPristineOk, stats.reconfFailed,
+			nullptr, nullptr, false) == NV_ENC_SUCCESS,
+		"live: reconfigure delegates");
+	Check(std::vector<uint32_t>{ seenAvg, seenMax, seenKf, seenVbv, seenVbvInit, seenRc, seenSplit } == quietApplied,
+		"live: reconfigure applies exactly the same overrides as the closed-epoch call");
+	Check(NvencTap::Get().GetStats().reconfCalls == statsQuiet.reconfCalls + 1
+		&& NvencTap::Get().GetStats().reconfOverridden == statsQuiet.reconfOverridden + 1,
+		"live: reconfigure is counted and reported as overridden");
+	Check(NvencTap::Get().GetStats().splitApplied == statsQuiet.splitApplied + 1,
+		"live: split application is counted");
+	const auto runtimeLive = NvencTap::Get().GetRuntimeState();
+	Check(runtimeLive.lastStatus == 0 && runtimeLive.effectiveAverageBitrateMbit.value_or(0) == 100.0
+		&& runtimeLive.effectiveMaxBitrateMbit.value_or(0) == 100.0
+		&& runtimeLive.effectiveVbvInitialDelayBits.value_or(0) == 500000u,
+		"live: reconfigure publishes the applied rate-control shape");
+	Check(NvencTap::Get().GetBitratePolicyState().targetMbit == 100,
+		"live: reconfigure updates the policy diagnostics");
+	Check(memcmp(&init, &savedInit, sizeof(init)) == 0 && memcmp(&config, &savedConfig, sizeof(config)) == 0,
+		"live: caller bytes restored");
+
+	// (d) a rejected closed-epoch call: one diagnostic, still nothing published
+	const auto stats1 = NvencTap::Get().GetStats();
+	const auto runtime1 = NvencTap::Get().GetRuntimeState();
+	const auto policy1 = NvencTap::Get().GetBitratePolicyState();
+	const int logs1 = logCalls;
+	NV_ENC_CONFIG failConfig = savedConfig;
+	NV_ENC_INITIALIZE_PARAMS failInit = savedInit; failInit.encodeConfig = &failConfig;
+	const auto failConfigSaved = failConfig; const auto failInitSaved = failInit;
+	Check(Guarded("nvEncReconfigureEncoder", enc, &failInit, [&]{ return NV_ENC_ERR_INVALID_PARAM; }, false,
+			stats.reconfCalls, stats.reconfOverridden, stats.reconfFailedThenPristineOk, stats.reconfFailed,
+			nullptr, nullptr, false, true) == NV_ENC_ERR_INVALID_PARAM,
+		"closed epoch: rejection status returned unchanged");
+	Check(closedEpochLogs.load() == 1 && logCalls == logs1 + 1,
+		"closed epoch: exactly one diagnostic line for the rejection");
+	{
+		const std::string text = closedEpochLog;
+		Check(text.find("nvEncReconfigureEncoder rejected (NVENC status 8") != std::string::npos,
+			"closed epoch: diagnostic names the tag and NVENC status");
+		Check(text.find("caller raw: codec=HEVC 1536x6144 max=1536x6144") != std::string::npos,
+			"closed epoch: diagnostic names the caller's raw codec and geometry");
+		Check(text.find("preset=other/legacy") != std::string::npos
+			&& text.find("splitBits=0 splitMode=") != std::string::npos,
+			"closed epoch: diagnostic names the raw preset and split bits");
+		Check(text.find("avg=42000000 max=42000000 vbv=1000000 vbvInit=500000 lowDelayKF=0") != std::string::npos,
+			"closed epoch: diagnostic names the raw rate-control fields");
+		Check(text.find("tap applied: codec=HEVC 1536x6144") != std::string::npos
+			&& text.find("splitBits=1 splitMode=") != std::string::npos
+			&& text.find("avg=100000000 max=100000000") != std::string::npos
+			&& text.find("lowDelayKF=1 rc=CBR") != std::string::npos,
+			"closed epoch: diagnostic names what the tap applied");
+		Check(text.find("fmt=0x1") != std::string::npos,
+			"closed epoch: diagnostic names the buffer format");
+	}
+	Check(memcmp(&failInit, &failInitSaved, sizeof(failInit)) == 0
+		&& memcmp(&failConfig, &failConfigSaved, sizeof(failConfig)) == 0,
+		"closed epoch: rejected call still restores the caller bytes");
+	Check(memcmp(&stats1, &NvencTap::Get().GetStats(), sizeof(stats1)) == 0,
+		"closed epoch: rejected call records no statistics");
+	const auto runtimeFail = NvencTap::Get().GetRuntimeState();
+	Check(runtimeFail.lastStatus == runtime1.lastStatus && runtimeFail.error == runtime1.error
+		&& runtimeFail.initError == runtime1.initError && runtimeFail.lastInitStatus == runtime1.lastInitStatus
+		&& runtimeFail.effectiveAverageBitrateMbit == runtime1.effectiveAverageBitrateMbit,
+		"closed epoch: rejected call publishes no failure state");
+	const auto policyFail = NvencTap::Get().GetBitratePolicyState();
+	Check(policyFail.targetMbit == policy1.targetMbit && policyFail.ceilingMbit == policy1.ceilingMbit,
+		"closed epoch: rejected call leaves the policy diagnostics alone");
+	// one per process: a second rejection adds nothing
+	NV_ENC_CONFIG failConfig2 = savedConfig; NV_ENC_INITIALIZE_PARAMS failInit2 = savedInit; failInit2.encodeConfig = &failConfig2;
+	Guarded("nvEncReconfigureEncoder", enc, &failInit2, [&]{ return NV_ENC_ERR_INVALID_PARAM; }, false,
+		stats.reconfCalls, stats.reconfOverridden, stats.reconfFailedThenPristineOk, stats.reconfFailed,
+		nullptr, nullptr, false, true);
+	Check(closedEpochLogs.load() == 1, "closed epoch: the rejection note is one per process, never per call");
+
+	Check(NvencTapShims::DestroyEncoder(enc) == NV_ENC_SUCCESS, "closed epoch: session destroyed");
+	NvencTap::Get().SetConfig(NvencTapConfig{});
+}
+
 // GPU processing always fails fast. Hook installation is allowed only in
 // the explicit fake-loader concurrency case below; no live DLL is loaded.
 namespace NvencPostPack {
@@ -2407,6 +2577,7 @@ int main(){
 	CheckStartupAllocationAndPictures();
 	CheckFirstInitializationFailure();
 	CheckCapabilityInventory();
+	CheckClosedEpochQuietPolicy();
 
 	Configure(true, 0);
 	stock = OpenSession();

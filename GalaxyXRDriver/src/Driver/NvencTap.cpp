@@ -582,9 +582,11 @@ bool Upgraded(void* encoder){ std::lock_guard<std::mutex> g(upgradedLock); retur
 // Vendor build: only a session opened while a Galaxy link epoch was admitted
 // is ever touched by tap policy. Live  = opened in the CURRENT epoch (existing
 // behaviour); Stale = opened in an epoch that has since closed or been replaced
-// (ABI retag, resource bookkeeping and drain only: no caps/codec/QP/bitrate/
-// post-pack writes, no stats, no published failure); Pristine = opened with no
-// admitted epoch or unknown handle (original NVENC untouched, never adopted
+// (same init/reconfigure policy as Live — the running encoder was created with
+// those overrides, so vrlink's raw request must be rewritten to match it —
+// but no caps answers, no statistics, no published state; encode/resources
+// keep draining with ABI adaptation only); Pristine = opened with no admitted
+// epoch or unknown handle (original NVENC untouched, never adopted
 // retroactively). The neutral build keeps legacy behaviour: every handle is Live.
 enum class Auth { Live, Stale, Pristine };
 
@@ -1129,7 +1131,7 @@ std::atomic<int> presetFetchFailLogged{0};
 std::atomic<int> presetAutoLogged{0};
 std::atomic<int> presetAutoH264Logged{0};
 
-bool FetchPresetConfig(void* encoder, const NV_ENC_INITIALIZE_PARAMS* p, const NV_ENC_CONFIG* callerCfg, int preset, NV_ENC_PRESET_CONFIG* outPc){
+bool FetchPresetConfig(void* encoder, const NV_ENC_INITIALIZE_PARAMS* p, const NV_ENC_CONFIG* callerCfg, int preset, NV_ENC_PRESET_CONFIG* outPc, bool record = true){
 	const GUID* pg = PresetGuid(preset);
 	if(!pg || !origGetPresetConfigEx || !encoder || ApiMajor(p->version) < 10 || !outPc){ return false; }
 	// The actual opened session API is part of the cache key; a reused handle
@@ -1172,7 +1174,7 @@ bool FetchPresetConfig(void* encoder, const NV_ENC_INITIALIZE_PARAMS* p, const N
 			e.codec = p->encodeGUID; e.pc = pc;
 			auto& entries = presetCache[encoder];
 			entries.push_back(std::move(e));
-			{ std::lock_guard<std::mutex> s(statsLock); stats.presetFetchOk++; stats.presetCfgVerUsed = pc.version; }
+			{ if(record){ std::lock_guard<std::mutex> s(statsLock); stats.presetFetchOk++; stats.presetCfgVerUsed = pc.version; } }
 			*outPc = pc;
 			return true;
 		}
@@ -1181,14 +1183,14 @@ bool FetchPresetConfig(void* encoder, const NV_ENC_INITIALIZE_PARAMS* p, const N
 			if(presetFetchFailLogged.fetch_add(1) < 3){
 				DriverLog("NvencTap: nvEncGetEncodePresetConfigEx(P%d, tuning %u) failed (%u) — preset merge unavailable, GUID swap only", preset, (unsigned)p->tuningInfo, (unsigned)st);
 			}
-			std::lock_guard<std::mutex> s(statsLock); stats.presetFetchFail++;
+			if(record){ std::lock_guard<std::mutex> s(statsLock); stats.presetFetchFail++; }
 			return false;
 		}
 	}
 	if(presetFetchFailLogged.fetch_add(1) < 3){
 		DriverLog("NvencTap: nvEncGetEncodePresetConfigEx(P%d) rejected all struct-version flavours (caller api bits 0x%08x, vendored 0x%08x) — preset merge unavailable", preset, callerApi, (unsigned)NV_ENC_PRESET_CONFIG_VER);
 	}
-	std::lock_guard<std::mutex> s(statsLock); stats.presetFetchFail++;
+	if(record){ std::lock_guard<std::mutex> s(statsLock); stats.presetFetchFail++; }
 	return false;
 }
 
@@ -1332,8 +1334,9 @@ bool ApplyCodecOverride(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencT
 	return true;
 }
 
-// returns true if anything was changed
-bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapConfig &cfg, Snapshot &snap, char* what, size_t whatLen, bool initializing){
+// returns true if anything was changed. record=false (closed-epoch session)
+// still applies every override but leaves the diagnostic policy/RC state alone.
+bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapConfig &cfg, Snapshot &snap, char* what, size_t whatLen, bool initializing, bool record = true){
 	snap = Snapshot{};
 	what[0] = 0;
 	NV_ENC_CONFIG* c = p->encodeConfig;
@@ -1424,7 +1427,7 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 	// Caller-owned copy: the cache vector may reallocate/erase after unlock.
 	NV_ENC_PRESET_CONFIG canonicalStorage{};
 	const NV_ENC_PRESET_CONFIG* canonical = ((snap.codecSwapped || cfg.presetMerge)
-		&& FetchPresetConfig(encoder, p, c, seedPreset, &canonicalStorage)) ? &canonicalStorage : nullptr;
+		&& FetchPresetConfig(encoder, p, c, seedPreset, &canonicalStorage, record)) ? &canonicalStorage : nullptr;
 	if(snap.codecSwapped && canonical){
 		memcpy(&c->encodeCodecConfig, &canonical->presetCfg.encodeCodecConfig, Snapshot::kCodecWindow);
 		ApplyCodecFields(c, p, snap.codecTarget, w, whatLen, what);
@@ -1737,7 +1740,7 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 		uint32_t avg = (uint32_t)target;
 		uint32_t mx = cfg.forceCbr ? avg : (uint32_t)ceiling;
 		// Diagnostics only: request, Max Bitrate budget and applied average.
-		{
+		if(record){
 			double reqM = RequestMedian();
 			if(reqM <= 0.0){ reqM = rc.averageBitRate / 1e6; }
 			std::lock_guard<std::mutex> g(policyLock);
@@ -1827,7 +1830,7 @@ bool ApplyOverrides(void* encoder, NV_ENC_INITIALIZE_PARAMS* p, const NvencTapCo
 			rc.enableAQ = 1; rc.aqStrength = s; changed = true;
 		}
 	}
-	{
+	if(record){
 		std::lock_guard<std::mutex> g(policyLock);
 		const NV_ENC_RC_PARAMS &rc = c->rcParams;
 		rcDiagState.mode = (int)rc.rateControlMode;
@@ -2003,15 +2006,62 @@ std::string ValidateRequest(const NvencTapConfig& cfg, const NV_ENC_INITIALIZE_P
 	return {};
 }
 
+// 2026-11-13: one-line shape of one init request, for the closed-epoch
+// failure note below. Never on a per-frame path. The split nibble is read by
+// offset exactly like the writer in ApplyOverrides, so an 11.1 caller struct
+// without the named 12.1 field still reports what it carries.
+std::string RequestShape(const NV_ENC_INITIALIZE_PARAMS* p){
+	if(!p){ return "null"; }
+	std::ostringstream out;
+	const int codec = CodecOfGuid(p->encodeGUID);
+	const uint32_t splitBits = ((&p->enablePTD)[1] >> 5) & 0xFu;
+	out << "codec=" << (codec >= 0 ? CodecShortName(codec) : "unknown")
+		<< ' ' << p->encodeWidth << 'x' << p->encodeHeight
+		<< " max=" << p->maxEncodeWidth << 'x' << p->maxEncodeHeight
+		<< " tuning=" << (unsigned)p->tuningInfo
+		<< " preset=" << PresetName(p->presetGUID)
+		<< " splitBits=" << splitBits;
+	if(StructVer(p->version) >= 6){ out << " splitMode=" << (unsigned)p->splitEncodeMode; }
+	else{ out << " splitMode=n/a"; }
+	if(p->encodeConfig){
+		const NV_ENC_RC_PARAMS &rc = p->encodeConfig->rcParams;
+		out << " avg=" << rc.averageBitRate << " max=" << rc.maxBitRate
+			<< " vbv=" << rc.vbvBufferSize << " vbvInit=" << rc.vbvInitialDelay
+			<< " lowDelayKF=" << (unsigned)rc.lowDelayKeyFrameScale << " rc=" << RcName(rc.rateControlMode);
+	}else{
+		out << " avg/max/vbv=null";
+	}
+	out << " fmt=0x" << std::hex << (unsigned)p->bufferFormat;
+	return out.str();
+}
+
+// 2026-11-13: a closed-epoch (reconnect) init/reconfigure now runs the same
+// policy as a live call, because the session NVENC is still running was
+// created with those overrides and vrlink's raw request no longer matches it.
+// Nothing about that call is published or counted; when NVENC rejects it
+// anyway, one line per process names the caller's raw request next to what the
+// tap applied, so the refusal is attributable without another reconnect retest.
+void NoteClosedEpochRejection(const char* tag, void* encoder, const NV_ENC_INITIALIZE_PARAMS* p, const std::string& raw, NVENCSTATUS status){
+	static std::atomic<bool> logged{false};
+	if(logged.exchange(true, std::memory_order_relaxed)){ return; }
+	std::string detail;
+	if(origGetLastErrorString){ const char* text = origGetLastErrorString(encoder); if(text && *text){ detail = text; } }
+	DriverLog("NvencTap: closed-epoch session %s rejected (NVENC status %u%s%s) | caller raw: %s | tap applied: %s | tap policy ran so the request matches the session NVENC is running; nothing published, no statistics counted",
+		tag, (unsigned)status, detail.empty() ? "" : ": ", detail.c_str(), raw.c_str(), RequestShape(p).c_str());
+}
+
 // One requested configuration, one NVENC call, unconditional restoration.
 // A failed explicit override must never become a successful HEVC fallback.
+// quiet: a closed-epoch session (see NoteClosedEpochRejection). Same validation,
+// overrides, restoration and NVENC call, but no counter, request sample or
+// published state — a stale call must never make info.json look live.
 template<typename Call>
 NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p, Call call, bool logThis,
 		uint32_t &calls, uint32_t &overridden, uint32_t &failedThenOk, uint32_t &failed, uint32_t* failedStock,
-		uint32_t* outerVersion = nullptr, bool initializing = false){
+		uint32_t* outerVersion = nullptr, bool initializing = false, bool quiet = false){
 	(void)failedThenOk; (void)outerVersion;
 	const NvencTapConfig cfg = NvencTap::Get().GetConfig();
-	{
+	if(!quiet){
 		std::lock_guard<std::mutex> guard(statsLock);
 		calls++;
 		// 2026-10-19: the request window belongs to one session and one tap
@@ -2022,16 +2072,19 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 			stats.reqHistEnabled = cfg.enabled;
 		}
 	}
-	RecordRequest(p);
+	if(!quiet){ RecordRequest(p); }
 	// colour-depth fix A (2026-10-17): record the caller's raw input surface
 	// class at every guarded init/reconfigure. No override writes bufferFormat
 	// (overrides restore caller bytes), so this is the format vrlink passed,
 	// before/after override alike — captured even when validation or an
 	// override failure path returns early below.
-	if(p){
+	if(!quiet && p){
 		std::lock_guard<std::mutex> guard(statsLock); stats.lastInputBufferFormat = (uint32_t)p->bufferFormat;
 	}
 	if(logThis){ Describe(tag, p, cfg.verbose); }
+	// the caller's raw shape, before any override; only the quiet path logs it
+	std::string callerRaw;
+	if(quiet && p){ callerRaw = RequestShape(p); }
 	const std::string callerGeometry = p ? std::to_string(p->encodeWidth) + "x" + std::to_string(p->encodeHeight)
 		+ " max=" + std::to_string(p->maxEncodeWidth) + "x" + std::to_string(p->maxEncodeHeight) : "null";
 	const auto fail = [&](NVENCSTATUS status, std::string error){
@@ -2040,12 +2093,13 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 				+ " max=" + std::to_string(p->maxEncodeWidth) + "x" + std::to_string(p->maxEncodeHeight)
 				+ " api=" + std::to_string(p->version) + " format=" + std::to_string((uint32_t)p->bufferFormat);
 		}
+		if(quiet){ NoteClosedEpochRejection(tag, encoder, p, callerRaw, status); return; }
 		PublishFailure(encoder, cfg, status, error, initializing);
 	};
 	const std::string invalid = ValidateRequest(cfg, p, initializing);
 	if(!invalid.empty()){
 		fail(NV_ENC_ERR_INVALID_PARAM, invalid);
-		std::lock_guard<std::mutex> guard(statsLock); failed++;
+		if(!quiet){ std::lock_guard<std::mutex> guard(statsLock); failed++; }
 		return NV_ENC_ERR_INVALID_PARAM;
 	}
 	// 2026-11-03: session-bound capability inventory is queried outside frame
@@ -2056,24 +2110,26 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		const std::string capError = ValidateCapabilities(cfg, encoder, p);
 		if(!capError.empty()){
 			fail(NV_ENC_ERR_INVALID_PARAM, capError);
-			std::lock_guard<std::mutex> guard(statsLock); failed++;
+			if(!quiet){ std::lock_guard<std::mutex> guard(statsLock); failed++; }
 			return NV_ENC_ERR_INVALID_PARAM;
 		}
 	}
 	Snapshot snap; char what[256] = {};
-	const bool changed = cfg.enabled && ApplyOverrides(encoder, p, cfg, snap, what, sizeof(what), initializing);
+	const bool changed = cfg.enabled && ApplyOverrides(encoder, p, cfg, snap, what, sizeof(what), initializing, !quiet);
 	if(!snap.error.empty()){
 		fail(NV_ENC_ERR_INVALID_PARAM, snap.error); Restore(snap);
-		std::lock_guard<std::mutex> guard(statsLock); failed++;
+		if(!quiet){ std::lock_guard<std::mutex> guard(statsLock); failed++; }
 		return NV_ENC_ERR_INVALID_PARAM;
 	}
 	if(changed && logThis){ DriverLog("NvencTap: %s override: %s", tag, what); }
-	RecordLast(p);
+	if(!quiet){ RecordLast(p); }
 	const int effectiveCodec = CodecOfGuid(p->encodeGUID);
 	const NVENCSTATUS status = call();
 	if(status == NV_ENC_SUCCESS){
-		SetSessionCodec(encoder, effectiveCodec);
-		PublishSuccess(encoder, cfg, p, initializing);
+		if(!quiet){
+			SetSessionCodec(encoder, effectiveCodec);
+			PublishSuccess(encoder, cfg, p, initializing);
+		}
 	}else{
 		// 2026-10-16: failures must name the NVENC status number and the
 		// request itself — nvEncGetLastErrorString often returns useless
@@ -2085,7 +2141,7 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 		fail(status, error);
 	}
 	Restore(snap);
-	{
+	if(!quiet){
 		std::lock_guard<std::mutex> guard(statsLock);
 		if(status == NV_ENC_SUCCESS){
 			if(changed){ overridden++; }
@@ -2102,21 +2158,19 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 
 // ---------------------------------------------------------------------------
 NVENCSTATUS NVENCAPI NvencTapShims::InitializeEncoder(void* encoder, NV_ENC_INITIALIZE_PARAMS* params){
-	{
-		const Auth auth = AuthorityOf(encoder);
-		if(auth == Auth::Pristine){ return origInitializeEncoder(encoder, params); }
-		if(auth == Auth::Stale){
-			// closed epoch: required 12.1 ABI adaptation only, nothing recorded or published
+	const Auth auth = AuthorityOf(encoder);
+	if(auth == Auth::Pristine){ return origInitializeEncoder(encoder, params); }
+	// 2026-11-13: a closed-epoch session that NVENC still runs was created with
+	// the tap's overrides, so its init/reconfigure requests get the same policy
+	// as a live one (and nothing else: no statistics, no publication, no
+	// failure state) — see Guarded's quiet parameter.
+	const bool quiet = auth == Auth::Stale;
 #ifdef VENDOR_GALAXYXR
-			Defer(DeferredStalePolicyCall);
+	if(quiet){ Defer(DeferredStalePolicyCall); }
 #endif
-			Retag rt(encoder); if(params && Upgraded(encoder)){ RetagInitParams(rt, params); }
-			return origInitializeEncoder(encoder, params);
-		}
-	}
 	if(!params){
 		const NVENCSTATUS status = origInitializeEncoder(encoder, params);
-		if(status != NV_ENC_SUCCESS){ PublishFailure(encoder, NvencTap::Get().GetConfig(), status, "nvEncInitializeEncoder rejected null parameters (NVENC status " + std::to_string((unsigned)status) + ")", true); }
+		if(status != NV_ENC_SUCCESS && !quiet){ PublishFailure(encoder, NvencTap::Get().GetConfig(), status, "nvEncInitializeEncoder rejected null parameters (NVENC status " + std::to_string((unsigned)status) + ")", true); }
 		return status;
 	}
 	// re-tag first so the caps probe below and Guarded see the session's version
@@ -2124,8 +2178,8 @@ NVENCSTATUS NVENCAPI NvencTapShims::InitializeEncoder(void* encoder, NV_ENC_INIT
 	const NvencTapConfig initConfig = NvencTap::Get().GetConfig();
 	if(!initConfig.enabled){
 		const NVENCSTATUS status = origInitializeEncoder(encoder, params);
-		if(status == NV_ENC_SUCCESS){ SetSessionCodec(encoder, CodecOfGuid(params->encodeGUID)); PublishSuccess(encoder, initConfig, params, true); }
-		else{
+		if(status == NV_ENC_SUCCESS){ if(!quiet){ SetSessionCodec(encoder, CodecOfGuid(params->encodeGUID)); PublishSuccess(encoder, initConfig, params, true); } }
+		else if(!quiet){
 			std::string error = "nvEncInitializeEncoder failed with tap OFF (NVENC status " + std::to_string((unsigned)status) + ")";
 			if(origGetLastErrorString){ const char* detail = origGetLastErrorString(encoder); if(detail && *detail){ error += ": "; error += detail; } }
 			error += " | init: " + std::to_string(params->encodeWidth) + "x" + std::to_string(params->encodeHeight)
@@ -2149,23 +2203,18 @@ NVENCSTATUS NVENCAPI NvencTapShims::InitializeEncoder(void* encoder, NV_ENC_INIT
 			v, (unsigned)cs, params->encodeWidth, params->encodeHeight);
 		std::lock_guard<std::mutex> g(statsLock); stats.numEncoderEngines = cs == NV_ENC_SUCCESS ? (uint32_t)v : 0;
 	}
-	bool logThis = initLogged.fetch_add(1) < 4 || NvencTap::Get().GetConfig().verbose;
+	bool logThis = !quiet && (initLogged.fetch_add(1) < 4 || NvencTap::Get().GetConfig().verbose);
 	return Guarded("nvEncInitializeEncoder", encoder, params, [&]{ return origInitializeEncoder(encoder, params); }, logThis,
-		stats.initCalls, stats.initOverridden, stats.initFailedThenPristineOk, stats.initFailed, nullptr, nullptr, true);
+		stats.initCalls, stats.initOverridden, stats.initFailedThenPristineOk, stats.initFailed, nullptr, nullptr, true, quiet);
 }
 
 NVENCSTATUS NVENCAPI NvencTapShims::ReconfigureEncoder(void* encoder, NV_ENC_RECONFIGURE_PARAMS* params){
-	{
-		const Auth auth = AuthorityOf(encoder);
-		if(auth == Auth::Pristine){ return origReconfigureEncoder(encoder, params); }
-		if(auth == Auth::Stale){
+	const Auth auth = AuthorityOf(encoder);
+	if(auth == Auth::Pristine){ return origReconfigureEncoder(encoder, params); }
+	const bool quiet = auth == Auth::Stale;
 #ifdef VENDOR_GALAXYXR
-			Defer(DeferredStalePolicyCall);
+	if(quiet){ Defer(DeferredStalePolicyCall); }
 #endif
-			Retag rt(encoder); if(params && Upgraded(encoder)){ rt.add(&params->version, 1, true); RetagInitParams(rt, &params->reInitEncodeParams); }
-			return origReconfigureEncoder(encoder, params);
-		}
-	}
 	if(!params){ return origReconfigureEncoder(encoder, params); }
 	NvencTapConfig cfg = NvencTap::Get().GetConfig();
 	// 2026-10-19 reconnect deferral (AV1): vrlink stops encoding when the
@@ -2192,14 +2241,14 @@ NVENCSTATUS NVENCAPI NvencTapShims::ReconfigureEncoder(void* encoder, NV_ENC_REC
 	Retag rt(encoder); if(Upgraded(encoder)){ rt.add(&params->version, 1, true); RetagInitParams(rt, &params->reInitEncodeParams); }
 	if(!cfg.enabled){
 		const NVENCSTATUS status = origReconfigureEncoder(encoder, params);
-		if(status == NV_ENC_SUCCESS){ SetSessionCodec(encoder, CodecOfGuid(params->reInitEncodeParams.encodeGUID)); PublishSuccess(encoder, cfg, &params->reInitEncodeParams); }
+		if(status == NV_ENC_SUCCESS && !quiet){ SetSessionCodec(encoder, CodecOfGuid(params->reInitEncodeParams.encodeGUID)); PublishSuccess(encoder, cfg, &params->reInitEncodeParams); }
 		return status;
 	}
-	bool logThis = reconfLogged.fetch_add(1) < 4 || cfg.verbose;
+	bool logThis = !quiet && (reconfLogged.fetch_add(1) < 4 || cfg.verbose);
 	NVENCSTATUS st = Guarded("nvEncReconfigureEncoder", encoder, &params->reInitEncodeParams,
 		[&]{ return origReconfigureEncoder(encoder, params); }, logThis,
 		stats.reconfCalls, stats.reconfOverridden, stats.reconfFailedThenPristineOk, stats.reconfFailed,
-		cfg.enabled ? nullptr : &stats.reconfFailedStock, &params->version);
+		cfg.enabled ? nullptr : &stats.reconfFailedStock, &params->version, false, quiet);
 	if(logThis){ DriverLog("NvencTap: nvEncReconfigureEncoder -> %u (reset=%u forceIDR=%u)", (unsigned)st, params->resetEncoder, params->forceIDR); }
 	return st;
 }
@@ -3127,7 +3176,7 @@ void NvencTap::FlushDeferredDiagnostics(){
 		{ DeferredListInconsistent, "a later NVENC function table disagreed with the originals captured first; whole table left pristine" },
 		{ DeferredOrphanReused, "an NVENC session handle was reused while its previous session record still existed (orphaned session); records dropped, new session decided by its own OPEN" },
 		{ DeferredPrivateListRejected, "NVENC rejected the private 12.1 function-list registration; the caller's list was unaffected, a required 12.1 session open will report its own status" },
-		{ DeferredStalePolicyCall, "a session from a closed link epoch is still making policy-bearing calls (init/reconfigure/encode); only ABI adaptation and cleanup are applied, no settings, no failure" },
+		{ DeferredStalePolicyCall, "a session from a closed link epoch is still making policy-bearing calls (init/reconfigure); the tap applies the same encoder policy as a live session so the request matches the session NVENC is running, and records no statistics or published state for those calls" },
 		{ DeferredForeignCaller, "an NVENC call from a module that is not the Galaxy vrlink module reached the tap; passed through untouched" },
 	};
 	for(const Note& n : notes){
