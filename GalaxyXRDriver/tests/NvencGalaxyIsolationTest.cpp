@@ -75,8 +75,11 @@ template<typename T> std::vector<unsigned char> Bytes(const T& value){
 Seen sOpen, sCaps, sInit, sReconf, sReg, sMap, sUnreg, sUnmap, sEncode, sLock, sDestroy;
 uintptr_t nextHandle = 0x1000, forcedHandle = 0;
 NVENCSTATUS openStatus = NV_ENC_SUCCESS, initStatus = NV_ENC_SUCCESS;
+NVENCSTATUS reconfStatus = NV_ENC_SUCCESS;
 uint32_t seenOpenApi = 0, seenOpenVersion = 0;
 uint32_t seenBitrate = 0, seenMaxBitrate = 0, seenLevel = 0, seenPicVersion = 0, seenLockVersion = 0, seenConfigVersion = 0;
+// 2026-11-13: applied rate-control shape of the last guarded init/reconfigure
+uint32_t seenKfScale = 0, seenSplitBits = 0;
 const int8_t* seenQpMap = nullptr;
 int capsWidth = 4096, capsHeight = 16384;
 NVENCSTATUS createStatus = NV_ENC_SUCCESS;
@@ -96,13 +99,15 @@ NVENCSTATUS NVENCAPI FakeCaps(void* e, GUID, NV_ENC_CAPS_PARAM* p, int* v){
 }
 NVENCSTATUS NVENCAPI FakeInit(void* e, NV_ENC_INITIALIZE_PARAMS* p){
 	Record(sInit, e, p);
-	if(p && p->encodeConfig){ seenBitrate = p->encodeConfig->rcParams.averageBitRate; seenMaxBitrate = p->encodeConfig->rcParams.maxBitRate; seenLevel = p->encodeConfig->encodeCodecConfig.hevcConfig.level; seenConfigVersion = p->encodeConfig->version; }
+	if(p && p->encodeConfig){ seenBitrate = p->encodeConfig->rcParams.averageBitRate; seenMaxBitrate = p->encodeConfig->rcParams.maxBitRate; seenLevel = p->encodeConfig->encodeCodecConfig.hevcConfig.level; seenConfigVersion = p->encodeConfig->version;
+		seenKfScale = p->encodeConfig->rcParams.lowDelayKeyFrameScale; seenSplitBits = ((&p->enablePTD)[1] >> 5) & 0xFu; }
 	return initStatus;
 }
 NVENCSTATUS NVENCAPI FakeReconf(void* e, NV_ENC_RECONFIGURE_PARAMS* p){
 	Record(sReconf, e, p);
-	if(p && p->reInitEncodeParams.encodeConfig){ seenBitrate = p->reInitEncodeParams.encodeConfig->rcParams.averageBitRate; seenMaxBitrate = p->reInitEncodeParams.encodeConfig->rcParams.maxBitRate; }
-	return NV_ENC_SUCCESS;
+	if(p && p->reInitEncodeParams.encodeConfig){ seenBitrate = p->reInitEncodeParams.encodeConfig->rcParams.averageBitRate; seenMaxBitrate = p->reInitEncodeParams.encodeConfig->rcParams.maxBitRate;
+		seenKfScale = p->reInitEncodeParams.encodeConfig->rcParams.lowDelayKeyFrameScale; seenSplitBits = ((&p->reInitEncodeParams.enablePTD)[1] >> 5) & 0xFu; }
+	return reconfStatus;
 }
 uintptr_t nextRegistered = 0x9000;
 NVENCSTATUS NVENCAPI FakeRegister(void* e, NV_ENC_REGISTER_RESOURCE* p){ Record(sReg, e, p); p->registeredResource = reinterpret_cast<void*>(nextRegistered += 8); return NV_ENC_SUCCESS; }
@@ -170,7 +175,8 @@ NV_ENC_INITIALIZE_PARAMS MakeInit(NV_ENC_CONFIG* c){
 	return i;
 }
 
-// Force CBR makes the applied average and maximum both exactly `bitrate`.
+// Force CBR pins the configured budget (v2.1.1 policy): the average is the
+// budget `bitrate` itself, never the shaped request, and maxBitRate equals it.
 void Configure(bool enabled, int bitrate = 0, int qpFovea = 0, int qpPeriphery = 0, bool enforceTile = false){
 	NvencTapConfig c; c.enabled = enabled; c.splitMode = 1; c.bitrateMbit = bitrate; c.forceCbr = bitrate > 0;
 	c.qpFovea = qpFovea; c.qpPeriphery = qpPeriphery; c.enforceTile = enforceTile; c.effectiveTileWidth = 1536;
@@ -333,7 +339,7 @@ void TestAdmittedPositive(){
 	Check(initResult == NV_ENC_SUCCESS, "admitted init: succeeds");
 	if(initResult != NV_ENC_SUCCESS){ std::cerr << "  init status " << initResult << ": " << NvencTap::Get().GetRuntimeState().initError << '\n'; }
 	Check(seenBitrate == 100000000u && seenMaxBitrate == 100000000u && sInit.version == Tag121(6, true) && seenConfigVersion == Tag121(8, true),
-		"admitted init: existing settings applied with 12.1 ABI");
+		"admitted init: CBR budget pinned as average and maximum with 12.1 ABI");
 	Check(Bytes(init) == initBytes && Bytes(cfg) == cfgBytes, "admitted init: caller bytes restored");
 	Check(NvencTap::Get().GetStats().initCalls == statsBefore.initCalls + 1, "admitted init: counted");
 
@@ -385,6 +391,19 @@ void TestCloseDuringEncodeAndAbiCleanup(){
 	gTable.nvEncEncodePicture(e, &pic);
 	Check(seenQpMap != nullptr && NvencTap::Get().GetStats().qpMapFrames == mapFramesBefore + 1, "live encode used the QP map");
 
+	// A live reconfigure first shows the policy a closed-epoch (reconnect) one
+	// must reproduce; the link then closes while the session keeps encoding.
+	NV_ENC_CONFIG liveCfg = MakeConfig(); NV_ENC_INITIALIZE_PARAMS liveInit = MakeInit(&liveCfg);
+	NV_ENC_RECONFIGURE_PARAMS liveReconf = {}; liveReconf.version = Tag111(1, true); liveReconf.reInitEncodeParams = liveInit;
+	const auto liveCfgBytes = Bytes(liveCfg), liveInitBytes = Bytes(liveInit), liveReconfBytes = Bytes(liveReconf);
+	Check(gTable.nvEncReconfigureEncoder(e, &liveReconf) == NV_ENC_SUCCESS, "live reconfigure succeeds");
+	const std::vector<uint32_t> liveApplied{ seenBitrate, seenMaxBitrate, seenKfScale, seenSplitBits };
+	Check(liveApplied[0] == 100000000u && liveApplied[1] == 100000000u && liveApplied[2] == 1u && liveApplied[3] == 1u,
+		"live reconfigure: budget, keyframe scale and split bits applied");
+	Check(Bytes(liveReconf) == liveReconfBytes && Bytes(liveInit) == liveInitBytes && Bytes(liveCfg) == liveCfgBytes,
+		"live reconfigure: caller bytes restored");
+	Check(NvencTap::Get().GetRuntimeState().effectiveAverageBitrateMbit.value_or(0) == 100.0
+		&& NvencTap::Get().GetRuntimeState().effectiveSplit == 1, "live reconfigure: published");
 	mock::epoch = 0; // link closes while the session is still encoding
 	const auto stats0 = NvencTap::Get().GetStats();
 	const auto runtime0 = NvencTap::Get().GetRuntimeState();
@@ -400,9 +419,48 @@ void TestCloseDuringEncodeAndAbiCleanup(){
 	NV_ENC_LOCK_BITSTREAM lock = {}; lock.version = Tag111(1, true);
 	Check(gTable.nvEncLockBitstream(e, &lock) == NV_ENC_SUCCESS && seenLockVersion == Tag121(1, true) && lock.version == Tag111(1, true) && lock.bitstreamSizeInBytes == 1000, "stale lock: ABI scratch copy, output returned");
 	NV_ENC_CONFIG cfg = MakeConfig(); NV_ENC_INITIALIZE_PARAMS init = MakeInit(&cfg);
-	Check(gTable.nvEncInitializeEncoder(e, &init) == NV_ENC_SUCCESS && seenBitrate == 42000000 && sInit.version == Tag121(6, true) && init.version == Tag111(5, true), "stale init: ABI retag only, caller bitrate kept");
-	NV_ENC_RECONFIGURE_PARAMS reconf = {}; reconf.version = Tag111(1, true); reconf.reInitEncodeParams = MakeInit(&cfg);
-	Check(gTable.nvEncReconfigureEncoder(e, &reconf) == NV_ENC_SUCCESS && seenBitrate == 42000000, "stale reconfigure: no policy");
+	const auto cfgBytes = Bytes(cfg), initBytes = Bytes(init);
+	Check(gTable.nvEncInitializeEncoder(e, &init) == NV_ENC_SUCCESS
+		&& seenBitrate == 100000000u && seenMaxBitrate == 100000000u && seenKfScale == 1u && seenSplitBits == 1u
+		&& seenLevel == NV_ENC_LEVEL_AUTOSELECT && sInit.version == Tag121(6, true) && init.version == Tag111(5, true),
+		"stale init: live policy applied with 12.1 ABI");
+	Check(Bytes(init) == initBytes && Bytes(cfg) == cfgBytes, "stale init: caller bytes restored");
+	NV_ENC_CONFIG staleCfg = MakeConfig(); NV_ENC_INITIALIZE_PARAMS staleInit = MakeInit(&staleCfg);
+	NV_ENC_RECONFIGURE_PARAMS reconf = {}; reconf.version = Tag111(1, true); reconf.reInitEncodeParams = staleInit;
+	const auto reconfBytes = Bytes(reconf), staleCfgBytes = Bytes(staleCfg), staleInitBytes = Bytes(staleInit);
+	Check(gTable.nvEncReconfigureEncoder(e, &reconf) == NV_ENC_SUCCESS, "stale reconfigure delegates");
+	Check(std::vector<uint32_t>{ seenBitrate, seenMaxBitrate, seenKfScale, seenSplitBits } == liveApplied,
+		"stale reconfigure: exact same overrides as the live reconfigure");
+	Check(Bytes(reconf) == reconfBytes && Bytes(staleInit) == staleInitBytes && Bytes(staleCfg) == staleCfgBytes,
+		"stale reconfigure: caller bytes restored");
+	// a rejected closed-epoch call: status unchanged, nothing published, one note
+	reconfStatus = NV_ENC_ERR_INVALID_PARAM;
+	const auto statsBeforeFail = NvencTap::Get().GetStats();
+	const auto runtimeBeforeFail = NvencTap::Get().GetRuntimeState();
+	NV_ENC_CONFIG failCfg = MakeConfig(); NV_ENC_RECONFIGURE_PARAMS failReconf = {}; failReconf.version = Tag111(1, true); failReconf.reInitEncodeParams = MakeInit(&failCfg);
+	const auto failReconfBytes = Bytes(failReconf), failCfgBytes = Bytes(failCfg);
+	Check(gTable.nvEncReconfigureEncoder(e, &failReconf) == NV_ENC_ERR_INVALID_PARAM,
+		"stale rejection: driver status returned unchanged");
+	Check(Bytes(failReconf) == failReconfBytes && Bytes(failCfg) == failCfgBytes, "stale rejection: caller bytes restored");
+	Check(std::memcmp(&statsBeforeFail, &NvencTap::Get().GetStats(), sizeof(statsBeforeFail)) == 0,
+		"stale rejection: no statistics recorded");
+	const auto runtimeAfterFail = NvencTap::Get().GetRuntimeState();
+	Check(runtimeAfterFail.lastStatus == runtimeBeforeFail.lastStatus && runtimeAfterFail.error == runtimeBeforeFail.error
+		&& runtimeAfterFail.effectiveAverageBitrateMbit == runtimeBeforeFail.effectiveAverageBitrateMbit,
+		"stale rejection: no published failure or effective telemetry");
+	Check(LogCount("closed-epoch session nvEncReconfigureEncoder rejected (NVENC status 8") == 1,
+		"stale rejection: exactly one diagnostic naming tag and status");
+	Check(LogCount("caller raw: codec=HEVC 1536x6144 max=1536x6144") == 1
+		&& LogCount("splitBits=0 splitMode=") == 1
+		&& LogCount("avg=42000000 max=42000000") == 1,
+		"stale rejection: diagnostic names the caller's raw request");
+	Check(LogCount("tap applied: codec=HEVC 1536x6144 max=1536x6144") == 1
+		&& LogCount("splitBits=1 splitMode=") == 1
+		&& LogCount("avg=100000000 max=100000000") == 1
+		&& LogCount("lowDelayKF=1 rc=CBR") == 1,
+		"stale rejection: diagnostic names what the tap applied");
+	Check(LogCount("rc=CBR fmt=0x0") == 1, "stale rejection: diagnostic names the applied buffer format");
+	reconfStatus = NV_ENC_SUCCESS;
 	NV_ENC_CAPS_PARAM caps = {}; caps.version = Tag111(1); caps.capsToQuery = NV_ENC_CAPS_WIDTH_MAX; int w = 0;
 	Check(gTable.nvEncGetEncodeCaps(e, NV_ENC_CODEC_HEVC_GUID, &caps, &w) == NV_ENC_SUCCESS && w == capsWidth && sCaps.version == Tag121(1, false), "stale caps: driver value, ABI retag");
 	const auto stats1 = NvencTap::Get().GetStats();

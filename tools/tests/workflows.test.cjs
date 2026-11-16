@@ -126,6 +126,17 @@ test('graph CI builds real assets and tests them, while release stays build-only
   assert.doesNotMatch(release, /Test-CurvePreviewBrowser|Test-BitrateMonitorBrowser|Test-CompanionBrowser/);
 });
 
+test('graph browser smoke keeps the Force CBR budget pin of the curve domain (CBR pins the applied average)', () => {
+  const curve = read('GalaxyXRDriverGUI/src-lit/domain/bitrate-curve.ts');
+  const smoke = read('tools/Test-CurvePreviewBrowser.cjs');
+  // 2026-11-13 owner directive restored the v2.1.1 pin: under Force CBR the
+  // applied average and maximum are the entered budget, so the saved curve,
+  // constancy and headroom are preserved but not applied.
+  assert.match(curve, /if \(forceCbr\) return/);
+  assert.match(smoke, /Force CBR pins the applied target to Max Bitrate/);
+  assert.doesNotMatch(smoke, /Force CBR draws the same final line as VBR|Force CBR remains at Max Bitrate/);
+});
+
 test('PR creation and release sync can use the same automation identity without claiming skip bypasses approval', () => {
   assert.match(read('.github/workflows/open_pull_request.yml'), /GH_TOKEN: \$\{\{ secrets.PR_AUTOMATION_TOKEN \|\| github.token \}\}/);
   assert.match(release, /token: \$\{\{ secrets.PR_AUTOMATION_TOKEN \|\| github.token \}\}/);

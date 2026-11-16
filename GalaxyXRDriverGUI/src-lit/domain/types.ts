@@ -571,6 +571,20 @@ export type DriverInfo = {
     observedAt?: number;
     lastPictureStatus?: number;
     pictureError?: string;
+    /** Successful accepted-config telemetry only (2026-11-13): numeric NVENC enum. */
+    effectiveTuningInfo?: number;
+    /** Resolved preset: 1 P1 .. 7 P7; 0 means unknown/automatic could not be resolved. */
+    effectivePreset?: number;
+    /** Applied multipass: 0 single, 1 quarter, 2 full. */
+    effectiveMultiPass?: number;
+    /** Applied average bitrate target in Mbit/s. */
+    effectiveAverageBitrateMbit?: number;
+    /** Applied maximum bitrate in Mbit/s. */
+    effectiveMaxBitrateMbit?: number;
+    /** Applied VBV buffer size in bits. */
+    effectiveVbvBufferSizeBits?: number;
+    /** Applied VBV initial delay in bits. */
+    effectiveVbvInitialDelayBits?: number;
     /** Optional running-encoder capability snapshot (same schema as GpuCapabilities adapters). */
     capabilities?: AdapterCapabilities;
   };

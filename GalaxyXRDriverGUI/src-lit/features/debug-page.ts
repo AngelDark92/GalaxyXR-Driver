@@ -131,7 +131,7 @@ export class DebugPage extends BasePage {
             onCommit: value => { settings.nvencMaxBitrateHeadroomPct = value; save(); },
           })}
         `, {
-          tip: t("Reserve part of the Max Bitrate budget as VBR peak headroom. The requested average is capped at Max Bitrate / (1 + this percentage); the encoder maximum remains Max Bitrate.\n\nInert under Force CBR, where the budget is both the constant average and the maximum. 0 lets the average use the whole budget. This is a rate-control reservation, not a hard encoded-output cap; oversized frames remain a measured-transport risk.\n\nValue: streamFrame.nvencMaxBitrateHeadroomPct (settings.json). Encoder side — VBR average cap reserved below the Max Bitrate peak."),
+          tip: t("Reserve part of the Max Bitrate budget as VBR peak headroom. The requested average is capped at Max Bitrate / (1 + this percentage); in VBR the encoder maximum remains Max Bitrate. Under Force CBR the encoder maximum equals the average (the SDK ignores a separate maximum in CBR), so no separate peak is reserved.\n\n0 lets the average use the whole budget. This is a rate-control reservation, not a hard encoded-output cap; oversized frames remain a measured-transport risk.\n\nValue: streamFrame.nvencMaxBitrateHeadroomPct (settings.json). Encoder side — VBR average cap reserved below the Max Bitrate peak."),
           reset: { can: settings.nvencMaxBitrateHeadroomPct != defaults.nvencMaxBitrateHeadroomPct, on: () => { galaxy.reset('nvencMaxBitrateHeadroomPct'); } }
         }));
         parts.push(fieldRow(t('Force FPS'), html`

@@ -192,7 +192,8 @@ async function checkScaledGraph(page, canvas) {
   }
 
   // The final average can sit below the base curve after a VBR headroom
-  // reservation. Force CBR is a separate flat Max Bitrate policy.
+  // reservation. Force CBR bypasses the curve, constancy and headroom and
+  // pins the applied average to the Max Bitrate ceiling.
   await updateGraph(page, { ceilingMbit: 500, constancyPct: 100, headroomPct: 25, points: defaults });
   const reserved = await graphDrawing(page);
   const reservedLine = reserved.plot.strokes.find(stroke => stroke.width === 2 && stroke.path.length === 81);
@@ -201,7 +202,17 @@ async function checkScaledGraph(page, canvas) {
   await updateGraph(page, { forceCbr: true });
   const cbr = await graphDrawing(page);
   const cbrLine = cbr.plot.strokes.find(stroke => stroke.width === 2 && stroke.path.length === 81);
-  for (const point of cbrLine.path) close(point.y, 16, 'Force CBR remains at Max Bitrate');
+  const cbrY = cbr.height - 34 - (cbr.height - 16 - 34) * 500 / 500;
+  for (const point of cbrLine.path.slice(1)) close(point.y, cbrY, 'Force CBR pins the applied target to Max Bitrate');
+  assert.ok(cbr.plot.strokes.some(stroke => stroke.width === 1 && stroke.path.length === 81),
+    'Force CBR keeps the saved base curve visible');
+  assert.notDeepEqual(cbrLine.path.map(point => point.y), reservedLine.path.map(point => point.y),
+    'Force CBR draws a different final line than VBR');
+  assert.match(await page.locator('app-bitrate-curve .legend').innerText(), /Fixed Max Bitrate target \(CBR\)/,
+    'CBR legend names the pinned target');
+  assert.match(await page.locator('app-bitrate-curve .hint').nth(1).innerText(),
+    /Force CBR pins the applied average to Max Bitrate/,
+    'CBR policy hint explains the pin');
   await updateGraph(page, { forceCbr: false, headroomPct: 0, constancyPct: 0, requestReferenceMbit: 0 });
   const neutral = await graphDrawing(page);
   assert.deepEqual(neutral.inputs[5].map(input => input.value), [500, 500], 'neutral request domain remains Max Bitrate');

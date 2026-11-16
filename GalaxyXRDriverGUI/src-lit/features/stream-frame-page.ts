@@ -10,6 +10,7 @@ import { BasePage, settingFieldRow, fieldRow, noteRow, sectionRow, sectionHeadin
 import { t } from '../locale/i18n';
 import { pageIntro, statusMessage, type FieldNotice } from '../ui/presentation';
 import { encoderTapStatus, encoderEvidence, expiredEncoderEvidence } from '../domain/encoder-tap-status';
+import { encoderEvidenceItems } from '../domain/encoder-evidence';
 import { encoderGpuNotice, gpuMismatch, graphicsAdapterEvidence, encoderMismatchText, rendererMismatchText, ENCODER_MISMATCH_TITLE, RENDERER_MISMATCH_TITLE } from '../domain/gpu-mismatch';
 import { codecSwitchState } from '../domain/codec-selection';
 import { ofxrCanArm, ofxrDisabledReason } from '../domain/ofxr';
@@ -20,6 +21,7 @@ import { renderLongEdge } from '../state/galaxy-settings';
 import { codecEncoderDefaults } from '../state/galaxy-settings';
 import { crossFieldIssues } from '../domain/control-specs';
 import { BITRATE_CURVE_FAMILIES } from '../domain/bitrate-curve';
+import { bandwidthRowState } from './stream-frame-helpers';
 import { open } from '@tauri-apps/plugin-dialog';
 import '../ui/controls';
 import type { AppSwitch } from '../ui/controls';
@@ -256,7 +258,8 @@ export class StreamFramePage extends BasePage {
     const sections = galaxy.sections();
     const save = () => { galaxy.save(); this.requestUpdate(); };
     // 2026-10-30: one context for every spec-driven control. Tile width resolves
-    // its ceiling from the selected codec; keyframe budget applies only under CBR.
+    // its ceiling from the selected codec; the keyframe budget applies to every
+    // budgeted session, not only Force CBR (2026-11-11).
     const evidence = encoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
     const controlContext = {
       codec: settings.nvencCodec ?? 0,
@@ -410,7 +413,8 @@ if (vendor) {
   tip: t("Tile width is a preset class sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. The selected codec caps the tile: H.264 1024, HEVC/AV1 2048, because tile × 4 must fit the encoder's height. A stored value outside the presets is kept and shown here; choose a preset to replace it. Requires a SteamVR restart.\n\nValue: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap's tile answers."),
   reset: { can: galaxy.streamQualityValues.width != codecDef.streamFormatWidth, on: () => { galaxy.setStreamQualityValue('width', codecDef.streamFormatWidth); save(); } }
           }));
-          parts.push(fieldRow(t('Max Bitrate (Mbit/s)'), html`
+          const bandwidth = bandwidthRowState(!!settings.nvencForceCbr);
+          parts.push(fieldRow(bandwidth.label, html`
       <div class="range-control">
         ${numberControl('galaxyXr.customBandwidthMbit', {
           value: galaxy.streamQualityValues.bandwidth,
@@ -426,7 +430,8 @@ if (vendor) {
         </div>
       </div>
           `, {
-  tip: t("Set the stream bandwidth budget and the applied encoder budget.\n\nFor Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. The entered Max Bitrate is the encoder maximum; Force CBR applies it directly as both average and maximum. Headroom can reserve part of the budget and lower the average. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.\n\nA target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), with the existing Advanced bandwidth and separate encoder overrides."),
+  notices: bandwidth.notices,
+  tip: t("Set the stream bandwidth budget and the applied encoder budget.\n\nFor Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. In VBR the entered value is the encoder maximum; under Force CBR the encoder average and maximum both equal this budget, bypassing the curve, constancy and headroom. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.\n\nA target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), with the existing Advanced bandwidth and separate encoder overrides."),
   reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
           }));
         if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
@@ -435,20 +440,17 @@ if (vendor) {
         }
         const expired = expiredEncoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
         if (settings.nvencTap || evidence?.initError || expired?.tap.initError) {
-          const names = ['HEVC', 'H.264', 'AV1'];
           if (evidence) {
             if (evidence.initError) parts.push(statusMessage('error', t('Encoder initialization failed'), evidence.initError));
             if (evidence.error || evidence.pictureError) parts.push(statusMessage('error', t('Encoder request failed'), evidence.error || evidence.pictureError || ''));
             if ((evidence.effectiveCodec ?? -1) >= 0) {
-              const codecName = names[evidence.effectiveCodec ?? -1] ?? t('Unknown');
-              const rateControl = evidence.effectiveRateControl === 2 ? 'CBR'
-                : evidence.effectiveRateControl === 1 ? 'VBR' : t('Unknown');
-              const split = evidence.effectiveSplit === -1 ? t('Not applicable') : evidence.effectiveSplit ?? t('Unknown');
+              const items = encoderEvidenceItems(evidence, {
+                nvencCodec: settings.nvencCodec ?? 0,
+                nvencPreset: settings.nvencPreset,
+                nvencMultiPass: settings.nvencMultiPass ?? -1,
+              });
               parts.push(html`<div class="evidence-strip">
-                <span><span class="k">${t('Codec')}</span><span class="v">${codecName}</span></span>
-                <span><span class="k">${t('Frame')}</span><span class="v">${evidence.encodeWidth ?? 0} × ${evidence.encodeHeight ?? 0}</span></span>
-                <span><span class="k">${t('Rate control')}</span><span class="v">${rateControl}</span></span>
-                <span><span class="k">${t('Split')}</span><span class="v">${split}</span></span>
+                ${items.map(item => html`<span><span class="k">${item.key}</span><span class="v">${item.value}</span></span>`)}
               </div>`);
             }
             else parts.push(noteRow(t('No encoder configuration has been accepted in this session.')));
@@ -979,7 +981,7 @@ if (settings.nvencTap) {
         rc: evidence.effectiveRateControl === 2 ? 'CBR' : evidence.effectiveRateControl === 1 ? 'VBR'
           : evidence.effectiveRateControl === 0 ? t('Constant QP') : t('Unknown') })}</span>` : html``}
                 `, {
-  tip: t("Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off is the default for every codec and preserves upstream rate control, which may already be CBR. Turn it on whenever it helps. When on, Max Bitrate is both the constant average and the maximum; the bitrate curve, constancy and headroom do not apply. The reset arrow restores Off. Requires a SteamVR restart.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes; Max Bitrate becomes the constant target."),
+  tip: t("Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off is the default for every codec and preserves upstream rate control, which may already be CBR. When on, the encoder average and maximum both equal the Max Bitrate budget; the saved bitrate curve, constancy and headroom are preserved but not applied. The reset arrow restores Off. Requires a SteamVR restart.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes; average bitrate is pinned to the Max Bitrate ceiling."),
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
                 {
@@ -991,16 +993,21 @@ if (settings.nvencTap) {
                   const curveDisabled = curveLocked;
                   const curveNote = curveLocked
                     ? html`<span class="note-inline">${t('Close SteamVR to change')}</span>`
-                    : settings.nvencForceCbr
-                      ? html`<span class="note-inline">${t('Force CBR uses Max Bitrate directly')}</span>`
-                      : html``;
+                    : html``;
+                  const cbrCurveNotice: FieldNotice | undefined = settings.nvencForceCbr
+                    ? { intent: 'info', title: t('Saved but not applied while Force CBR is on'), body: t('The curve selection is kept; it will apply again if you turn Force CBR off.'), compact: true }
+                    : undefined;
                   parts.push(settingFieldRow('streamFrame.nvencBitrateCurve', html`
       <app-select ?disabled=${curveDisabled} .value=${settings.nvencBitrateCurve ?? 0} .options=${BITRATE_CURVE_FAMILIES.map(family => ({ value: family.value, label: t(family.label) }))} @change=${(e: CustomEvent) => { galaxy.setBitrateCurve(Number(e.detail)); }}></app-select>
       ${curveNote}
                   `, {
-  tip: t("Choose how the streamer's adaptive request becomes the requested encoder target.\n\nGalaxy XR uses a request domain of min(Max Bitrate, 350 Mbit/s). Above 350, default Linear at 0% scales each request by Max Bitrate / 350; below 350 it follows the request up to Max Bitrate. Power knee raises the middle of this domain; soft knee reaches the base ceiling from 60% upward. Custom uses seven normalized points: P1 has a request-zero floor, P2-P5 are free, P6 starts the plateau, and hidden P7 is the fixed endpoint. Point edits change the native encoder override; the scale is applied once. Bitrate Constancy lifts this base curve, then any headroom reservation limits the average. Force CBR applies Max Bitrate directly instead. Close SteamVR to change this. Requires a SteamVR restart.\n\nThese are requested targets, not measured encoded or wire rates. Neutral builds retain normalization against Max Bitrate.\n\nValue: streamFrame.nvencBitrateCurve and streamFrame.nvencBitrateCurvePoints (settings.json)."),
+  notices: cbrCurveNotice ? [cbrCurveNotice] : undefined,
+  tip: t("Choose how the streamer's adaptive request becomes the requested encoder target.\n\nGalaxy XR uses a request domain of min(Max Bitrate, 350 Mbit/s). Above 350, default Linear at 0% scales each request by Max Bitrate / 350; below 350 it follows the request up to Max Bitrate. Power knee raises the middle of this domain; soft knee reaches the base ceiling from 60% upward. Custom uses seven normalized points: P1 has a request-zero floor, P2-P5 are free, P6 starts the plateau, and hidden P7 is the fixed endpoint. Point edits change the native encoder override; the scale is applied once. Bitrate Constancy lifts this base curve, then any headroom reservation limits the average. Force CBR bypasses the curve, constancy and headroom; the saved values are kept and apply again when CBR is off. Close SteamVR to change this. Requires a SteamVR restart.\n\nThese are requested targets, not measured encoded or wire rates. Neutral builds retain normalization against Max Bitrate.\n\nValue: streamFrame.nvencBitrateCurve and streamFrame.nvencBitrateCurvePoints (settings.json)."),
   reset: { can: (settings.nvencBitrateCurve ?? 0) !== defaults.nvencBitrateCurve, on: () => galaxy.resetBitrateCurve() }
                   }));
+                  const cbrConstancyNotice: FieldNotice | undefined = settings.nvencForceCbr
+                    ? { intent: 'info', title: t('Saved but not applied while Force CBR is on'), body: t('The constancy percentage is kept; it will apply again if you turn Force CBR off.'), compact: true }
+                    : undefined;
                   parts.push(settingFieldRow('streamFrame.nvencBitrateConstancyPct', html`
       ${numberControl('streamFrame.nvencBitrateConstancyPct', {
         value: settings.nvencBitrateConstancyPct ?? 0,
@@ -1015,7 +1022,8 @@ if (settings.nvencTap) {
       })}
       ${curveNote}
                   `, {
-  tip: t("Lift the selected curve toward Max Bitrate.\n\n0 leaves the selected base curve unchanged; 100 selects the base ceiling for positive requests. A headroom reservation can lower the final average. Force CBR uses Max Bitrate directly and ignores this percentage. For Galaxy XR with Max Bitrate 500 and a request of 320 Mbit/s, Linear at 0% requests about 457.14 Mbit/s before headroom. With Max Bitrate 280 and a request of 200, it requests 200. Higher constancy reduces the response to congestion. Close SteamVR to change this. Requires a SteamVR restart.\n\nA requested average does not guarantee constant encoded output or constant sent bits.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json)."),
+  notices: cbrConstancyNotice ? [cbrConstancyNotice] : undefined,
+  tip: t("Lift the selected curve toward Max Bitrate.\n\n0 leaves the selected base curve unchanged; 100 selects the base ceiling for positive requests. A headroom reservation can lower the final average. Force CBR bypasses constancy, the curve and headroom; the saved percentage is kept and applies again when CBR is off. For Galaxy XR with Max Bitrate 500 and a request of 320 Mbit/s, Linear at 0% requests about 457.14 Mbit/s before headroom. With Max Bitrate 280 and a request of 200, it requests 200. Higher constancy reduces the response to congestion. Close SteamVR to change this. Requires a SteamVR restart.\n\nA requested average does not guarantee constant encoded output or constant sent bits.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json)."),
   reset: { can: (settings.nvencBitrateConstancyPct ?? 0) !== defaults.nvencBitrateConstancyPct, on: () => galaxy.reset('nvencBitrateConstancyPct') }
                   }));
                   parts.push(fieldRow(t('Bitrate Curve Graph'), html`
@@ -1035,7 +1043,7 @@ if (settings.nvencTap) {
                     onCommit: value => { settings.nvencMultiPass = Number(value); save(); },
                   })}
                 `, { notices: multiPassNotice ? [multiPassNotice] : undefined,
-                  tip: t('Explicit multipass selection applies even when preset merge is off. Automatic keeps the codec and preset recommendation. Unsupported requests fail without fallback.\n\nValue: streamFrame.nvencMultiPass (settings.json). Encoder side — pass count hint; automatic follows the codec/preset recommendation.'),
+                  tip: t("Explicit multipass selection applies even when preset merge is off. Automatic preserves the upstream caller's pass hint for AV1, and follows the tested codec/preset recommendation for HEVC and H.264. Unsupported requests fail without fallback.\n\nValue: streamFrame.nvencMultiPass (settings.json). Encoder side — pass count hint; automatic preserves the AV1 caller value and follows the codec/preset recommendation otherwise."),
                   reset: { can: settings.nvencMultiPass !== defaults.nvencMultiPass, on: () => galaxy.reset('nvencMultiPass') } }));
                 if (settings.nvencCodec === 1) {
                   parts.push(noteRow(html`${t('H.264 compatibility defaults are editable below. Reset arrows restore the tested values. Split-Frame is not applicable to H.264; its saved choice is retained.')}`));
@@ -1114,7 +1122,7 @@ if (settings.nvencTap) {
                 `, {
   noticeKey: 'streamFrame.nvencLowDelayKfScale',
   ctx: controlContext,
-  tip: t("With Force CBR, request the keyframe-to-P-frame size ratio (0–255, NVENC byte field). NVENC documents this ratio for CBR with a single-frame VBV buffer. It is not a hard keyframe size limit or a transport limit. The optimized recommendation is 2. Unsupported requests fail without rewriting the value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — requested low-delay keyframe ratio under CBR."),
+  tip: t("Request the keyframe-to-P-frame size ratio (0–255, NVENC byte field). NVENC documents this ratio for CBR with a single-frame VBV buffer, and the driver writes it for every session with a bitrate budget. It is not a hard keyframe size limit or a transport limit. The optimized recommendation is 2. Unsupported requests fail without rewriting the value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — requested low-delay keyframe ratio."),
   reset: { can: settings.nvencLowDelayKfScale != codecDef.lowDelayKfScale, on: () => { settings.nvencLowDelayKfScale = codecDef.lowDelayKfScale; save(); } }
                 }));
                 const splitNotice = hardwareChoiceNotice('streamFrame.nvencSplitMode', settings.nvencSplitMode, controlContext);

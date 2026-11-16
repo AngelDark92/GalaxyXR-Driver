@@ -79,12 +79,30 @@ describe('bitrate curve families', () => {
     expect(bitrateCurveRequestDomain(500)).toBe(500); // neutral mapping
   });
 
-  it('matches the native headroom budget and Force CBR policy', () => {
+  it('matches the native headroom budget', () => {
     expect(bitrateCurveMbit(320, 500, 0, 0, undefined, 350, 15)).toBe(434.782608);
     expect(bitrateCurveMbit(100, 500, 0, 0, undefined, 350, 15)).toBeCloseTo(100 * 500 / 350, 9);
     expect(bitrateCurveMbit(1, 500, 3, 100, custom, 350, 15)).toBe(434.782608);
-    expect(bitrateCurveMbit(0, 500, 3, 0, custom, 350, 15, true)).toBe(500);
-    expect(bitrateCurveMbit(70, 500, 0, 0, undefined, 350, 100, true)).toBe(500);
+  });
+
+  it('Force CBR pins the applied average to the Max Bitrate ceiling', () => {
+    const cases: Array<[number, number, number, number, typeof custom | undefined, number, number]> = [
+      [0, 500, 3, 0, custom, 350, 15],
+      [70, 500, 0, 0, undefined, 350, 100],
+      [100, 500, 0, 0, undefined, 350, 0],
+      [320, 500, 0, 0, undefined, 350, 15],
+      [200, 280, 1, 40, undefined, 350, 10],
+      [350, 800, 2, 25, undefined, 350, 0],
+      [180, 450, 3, 0, custom, 350, 5],
+    ];
+    for (const [request, ceiling, curve, pct, points, reference, headroom] of cases) {
+      expect(bitrateCurveMbit(request, ceiling, curve, pct, points, reference, headroom, true)).toBeCloseTo(ceiling, 9);
+    }
+    // With CBR off, the same cases follow the curve/constancy/headroom path.
+    expect(bitrateCurveMbit(320, 500, 0, 0, undefined, 350, 0, false)).toBeCloseTo(320 * 500 / 350, 9);
+    expect(bitrateCurveMbit(320, 500, 0, 0, undefined, 350, 0, false)).toBeLessThan(500);
+    // A zero or missing ceiling stays non-negative.
+    expect(bitrateCurveMbit(100, 0, 0, 0, undefined, 350, 0, true)).toBe(0);
   });
 
   it('evaluates the seven-point custom curve with a movable max plateau', () => {

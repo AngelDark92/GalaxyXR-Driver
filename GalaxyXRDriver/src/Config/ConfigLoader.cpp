@@ -2310,6 +2310,17 @@ void ConfigLoader::WriteInfo(){
 		{"effectiveSplit", tap.effectiveSplit},
 		{"encodeWidth", tap.encodeWidth},
 		{"encodeHeight", tap.encodeHeight}};
+	// 2026-11-13: the applied rate-control shape from the last SUCCESSFUL
+	// init/reconfigure. Each field is omitted while unknown; a later request or
+	// a failed call cannot publish values here. Same pid/observedAt freshness
+	// contract as the rest of encoderTap.
+	if(tap.effectiveTuningInfo.has_value()){ data["encoderTap"]["effectiveTuningInfo"] = tap.effectiveTuningInfo.value(); }
+	if(tap.effectivePreset.has_value()){ data["encoderTap"]["effectivePreset"] = tap.effectivePreset.value(); }
+	if(tap.effectiveMultiPass.has_value()){ data["encoderTap"]["effectiveMultiPass"] = tap.effectiveMultiPass.value(); }
+	if(tap.effectiveAverageBitrateMbit.has_value()){ data["encoderTap"]["effectiveAverageBitrateMbit"] = tap.effectiveAverageBitrateMbit.value(); }
+	if(tap.effectiveMaxBitrateMbit.has_value()){ data["encoderTap"]["effectiveMaxBitrateMbit"] = tap.effectiveMaxBitrateMbit.value(); }
+	if(tap.effectiveVbvBufferSizeBits.has_value()){ data["encoderTap"]["effectiveVbvBufferSizeBits"] = tap.effectiveVbvBufferSizeBits.value(); }
+	if(tap.effectiveVbvInitialDelayBits.has_value()){ data["encoderTap"]["effectiveVbvInitialDelayBits"] = tap.effectiveVbvInitialDelayBits.value(); }
 	// 2026-11-03: publish the session-bound capability inventory. Missing fields
 	// mean unknown; query failures are omitted rather than reported as false.
 	const auto caps = NvencTap::Get().GetCapabilities(tap.encoder);
