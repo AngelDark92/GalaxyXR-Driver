@@ -6,6 +6,12 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [2.2.0-dev.3] - 2026-11-17
+
+### Features
+
+- stream-quality: retire bandwidth override, tap-aware Max Bitrate (`8138425`)
+
 ## [2.2.0-dev.2] - 2026-11-17
 
 ### Fixes
