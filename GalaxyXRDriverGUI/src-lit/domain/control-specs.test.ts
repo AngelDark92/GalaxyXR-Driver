@@ -58,7 +58,7 @@ describe('control specs', () => {
   });
 
   it('keeps the bandwidth sliders at the 1500 Mbit/s guidance band', () => {
-    for (const key of ['galaxyXr.customBandwidthMbit', 'streamFrame.nvencBandwidthOverrideMbit', 'streamFrame.nvencBitrateMbit']) {
+    for (const key of ['galaxyXr.customBandwidthMbit', 'streamFrame.nvencBitrateMbit']) {
       const spec = controlSpec(key);
       expect(spec?.kind, key).toBe('number');
       if (spec?.kind === 'number') expect(spec.slider?.max, key).toBe(1500);

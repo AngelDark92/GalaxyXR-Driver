@@ -26,8 +26,9 @@ it('uses effective values, ceiling precedence and preserves invalid entries for 
   const settings = structuredClone(driverDefaults);
   settings.streamFrame!.nvencBitrateCurve = 99;
   settings.streamFrame!.nvencBitrateConstancyPct = 101.5;
-  settings.streamFrame!.nvencBandwidthOverrideMbit = 400;
-  expect(previewState(settings, 350, false, 'galaxyxr')).toEqual({ curve: 99, constancyPct: 101.5, ceilingMbit: 400,
+  // 2026-11-17: the retired nvencBandwidthOverrideMbit no longer feeds the
+  // ceiling; Max Bitrate is the single bandwidth setting.
+  expect(previewState(settings, 350, false, 'galaxyxr')).toEqual({ curve: 99, constancyPct: 101.5, ceilingMbit: 350,
     requestReferenceMbit: 350, forceCbr: settings.streamFrame!.nvencForceCbr,
     headroomPct: settings.streamFrame!.nvencMaxBitrateHeadroomPct,
     fallbackDisabled: true, points: DEFAULT_BITRATE_CURVE_POINTS, locked: false });
@@ -41,7 +42,6 @@ it('uses effective values, ceiling precedence and preserves invalid entries for 
   settings.streamFrame!.nvencBitrateMbit = 500;
   expect(previewState(settings).ceilingMbit).toBe(500);
   settings.streamFrame!.nvencBitrateMbit = 0;
-  settings.streamFrame!.nvencBandwidthOverrideMbit = 0;
   expect(previewState(settings, 300).ceilingMbit).toBe(300); // selected legacy tier, not stale custom bandwidth
   expect(previewState(settings, 0).ceilingMbit).toBe(0); // invalid explicit bandwidth must remain visible
   expect(() => previewState(undefined)).toThrow();

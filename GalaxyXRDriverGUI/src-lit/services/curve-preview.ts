@@ -16,8 +16,7 @@ export function previewState(settings: Settings | undefined, bandwidthMbit = set
     requestReferenceMbit: buildVendor === 'galaxyxr' ? 350 : 0,
     forceCbr: sf.nvencForceCbr,
     headroomPct: sf.nvencMaxBitrateHeadroomPct,
-    ceilingMbit: sf.nvencBitrateMbit !== 0 ? sf.nvencBitrateMbit
-      : sf.nvencBandwidthOverrideMbit !== 0 ? sf.nvencBandwidthOverrideMbit : bandwidthMbit,
+    ceilingMbit: sf.nvencBitrateMbit !== 0 ? sf.nvencBitrateMbit : bandwidthMbit,
     // 2026-10-21: a constancy of 100 pins the request factor to 1.0, so the graph
     // marks a single operating point instead of implying a live curve.
     fallbackDisabled: (sf.nvencBitrateConstancyPct ?? 0) >= 100,

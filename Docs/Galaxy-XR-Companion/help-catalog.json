@@ -356,20 +356,14 @@
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 104,
-    "summary": "Set the stream bandwidth budget and the applied encoder budget.",
-    "details": "For Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. In VBR the entered value is the encoder maximum; under Force CBR the encoder average and maximum both equal this budget, bypassing the curve, constancy and headroom. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.\n\nA target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), with the existing Advanced bandwidth and separate encoder overrides."
+    "summary": "Set the stream bandwidth budget.",
+    "details": "For Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. In VBR the entered value is the encoder maximum; under Force CBR the encoder average and maximum both equal this budget, bypassing the curve, constancy and headroom. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.\n\nWith the NVENC Tap off or unsupported, only the Steam Link pacing budget applies: the scaling above 350 Mbit/s, the bitrate curve, constancy, headroom and Force CBR need the tap.\n\nA target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect.\n\nValue: galaxyXr.customBandwidthMbit (settings.json). Requires a SteamVR restart."
   },
   {
     "source": "features/stream-frame-page.ts",
     "originalLine": 110,
     "summary": "Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.",
     "details": "An encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.\n\nValue: streamFrame.nvencTap (settings.json). Encoder side — hooks NVIDIA NVENC session creation and reconfiguration."
-  },
-  {
-    "source": "features/stream-frame-page.ts",
-    "originalLine": 363,
-    "summary": "Override the normal stream bandwidth budget. 0 follows the Max Bitrate row above instead of forcing a separate value.",
-    "details": "Nonzero supplies the network pacing budget and highest requested encoder target instead of the Max Bitrate row. It does not guarantee actual encoded output or constant sent bits. Requires a SteamVR restart.\n\nValue: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — pacing budget and requested encoder target."
   },
   {
     "source": "features/stream-frame-page.ts",

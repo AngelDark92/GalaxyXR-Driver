@@ -227,14 +227,6 @@ export const streamQualitySpecs: ControlSpec[] = [
     },
   }),
   number({
-    key: 'streamFrame.nvencBandwidthOverrideMbit',
-    min: 0, max: Infinity, step: 25, unit: 'Mbit/s', integer: true,
-    slider: { min: 0, max: 1500, step: 25 },
-    sentinels: [{ value: 0, label: 'Follow Max Bitrate' }],
-    authority: nvenc,
-    label: 'Bandwidth override',
-  }),
-  number({
     key: 'streamFrame.nvencVbvFrames',
     min: 0, max: Infinity, step: 1, unit: 'frames', integer: true,
     slider: { min: 0, max: 30, step: 1 },
