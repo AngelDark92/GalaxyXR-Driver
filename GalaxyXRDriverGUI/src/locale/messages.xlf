@@ -5199,7 +5199,6 @@ Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — write
       <trans-unit id="settings-reorganization-bdfb36bfdb79" datatype="html"><source>Open controller experiments</source></trans-unit>
       <trans-unit id="settings-reorganization-4631b7cb8ade" datatype="html"><source>Show retired controller and image experiments while Advanced Mode is on. This changes visibility only; hiding experiments never resets or disables their saved values.</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-001" datatype="html"><source>No GPU adapters reported.</source></trans-unit>
-      <trans-unit id="gpu-capabilities-20261103-002" datatype="html"><source>Multiple GPUs detected; cannot determine which adapter is in use.</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-003" datatype="html"><source>GPU capability check unavailable.</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-004" datatype="html"><source>{codec} is not supported by the current GPU.</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-005" datatype="html"><source>{codec} capability is not reported for this GPU.</source></trans-unit>
@@ -5220,6 +5219,7 @@ Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — write
       <trans-unit id="gpu-capabilities-20261103-020" datatype="html"><source>Stored: {value} (unsupported)</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-021" datatype="html"><source>{label} must be a whole number.</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-022" datatype="html"><source>{label} must be {min} to {max}{unit}.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261117-001" datatype="html"><source>No NVIDIA GPU found. The NVENC Tap cannot apply; tile width, bitrate, render resolution, 10-bit and image settings still apply.</source></trans-unit>
       <trans-unit id="gpu-mismatch-20261104-001" datatype="html"><source>Expected GPU {expected}, but the NVENC session opened on {actual}. Saved settings were not changed; the actual GPU decides which options are available.</source></trans-unit>
       <trans-unit id="gpu-mismatch-20261104-002" datatype="html"><source>Preferred NVIDIA encoder GPU: {expected}. SteamVR is rendering on {actual}. This alone does not prove streaming will fail.</source></trans-unit>
       <trans-unit id="gpu-mismatch-20261104-003" datatype="html"><source>NVENC session opened on a different GPU</source></trans-unit>

@@ -27,6 +27,10 @@
 #include <filesystem>
 #ifdef _WIN32
 #include <Windows.h>
+#if defined(VENDOR_GALAXYXR)
+#include <dxgi.h>
+#pragma comment(lib, "dxgi.lib")
+#endif
 #else
 #include <unistd.h>
 #endif
@@ -58,6 +62,47 @@ static void AddressModuleBasename(const void* address, wchar_t* output, size_t o
 	const size_t copied = length < outputCount ? length : outputCount - 1;
 	std::wmemcpy(output, basename, copied);
 	output[copied] = L'\0';
+}
+
+// 2026-11-17: name the DXGI adapters once at startup so a machine without an
+// NVIDIA adapter explains why the NVENC Tap cannot apply. Log only: no setting,
+// capability or encoder decision changes here.
+static void LogStartupAdapters(){
+#ifdef _WIN32
+	IDXGIFactory1* factory = nullptr;
+	const HRESULT created = CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&factory));
+	if(FAILED(created) || !factory){
+		DriverLog("GPU: DXGI adapter enumeration failed (HRESULT 0x%08X); adapter list unavailable", static_cast<unsigned>(created));
+		return;
+	}
+	bool nvidia = false;
+	for(UINT i = 0; ; i++){
+		IDXGIAdapter1* adapter = nullptr;
+		const HRESULT next = factory->EnumAdapters1(i, &adapter);
+		if(next == DXGI_ERROR_NOT_FOUND){ break; }
+		if(FAILED(next) || !adapter){
+			DriverLog("GPU: adapter enumeration failed at adapter %u (HRESULT 0x%08X)", i, static_cast<unsigned>(next));
+			break;
+		}
+		DXGI_ADAPTER_DESC1 desc = {};
+		const HRESULT described = adapter->GetDesc1(&desc);
+		if(FAILED(described)){
+			DriverLog("GPU: adapter %u descriptor unavailable (HRESULT 0x%08X)", i, static_cast<unsigned>(described));
+			adapter->Release();
+			continue;
+		}
+		if(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE){ adapter->Release(); continue; }
+		if(desc.VendorId == 0x10DE){ nvidia = true; }
+		const unsigned long long luid = (static_cast<unsigned long long>(static_cast<uint32_t>(desc.AdapterLuid.HighPart)) << 32)
+			| static_cast<uint32_t>(desc.AdapterLuid.LowPart);
+		DriverLog("GPU: adapter %u \"%ls\" vendor 0x%04X luid 0x%016llX", i, desc.Description, static_cast<unsigned>(desc.VendorId), luid);
+		adapter->Release();
+	}
+	factory->Release();
+	if(!nvidia){
+		DriverLog("GPU: no NVIDIA adapter found; NVENC Tap cannot apply. Tile width, bitrate, render resolution, 10-bit and image settings still apply.");
+	}
+#endif
 }
 #endif
 
@@ -127,6 +172,7 @@ vr::EVRInitError GalaxyXRDeviceProvider::Init(vr::IVRDriverContext *pDriverConte
 	driverConfigLoader.Start();
 #ifdef VENDOR_GALAXYXR
 	DriverLog("ControllerPoseEpoch: exact-repeat timing correction available in Controller Fix Off; 50ms bound; Disable All Controller Features disables it (2026-10-12).");
+	LogStartupAdapters();
 #endif
 	{
 		// 2026-09-25: publish saved/default encoder options before installing

@@ -1,0 +1,51 @@
+{
+	"about": "This file provides diagnostic information from the driver, updated 4 times per second.",
+	"vrserverPID": 21976,
+	"eyeTracking": {
+		"valid": false,
+		"left": {
+			"angleX": 0.0,
+			"angleY": 0.0
+		},
+		"right": {
+			"angleX": 0.0,
+			"angleY": 0.0
+		},
+		"focalPoint": {
+			"x": 0.0,
+			"y": 0.0,
+			"z": 0.0
+		}
+	},
+	"streamFrame": {
+		"active": false,
+		"frameCounter": 0,
+		"calibPatternShown": -1,
+		"calibPatternFrames": 0,
+		"calibBlackout": false,
+		"projValid": false,
+		"projLeft": [
+			0.0,
+			0.0,
+			0.0,
+			0.0
+		],
+		"projRight": [
+			0.0,
+			0.0,
+			0.0,
+			0.0
+		],
+		"eyeTexWidth": 0,
+		"eyeTexHeight": 0,
+		"eyeAspect": 1.0,
+		"mapCols": 0,
+		"mapRows": 0,
+		"mapActive": false
+	},
+	"encoderTap": {
+		"enabled": false,
+		"hookInstalled": true,
+		"upgradedSessionsRemain": false
+	}
+}

@@ -1,13 +1,25 @@
-// Hardware capability gating for encoder / Optical Flow settings (2026-11-03).
+// Hardware capability gating for encoder / Optical Flow settings
+// (2026-11-03; adapter precedence rewritten 2026-11-17).
 //
 // Rules, in precedence order:
 //   1. A fresh encoder-tap observation for the current driver process is
-//      authoritative for the running codec.
-//   2. A GPU-probe adapter matched by LUID is next best.
-//   3. A single unambiguous adapter is usable.
-//   4. Multiple adapters with no current identity stays UNKNOWN: the UI must
-//      not disable simply because one device lacks a feature, and must not
-//      allow simply because one device has it.
+//      authoritative for the running codec. Same-LUID probe hints fill only the
+//      fields the session did not report.
+//   2. No probe, or zero reported adapters, stays unknown.
+//   3. No NVIDIA adapter in the inventory (every reported vendor differs from
+//      0x10de): NVENC is known absent, so only the NVENC Tap is refused, with
+//      an explicit no-NVIDIA reason. Tile width, bitrate, render resolution,
+//      10-bit and image settings keep applying exactly as with a single
+//      adapter.
+//   4. Exactly one NVIDIA adapter with NVENC not ruled out: that adapter is the
+//      candidate, whatever the other adapters are (iGPU, unreported vendor,
+//      Basic Display) and whether or not it is the primary GPU. Which GPU
+//      Windows/SteamVR treat as primary is the user's choice and never gates
+//      the Tap.
+//   5. Several NVIDIA candidates: NVENC exists, so the Tap may arm, but the
+//      per-adapter codec/preset/split/multipass/10-bit limits stay unverified
+//      WITHOUT a reason string, so no notice renders. There is no "which
+//      adapter is in use" warning: the user's primary-GPU choice is their own.
 //
 // Unsupported saved values are displayed untouched and warned; they are never
 // silently rewritten to a fallback.
@@ -28,15 +40,27 @@ export type SupportVerdict = 'supported' | 'unsupported' | 'unverified';
 
 /** Where the effective adapter identity came from. `known` means "capability
  *  candidate identity", NOT "the stream was verified on it": only
- *  'encoder-session' is the adapter the driver actually opened. */
-export type AdapterSource = 'encoder-session' | 'unique-nvenc-candidate' | 'single-adapter' | 'unknown';
+ *  'encoder-session' is the adapter the driver actually opened.
+ *  - 'no-nvidia': no NVIDIA adapter is present, so `adapter` only carries the
+ *    inventory's non-NVENC fields with NVENC and Optical Flow explicitly false.
+ *  - 'nvenc-absent': NVIDIA adapters exist but every one reports NVENC absent.
+ *  - 'multiple-nvenc-candidates': several NVIDIA adapters may encode; the Tap is
+ *    allowed and per-adapter limits stay unverified. */
+export type AdapterSource =
+  | 'encoder-session'
+  | 'unique-nvenc-candidate'
+  | 'single-adapter'
+  | 'no-nvidia'
+  | 'nvenc-absent'
+  | 'multiple-nvenc-candidates'
+  | 'unknown';
 
 export interface EffectiveAdapter {
   /** The adapter we should use for capability decisions, if any. */
   adapter?: AdapterCapabilities;
   /** Identity provenance. Absent on hand-built values (treated as unknown). */
   source?: AdapterSource;
-  /** We know which adapter is in use. */
+  /** We know which adapter is in use (or that NVENC is absent everywhere). */
   known: boolean;
   /** More than one plausible adapter and no identity. */
   ambiguous: boolean;
@@ -95,37 +119,66 @@ export function effectiveAdapter(
     return { adapter: matched ? mergeAdapter(matched, session) : session, source: 'encoder-session', known: true, ambiguous: false };
   }
   // 2. Unambiguous single adapter probe. A tap without fresh capabilities is
-  //    never used to pick an adapter by LUID.
+  //    never used to pick an adapter by LUID. A single adapter with a reported
+  //    non-NVIDIA vendor is NVENC-absent inventory: the same adapter fields
+  //    decide codec/10-bit/split, only NVENC is explicitly false.
   if (gpu?.adapters) {
-    if (gpu.adapters.length === 1) {
-      return { adapter: gpu.adapters[0], source: 'single-adapter', known: true, ambiguous: false };
+    const adapters = gpu.adapters;
+    if (adapters.length === 1) {
+      const only = adapters[0];
+      if (typeof only.vendorId === 'number' && only.vendorId !== NVIDIA_VENDOR_ID) {
+        return { adapter: nvencAbsentAdapter(only), source: 'no-nvidia', known: true, ambiguous: false };
+      }
+      return { adapter: only, source: 'single-adapter', known: true, ambiguous: false };
     }
-    if (gpu.adapters.length === 0) {
+    if (adapters.length === 0) {
       return { source: 'unknown', known: false, ambiguous: false, reason: t('No GPU adapters reported.') };
     }
-    // 3. Exactly one NVIDIA NVENC candidate and every other adapter proven
-    //    unable to run NVENC: preferred (unverified until the encoder opens).
-    const candidate = uniqueNvencCandidate(gpu.adapters);
-    if (candidate) return { adapter: candidate, source: 'unique-nvenc-candidate', known: true, ambiguous: false };
-    return { source: 'unknown', known: false, ambiguous: true, reason: t('Multiple GPUs detected; cannot determine which adapter is in use.') };
+    // 3. Exactly one NVIDIA adapter that may encode is the candidate, no matter
+    //    what the other adapters are (iGPU, unreported vendor) or in which order
+    //    Windows enumerates them. Which GPU is primary is the user's choice.
+    const candidates = adapters.filter(isNvencCandidate);
+    if (candidates.length === 1) {
+      return { adapter: candidates[0], source: 'unique-nvenc-candidate', known: true, ambiguous: false };
+    }
+    // 4. Several candidates: NVENC exists, so the Tap is allowed, but no single
+    //    adapter can be blamed for a per-adapter limit. No warning at all.
+    if (candidates.length > 1) {
+      return { source: 'multiple-nvenc-candidates', known: false, ambiguous: false };
+    }
+    // 5. No candidate: NVIDIA adapters exist but all report NVENC absent, or the
+    //    inventory holds no NVIDIA adapter at all.
+    const nvidia = adapters.filter(a => a.vendorId === NVIDIA_VENDOR_ID);
+    if (nvidia.length) {
+      return { adapter: nvencAbsentAdapter(nvidia[0]), source: 'nvenc-absent', known: true, ambiguous: false };
+    }
+    if (adapters.every(a => typeof a.vendorId === 'number')) {
+      return { adapter: nvencAbsentAdapter(adapters[0]), source: 'no-nvidia', known: true, ambiguous: false };
+    }
+    // An unreported vendor cannot prove NVIDIA is absent (the Windows probe
+    // always reports one, so this is a defensive branch only).
+    return { source: 'unknown', known: false, ambiguous: true };
   }
   return { source: 'unknown', known: false, ambiguous: false, reason: t('GPU capability check unavailable.') };
 }
 
-/** An adapter that cannot be the NVENC encoder: proven non-NVIDIA (vendor
- *  reported and different) or NVIDIA with NVENC explicitly absent. A missing
- *  vendor is never proof of anything. */
-function provenNonEncoder(a: AdapterCapabilities): boolean {
-  if (typeof a.vendorId !== 'number') return false;
-  return a.vendorId !== NVIDIA_VENDOR_ID || a.nvenc === false;
+/** An adapter that cannot encode: same identity and codec hints as the probed
+ *  adapter, with NVENC and NVIDIA Optical Flow explicitly absent. */
+function nvencAbsentAdapter(a: AdapterCapabilities): AdapterCapabilities {
+  return { ...a, nvenc: false, opticalFlow: false };
 }
 
-/** The single NVIDIA adapter that may encode, when all others are proven not to. */
+/** An NVIDIA adapter whose NVENC is not ruled out. */
+function isNvencCandidate(a: AdapterCapabilities): boolean {
+  return a.vendorId === NVIDIA_VENDOR_ID && a.nvenc !== false;
+}
+
+/** The single NVIDIA adapter that may encode. Other adapters need no proof of
+ *  anything: only the candidate's NVENC capability decides, so a second GPU of
+ *  any vendor (or one with an unreported vendor) never hides it. */
 export function uniqueNvencCandidate(adapters: readonly AdapterCapabilities[]): AdapterCapabilities | undefined {
-  const candidates = adapters.filter(a => a.vendorId === NVIDIA_VENDOR_ID && a.nvenc !== false);
-  if (candidates.length !== 1) return undefined;
-  const [only] = candidates;
-  return adapters.every(a => a === only || provenNonEncoder(a)) ? only : undefined;
+  const candidates = adapters.filter(isNvencCandidate);
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 /** Preferred NVENC GPU (unique candidate or the single adapter) with a LUID.
@@ -186,11 +239,20 @@ export function tenBitNoticeReason(support: { verdict: SupportVerdict; reason?: 
   return support.verdict === 'unsupported' ? support.reason : undefined;
 }
 
-/** Whether the NVENC Tap can arm on the effective adapter. */
+/** Whether the NVENC Tap can arm on the effective adapter. Two or more NVIDIA
+ *  candidates allow it: NVENC exists, and the exact adapter is the user's
+ *  choice. A non-NVIDIA inventory names the missing NVIDIA GPU explicitly while
+ *  every other setting keeps applying. */
 export function nvencTapSupport(adapter: EffectiveAdapter): { verdict: SupportVerdict; reason?: string } {
+  if (adapter.source === 'multiple-nvenc-candidates') return { verdict: 'supported' };
   if (!adapter.known) return { verdict: 'unverified', reason: adapter.reason };
   if (adapter.adapter?.nvenc === false) {
-    return { verdict: 'unsupported', reason: t('NVIDIA NVENC is not available; NVENC Tap cannot arm.') };
+    return {
+      verdict: 'unsupported',
+      reason: adapter.source === 'no-nvidia'
+        ? t('No NVIDIA GPU found. The NVENC Tap cannot apply; tile width, bitrate, render resolution, 10-bit and image settings still apply.')
+        : t('NVIDIA NVENC is not available; NVENC Tap cannot arm.'),
+    };
   }
   return { verdict: adapter.adapter?.nvenc === true ? 'supported' : 'unverified' };
 }

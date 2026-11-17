@@ -555,6 +555,8 @@ export type DriverInfo = {
     enabled: boolean;
     hookInstalled: boolean;
     upgradedSessionsRemain: boolean;
+    /** 2026-11-17: sticky proof that an enabled session took encoder policy. */
+    policyApplied?: boolean;
     configPath: string;
     modulePath: string;
     requestedCodec?: number;

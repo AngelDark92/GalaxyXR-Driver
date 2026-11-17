@@ -2295,7 +2295,7 @@ void ConfigLoader::WriteInfo(){
 	const auto tap = NvencTap::Get().GetRuntimeState();
 	static const std::string modulePath = LoadedDriverModulePath();
 	data["encoderTap"] = {{"enabled", tap.enabled}, {"hookInstalled", tap.hookInstalled},
-		{"upgradedSessionsRemain", tap.upgradedSessionsRemain},
+		{"upgradedSessionsRemain", tap.upgradedSessionsRemain}, {"policyApplied", tap.policyApplied},
 		{"configPath", std::filesystem::absolute(std::filesystem::u8path(GetConfigFolder() + "settings.json")).u8string()},
 		{"modulePath", modulePath}, {"pid", GetCurrentProcessId()},
 		{"observedAt", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
@@ -2475,7 +2475,7 @@ void ConfigLoader::WriteDiagnosticInfo(){
 	// info.json did not need rewriting after an ON/OFF transition.
 	const auto tap = NvencTap::Get().GetRuntimeState();
 	data["encoderTap"] = {{"enabled", tap.enabled}, {"hookInstalled", tap.hookInstalled},
-		{"upgradedSessionsRemain", tap.upgradedSessionsRemain}};
+		{"upgradedSessionsRemain", tap.upgradedSessionsRemain}, {"policyApplied", tap.policyApplied}};
 	const auto caps = NvencTap::Get().GetCapabilities(tap.encoder);
 	if(caps.queried){
 		ordered_json capsJson = SerializeEncoderCapabilities(caps);

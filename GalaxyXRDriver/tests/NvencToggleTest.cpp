@@ -1709,6 +1709,8 @@ void CheckOffPassthrough(void* encoder){
 		"OFF full initialization/config bytes unchanged");
 	Check(capsCalls == capsBefore, "OFF does not query encoder capabilities");
 	Check(logCalls == logsBefore, "OFF successful passthrough emits no diagnostic logs");
+	Check(!NvencTap::Get().GetRuntimeState().policyApplied,
+		"OFF passthrough does not record applied encoder policy");
 	Check(NvencTapShims::InitializeEncoder(encoder, nullptr) == NV_ENC_ERR_INVALID_PTR, "OFF null init delegated");
 	Check(NvencTap::Get().GetRuntimeState().lastInitStatus == NV_ENC_ERR_INVALID_PTR
 		&& !NvencTap::Get().GetRuntimeState().initError.empty(), "OFF failed null init remains diagnosable");
@@ -2606,6 +2608,8 @@ int main(){
 	rejectListUpgrade = false;
 	Configure(false, 1);
 	CheckExistingSessionAfterOff(upgraded);
+	Check(NvencTap::Get().GetRuntimeState().policyApplied,
+		"enabled sessions recorded applied policy; it stays sticky after OFF");
 	Check(NvencTapShims::DestroyEncoder(upgraded) == NV_ENC_SUCCESS && destroyCalls > 0,
 		"upgraded session destruction still delegates after OFF");
 	Check(!Upgraded(upgraded), "destroy removes the session ABI record");

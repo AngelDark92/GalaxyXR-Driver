@@ -1,0 +1,463 @@
+{
+	"about": "This file is not for configuration. It provides info from the driver for other utilities to use.",
+	"defaultSettings": {
+		"debugMode": false,
+		"galaxyXr": {
+			"sdr10Baseline": true,
+			"sdr10AllowEnhancements": false,
+			"sdr10SettingsVersion": 1
+		},
+		"generalHeadset": {
+			"useViveBluetooth": false
+		},
+		"customShader": {
+			"enable": false,
+			"enableForOther": false,
+			"contrast": 50.0,
+			"contrastMidpoint": 50.0,
+			"contrastLinear": false,
+			"contrastPerEye": false,
+			"contrastPerEyeLinear": false,
+			"contrastLeft": 50.0,
+			"contrastMidpointLeft": 50.0,
+			"contrastRight": 50.0,
+			"contrastMidpointRight": 50.0,
+			"saturation": 50.0,
+			"gamma": 2.2,
+			"subpixelShift": true,
+			"disableMuraCorrection": false,
+			"disableBlackLevels": false,
+			"srgbColorCorrection": false,
+			"srgbWhitePointCorrection": false,
+			"srgbColorCorrectionMatrix": [],
+			"dither10Bit": false,
+			"enableFilterForOverlay": false,
+			"enableFilterForDashboard": true,
+			"samplingFilter": "None",
+			"samplingFilterFXAA2SharpenStrength": 1.0,
+			"samplingFilterFXAA2SharpenClamp": 0.05,
+			"samplingFilterFXAA2CASStrength": 1.0,
+			"samplingFilterFXAA2CASContrast": 1.0,
+			"samplingFilterLumaSharpenStrength": 2.0,
+			"samplingFilterLumaSharpenClamp": 0.1,
+			"samplingFilterLumaSharpenPattern": 1,
+			"samplingFilterLumaSharpenRadius": 1.0,
+			"samplingFilterCASStrength": 1.0,
+			"samplingFilterCASContrast": 1.0,
+			"colorMultiplier": {
+				"r": 1.0,
+				"g": 1.0,
+				"b": 1.0
+			}
+		},
+		"forceTracking": false,
+		"controllers": {
+			"spaceVelocityFix": "off",
+			"rotationOffsetDeg": {
+				"x": 0.0,
+				"y": 5.0,
+				"z": 0.0
+			},
+			"positionOffsetCm": {
+				"x": 0.5,
+				"y": 0.0,
+				"z": 0.0
+			},
+			"left": {
+				"rotationOffsetDeg": {
+					"x": 0.0,
+					"y": 0.0,
+					"z": 0.0
+				},
+				"positionOffsetCm": {
+					"x": 0.0,
+					"y": 0.0,
+					"z": 0.0
+				}
+			},
+			"right": {
+				"rotationOffsetDeg": {
+					"x": 0.0,
+					"y": 0.0,
+					"z": 0.0
+				},
+				"positionOffsetCm": {
+					"x": 0.0,
+					"y": 0.0,
+					"z": 0.0
+				}
+			},
+			"gameLinkLayout": {
+				"rotationOffsetDeg": {
+					"x": 2.0,
+					"y": -5.0,
+					"z": -9.0
+				},
+				"positionOffsetCm": {
+					"x": 0.5,
+					"y": -1.5,
+					"z": 0.5
+				}
+			},
+			"aligner": {
+				"enable": false
+			}
+		},
+		"streamFrame": {
+			"enable": true,
+			"saturation": 50.0,
+			"vibrance": 0.0,
+			"contrast": 50.0,
+			"contrastMidpoint": 50.0,
+			"contrastLinear": false,
+			"gamma": 2.2,
+			"colorMultiplier": {
+				"r": 1.0,
+				"g": 1.0,
+				"b": 1.0
+			},
+			"srgbMatrix": [],
+			"fxaa": "off",
+			"cas": {
+				"enable": false,
+				"strength": 0.5,
+				"perEye": false,
+				"strengthLeft": 0.5,
+				"strengthRight": 0.5
+			},
+			"postPack": {
+				"enable": true,
+				"casEnable": true,
+				"foveaStrength": 0.6,
+				"peripheryStrength": 0.3,
+				"foveaTop": true,
+				"edgeFalloff": 0.12,
+				"limitedRange": false
+			},
+			"dither": false,
+			"blackFloor": {
+				"rampBar": false,
+				"rangeMode": "off",
+				"shadowLift": false,
+				"floorCode": 2.0,
+				"kneeCode": 8.0,
+				"blackPointCode": 0.0
+			},
+			"stationaryDimming": {
+				"enable": false,
+				"movementThreshold": 0.4,
+				"movementTime": 15.0,
+				"dimSeconds": 10.0,
+				"brightenSeconds": 1.0
+			},
+			"k1": 0.0,
+			"k2": 0.0,
+			"distortion": {
+				"mode": "k1k2",
+				"points": [],
+				"gain": 1.0,
+				"centerTune": {
+					"enable": false,
+					"breatheAmp": 0.05
+				},
+				"tune": {
+					"enable": false,
+					"rate": 0.08,
+					"stepSize": 0.0,
+					"ringOpacity": 0.55,
+					"forceGrid": true,
+					"segments": 1,
+					"segmentLayout": [],
+					"bands": [
+						0.15,
+						0.22,
+						0.3,
+						0.38,
+						0.46,
+						0.55,
+						0.65
+					]
+				},
+				"map": {
+					"enable": true,
+					"cols": 0,
+					"rows": 0,
+					"left": [],
+					"right": [],
+					"source": ""
+				},
+				"perEye": false,
+				"perAxis": false,
+				"curves": {},
+				"segments": 1,
+				"annulus": {
+					"enable": false,
+					"rMin": 0.0,
+					"rMax": 0.75,
+					"feather": 0.05
+				}
+			},
+			"calib": {
+				"blackout": false,
+				"eye": -1,
+				"patternBrightness": 1.0,
+				"captureMode": false,
+				"pattern": -1,
+				"patternBits": 10
+			},
+			"centerOffsetXLeft": 0.0,
+			"centerOffsetXRight": 0.0,
+			"centerOffsetY": 0.0,
+			"alignment": {
+				"leftH": 0.0,
+				"leftV": 0.0,
+				"rightH": 0.0,
+				"rightV": 0.0
+			},
+			"skipColorWhileDashboardOpen": false,
+			"processAtSubmitLayer": false,
+			"poseLogging": false,
+			"poseLogBurst": false,
+			"syncTimeoutMs": 10,
+			"reconLogger": false,
+			"hitchDiag": false,
+			"deferredEviction": true,
+			"directRender": true,
+			"zeroCopy": false,
+			"eyeGaze": {
+				"debugRing": false,
+				"tanHalfFovX": 1.19,
+				"tanHalfFovY": 1.19,
+				"predictionMs": 30.0,
+				"debugGrid": false,
+				"gridMode": "uv",
+				"gridAngularDeg": 2.5,
+				"calibDot": false,
+				"probeCapture": false,
+				"gridWorldLocked": false,
+				"gridOpaque": false,
+				"swimProbe": false,
+				"overlayWarped": false
+			},
+			"pupilSwim": {
+				"centerStrengthX": 0.0,
+				"centerStrengthY": 0.0
+			},
+			"zeroCopyV3": false,
+			"nvencTap": true,
+			"nvencCodec": 0,
+			"nvencBandwidthOverrideMbit": 0,
+			"nvencSettingsVersion": 0,
+			"nvencFixLevel": true,
+			"nvencBitrateMbit": 0,
+			"nvencMaxQp": 0,
+			"nvencAqStrength": 0,
+			"nvencMaxBitrateHeadroomPct": 0,
+			"nvencVbvFrames": 2,
+			"nvencForceFps": 90,
+			"nvencBitrateCurve": 0,
+			"nvencBitrateConstancyPct": 0,
+			"nvencBitrateCurvePoints": [
+				{
+					"x": 0.0,
+					"y": 0.0
+				},
+				{
+					"x": 0.2,
+					"y": 0.2
+				},
+				{
+					"x": 0.4,
+					"y": 0.4
+				},
+				{
+					"x": 0.6,
+					"y": 0.6
+				},
+				{
+					"x": 0.8,
+					"y": 0.8
+				},
+				{
+					"x": 1.0,
+					"y": 1.0
+				},
+				{
+					"x": 1.0,
+					"y": 1.0
+				}
+			],
+			"nvencH264GopFrames": 0,
+			"nvencH264IdrFrames": 0,
+			"nvencH264RefFrames": 3,
+			"nvencH264Entropy": 0,
+			"nvencH264SliceMode": 3,
+			"nvencH264SliceData": 1,
+			"nvencH264Aud": true,
+			"nvencH264RepeatHeaders": true,
+			"nvencH264DisableHeaders": false,
+			"nvencH264BitstreamRestriction": true,
+			"nvencH264VbvInitialDelay": 0,
+			"nvencMultiPass": -1,
+			"nvencPreset": 0,
+			"nvencPresetMerge": true,
+			"nvencVuiFullRange": -1,
+			"nvencMinQp": 0,
+			"nvencMinQpIntra": 0,
+			"nvencForceCbr": false,
+			"nvencLowDelayKfScale": 2,
+			"nvencVuiMatrix": -1,
+			"nvencVuiPrimaries": -1,
+			"nvencVuiTransfer": -1,
+			"nvencSplitMode": 1,
+			"nvencQpFovea": 0,
+			"nvencQpPeriphery": 0,
+			"nvencVerbose": false,
+			"velocityFixMode": "kalmanCA",
+			"deriveSmoothTauSlowMs": 90.0,
+			"deriveSmoothTauFastMs": 6.0,
+			"deriveSmoothSpeedLow": 0.25,
+			"deriveSmoothSpeedHigh": 1.6,
+			"deriveSmoothAngSeparate": false,
+			"deriveSmoothAngTauSlowMs": 90.0,
+			"deriveSmoothAngTauFastMs": 6.0,
+			"deriveSmoothAngSpeedLow": 1.7,
+			"deriveSmoothAngSpeedHigh": 10.5,
+			"deriveSplitDirLinear": false,
+			"deriveSplitDirAngular": false,
+			"deriveDirWindowMs": 50.0,
+			"deriveDirWeightPow": 2.0,
+			"deriveDirSource": "secant",
+			"deriveMagSource": "vector",
+			"deriveReleaseLatch": false,
+			"deriveLatchWindowMs": 150.0,
+			"deriveLatchHoldMs": 120.0,
+			"deriveLatchMinSpeed": 0.8,
+			"deriveLatchAngMinSpeed": 6.0,
+			"derivePreFilter": "off",
+			"derivePreSmoothMs": 0.0,
+			"derivePreSmoothScope": "direction",
+			"deriveDiagVelocity": "off",
+			"deriveLatchPoseAssist": false,
+			"kalmanProcessAccel": 1.0,
+			"kalmanPosNoiseMm": 2.7,
+			"kalmanProcessAngAccel": 400.0,
+			"kalmanOriNoiseDeg": 1.25,
+			"kalmanLeadMs": 0.0,
+			"kalmanReleaseRewindMs": 0.0,
+			"kalmanRewindHoldMs": 100.0,
+			"kalmanDirSmoothMs": 0.0,
+			"kalmanAngDirSmoothMs": 0.0,
+			"kalmanMagSource": "state",
+			"kalmanMagAccel": 60.0,
+			"kalmanMagScale": 1.0,
+			"kalmanAngMagScale": 1.0,
+			"kalmanDupMode": "soft",
+			"kalmanDupRScale": 3.0,
+			"kalmanTeleportM": 0.75,
+			"kalmanLossCoastMs": 250.0,
+			"streamFrameSchema": 1,
+			"graveyardEnable": false,
+			"kalmanDeviceTime": true,
+			"kalmanPosFreeze3dof": true,
+			"kalmanAngularOutFrame": "body",
+			"kalmanFreezeCoastTurn": 0.0,
+			"kalmanPosFreezeVelDecayMs": 0.0,
+			"kalmanDupCoastMaxMs": 90.0,
+			"kalmanGazeAssist": 0.0,
+			"kalmanGazeMaxDeg": 30.0,
+			"kalmanGazeMinSpeed": 1.2,
+			"kalmanSmoothLagMs": 0.0,
+			"kalmanSmoothLagEpoch": 0,
+			"kalmanDirLeadMs": 0.0,
+			"kalmanDirLeadAdaptive": false,
+			"kalmanDirLeadBaseMs": 5.0,
+			"kalmanDirLeadWMs": 0.3,
+			"kalmanAdaptiveR": false,
+			"kalmanAdaptiveRMaxDiv": 16.0,
+			"kalmanCaJerk": 4.0,
+			"kalmanCaAngJerk": 1500.0,
+			"kalmanCaPosNoiseMm": 1.5,
+			"kalmanCaOriNoiseDeg": 1.5,
+			"kalmanCaAccelTauMs": 20.0,
+			"kalmanCaMagJerk": 800.0,
+			"kalmanCaMagAccelTauMs": 150.0,
+			"kalmanCaReportAccel": false,
+			"kalmanCaExactCov": true,
+			"kalmanGripEnable": false,
+			"kalmanGripBlend": 1.0,
+			"kalmanGripLeftCm": {
+				"x": 0.0,
+				"y": 0.0,
+				"z": 0.0
+			},
+			"kalmanGripRightCm": {
+				"x": 0.0,
+				"y": 0.0,
+				"z": 0.0
+			}
+		},
+		"takeCompositorScreenshots": false,
+		"onlyHandlePrivateFunctionality": false
+	},
+	"builtInDistortionProfiles": {},
+	"resolution": {
+		"fovX": 0.0,
+		"fovY": 0.0,
+		"fovMaxX": 0.0,
+		"fovMaxY": 0.0,
+		"combinedFovX": 0.0,
+		"combinedFovY": 0.0,
+		"renderResolution1To1X": 0,
+		"renderResolution1To1Y": 0,
+		"renderResolution1To1Percent": 0.0,
+		"renderResolution100PercentX": 0,
+		"renderResolution100PercentY": 0,
+		"outputResolutionX": 0,
+		"outputResolutionY": 0
+	},
+	"connectedHeadset": 1,
+	"nonNativeHeadsetFound": true,
+	"isDashboardOpen": true,
+	"debugLog": "",
+	"driverName": "GalaxyXRNative",
+	"driverResources": "C:\\Users\\Halo\\AppData\\Local\\GalaxyXR\\Drivers\\GalaxyXRNative-1794869955642528300\\resources\\",
+	"steamvrResources": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\SteamVR\\resources\\",
+	"runtime": {
+		"initialized": true,
+		"lockedOut": false,
+		"processId": 21976
+	},
+	"driverVersion": "2.2.0-dev.1",
+	"encoderTap": {
+		"enabled": false,
+		"hookInstalled": true,
+		"upgradedSessionsRemain": false,
+		"configPath": "C:\\Users\\Halo\\AppData\\Roaming\\GalaxyXR\\CustomHeadset\\settings.json",
+		"modulePath": "C:\\Users\\Halo\\AppData\\Local\\GalaxyXR\\Drivers\\GalaxyXRNative-1794869955642528300\\bin\\win64\\driver_GalaxyXRNative.dll",
+		"pid": 21976,
+		"observedAt": 1794870662981,
+		"requestedCodec": 0,
+		"effectiveCodec": -1,
+		"lastStatus": 0,
+		"lastPictureStatus": 0,
+		"pictureError": "",
+		"error": "",
+		"lastInitStatus": 0,
+		"initError": "",
+		"effectiveRateControl": -1,
+		"effectiveSplit": -1,
+		"encodeWidth": 0,
+		"encodeHeight": 0
+	},
+	"bitratePolicy": {
+		"ceilingMbit": 0,
+		"requestMbit": 0,
+		"targetMbit": 0
+	},
+	"graphicsAdapter": {
+		"adapterLuid": "000000000000e1e7",
+		"pid": 21976,
+		"observedAt": 1794870662981
+	}
+}

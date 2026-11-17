@@ -327,6 +327,11 @@ struct NvencTapRuntimeState {
 	bool enabled = false;
 	bool hookInstalled = false;
 	bool upgradedSessionsRemain = false;
+	// 2026-11-17: sticky per-process evidence that the tap applied encoder
+	// policy to a session while enabled. The import hooks always install for
+	// the Galaxy link epoch, so hookInstalled alone cannot say whether turning
+	// the tap off needs a restart; this can.
+	bool policyApplied = false;
 	int requestedCodec = 0, effectiveCodec = -1;
 	uint32_t lastStatus = 0;
 	std::string error;
@@ -426,6 +431,9 @@ public:
 	bool ConfigPublished() const { return cfgPublished.load(std::memory_order_relaxed); }
 	NvencTapStats GetStats();
 	NvencTapRuntimeState GetRuntimeState();
+	// 2026-11-17: recorded from a successful guarded init/reconfigure whose
+	// snapshot had the tap enabled. An OFF passthrough never calls this.
+	void NotePolicyApplied();
 	BitratePolicyState GetBitratePolicyState();
 	// 2026-11-03: session-bound capability inventory. Returns the cached result
 	// for the given encoder handle; an empty result means no query has run.
@@ -441,6 +449,8 @@ private:
 
 	std::atomic<bool> installed{false};
 	std::atomic<bool> failedPermanently{false};
+	// 2026-11-17: never cleared; see NvencTapRuntimeState::policyApplied.
+	std::atomic<bool> tapPolicyApplied{false};
 	// vendor: driver_vrlink.dll image whose imports did not match (retry only for a new image)
 	void* vendorFailedModule = nullptr;
 	double lastAttempt = 0;

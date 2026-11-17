@@ -32,13 +32,17 @@ fn status(state: &str, detail: &str, running: bool, now: u64) -> RuntimeStatus {
 fn encoder_status(info: &Value, diagnostic: &Value) -> Option<EncoderTapStatus> {
     // 2026-09-30: use the current diagnostic heartbeat for hook state. Old
     // packages or incomplete snapshots must never imply an uninstalled hook.
+    // 2026-11-17: the hooks install independently of the toggle (the CRT
+    // observer feeds the Galaxy link epoch), so hookInstalled cannot decide a
+    // restart. policyApplied is the sticky per-process proof that an enabled
+    // session actually took encoder policy.
     let tap = &diagnostic["encoderTap"];
     let enabled = tap["enabled"].as_bool()?;
-    let installed = tap["hookInstalled"].as_bool()?;
+    let applied = tap["policyApplied"].as_bool()?;
     let upgraded = tap["upgradedSessionsRemain"].as_bool()?;
     let config = info["encoderTap"]["configPath"].as_str().filter(|v| !v.is_empty())?;
     let module = info["encoderTap"]["modulePath"].as_str().filter(|v| !v.is_empty())?;
-    Some(EncoderTapStatus { state: if enabled { "enabled" } else if installed || upgraded { "restart-required" } else { "disabled" }.into(),
+    Some(EncoderTapStatus { state: if enabled { "enabled" } else if applied || upgraded { "restart-required" } else { "disabled" }.into(),
         config_path: config.into(), module_path: module.into() })
 }
 
@@ -205,22 +209,28 @@ mod tests {
     #[test] fn wrong_version_is_not_success() { assert_eq!(assess_runtime(&info(),&json!({"vrserverPID":42}),42,1000,2000,9000,"2.0.0",10000).state,"version-mismatch"); }
     #[test] fn connection_is_separate_from_initialization() { let mut i=info();i["connectedHeadset"]=json!(1);assert_eq!(assess_runtime(&i,&json!({"vrserverPID":42}),42,1000,2000,9000,"1.2.0",10000).state,"headset-connected"); }
     #[test]
-    fn encoder_off_requires_complete_current_session_evidence() {
+    fn encoder_state_follows_applied_policy_not_hook_installation() {
         let mut i=info();
         i["encoderTap"]=json!({"configPath":"C:/config/settings.json","modulePath":"C:/driver/bin/win64/driver_GalaxyXRNative.dll"});
-        let mut d=json!({"vrserverPID":42,"encoderTap":{"enabled":false,"hookInstalled":false,"upgradedSessionsRemain":false}});
         let check=|info:&Value, diag:&Value, pid| assess_runtime(info,diag,pid,1000,2000,9000,"1.2.0",10000);
-        assert_eq!(check(&i,&d,42).encoder_tap.unwrap().state,"disabled");
-        assert!(check(&i,&d,43).encoder_tap.is_none());
-        d["encoderTap"]["hookInstalled"]=json!(true);
+        let mut d=json!({"vrserverPID":42,"encoderTap":{"enabled":true,"hookInstalled":true,"policyApplied":true,"upgradedSessionsRemain":false}});
+        assert_eq!(check(&i,&d,42).encoder_tap.unwrap().state,"enabled");
+        // OFF after an enabled session applied policy: a restart is required.
+        d["encoderTap"]["enabled"]=json!(false);
         assert_eq!(check(&i,&d,42).encoder_tap.unwrap().state,"restart-required");
-        d["encoderTap"]["hookInstalled"]=json!(false);
+        // OFF with an upgraded session still alive: same.
+        d["encoderTap"]["policyApplied"]=json!(false);
         d["encoderTap"]["upgradedSessionsRemain"]=json!(true);
         assert_eq!(check(&i,&d,42).encoder_tap.unwrap().state,"restart-required");
-        d["encoderTap"]["enabled"]=json!(true);
-        assert_eq!(check(&i,&d,42).encoder_tap.unwrap().state,"enabled");
-        d["encoderTap"].as_object_mut().unwrap().remove("enabled");
+        // The import hooks install regardless of the toggle, so a hook with no
+        // applied policy is a genuinely disabled tap, not a restart.
+        d["encoderTap"]["upgradedSessionsRemain"]=json!(false);
+        d["encoderTap"]["hookInstalled"]=json!(true);
+        assert_eq!(check(&i,&d,42).encoder_tap.unwrap().state,"disabled");
+        // A diagnostic without the key is unknown, never "disabled".
+        d["encoderTap"].as_object_mut().unwrap().remove("policyApplied");
         assert!(check(&i,&d,42).encoder_tap.is_none());
+        assert!(check(&i,&d,43).encoder_tap.is_none());
         assert!(check(&i,&json!({"vrserverPID":42}),42).encoder_tap.is_none());
         assert!(assess_runtime(&i,&d,42,3000,2000,9000,"1.2.0",10000).encoder_tap.is_none());
     }
