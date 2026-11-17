@@ -112,7 +112,9 @@ static void WriteStreamKeys(const char* section, int width, int bandwidth, int s
 }
 
 // 2026-10-16: Resolve the requested values without normalizing user input.
-// The Advanced bandwidth override uses zero only as its disabled sentinel.
+// 2026-11-17: Max Bitrate (galaxyXr.customBandwidthMbit) is the only bandwidth
+// source; the retired streamFrame.nvencBandwidthOverrideMbit is folded into it
+// by the nvencSettingsVersion 5 migration in ConfigLoader.
 // Invalid or unsupported requests must be surfaced by validation/the encoder,
 // rather than becoming a different request here or in the SteamVR journal.
 // 2026-10-27: an unrecognized streamQuality has no tier to resolve. The driver
@@ -127,13 +129,8 @@ static const GalaxyXrConfig &StreamQualityDefaults(){
 static void LogUnknownStreamQualityOnce(const std::string &name){
 	static std::atomic<bool> logged{false};
 	if(logged.exchange(true)){ return; }
-	// The Advanced bandwidth override replaces the tier/default budget; quote
-	// the value the encoder will actually use.
-	const int bandwidth = driverConfig.streamFrame.nvencBandwidthOverrideMbit != 0
-		? driverConfig.streamFrame.nvencBandwidthOverrideMbit
-		: StreamQualityDefaults().customBandwidthMbit;
 	DriverLog("GalaxyXR: stream quality '%s' is not recognized; using the fallback tile %d and %d Mbit/s encoder budget. Edit Tile Width or Max Bitrate in the Companion to replace them.",
-		name.c_str(), StreamQualityDefaults().customStreamFormatWidth, bandwidth);
+		name.c_str(), StreamQualityDefaults().customStreamFormatWidth, StreamQualityDefaults().customBandwidthMbit);
 }
 
 int GalaxyXR_EffectiveTileWidth(){
@@ -153,7 +150,6 @@ int GalaxyXR_EffectiveTileWidth(){
 }
 int GalaxyXR_EffectiveBandwidthMbit(){
 	const auto &g = driverConfig.galaxyXr;
-	if(driverConfig.streamFrame.nvencBandwidthOverrideMbit != 0){ return driverConfig.streamFrame.nvencBandwidthOverrideMbit; }
 	const GxrStreamTier* tier = FindGxrStreamTier(g.streamQuality);
 	const bool custom = g.streamQuality == "custom";
 	if(!custom && !tier){ LogUnknownStreamQualityOnce(g.streamQuality); }
@@ -170,9 +166,8 @@ static void ApplyStreamQualitySettingIn(const char* section){
 		int tile = GalaxyXR_EffectiveTileWidth();
 		int bw = GalaxyXR_EffectiveBandwidthMbit();
 		WriteStreamKeys(section, encodeW, bw, tile);
-		DriverLog("GalaxyXR: stream quality '%s'%s: tile (streamFormatWidth) %d, %d Mbit/s%s, encodeWidth %d (inert); encoder settings are global (see NvencTap); effective next start/connect",
-			tier ? tier->name : "custom", (tier && tier->name != g.streamQuality) ? " (mapped from legacy name)" : "", tile, bw,
-			driverConfig.streamFrame.nvencBandwidthOverrideMbit != 0 ? " (Advanced bandwidth override)" : "", encodeW);
+		DriverLog("GalaxyXR: stream quality '%s'%s: tile (streamFormatWidth) %d, %d Mbit/s (Max Bitrate), encodeWidth %d (inert); encoder settings are global (see NvencTap); effective next start/connect",
+			tier ? tier->name : "custom", (tier && tier->name != g.streamQuality) ? " (mapped from legacy name)" : "", tile, bw, encodeW);
 	}else{
 		// Restore only unchanged journal-owned requests. Arbitrary user tuning
 		// cannot be recognized safely using a list of historical default values.
@@ -782,7 +777,6 @@ void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInit
 	ApplyVrlinkExtraKeys();
 	appliedHeadsetProfile = baselinePolicy.profileEnabled;
 	appliedProfile10bit = baselinePolicy.profileSupports10bit;
-	appliedBandwidthOverride = driverConfig.streamFrame.nvencBandwidthOverrideMbit;
 	appliedDebugOverlay = driverConfig.galaxyXr.vrlinkDebugOverlay;
 	appliedDebugMode = driverConfig.debugMode;
 	appliedStreamQuality = driverConfig.galaxyXr.streamQuality;
@@ -990,13 +984,11 @@ void GalaxyXRHmdShim::RunFrame(){
 		}
 		bool customChanged = g.streamQuality == "custom" && (g.customEncodeWidth != appliedCustomEncodeWidth
 			|| g.customStreamFormatWidth != appliedCustomStreamFormatWidth || g.customBandwidthMbit != appliedCustomBandwidthMbit);
-		int bwOverride = driverConfig.streamFrame.nvencBandwidthOverrideMbit;
-		if(active && (routeChanged || g.streamQuality != appliedStreamQuality || customChanged || bwOverride != appliedBandwidthOverride)){
+		if(active && (routeChanged || g.streamQuality != appliedStreamQuality || customChanged)){
 			appliedStreamQuality = g.streamQuality;
 			appliedCustomEncodeWidth = g.customEncodeWidth;
 			appliedCustomStreamFormatWidth = g.customStreamFormatWidth;
 			appliedCustomBandwidthMbit = g.customBandwidthMbit;
-			appliedBandwidthOverride = bwOverride;
 			ApplyStreamQualitySetting();
 			reapplyExtraKeys = true;
 		}

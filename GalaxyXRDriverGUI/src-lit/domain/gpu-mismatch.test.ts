@@ -31,16 +31,18 @@ describe('effectiveAdapter unique NVENC candidate', () => {
     const g = gpu(intel, nv({ codecs: { av1: { supported: false } } }));
     expect(codecSupport(effectiveAdapter(g, undefined, now), 2).verdict).toBe('unsupported');
   });
-  it('stays ambiguous with two NVIDIA candidates', () => {
+  it('keeps two NVIDIA adapters unblamed but Tap-capable', () => {
     const r = effectiveAdapter(gpu(nv({ adapterLuid: 'a' }), nv({ adapterLuid: 'b' })), undefined, now);
     expect(r.known).toBe(false);
-    expect(r.ambiguous).toBe(true);
-    expect(r.source).toBe('unknown');
+    expect(r.ambiguous).toBe(false);
+    expect(r.source).toBe('multiple-nvenc-candidates');
+    expect(r.reason).toBeUndefined();
+    expect(codecSupport(r, 2)).toEqual({ verdict: 'unverified' });
   });
-  it('never treats a missing vendor as proven non-NVIDIA', () => {
-    expect(uniqueNvencCandidate([nv(), { adapterLuid: 'x', gpuName: 'Unknown' }])).toBeUndefined();
+  it('picks the NVIDIA adapter even when another vendor is unreported', () => {
+    expect(uniqueNvencCandidate([nv(), { adapterLuid: 'x', gpuName: 'Unknown' }])?.adapterLuid).toBe('nv');
   });
-  it('accepts an NVIDIA adapter with nvenc false as proven non-encoder', () => {
+  it('accepts an NVIDIA adapter with nvenc false as a non-candidate', () => {
     expect(uniqueNvencCandidate([nv(), nv({ adapterLuid: 'old', nvenc: false })])?.adapterLuid).toBe('nv');
   });
   it('accepts unknown nvenc on the candidate', () => {
@@ -105,6 +107,15 @@ describe('preferred target is NVIDIA only', () => {
       expect(encoderGpuNotice(gpu(only), undefined)).toBeUndefined();
     }
   });
+  it('has no preferred target for a non-NVIDIA inventory of any size', () => {
+    const amd: AdapterCapabilities = { adapterLuid: 'amd', vendorId: 0x1002 };
+    const igpu: AdapterCapabilities = { adapterLuid: 'igpu', vendorId: 0x1002 };
+    const live = { capabilities: { adapterLuid: 'other' } } as DriverInfo['encoderTap'];
+    for (const inventory of [gpu(amd, igpu), gpu(amd)]) {
+      expect(gpuMismatch(inventory, live, graphics())).toEqual({});
+      expect(encoderGpuNotice(inventory, undefined)).toBeUndefined();
+    }
+  });
   it('still prefers a lone NVIDIA GPU', () => {
     expect(gpuMismatch(gpu(nv()), undefined, graphics()).renderer).toBeDefined();
   });
@@ -124,7 +135,7 @@ describe('encoderGpuNotice', () => {
     expect(n?.title).toContain('Driver-verified');
     expect(n?.title).not.toContain('Awaiting');
   });
-  it('shows nothing for an ambiguous inventory', () => {
+  it('shows nothing for several NVIDIA adapters (no "which adapter" claim)', () => {
     expect(encoderGpuNotice(gpu(nv({ adapterLuid: 'a' }), nv({ adapterLuid: 'b' })), undefined)).toBeUndefined();
   });
 });
@@ -181,7 +192,7 @@ describe('gpuMismatch', () => {
   it('matching LUIDs (case-insensitive) produce no error', () => {
     expect(gpuMismatch(g, encoderOn('NV'), graphics({ adapterLuid: 'Nv' }))).toEqual({});
   });
-  it('has no preferred candidate with ambiguous or unknown inventories', () => {
+  it('has no preferred candidate with several NVIDIA adapters or an unknown inventory', () => {
     expect(gpuMismatch(gpu(nv({ adapterLuid: 'a' }), nv({ adapterLuid: 'b' })), encoderOn('c'), graphics())).toEqual({});
     expect(gpuMismatch(undefined, encoderOn('c'), graphics())).toEqual({});
   });

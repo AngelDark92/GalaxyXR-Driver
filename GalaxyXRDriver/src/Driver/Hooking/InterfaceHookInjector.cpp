@@ -171,15 +171,14 @@ static void DetourTrackedDevicePoseUpdated006(vr::IVRServerDriverHost *_this, ui
 
 static void DetourTrackedDeviceAdded006(vr::IVRServerDriverHost *_this, const char *pchDeviceSerialNumber, vr::ETrackedDeviceClass eDeviceClass, vr::ITrackedDeviceServerDriver *pDriver)
 {
-	// The ORIGINAL caller of TrackedDeviceAdded: captured here, in the detour
-	// itself (never in a helper), because it is the module-ownership evidence
-	// for the Steam Link target. The vtable slot is patched directly, so this
-	// is the real driver_vrlink.dll call site.
+	// The immediate caller must be captured in the detour itself. The bounded
+	// chain preserves vrlink provenance when another driver hooks this detour.
 #ifdef _WIN32
 	const void *caller = _ReturnAddress();
 #else
 	const void *caller = __builtin_return_address(0);
 #endif
+	const gxr::galaxylink::CallChain callChain = gxr::galaxylink::CaptureCallChain();
 	// 2026-10-21: do NOT invent a serial for an empty-serial HMD add. In the
 	// observed startup log only SteamVR's own "null" placeholder driver
 	// publishes one, and rewriting it turned that dummy into the active HMD
@@ -188,7 +187,7 @@ static void DetourTrackedDeviceAdded006(vr::IVRServerDriverHost *_this, const ch
 	// branch takes its serial from the profile section, written before vrlink
 	// reads the settings (GalaxyXR.cpp ApplyGalaxyProfileSectionIdentity); an
 	// empty serial there is a settings defect to fix at the source.
-	if (Driver->HandleDeviceAdded(pchDeviceSerialNumber, eDeviceClass, pDriver, caller))
+	if (Driver->HandleDeviceAdded(pchDeviceSerialNumber, eDeviceClass, pDriver, caller, &callChain))
 	{
 		TrackedDeviceAddedHook006.originalFunc(_this, pchDeviceSerialNumber, eDeviceClass, pDriver);
 		// // Add 19 more copies with random serial numbers

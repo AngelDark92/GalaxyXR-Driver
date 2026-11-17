@@ -232,7 +232,6 @@ export type StreamFrameConfig = {
   nvencTap: boolean;
   // stream codec override: 0 HEVC default, 1 H.264, 2 AV1
   nvencCodec?: number;
-  nvencBandwidthOverrideMbit: number;
   nvencSettingsVersion: number;
   nvencFixLevel: boolean;
   nvencBitrateMbit: number;
@@ -555,6 +554,8 @@ export type DriverInfo = {
     enabled: boolean;
     hookInstalled: boolean;
     upgradedSessionsRemain: boolean;
+    /** 2026-11-17: sticky proof that an enabled session took encoder policy. */
+    policyApplied?: boolean;
     configPath: string;
     modulePath: string;
     requestedCodec?: number;

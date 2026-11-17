@@ -69,7 +69,6 @@ struct PriorityShim {
     bool appliedDebugMode = false;
     std::string appliedStreamQuality;
     int appliedCustomEncodeWidth = 0, appliedCustomStreamFormatWidth = 0, appliedCustomBandwidthMbit = 0;
-    int appliedBandwidthOverride = 0;
     std::vector<std::tuple<std::string, char, double>> appliedExtraKeys;
     int appliedMaxVqLat = 0;
     double appliedBackoffCoef = 0;

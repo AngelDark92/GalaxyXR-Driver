@@ -895,9 +895,6 @@
       <trans-unit id="fluent-fix-7f11032b1ef207bf" datatype="html">
         <source>Band Segments</source>
       </trans-unit>
-      <trans-unit id="fluent-fix-4346c639a78f283c" datatype="html">
-        <source>Bandwidth Override (Mbit/s)</source>
-      </trans-unit>
       <trans-unit id="fluent-fix-04b271c182745a68" datatype="html">
         <source>Based On</source>
       </trans-unit>
@@ -3275,13 +3272,6 @@ Value: streamFrame.alignment.rightV (settings.json). Driver side — vertical pr
 
 Value: streamFrame.nvencBitrateMbit (settings.json). Encoder side — encoder-only bitrate override.</source>
       </trans-unit>
-      <trans-unit id="1392487683" datatype="html">
-        <source>Override the normal stream bandwidth budget. 0 follows the Bitrate row above instead of forcing a separate value.
-
-Nonzero supplies the network pacing budget and highest requested encoder target instead of the Bitrate row. It does not guarantee actual encoded output or constant sent bits. Requires a SteamVR restart.
-
-Value: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — pacing budget and requested encoder target.</source>
-      </trans-unit>
       <trans-unit id="4190754806" datatype="html">
         <source>Present the controllers the way Samsung's own PC driver (Game Link) does. An add-on to the selected Controller Motion Filter: the motion stays the mode's.
 
@@ -4238,13 +4228,15 @@ Value: none (diagnostic only). Native side — read-only process telemetry and A
         <source>Steam Link negotiates H.264 at 1024 × 4096. A tile width above 1024 requests a taller four-tile frame and may fail to encode. Your value is kept and remains editable; reset Tile Width to use 1024.</source>
       </trans-unit>
       <trans-unit id="gxr-bitrate-reference-fc0db454713dbc33" datatype="plaintext">
-        <source>Set the stream bandwidth budget and the applied encoder budget.
+        <source>Set the stream bandwidth budget.
 
 For Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. In VBR the entered value is the encoder maximum; under Force CBR the encoder average and maximum both equal this budget, bypassing the curve, constancy and headroom. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.
 
-A target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.
+With the NVENC Tap off or unsupported, only the Steam Link pacing budget applies: the scaling above 350 Mbit/s, the bitrate curve, constancy, headroom and Force CBR need the tap.
 
-Value: galaxyXr.customBandwidthMbit (settings.json), with the existing Advanced bandwidth and separate encoder overrides.</source>
+A target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect.
+
+Value: galaxyXr.customBandwidthMbit (settings.json). Requires a SteamVR restart.</source>
       </trans-unit>
       <trans-unit id="gxr-bitrate-reference-e43b6fa3b3a6218e" datatype="plaintext">
         <source>Encoder initialization failed</source>
@@ -4255,12 +4247,14 @@ Value: galaxyXr.customBandwidthMbit (settings.json), with the existing Advanced 
       <trans-unit id="gxr-bitrate-reference-79df14a775670b72" datatype="plaintext">
         <source>Manage OFXR Bridge</source>
       </trans-unit>
-      <trans-unit id="gxr-bitrate-reference-03122395698bb559" datatype="plaintext">
-        <source>Override the normal stream bandwidth budget. 0 follows the Max Bitrate row above instead of forcing a separate value.
-
-Nonzero supplies the network pacing budget and highest requested encoder target instead of the Max Bitrate row. It does not guarantee actual encoded output or constant sent bits. Requires a SteamVR restart.
-
-Value: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — pacing budget and requested encoder target.</source>
+      <trans-unit id="gxr-bitrate-reference-tap-pacing-off-20261117" datatype="plaintext">
+        <source>NVENC Tap is off: pacing budget only</source>
+      </trans-unit>
+      <trans-unit id="gxr-bitrate-reference-tap-pacing-unsupported-20261117" datatype="plaintext">
+        <source>NVENC Tap is unsupported: pacing budget only</source>
+      </trans-unit>
+      <trans-unit id="gxr-bitrate-reference-tap-pacing-body-20261117" datatype="plaintext">
+        <source>Only the Steam Link pacing budget applies: targetBandwidth and recommendedBandwidthMbit take this value. The scaling above 350 Mbit/s, the bitrate curve, constancy, headroom and Force CBR need the NVENC Tap.</source>
       </trans-unit>
       <trans-unit id="gxr-bitrate-reference-44d8a8bf59c40f7b" datatype="plaintext">
         <source>Latest accepted rate control: {rc}</source>
@@ -4519,9 +4513,6 @@ Value: streamFrame.nvencBitrateCurve + streamFrame.nvencBitrateCurvePoints (sett
       <trans-unit id="companion-20261030-l042" datatype="html">
         <source>Band ring opacity</source>
       </trans-unit>
-      <trans-unit id="companion-20261030-l043" datatype="html">
-        <source>Bandwidth override</source>
-      </trans-unit>
       <trans-unit id="companion-20261030-l044" datatype="html">
         <source>Bitrate constancy</source>
       </trans-unit>
@@ -4590,9 +4581,6 @@ Value: streamFrame.nvencBitrateCurve + streamFrame.nvencBitrateCurvePoints (sett
       </trans-unit>
       <trans-unit id="companion-20261030-l066" datatype="html">
         <source>Flight log size limit</source>
-      </trans-unit>
-      <trans-unit id="companion-20261030-l067" datatype="html">
-        <source>Follow Max Bitrate</source>
       </trans-unit>
       <trans-unit id="companion-20261030-l068" datatype="html">
         <source>Follow the pacer bandwidth</source>
@@ -5199,7 +5187,6 @@ Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — write
       <trans-unit id="settings-reorganization-bdfb36bfdb79" datatype="html"><source>Open controller experiments</source></trans-unit>
       <trans-unit id="settings-reorganization-4631b7cb8ade" datatype="html"><source>Show retired controller and image experiments while Advanced Mode is on. This changes visibility only; hiding experiments never resets or disables their saved values.</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-001" datatype="html"><source>No GPU adapters reported.</source></trans-unit>
-      <trans-unit id="gpu-capabilities-20261103-002" datatype="html"><source>Multiple GPUs detected; cannot determine which adapter is in use.</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-003" datatype="html"><source>GPU capability check unavailable.</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-004" datatype="html"><source>{codec} is not supported by the current GPU.</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-005" datatype="html"><source>{codec} capability is not reported for this GPU.</source></trans-unit>
@@ -5220,6 +5207,7 @@ Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — write
       <trans-unit id="gpu-capabilities-20261103-020" datatype="html"><source>Stored: {value} (unsupported)</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-021" datatype="html"><source>{label} must be a whole number.</source></trans-unit>
       <trans-unit id="gpu-capabilities-20261103-022" datatype="html"><source>{label} must be {min} to {max}{unit}.</source></trans-unit>
+      <trans-unit id="gpu-capabilities-20261117-001" datatype="html"><source>No NVIDIA GPU found. The NVENC Tap cannot apply; tile width, bitrate, render resolution, 10-bit and image settings still apply.</source></trans-unit>
       <trans-unit id="gpu-mismatch-20261104-001" datatype="html"><source>Expected GPU {expected}, but the NVENC session opened on {actual}. Saved settings were not changed; the actual GPU decides which options are available.</source></trans-unit>
       <trans-unit id="gpu-mismatch-20261104-002" datatype="html"><source>Preferred NVIDIA encoder GPU: {expected}. SteamVR is rendering on {actual}. This alone does not prove streaming will fail.</source></trans-unit>
       <trans-unit id="gpu-mismatch-20261104-003" datatype="html"><source>NVENC session opened on a different GPU</source></trans-unit>

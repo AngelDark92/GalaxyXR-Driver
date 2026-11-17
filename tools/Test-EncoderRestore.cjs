@@ -12,8 +12,8 @@ function setup(fail = false) {
   const h = harness();
   const settings = h.fixture.data + '/settings.json';
   h.fixture.put(settings, { galaxyXr: { nativeIdentity: true }, streamFrame: {
-    streamFrameSchema: 4, nvencSettingsVersion: 4, nvencTap: true,
-    nvencPreset: 2, nvencForceCbr: false, nvencBandwidthOverrideMbit: 275,
+    streamFrameSchema: 4, nvencSettingsVersion: 5, nvencTap: true,
+    nvencPreset: 2, nvencForceCbr: false,
     postPack: { enable: true, limitedRange: true, casEnable: true },
   } });
   h.fixture.put(h.fixture.data + '/nvenc-settings-v4.migrated', 'preserved');

@@ -147,9 +147,8 @@ export const streamFrameNumberContracts: Record<string, StreamFrameNumberContrac
   // QP offsets fit the NVENC signed-byte delta map (ValidateQpMap)
   'streamFrame.nvencQpFovea': { range: '-128 to 127', check: value => value >= -128 && value <= 127 },
   'streamFrame.nvencQpPeriphery': { range: '-128 to 127', check: value => value >= -128 && value <= 127 },
-  // bandwidth rows: nonnegative; 0 keeps the bandwidth-override sentinel
+  // bandwidth: nonnegative
   'galaxyXr.customBandwidthMbit': { range: 'at least 0', check: value => value >= 0 },
-  'streamFrame.nvencBandwidthOverrideMbit': { range: 'at least 0', check: value => value >= 0 },
   // manual VUI overrides exactly mirror ValidateRequest (-1 autoselects)
   'streamFrame.nvencVuiFullRange': { range: '-1 to 1', check: value => value >= -1 && value <= 1 },
   'streamFrame.nvencVuiMatrix': { range: '-1 to 255', check: value => value >= -1 && value <= 255 },
@@ -473,6 +472,32 @@ export class GalaxySettingsBase {
           rawSf.nvencSettingsVersion = 4;
           queueMicrotask(() => this.save());
         }
+        // NVENC settings v5 (2026-11-17): streamFrame.nvencBandwidthOverrideMbit
+        // duplicated the Max Bitrate row, so it is retired. This is an
+        // owner-approved exception to the "never-set values only" rule: a
+        // stored nonzero override becomes the visible Max Bitrate
+        // (galaxyXr.customBandwidthMbit), and a named tier switches to custom
+        // carrying the tier's tile width, so the fold changes the budget
+        // alone. Presence-based and idempotent: the key is removed, so the
+        // step runs at most once per file. The driver performs the same
+        // migration in ConfigLoader.cpp for files the GUI has not rewritten:
+        // only an integer in 1..2147483647 folds; anything else is dropped.
+        if (rawSf && canMigrate && (rawSf.nvencSettingsVersion ?? 0) < 5) {
+          const storedSf: any = (this.dss.storedValues?.() as any)?.streamFrame ?? rawSf;
+          const overrideMbit = storedSf?.nvencBandwidthOverrideMbit;
+          if (Number.isInteger(overrideMbit) && overrideMbit > 0 && overrideMbit <= 2147483647) {
+            const g: any = (this.rootSetting.galaxyXr ??= {} as any);
+            if (g.streamQuality !== 'custom') {
+              g.customStreamFormatWidth = resolvedStreamQuality(g.streamQuality)?.width
+                ?? driverDefaults.galaxyXr?.customStreamFormatWidth ?? 1536;
+              g.streamQuality = 'custom';
+            }
+            g.customBandwidthMbit = overrideMbit;
+          }
+          delete rawSf.nvencBandwidthOverrideMbit;
+          rawSf.nvencSettingsVersion = 5;
+          queueMicrotask(() => this.save());
+        }
         // kalmanAngularOutFrame is an int in the driver (0 world / 1 body /
         // 2 zero) and a string enum here; older driver builds published the
         // int, and a reset against that wrote the int back into settings.
@@ -538,11 +563,10 @@ export class GalaxySettingsBase {
         if (unknownQuality) {
           if (this.streamQualityNotice()?.name !== unknownQuality) {
             const defaults = driverDefaults.galaxyXr!;
-            const bandwidthOverride = this.settings?.nvencBandwidthOverrideMbit ?? 0;
             this.streamQualityNotice.set({
               name: unknownQuality,
               tile: defaults.customStreamFormatWidth ?? 1536,
-              bandwidth: bandwidthOverride !== 0 ? bandwidthOverride : (defaults.customBandwidthMbit ?? 350),
+              bandwidth: defaults.customBandwidthMbit ?? 350,
             });
           }
         } else if (this.streamQualityNotice()) {

@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <chrono>
 #include <cstdio>
+#include <stdexcept>
 #include "nlohmann/json.hpp"
 #include "../Driver/DriverLog.h"
 #include "StreamTiers.h"
@@ -303,7 +304,7 @@ void ConfigLoader::ParseConfig(){
 				DriverLog("Config: %s", newConfig.streamFrame.nvencValidationError.c_str());
 			}
 		};
-		for(const char* key : {"nvencCodec", "nvencBandwidthOverrideMbit", "nvencSettingsVersion", "nvencBitrateMbit", "nvencBitrateCurve", "nvencBitrateConstancyPct", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
+		for(const char* key : {"nvencCodec", "nvencSettingsVersion", "nvencBitrateMbit", "nvencBitrateCurve", "nvencBitrateConstancyPct", "nvencMaxQp", "nvencAqStrength", "nvencMaxBitrateHeadroomPct", "nvencVbvFrames", "nvencForceFps", "nvencPreset", "nvencVuiFullRange", "nvencMinQp", "nvencMinQpIntra", "nvencLowDelayKfScale", "nvencVuiMatrix", "nvencVuiPrimaries", "nvencVuiTransfer", "nvencSplitMode", "nvencQpFovea", "nvencQpPeriphery", "nvencH264GopFrames", "nvencH264IdrFrames", "nvencH264RefFrames", "nvencH264Entropy", "nvencH264SliceMode", "nvencH264SliceData", "nvencH264VbvInitialDelay", "nvencMultiPass"}){ validateInteger("streamFrame", key); }
 		for(const char* key : {"customStreamFormatWidth", "customBandwidthMbit", "customEncodeWidth", "customStreamFormatWidthOverride"}){ validateInteger("galaxyXr", key); }
 		if(data["debugMode"].is_boolean()){
 			newConfig.debugMode = data["debugMode"].get<bool>();
@@ -960,9 +961,10 @@ void ConfigLoader::ParseConfig(){
 			if(streamFrameData["nvencCodec"].is_number()){
 				newConfig.streamFrame.nvencCodec = streamFrameData["nvencCodec"].get<int>();
 			}
-			if(streamFrameData["nvencBandwidthOverrideMbit"].is_number()){
-				newConfig.streamFrame.nvencBandwidthOverrideMbit = streamFrameData["nvencBandwidthOverrideMbit"].get<int>();
-			}
+			// 2026-11-17: streamFrame.nvencBandwidthOverrideMbit is retired. The
+			// nvencSettingsVersion 5 migration below reads the raw key once and
+			// folds a nonzero value into galaxyXr.customBandwidthMbit; here it
+			// is a stale key with no live config field.
 			if(streamFrameData["nvencSettingsVersion"].is_number()){
 				newConfig.streamFrame.nvencSettingsVersion = streamFrameData["nvencSettingsVersion"].get<int>();
 			}
@@ -1646,15 +1648,20 @@ void ConfigLoader::ParseConfig(){
 				g.streamQuality = canon;
 			}
 			// once per process: if a file is rewritten under us without the
-			// stamp, do not re-apply defaults over what the user has set since
+			// stamp, do not re-apply defaults (or the v5 fold) over what the
+			// user has set since
 			static bool migratedThisProcess = false;
-			if(migratedThisProcess && sf.nvencSettingsVersion < 4){ sf.nvencSettingsVersion = 4; }
+			if(migratedThisProcess && sf.nvencSettingsVersion < 5){ sf.nvencSettingsVersion = 5; }
 			// 2026-09-05: and once per INSTALL. the GUI omits values equal to
 			// its defaults when it saves, and an older GUI build (or an old GUI
 			// process still running across a driver rebuild) drops the stamp
 			// from settings.json on every save. a marker file next to it,
 			// which the GUI never writes, is the authority: if it exists the
 			// migration has already happened and the settings are the user's.
+			// 2026-11-17: the name keeps v4 because existing installs already
+			// have it and renaming it would re-run v3/v4 over user tuning. It
+			// only fast-forwards to 4; the v5 step below is gated on the stamp
+			// alone, so it still runs for a config the marker bumps to 4.
 			const std::string markerPath = GetConfigFolder() + "nvenc-settings-v4.migrated";
 			if(sf.nvencSettingsVersion < 4 && std::filesystem::exists(markerPath)){
 				sf.nvencSettingsVersion = 4;
@@ -1694,6 +1701,55 @@ void ConfigLoader::ParseConfig(){
 				}
 				sf.nvencSettingsVersion = 4;
 			}
+			// v5 (2026-11-17): streamFrame.nvencBandwidthOverrideMbit is
+			// retired; it duplicated Max Bitrate (galaxyXr.customBandwidthMbit).
+			// OWNER-APPROVED EXCEPTION to the never-set-values-only migration
+			// rule: a nonzero stale override is FOLDED into Max Bitrate, not
+			// dropped. On a legacy tier name the tile is pinned first so the
+			// negotiated streamFormatWidth does not change. Idempotent: the
+			// Companion runs the same fold, whichever loads first writes the
+			// file, and at >= 5 the key is ignored if it is still present.
+			bool v5Migrated = false;
+			bool v5TierPinned = false;
+			int v5FoldedOverride = 0;
+			if(sf.nvencSettingsVersion < 5){
+				const json storedSf = data.contains("streamFrame") && data["streamFrame"].is_object()
+					? data["streamFrame"] : json::object();
+				if(storedSf.contains("nvencBandwidthOverrideMbit")){
+					const json &raw = storedSf["nvencBandwidthOverrideMbit"];
+					// A stale non-integer key is ignored here and removed below;
+					// it must never become a validation failure or a throw.
+					if(raw.is_number_unsigned()){
+						if(raw.get<uint64_t>() <= 2147483647ull){ v5FoldedOverride = (int)raw.get<uint64_t>(); }
+					}else if(raw.is_number_integer()){
+						const int64_t value = raw.get<int64_t>();
+						if(value > 0 && value <= 2147483647){ v5FoldedOverride = (int)value; }
+					}
+				}
+				if(v5FoldedOverride > 0){
+					if(g.streamQuality != "custom"){
+						const GxrStreamTier *tier = FindGxrStreamTier(g.streamQuality);
+						g.customStreamFormatWidth = tier ? tier->width : GalaxyXrConfig{}.customStreamFormatWidth;
+						const char *pinnedTier = tier ? tier->name : g.streamQuality.c_str();
+						g.streamQuality = "custom";
+						v5TierPinned = true;
+						DriverLog("Config: nvencSettingsVersion 5 - stream quality '%s' -> custom with tile %d so the stream width is unchanged",
+							pinnedTier, g.customStreamFormatWidth);
+					}
+					g.customBandwidthMbit = v5FoldedOverride;
+					DriverLog("Config: nvencSettingsVersion 5 - folded the retired streamFrame.nvencBandwidthOverrideMbit %d into Max Bitrate galaxyXr.customBandwidthMbit %d",
+						v5FoldedOverride, g.customBandwidthMbit);
+				}
+				sf.nvencSettingsVersion = 5;
+				v5Migrated = true;
+				migratedThisProcess = true;
+				// Remove the retired key from the document so neither writeback
+				// below can put it back (any value, including a stale non-integer).
+				if(data.is_object()){
+					if(!data.contains("streamFrame") || !data["streamFrame"].is_object()){ data["streamFrame"] = json::object(); }
+					data["streamFrame"].erase("nvencBandwidthOverrideMbit");
+				}
+			}
 			// never both sharpening passes
 			if(sf.nvencTap && sf.postPack.enable && sf.postPack.casEnable && sf.cas.enable){
 				sf.cas.enable = false;
@@ -1722,7 +1778,7 @@ void ConfigLoader::ParseConfig(){
 					// defaults here erased valid tuning on the following reload.
 					jsf["nvencAqStrength"] = sf.nvencAqStrength; jsf["nvencMinQp"] = sf.nvencMinQp; jsf["nvencMinQpIntra"] = sf.nvencMinQpIntra; jsf["nvencMaxQp"] = sf.nvencMaxQp;
 					jsf["nvencVuiFullRange"] = sf.nvencVuiFullRange; jsf["nvencVuiMatrix"] = sf.nvencVuiMatrix; jsf["nvencVuiPrimaries"] = sf.nvencVuiPrimaries; jsf["nvencVuiTransfer"] = sf.nvencVuiTransfer;
-					jsf["nvencBitrateMbit"] = sf.nvencBitrateMbit; jsf["nvencBandwidthOverrideMbit"] = sf.nvencBandwidthOverrideMbit;
+					jsf["nvencBitrateMbit"] = sf.nvencBitrateMbit;
 					if(!jsf["cas"].is_object()){ jsf["cas"] = json::object(); }
 					jsf["cas"]["enable"] = sf.cas.enable;
 					jsf["postPack"] = {
@@ -1739,6 +1795,41 @@ void ConfigLoader::ParseConfig(){
 					DriverLog("Config: migration written back to %s (nvencSettingsVersion %d) and marker %s created; it will not run again", configPath.c_str(), sf.nvencSettingsVersion, markerPath.c_str());
 				}catch(const std::exception &e){
 					DriverLog("Config: could not persist the migration: %s (it will re-run at the next start)", e.what());
+				}
+			}
+			// v5 writes back on its own when no v3/v4 writeback ran (a config
+			// already at 4, including one fast-forwarded by the v4 marker):
+			// only the stamp, the retired key and the folded Max Bitrate change,
+			// so no other stored value is touched. The file is re-read here
+			// because parsing probes absent sections and that leaves nulls in
+			// the in-memory document.
+			if(v5Migrated && !nvencMigrated && sf.nvencValidationError.empty()){
+				try{
+					json doc;
+					{
+						std::ifstream in(configPath);
+						if(!in.is_open()){ throw std::runtime_error("settings.json could not be reopened"); }
+						in >> doc;
+					}
+					if(!doc.is_object()){ throw std::runtime_error("settings.json is not an object"); }
+					json &jsf = doc["streamFrame"]; json &jg = doc["galaxyXr"];
+					if(!jsf.is_object()){ jsf = json::object(); }
+					if(!jg.is_object()){ jg = json::object(); }
+					jsf.erase("nvencBandwidthOverrideMbit");
+					jsf["nvencSettingsVersion"] = sf.nvencSettingsVersion;
+					if(v5FoldedOverride > 0){
+						jg["customBandwidthMbit"] = g.customBandwidthMbit;
+						if(v5TierPinned){
+							jg["streamQuality"] = g.streamQuality;
+							jg["customStreamFormatWidth"] = g.customStreamFormatWidth;
+						}
+					}
+					configFile.close();
+					std::ofstream out(configPath, std::ios::trunc);
+					out << doc.dump(2) << "\n";
+					DriverLog("Config: nvencSettingsVersion 5 written back to %s; the retired streamFrame.nvencBandwidthOverrideMbit key is removed", configPath.c_str());
+				}catch(const std::exception &e){
+					DriverLog("Config: could not persist nvencSettingsVersion 5: %s (it will re-run at the next start)", e.what());
 				}
 			}
 		}
@@ -2130,8 +2221,7 @@ void ConfigLoader::WriteInfo(){
 				{"zeroCopyV3", defaultSettings.streamFrame.zeroCopyV3},
 				{"nvencTap", defaultSettings.streamFrame.nvencTap},
 				{"nvencCodec", defaultSettings.streamFrame.nvencCodec},
-				{"nvencBandwidthOverrideMbit", defaultSettings.streamFrame.nvencBandwidthOverrideMbit},
-				{"nvencSettingsVersion", 0}, // 0 on purpose: the GUI omits values equal to these defaults when saving; the real stamp (4) must differ or it is dropped
+				{"nvencSettingsVersion", 0}, // 0 on purpose: the GUI omits values equal to these defaults when saving; the real stamp (5) must differ or it is dropped
 				{"nvencFixLevel", defaultSettings.streamFrame.nvencFixLevel},
 				{"nvencBitrateMbit", defaultSettings.streamFrame.nvencBitrateMbit},
 				{"nvencMaxQp", defaultSettings.streamFrame.nvencMaxQp},
@@ -2295,7 +2385,7 @@ void ConfigLoader::WriteInfo(){
 	const auto tap = NvencTap::Get().GetRuntimeState();
 	static const std::string modulePath = LoadedDriverModulePath();
 	data["encoderTap"] = {{"enabled", tap.enabled}, {"hookInstalled", tap.hookInstalled},
-		{"upgradedSessionsRemain", tap.upgradedSessionsRemain},
+		{"upgradedSessionsRemain", tap.upgradedSessionsRemain}, {"policyApplied", tap.policyApplied},
 		{"configPath", std::filesystem::absolute(std::filesystem::u8path(GetConfigFolder() + "settings.json")).u8string()},
 		{"modulePath", modulePath}, {"pid", GetCurrentProcessId()},
 		{"observedAt", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
@@ -2475,7 +2565,7 @@ void ConfigLoader::WriteDiagnosticInfo(){
 	// info.json did not need rewriting after an ON/OFF transition.
 	const auto tap = NvencTap::Get().GetRuntimeState();
 	data["encoderTap"] = {{"enabled", tap.enabled}, {"hookInstalled", tap.hookInstalled},
-		{"upgradedSessionsRemain", tap.upgradedSessionsRemain}};
+		{"upgradedSessionsRemain", tap.upgradedSessionsRemain}, {"policyApplied", tap.policyApplied}};
 	const auto caps = NvencTap::Get().GetCapabilities(tap.encoder);
 	if(caps.queried){
 		ordered_json capsJson = SerializeEncoderCapabilities(caps);

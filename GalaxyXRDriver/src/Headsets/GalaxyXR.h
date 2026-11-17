@@ -25,11 +25,12 @@
 // write the vrlink stream tier + headset profile keys at provider Init,
 // before vrlink reads them (see GalaxyXR.cpp)
 void GalaxyXR_EarlyApplyVrlinkSettings();
-// Requested stream values for the current mode (tier/custom + Advanced
-// bandwidth override). No range or codec coercion: validation/the encoder
-// must visibly reject unsupported input. The tile is copied into the tap
-// config under driverConfigLock; hooked NVENC calls must not read live config.
-// A requested tile is not proof of the device's width/height capabilities.
+// Requested stream values for the current mode (tier/custom; the retired
+// Advanced bandwidth override folded into Max Bitrate). No range or codec
+// coercion: validation/the encoder must visibly reject unsupported input. The
+// tile is copied into the tap config under driverConfigLock; hooked NVENC calls
+// must not read live config. A requested tile is not proof of the device's
+// width/height capabilities.
 int GalaxyXR_EffectiveTileWidth();
 int GalaxyXR_EffectiveBandwidthMbit();
 
@@ -118,7 +119,6 @@ private:
 	std::string appliedStreamQuality;
 	// custom tier values as last applied, for hot-reload change detection
 	int appliedCustomEncodeWidth = 0, appliedCustomStreamFormatWidth = 0, appliedCustomBandwidthMbit = 0;
-	int appliedBandwidthOverride = 0;
 	std::vector<std::tuple<std::string, char, double>> appliedExtraKeys;
 	int appliedMaxVqLat = 0; double appliedBackoffCoef = 0.0;
 

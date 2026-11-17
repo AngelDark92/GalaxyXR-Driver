@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -37,6 +38,15 @@ static const void* ReadSlot0(void* object) noexcept {
 
 static const void* const kVrlinkCaller = vrlinkImage + 16;
 static const void* const kOtherCaller = otherImage + 16;
+
+static CallChain MakeChain(std::initializer_list<const void*> frames) {
+    CallChain chain;
+    for (const void* frame : frames) {
+        if (chain.count >= kCallChainCapacity) break;
+        chain.frames[chain.count++] = frame;
+    }
+    return chain;
+}
 
 struct Fixture {
     Tracker t;
@@ -125,6 +135,52 @@ int main() {
         f.Arm(); // a new session marker invalidates the open target by design...
         Check(f.t.State() == TargetState::Closed, "a new session marker closes an open provisional target");
         Check(f.Begin(), "...and its own fresh handshake opens a new one");
+    }
+
+    // ---- bounded caller-chain provenance and denial diagnostics -------------------------
+    {
+        Fixture f;
+        f.Arm();
+        HmdAdmissionReport report;
+        const CallChain chain = MakeChain({ otherImage + 48, otherImage + 64, vrlinkImage + 80 });
+        Check(f.t.BeginHmd(&f.vrlinkDriver, kOtherCaller, chain, &report), "foreign direct caller with a deeper vrlink frame admits");
+        Check(!report.directCallerInVrlink && report.callerChainInVrlink && report.vrlinkDepth == 3, "admission reports the captured vrlink depth");
+        Check(report.sessionSeen && report.handshakeSeen && report.handshakeAvailable && report.targetClosed && report.vtableSlot0InVrlink, "admission report preserves the pre-decision gate evidence");
+    }
+    {
+        Fixture f;
+        f.Arm();
+        HmdAdmissionReport report;
+        const CallChain chain = MakeChain({ otherImage + 48, otherImage + 64 });
+        Check(!f.t.BeginHmd(&f.vrlinkDriver, kOtherCaller, chain, &report), "a chain without vrlink is rejected");
+        Check(!report.directCallerInVrlink && !report.callerChainInVrlink && report.vrlinkDepth == -1, "denial reports no caller-chain provenance");
+        Check(report.sessionSeen && report.handshakeSeen && report.handshakeAvailable && report.targetClosed && report.vtableSlot0InVrlink, "non-provenance denial flags remain independently visible");
+        Check(f.t.HandshakeArmed(), "chain denial does not spend the handshake");
+    }
+    {
+        Fixture f;
+        f.Arm();
+        HmdAdmissionReport report;
+        Check(CaptureCallChain().count == 0, "pure capture has no platform frames");
+        Check(!f.t.BeginHmd(&f.vrlinkDriver, kOtherCaller, CallChain{}, &report), "an empty chain cannot repair a foreign caller");
+        Check(!report.callerChainInVrlink && report.sessionSeen && report.handshakeAvailable && report.vtableSlot0InVrlink, "empty-chain denial has exact flags");
+    }
+    {
+        Fixture missingSession;
+        HmdAdmissionReport report;
+        Check(!missingSession.t.BeginHmd(&missingSession.vrlinkDriver, kVrlinkCaller, CallChain{}, &report), "valid provenance cannot replace a session");
+        Check(!report.sessionSeen && !report.handshakeSeen && !report.handshakeAvailable && report.targetClosed && report.callerChainInVrlink && report.vtableSlot0InVrlink, "missing-session report identifies the failed flags");
+
+        Fixture missingHandshake;
+        missingHandshake.Session();
+        Check(!missingHandshake.t.BeginHmd(&missingHandshake.vrlinkDriver, kVrlinkCaller, CallChain{}, &report), "a session alone cannot admit");
+        Check(report.sessionSeen && !report.handshakeSeen && !report.handshakeAvailable && report.targetClosed, "missing-handshake report identifies the failed flags");
+
+        Fixture spent;
+        spent.Arm();
+        Check(spent.t.BeginHmd(&spent.vrlinkDriver, kVrlinkCaller, CallChain{}, &report), "fixture spends its handshake on the first add");
+        Check(!spent.t.BeginHmd(&spent.vrlinkDriver, kVrlinkCaller, CallChain{}, &report), "a spent handshake cannot admit another HMD");
+        Check(report.sessionSeen && report.handshakeSeen && !report.handshakeAvailable && !report.targetClosed && report.callerChainInVrlink && report.vtableSlot0InVrlink, "spent-handshake report separates freshness from target state");
     }
 
     // ---- handshake model rules -------------------------------------------------------
@@ -316,6 +372,18 @@ int main() {
         Check(!f.t.CanRebind(2, true) && !f.t.RebindHmd(2, kVrlinkCaller, true, true), "the previous handshake cannot be reused");
         f.Arm();
         Check(f.t.RebindHmd(2, kVrlinkCaller, true, true) && f.t.IsAdmittedDevice(2), "a second reconnect works with its own fresh identity");
+    }
+    {
+        Fixture f;
+        f.Admit(5);
+        f.t.ObservePose(5, false);
+        const CallChain chain = MakeChain({ otherImage + 48, vrlinkImage + 80 });
+        HmdAdmissionReport report;
+        Check(!f.t.RebindHmd(5, kOtherCaller, true, true, chain, &report), "a chained vrlink caller cannot rebind without fresh identity");
+        Check(report.callerChainInVrlink && !report.handshakeAvailable && report.targetClosed, "failed chained rebind reports freshness separately");
+        f.Arm();
+        Check(f.t.RebindHmd(5, kOtherCaller, true, true, chain, &report), "a fresh handshake plus chained vrlink caller rebinds");
+        Check(!report.directCallerInVrlink && report.callerChainInVrlink && report.vrlinkDepth == 2 && f.t.IsAdmittedDevice(5), "chained rebind records provenance and admits the retained object");
     }
     {
         // a different headset reusing the same index is denied

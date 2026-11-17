@@ -12,6 +12,7 @@
 #include "Hooking/ControllerPoseEpoch.h"
 
 class ShimDefinition;
+namespace gxr { namespace galaxylink { struct CallChain; } }
 
 #define VREvent_VendorSpecific_ContextCollection (vr::EVREventType)(vr::VREvent_VendorSpecific_Reserved_Start + 5872)
 #define VREvent_VendorSpecific_ContextCollection_MagicDataNumber 32643216579172981
@@ -40,16 +41,17 @@ public:
 	void ResetControllerPoseEpoch(uint32_t openVRID);
 	void CorrectControllerPoseEpoch(uint32_t openVRID, const vr::DriverPose_t& source,
 		vr::DriverPose_t& processed, double receipt, bool publishCorrections);
-	// handle hook of TrackedDeviceAdded. `caller` is the ORIGINAL
+	// handle hook of TrackedDeviceAdded. `caller` is the immediate
 	// IVRServerDriverHost::TrackedDeviceAdded return address, captured in the
-	// detour itself (never in a helper): it proves which module added the device.
-	bool HandleDeviceAdded(const char* &pchDeviceSerialNumber, vr::ETrackedDeviceClass &eDeviceClass, vr::ITrackedDeviceServerDriver* &pDriver, const void* caller);
+	// detour itself (never in a helper). The bounded chain also proves ownership
+	// when another driver's hook supplies the immediate return address.
+	bool HandleDeviceAdded(const char* &pchDeviceSerialNumber, vr::ETrackedDeviceClass &eDeviceClass, vr::ITrackedDeviceServerDriver* &pDriver, const void* caller, const gxr::galaxylink::CallChain* callChain = nullptr);
 	// Steam Link Galaxy XR ownership (vendor build). A controller wrapped while
 	// the target epoch is open registers here at Activate; consumers (pose,
 	// input, skeleton, tracking) act only on owned devices of the open epoch.
 	// Same-object HMD reconnect (no new TrackedDeviceAdded): called from the pose
 	// detour with the pose-update call site captured IN the detour. Admits only
-	// with a fresh session marker + xrvst2ue handshake, an exact driver_vrlink
+	// with a fresh session marker + xrvst2ue handshake, a direct/chain vrlink
 	// caller, a connected pose and the vrlink parent driver (see
 	// galaxylink::RebindHmd). Anything else leaves the target closed.
 	bool TryRebindHmd(uint32_t openVRID, const void* caller, bool connected);

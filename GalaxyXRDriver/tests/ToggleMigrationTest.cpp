@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
         {"nvencForceFps",72},{"nvencSplitMode",3},{"nvencPreset",7},{"nvencAqStrength",4},
         {"nvencMinQp",5},{"nvencMinQpIntra",7},{"nvencMaxQp",31},{"nvencVuiFullRange",1},
         {"nvencVuiMatrix",1},{"nvencVuiPrimaries",1},{"nvencVuiTransfer",1},
-        {"nvencBitrateMbit",123},{"nvencBandwidthOverrideMbit",234},
+        {"nvencBitrateMbit",123},
     };
     const json h264Tuning = {
         {"nvencFillerDataInsertion",true},{"nvencH264GopFrames",144},{"nvencH264IdrFrames",288},
@@ -189,6 +189,7 @@ int main(int argc, char** argv) {
         sf["nvencForceCbr"] = true;
         sf["nvencPresetMerge"] = false;
         sf["nvencCodec"] = 2;
+        sf["nvencBandwidthOverrideMbit"] = 234; // retired at v5: must fold into Max Bitrate
         sf["nvencBitrateCurve"] = 3;
         sf["nvencBitrateConstancyPct"] = 37;
         sf["nvencBitrateCurvePoints"] = json::array({
@@ -201,13 +202,49 @@ int main(int argc, char** argv) {
         sf["velocityFixMode"] = "kalmanCA";
         input["galaxyXr"]["controllerBypass"] = false;
         input["galaxyXr"]["gameLinkLayout"] = true;
+    } else if (scenario == 33) {
+        // 2026-11-17: a nonzero retired bandwidth override on a legacy tier
+        // name folds into Max Bitrate; the tier tile is pinned to custom first
+        // so the negotiated stream width is unchanged.
+        sf["streamFrameSchema"] = 6;
+        sf["nvencSettingsVersion"] = 4;
+        sf["nvencBandwidthOverrideMbit"] = 500;
+        input["galaxyXr"] = {{"streamQuality","sharp"},{"customStreamFormatWidth",2048},{"customBandwidthMbit",350}};
+    } else if (scenario == 34) {
+        // Already custom: only Max Bitrate changes and the stored tile stays.
+        // The v4 migration marker must not skip or block the v5 fold.
+        sf["streamFrameSchema"] = 6;
+        sf["nvencSettingsVersion"] = 4;
+        sf["nvencBandwidthOverrideMbit"] = 275;
+        input["galaxyXr"] = {{"streamQuality","custom"},{"customStreamFormatWidth",2048},{"customBandwidthMbit",400}};
+        std::ofstream(testFolder + "nvenc-settings-v4.migrated") << "4";
+    } else if (scenario == 35) {
+        // Zero folds nothing: the retired key is removed and every other
+        // stored value (including a legacy tier name) stays as it was.
+        sf["streamFrameSchema"] = 6;
+        sf["nvencSettingsVersion"] = 4;
+        sf["nvencBandwidthOverrideMbit"] = 0;
+        input["galaxyXr"] = {{"streamQuality","balanced"},{"customStreamFormatWidth",1536},{"customBandwidthMbit",350}};
+    } else if (scenario == 36) {
+        // At v5 the retired key is ignored even when present; nothing changes.
+        sf["streamFrameSchema"] = 6;
+        sf["nvencSettingsVersion"] = 5;
+        sf["nvencBandwidthOverrideMbit"] = 500;
+        input["galaxyXr"] = {{"streamQuality","sharp"},{"customStreamFormatWidth",1536},{"customBandwidthMbit",450}};
     } else return 2;
     const auto path = testFolder + "settings.json";
     { std::ofstream out(path); out << input.dump(); }
     ParseConfig();
+    // 2026-11-17: nvencSettingsVersion 5 retires
+    // streamFrame.nvencBandwidthOverrideMbit. Any config below 5 gains the new
+    // stamp, so a stored file is expected to differ by exactly the v5 writeback.
+    auto stampedAtV5 = [&](json expected) {
+        expected["streamFrame"]["nvencSettingsVersion"] = 5;
+        return expected;
+    };
     auto checkExpected = [&] {
         const auto &s = driverConfig.streamFrame;
-        Check(s.nvencSettingsVersion == 4, "version reaches current schema");
+        Check(s.nvencSettingsVersion == 5, "version reaches current schema");
         Check(s.hitchDiag == (scenario == 11 || scenario == 18), "hitch diagnostics require master and preserve explicit choices");
         Check(s.streamFrameSchema == 6, "bitrate reference semantics stamp reaches schema 6");
         if (scenario >= 16 && scenario <= 19) {
@@ -220,7 +257,7 @@ int main(int argc, char** argv) {
                 && s.nvencBitrateMbit == 123 && s.nvencMaxBitrateHeadroomPct == 20,
                 "picture and encoder compatibility/rate tuning remains effective");
             json stored; { std::ifstream in(path); in >> stored; }
-            Check(stored == input, "runtime masking never rewrites saved diagnostic choices");
+            Check(stored == stampedAtV5(input), "runtime masking never rewrites saved diagnostic choices");
         }
         if (customUpgrade) {
             Check(!s.nvencTap && !s.nvencFixLevel && !s.nvencForceCbr
@@ -236,7 +273,7 @@ int main(int argc, char** argv) {
             Check(s.nvencMinQp == 5 && s.nvencMinQpIntra == 7 && s.nvencMaxQp == 31, "QP bounds preserved");
             Check(s.nvencVuiFullRange == 1 && s.nvencVuiMatrix == 1
                 && s.nvencVuiPrimaries == 1 && s.nvencVuiTransfer == 1, "VUI choices preserved");
-            Check(s.nvencBitrateMbit == 123 && s.nvencBandwidthOverrideMbit == 234, "bandwidth tuning preserved");
+            Check(s.nvencBitrateMbit == 123, "encoder bitrate tuning preserved");
             if (scenario == 0) {
                 Check(s.nvencBitrateCurve == 3 && s.nvencBitrateCurvePoints.size() == 7,
                     "five-point custom curve upgrades to seven points");
@@ -276,7 +313,8 @@ int main(int argc, char** argv) {
             Check(s.nvencPreset == 0 && s.nvencVbvFrames == 2 && s.nvencLowDelayKfScale == 2
                 && s.nvencForceFps == 90 && s.nvencSplitMode == 1, "fresh/reset config uses reference encoder tuning");
             Check(s.nvencAqStrength == 0 && s.nvencMinQp == 0 && s.nvencMinQpIntra == 0 && s.nvencMaxQp == 0
-                && s.nvencBitrateMbit == 0 && s.nvencBandwidthOverrideMbit == 0, "fresh/reset config clears custom AQ, QP and bitrate overrides");
+                && s.nvencBitrateMbit == 0, "fresh/reset config clears custom AQ, QP and bitrate overrides");
+            Check(driverConfig.galaxyXr.customBandwidthMbit == 350, "fresh/reset config keeps the default Max Bitrate");
             Check(s.nvencVuiFullRange == -1 && s.nvencVuiMatrix == -1 && s.nvencVuiPrimaries == -1
                 && s.nvencVuiTransfer == -1, "fresh/reset config uses automatic VUI metadata");
             Check(s.postPack.enable && s.postPack.casEnable && !s.cas.enable, "fresh/reset config uses only post-pack sharpening");
@@ -318,13 +356,13 @@ int main(int argc, char** argv) {
             Check(s.nvencBitrateCurve == 2 && s.nvencBitrateConstancyPct == 35,
                 "explicit curve and constancy survive an existing-install load (explicit wins over the retired bool)");
             json stored; { std::ifstream in(path); in >> stored; }
-            Check(stored == input, "existing settings file is not rewritten on load");
+            Check(stored == stampedAtV5(input), "existing settings values survive; only the v5 stamp is written");
         } else if (scenario == 28) {
             Check(s.nvencBitrateConstancyPct == 100,
                 "retired No-fallback key is honoured once as Bitrate Constancy 100");
             Check(s.nvencBitrateCurve == 2, "curve family survives the retired key");
             json stored; { std::ifstream in(path); in >> stored; }
-            Check(stored == input, "retired key load does not rewrite settings.json");
+            Check(stored == stampedAtV5(input), "retired key load writes only the v5 stamp");
             Check(stored["streamFrame"]["nvencBitrateConstancyPct"] == 35,
                 "saved constancy stays 35 on disk while runtime uses 100");
         } else if (scenario >= 23 && scenario <= 26) {
@@ -335,7 +373,10 @@ int main(int argc, char** argv) {
         }
         if (scenario >= 21 && scenario <= 26) {
             json stored; { std::ifstream in(path); in >> stored; }
-            Check(stored == input, "recipe and invalid raw requests remain unchanged on disk");
+            // 23..26 carry an invalid integer request: the v5 writeback is
+            // suppressed with the rest of the migration, so the file is intact.
+            Check((scenario >= 23) ? stored == input : stored == stampedAtV5(input),
+                "recipe and invalid raw requests remain unchanged on disk (a valid file gains only the v5 stamp)");
             Check(!stored["streamFrame"].contains("nvencValidationError"), "transient validation error is never persisted");
         }
         if (scenario == 31) {
@@ -347,7 +388,7 @@ int main(int argc, char** argv) {
                 && !driverConfig.galaxyXr.officialComponents,
                 "controller master disable turns off the remaining controller feature flags");
             json stored; { std::ifstream in(path); in >> stored; }
-            Check(stored == input, "controller master disable never rewrites the saved controller settings");
+            Check(stored == stampedAtV5(input), "controller master disable never rewrites the saved controller settings");
         }
         if (scenario == 32) {
             Check(!driverConfig.galaxyXr.controllerBypass, "controller master disable off stays off");
@@ -355,9 +396,9 @@ int main(int argc, char** argv) {
             Check(s.velocityFixMode == 6, "Kalman CA still applies with the master off");
             Check(!s.nvencTap && !s.nvencFixLevel && s.nvencForceCbr && !s.nvencPresetMerge && s.nvencCodec == 2,
                 "schema 5 preserves explicit encoder switches and codec");
-            Check(s.nvencBitrateMbit == 123 && s.nvencBandwidthOverrideMbit == 234
+            Check(s.nvencBitrateMbit == 123 && driverConfig.galaxyXr.customBandwidthMbit == 234
                 && s.nvencBitrateCurve == 3 && s.nvencBitrateConstancyPct == 37 && s.nvencMaxBitrateHeadroomPct == 20,
-                "schema 5 preserves bitrate, bandwidth, curve, constancy and headroom tuning");
+                "schema 5 preserves bitrate, curve, constancy and headroom tuning; the retired override is folded into Max Bitrate");
             Check(s.nvencBitrateCurvePoints.size() == input["streamFrame"]["nvencBitrateCurvePoints"].size(),
                 "schema 5 retains all seven edited Custom points");
             for(size_t i = 0; i < s.nvencBitrateCurvePoints.size(); ++i){
@@ -381,7 +422,30 @@ int main(int argc, char** argv) {
             Check(!s.postPack.enable && !s.postPack.casEnable && s.postPack.limitedRange,
                 "schema 5 preserves post-pack opt-outs and range tuning");
             json stored; { std::ifstream in(path); in >> stored; }
-            Check(stored == input, "schema 6 semantics never rewrite schema 5 user tuning on disk");
+            json expected = stampedAtV5(input);
+            expected["streamFrame"].erase("nvencBandwidthOverrideMbit");
+            expected["galaxyXr"]["customBandwidthMbit"] = 234;
+            Check(stored == expected, "v5 folds the retired override into Max Bitrate and never rewrites schema 5 user tuning");
+        }
+        if (scenario == 33) {
+            Check(driverConfig.galaxyXr.streamQuality == "custom", "nonzero retired override turns a legacy tier into custom");
+            Check(driverConfig.galaxyXr.customStreamFormatWidth == 1536, "the legacy tier tile is pinned (sharp = 1536), not the stale custom width");
+            Check(driverConfig.galaxyXr.customBandwidthMbit == 500, "nonzero retired override becomes Max Bitrate");
+        }
+        if (scenario == 34) {
+            Check(driverConfig.galaxyXr.streamQuality == "custom" && driverConfig.galaxyXr.customStreamFormatWidth == 2048,
+                "an existing custom tile is untouched by the fold");
+            Check(driverConfig.galaxyXr.customBandwidthMbit == 275, "nonzero retired override becomes Max Bitrate on custom");
+            Check(std::filesystem::exists(testFolder + "nvenc-settings-v4.migrated"), "the v4 marker still exists (it must not block v5)");
+        }
+        if (scenario == 35) {
+            Check(driverConfig.galaxyXr.streamQuality == "balanced" && driverConfig.galaxyXr.customStreamFormatWidth == 1536
+                && driverConfig.galaxyXr.customBandwidthMbit == 350,
+                "zero override folds nothing and keeps the stored tier and Max Bitrate");
+        }
+        if (scenario == 36) {
+            Check(driverConfig.galaxyXr.streamQuality == "sharp" && driverConfig.galaxyXr.customBandwidthMbit == 450,
+                "a stray retired override at v5 is ignored");
         }
     };
     checkExpected();
@@ -398,6 +462,30 @@ int main(int argc, char** argv) {
             "migration writeback retains explicit geometry and bandwidth");
         Check(persisted["galaxyXr"]["profileSupports10bit"] == true, "migration writeback retains explicit capability true");
     }
+    if (scenario == 33) {
+        Check(persisted["streamFrame"]["nvencSettingsVersion"] == 5
+            && !persisted["streamFrame"].contains("nvencBandwidthOverrideMbit")
+            && persisted["galaxyXr"]["streamQuality"] == "custom"
+            && persisted["galaxyXr"]["customStreamFormatWidth"] == 1536
+            && persisted["galaxyXr"]["customBandwidthMbit"] == 500,
+            "tier fold writes custom mode with the tier tile and the new Max Bitrate");
+    }
+    if (scenario == 34) {
+        Check(persisted["streamFrame"]["nvencSettingsVersion"] == 5
+            && !persisted["streamFrame"].contains("nvencBandwidthOverrideMbit")
+            && persisted["galaxyXr"]["customStreamFormatWidth"] == 2048
+            && persisted["galaxyXr"]["customBandwidthMbit"] == 275,
+            "custom fold keeps the tile and writes the new Max Bitrate");
+    }
+    if (scenario == 35) {
+        Check(persisted["streamFrame"]["nvencSettingsVersion"] == 5
+            && !persisted["streamFrame"].contains("nvencBandwidthOverrideMbit")
+            && persisted["galaxyXr"] == input["galaxyXr"],
+            "zero override removes only the retired key and stamps v5");
+    }
+    if (scenario == 36) {
+        Check(persisted == input, "v5 keeps a stray retired key and every stored value untouched");
+    }
     ParseConfig();
     checkExpected();
     json reopened;
@@ -410,7 +498,9 @@ int main(int argc, char** argv) {
         ParseConfig();
         Check(!driverConfig.streamFrame.poseLogging && !driverConfig.streamFrame.hitchDiag,
             "live master OFF applies diagnostic policy");
-        { std::ofstream out(path); out << input.dump(); }
+        // The file carries the v5 stamp the loader wrote; rewriting it as a
+        // pre-v5 document would only exercise the once-per-process guard.
+        { std::ofstream out(path); out << stampedAtV5(input).dump(); }
         ParseConfig();
         Check(driverConfig.debugGeneration == generation + 2, "runtime generation retains both transitions without scene frames");
         checkExpected();

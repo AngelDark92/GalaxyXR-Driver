@@ -2126,6 +2126,10 @@ NVENCSTATUS Guarded(const char* tag, void* encoder, NV_ENC_INITIALIZE_PARAMS* p,
 	const int effectiveCodec = CodecOfGuid(p->encodeGUID);
 	const NVENCSTATUS status = call();
 	if(status == NV_ENC_SUCCESS){
+		// 2026-11-17: an enabled session that successfully took this policy is
+		// sticky evidence for the Companion: turning the tap off afterwards
+		// still leaves that session's encoder configuration until a restart.
+		if(cfg.enabled){ NvencTap::Get().NotePolicyApplied(); }
 		if(!quiet){
 			SetSessionCodec(encoder, effectiveCodec);
 			PublishSuccess(encoder, cfg, p, initializing);
@@ -3071,6 +3075,9 @@ NvencTapConfig NvencTap::GetConfig(){
 	std::lock_guard<std::mutex> g(cfgLock);
 	return cfg;
 }
+void NvencTap::NotePolicyApplied(){
+	tapPolicyApplied.store(true, std::memory_order_relaxed);
+}
 NvencTapRuntimeState NvencTap::GetRuntimeState(){
 	std::lock_guard<std::mutex> installationGuard(installationLock);
 	const NvencTapConfig config = GetConfig();
@@ -3079,6 +3086,7 @@ NvencTapRuntimeState NvencTap::GetRuntimeState(){
 	std::lock_guard<std::mutex> guard(runtimeLock);
 	NvencTapRuntimeState state = runtime;
 	state.enabled = config.enabled; state.hookInstalled = hookInstalled; state.upgradedSessionsRemain = remain;
+	state.policyApplied = tapPolicyApplied.load(std::memory_order_relaxed);
 	state.requestedCodec = config.codec;
 	return state;
 }

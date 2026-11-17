@@ -823,9 +823,9 @@ struct StreamFrameConfig{
 	// this value and the curve shapes the requested average below it; under
 	// Force CBR average and maximum are both this value
 	int nvencBitrateMbit = 0; // v3: DEBUG "encoder bitrate (separate)": 0 = same as the pacer bandwidth
-	// v3 Advanced: 0 = the tier's (or custom) bandwidth drives both the pacer
-	// and the encoder; nonzero overrides both at once
-	int nvencBandwidthOverrideMbit = 0;
+	// 2026-11-17: the former nvencBandwidthOverrideMbit is retired (folded
+	// into galaxyXr.customBandwidthMbit, nvencSettingsVersion 5). Max Bitrate
+	// drives both the pacer and the encoder budget.
 	// v3 settings-schema version. < 3 in a loaded file = pre-v3 encoder
 	// settings: the loader stamps the version and logs it; absent keys use
 	// the native defaults (AQ off; Force CBR off since 2026-10-23). The GUI

@@ -1,7 +1,7 @@
-// Hardware capability gating unit tests (2026-11-03).
+// Hardware capability gating unit tests (2026-11-03; inventory rules 2026-11-17).
 //
-// Covers the precedence chain (encoder tap > LUID-matched probe > single
-// adapter > ambiguous/unknown) and every verdict surface used by the UI.
+// Covers the precedence chain (encoder tap > LUID-matched probe > NVENC
+// inventory rules > unknown) and every verdict surface used by the UI.
 import { describe, expect, it } from 'vitest';
 import type { AdapterCapabilities, DriverInfo, GpuCapabilities } from './types';
 import {
@@ -65,11 +65,11 @@ describe('effectiveAdapter precedence', () => {
     expect(result.adapter?.gpuName).toBe('Test GPU');
   });
 
-  it('stays unverified with multiple adapters and no identity', () => {
+  it('stays unverified with multiple adapters, without a "which adapter" warning', () => {
     const result = effectiveAdapter(gpu({ adapters: [adapter({ adapterLuid: 'a' }), adapter({ adapterLuid: 'b' })] }), undefined, now);
     expect(result.known).toBe(false);
     expect(result.ambiguous).toBe(true);
-    expect(result.reason).toContain('Multiple GPUs');
+    expect(result.reason).toBeUndefined();
   });
 
   it('stays unverified when no adapters are reported', () => {
@@ -92,6 +92,89 @@ describe('effectiveAdapter precedence', () => {
   it('ignores a future-dated encoder-tap observation', () => {
     const result = effectiveAdapter(undefined, tap({ observedAt: now + 3000 }), now);
     expect(result.known).toBe(false);
+  });
+});
+
+describe('GPU inventory rules (2026-11-17)', () => {
+  const amd = (overrides: Partial<AdapterCapabilities> = {}) =>
+    adapter({ adapterLuid: 'amd', gpuName: 'RX 7900', vendorId: 0x1002, nvenc: false, opticalFlow: false, codecs: undefined, ...overrides });
+  const igpu = () => adapter({ adapterLuid: 'igpu', gpuName: 'Ryzen iGPU', vendorId: 0x1002, nvenc: false, opticalFlow: false, codecs: undefined });
+  const nvidia = (overrides: Partial<AdapterCapabilities> = {}) =>
+    adapter({ adapterLuid: 'nv', gpuName: 'RTX 4090', vendorId: 0x10de, ...overrides });
+  const NO_NVIDIA = 'No NVIDIA GPU found. The NVENC Tap cannot apply; tile width, bitrate, render resolution, 10-bit and image settings still apply.';
+
+  it('single AMD adapter: NVENC absent is known and only the Tap is refused', () => {
+    const eff = effectiveAdapter(gpu({ adapters: [amd()] }), undefined, now);
+    expect(eff.known).toBe(true);
+    expect(eff.source).toBe('no-nvidia');
+    expect(eff.adapter?.nvenc).toBe(false);
+    const tap = nvencTapSupport(eff);
+    expect(tap.verdict).toBe('unsupported');
+    expect(tap.reason).toBe(NO_NVIDIA);
+    // Same codec/10-bit/split answers as any single-adapter probe: nothing blocked.
+    expect(codecSupport(eff, 0).verdict).toBe('unverified');
+    expect(tenBitSupport(eff, 0).verdict).toBe('unverified');
+    expect(tenBitNoticeReason(tenBitSupport(eff, 0))).toBeUndefined();
+    expect(splitModeSupport(eff, 0, 2).verdict).toBe('unverified');
+    expect(presetSupport(eff, 0, 7).verdict).toBe('supported');
+    expect(tileWidthMax(gpu({ adapters: [amd()] }), undefined, 0, now)).toBe(2048);
+  });
+
+  it('AMD dGPU plus AMD iGPU: known no-NVIDIA answer, not ambiguous', () => {
+    const g = gpu({ adapters: [amd(), igpu()] });
+    const eff = effectiveAdapter(g, undefined, now);
+    expect(eff.known).toBe(true);
+    expect(eff.ambiguous).toBe(false);
+    expect(eff.source).toBe('no-nvidia');
+    expect(nvencTapSupport(eff).reason).toBe(NO_NVIDIA);
+    expect(tileWidthMax(g, undefined, 1, now)).toBe(1024);
+  });
+
+  it('NVIDIA plus AMD iGPU: NVIDIA is the candidate whatever the enumeration order', () => {
+    const eff = effectiveAdapter(gpu({ adapters: [igpu(), nvidia()] }), undefined, now);
+    expect(eff.known).toBe(true);
+    expect(eff.source).toBe('unique-nvenc-candidate');
+    expect(eff.adapter?.adapterLuid).toBe('nv');
+    const tap = nvencTapSupport(eff);
+    expect(tap.verdict).toBe('supported');
+    expect(tap.reason).toBeUndefined();
+  });
+
+  it('NVIDIA plus an adapter with an unreported vendor: still the candidate', () => {
+    const eff = effectiveAdapter(gpu({ adapters: [adapter({ adapterLuid: 'unknown' }), nvidia()] }), undefined, now);
+    expect(eff.source).toBe('unique-nvenc-candidate');
+    expect(eff.adapter?.adapterLuid).toBe('nv');
+  });
+
+  it('two NVIDIA adapters: Tap allowed, per-adapter limits silent, tile width untouched', () => {
+    const g = gpu({ adapters: [nvidia({ adapterLuid: 'a' }), nvidia({ adapterLuid: 'b' })] });
+    const eff = effectiveAdapter(g, undefined, now);
+    expect(eff.source).toBe('multiple-nvenc-candidates');
+    expect(eff.known).toBe(false);
+    expect(eff.ambiguous).toBe(false);
+    expect(eff.reason).toBeUndefined();
+    expect(nvencTapSupport(eff)).toEqual({ verdict: 'supported' });
+    expect(codecSupport(eff, 0)).toEqual({ verdict: 'unverified' });
+    expect(presetSupport(eff, 0, 7)).toEqual({ verdict: 'unverified' });
+    expect(splitModeSupport(eff, 0, 2)).toEqual({ verdict: 'unverified' });
+    expect(multipassSupport(eff, 0, 2)).toEqual({ verdict: 'unverified' });
+    expect(tenBitNoticeReason(tenBitSupport(eff, 0))).toBeUndefined();
+    expect(tileWidthMax(g, undefined, 0, now)).toBe(2048);
+    expect(tileWidthMax(g, undefined, 1, now)).toBe(1024);
+  });
+
+  it('keeps the NVENC-absent message when NVIDIA adapters report NVENC absent', () => {
+    // Lone NVIDIA adapter: provenance stays single-adapter, NVENC is still absent.
+    const lone = effectiveAdapter(gpu({ adapters: [adapter({ vendorId: 0x10de, nvenc: false })] }), undefined, now);
+    expect(lone.source).toBe('single-adapter');
+    // NVIDIA next to a non-NVIDIA adapter: the absent NVIDIA adapter is named.
+    const mixed = effectiveAdapter(gpu({ adapters: [amd(), nvidia({ adapterLuid: 'old', nvenc: false })] }), undefined, now);
+    expect(mixed.source).toBe('nvenc-absent');
+    for (const eff of [lone, mixed]) {
+      const tap = nvencTapSupport(eff);
+      expect(tap.verdict).toBe('unsupported');
+      expect(tap.reason).toBe('NVIDIA NVENC is not available; NVENC Tap cannot arm.');
+    }
   });
 });
 
@@ -190,7 +273,7 @@ describe('nvencTapSupport', () => {
     expect(nvencTapSupport({ adapter: a, known: true, ambiguous: false }).verdict).toBe('unsupported');
   });
 
-  it('is unverified on ambiguous hardware', () => {
+  it('is unverified when the vendor of a second adapter is unreported', () => {
     expect(nvencTapSupport(effectiveAdapter(gpu({ adapters: [adapter(), adapter({ adapterLuid: 'b' })] }), undefined, now)).verdict).toBe('unverified');
   });
 });

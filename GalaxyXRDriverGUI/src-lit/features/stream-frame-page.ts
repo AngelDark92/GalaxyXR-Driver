@@ -413,32 +413,7 @@ if (vendor) {
   tip: t("Tile width is a preset class sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. The selected codec caps the tile: H.264 1024, HEVC/AV1 2048, because tile × 4 must fit the encoder's height. A stored value outside the presets is kept and shown here; choose a preset to replace it. Requires a SteamVR restart.\n\nValue: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap's tile answers."),
   reset: { can: galaxy.streamQualityValues.width != codecDef.streamFormatWidth, on: () => { galaxy.setStreamQualityValue('width', codecDef.streamFormatWidth); save(); } }
           }));
-          const bandwidth = bandwidthRowState(!!settings.nvencForceCbr);
-          parts.push(fieldRow(bandwidth.label, html`
-      <div class="range-control">
-        ${numberControl('galaxyXr.customBandwidthMbit', {
-          value: galaxy.streamQualityValues.bandwidth,
-          ctx: controlContext,
-          onCommit: value => { galaxy.setStreamQualityValue('bandwidth', value); save(); },
-        })}
-        <div class="range-track">
-          ${sliderControl('galaxyXr.customBandwidthMbit', {
-            value: galaxy.streamQualityValues.bandwidth,
-            onChange: value => { galaxy.setStreamQualityValue('bandwidth', value); save(); },
-          })}
-          <span class="range-scale" aria-hidden="true"><span>1</span><span>1500 Mbit/s</span></span>
-        </div>
-      </div>
-          `, {
-  notices: bandwidth.notices,
-  tip: t("Set the stream bandwidth budget and the applied encoder budget.\n\nFor Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. In VBR the entered value is the encoder maximum; under Force CBR the encoder average and maximum both equal this budget, bypassing the curve, constancy and headroom. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.\n\nA target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect. Requires a SteamVR restart.\n\nValue: galaxyXr.customBandwidthMbit (settings.json), with the existing Advanced bandwidth and separate encoder overrides."),
-  reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
-          }));
-        if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
-            || !Number.isInteger(galaxy.streamQualityValues.bandwidth) || galaxy.streamQualityValues.bandwidth <= 0) {
-          parts.push(statusMessage('error', t('Invalid stream setting'), t('Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.')));
-        }
-        const expired = expiredEncoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
+          const expired = expiredEncoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
         if (settings.nvencTap || evidence?.initError || expired?.tap.initError) {
           if (evidence) {
             if (evidence.initError) parts.push(statusMessage('error', t('Encoder initialization failed'), evidence.initError));
@@ -525,6 +500,39 @@ if (vendor) {
           parts.push(noteRow(html`${t('Codec switching is disabled while SteamVR is running. Close SteamVR completely, then choose the codec. The saved choice applies at the next SteamVR session.')}`));
         } else if (codecState === 'unconfirmed') {
           parts.push(noteRow(html`${t('The SteamVR runtime check has not confirmed a stopped runtime, so codec switching stays disabled. It unlocks after a successful check; open Setup if this persists.')}`));
+        }
+        // 2026-11-17 (owner directive): Max Bitrate is the single bandwidth
+        // setting; the retired nvencBandwidthOverrideMbit row duplicated it.
+        // The row stays editable in every state, and the helper owns the
+        // label and the tap-off/unsupported notices.
+        const bandwidth = bandwidthRowState({
+          forceCbr: !!settings.nvencForceCbr && !!settings.nvencTap,
+          tapActive: !!settings.nvencTap,
+          tapUnsupported: tapVerdict.verdict === 'unsupported',
+        });
+        parts.push(fieldRow(bandwidth.label, html`
+      <div class="range-control">
+        ${numberControl('galaxyXr.customBandwidthMbit', {
+          value: galaxy.streamQualityValues.bandwidth,
+          ctx: controlContext,
+          onCommit: value => { galaxy.setStreamQualityValue('bandwidth', value); save(); },
+        })}
+        <div class="range-track">
+          ${sliderControl('galaxyXr.customBandwidthMbit', {
+            value: galaxy.streamQualityValues.bandwidth,
+            onChange: value => { galaxy.setStreamQualityValue('bandwidth', value); save(); },
+          })}
+          <span class="range-scale" aria-hidden="true"><span>1</span><span>1500 Mbit/s</span></span>
+        </div>
+      </div>
+          `, {
+  notices: bandwidth.notices,
+  tip: t("Set the stream bandwidth budget.\n\nFor Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. In VBR the entered value is the encoder maximum; under Force CBR the encoder average and maximum both equal this budget, bypassing the curve, constancy and headroom. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.\n\nWith the NVENC Tap off or unsupported, only the Steam Link pacing budget applies: the scaling above 350 Mbit/s, the bitrate curve, constancy, headroom and Force CBR need the tap.\n\nA target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect.\n\nValue: galaxyXr.customBandwidthMbit (settings.json). Requires a SteamVR restart."),
+  reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
+          }));
+        if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
+            || !Number.isInteger(galaxy.streamQualityValues.bandwidth) || galaxy.streamQualityValues.bandwidth <= 0) {
+          parts.push(statusMessage('error', t('Invalid stream setting'), t('Tile width and bandwidth must be positive whole numbers. Entered values are kept until corrected.')));
         }
         parts.push(fieldRow(t('Restore Steam Link encoder behaviour'), html`
           <fluent-button appearance="outline" ?disabled=${this.ctx.sds.installingDriver() || this.ctx.startup.status()?.steamvrRunning !== false}
@@ -934,25 +942,6 @@ if (vendor && settings.nvencTap) {
         parts.push(sectionHeading(t('Encoder Advanced'), 0, 'encoder'));
 if (settings.nvencTap) {
   const codecDef = codecEncoderDefaults[settings.nvencCodec ?? 0] ?? codecEncoderDefaults[0];
-                parts.push(fieldRow(t('Bandwidth Override (Mbit/s)'), html`
-      <div class="range-control">
-        ${numberControl('streamFrame.nvencBandwidthOverrideMbit', {
-          value: settings.nvencBandwidthOverrideMbit,
-          ctx: controlContext,
-          onCommit: value => { settings.nvencBandwidthOverrideMbit = value; save(); },
-        })}
-        <div class="range-track">
-          ${sliderControl('streamFrame.nvencBandwidthOverrideMbit', {
-            value: settings.nvencBandwidthOverrideMbit,
-            onChange: value => { settings.nvencBandwidthOverrideMbit = value; save(); },
-          })}
-          <span class="range-scale" aria-hidden="true"><span>0</span><span>1500 Mbit/s</span></span>
-        </div>
-      </div>
-                `, {
-  tip: t("Override the normal stream bandwidth budget. 0 follows the Max Bitrate row above instead of forcing a separate value.\n\nNonzero supplies the network pacing budget and highest requested encoder target instead of the Max Bitrate row. It does not guarantee actual encoded output or constant sent bits. Requires a SteamVR restart.\n\nValue: streamFrame.nvencBandwidthOverrideMbit (settings.json). SteamVR + encoder sides — pacing budget and requested encoder target."),
-  reset: { can: settings.nvencBandwidthOverrideMbit != defaults.nvencBandwidthOverrideMbit, on: () => { galaxy.reset('nvencBandwidthOverrideMbit'); } }
-                }));
                 parts.push(fieldRow(t('VBV Encoder Buffer Budget'), html`
       ${numberControl('streamFrame.nvencVbvFrames', {
         value: settings.nvencVbvFrames,

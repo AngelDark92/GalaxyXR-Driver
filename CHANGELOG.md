@@ -6,6 +6,28 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [2.2.0-dev.3] - 2026-11-17
+
+### Features
+
+- stream-quality: retire bandwidth override, tap-aware Max Bitrate (`8138425`)
+
+## [2.2.0-dev.2] - 2026-11-17
+
+### Fixes
+
+- multiple gpus error fix (`0930511`)
+
+### Other changes
+
+- Refactor code structure for improved readability and maintainability (`2b53db2`)
+
+## [2.2.0-dev.1] - 2026-11-17
+
+### Features
+
+- galaxylink: enhance HMD admission logic with caller chain validation (`33371ac`)
+
 ## [2.1.2] - 2026-11-16
 
 ### Fixes

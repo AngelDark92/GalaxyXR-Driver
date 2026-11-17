@@ -150,15 +150,19 @@ void GeometryRequests() {
         for(const char* key:bounds)
             CheckInt(gxr::VrlinkCapabilitySections(profile,""),key,tile,"fixed profile bounds match requested tile");
 
-        driverConfig.streamFrame.nvencBandwidthOverrideMbit=3001;
+        // 2026-11-17: Max Bitrate is the only bandwidth source (the retired
+        // Advanced bandwidth override is folded into it by the loader); a value
+        // the owner requested reaches the writer unclamped and is never
+        // replaced by a default here.
+        config.customBandwidthMbit=3001;
         ApplyStreamQualitySetting();
-        CheckInt(tuning,"targetBandwidth",3001,"Advanced bandwidth overrides normal request without clamp");
-        driverConfig.streamFrame.nvencBandwidthOverrideMbit=-7;
-        Check(GalaxyXR_EffectiveBandwidthMbit()==-7,"invalid negative override reaches validator unchanged");
+        CheckInt(tuning,"targetBandwidth",3001,"Max Bitrate reaches the pacer without clamp");
+        config.customBandwidthMbit=-7;
+        Check(GalaxyXR_EffectiveBandwidthMbit()==-7,"invalid negative Max Bitrate reaches validator unchanged");
         ApplyStreamQualitySetting();
-        CheckInt(tuning,"targetBandwidth",-7,"invalid override is never replaced by a default in writer");
-        driverConfig.streamFrame.nvencBandwidthOverrideMbit=0;
-        Check(GalaxyXR_EffectiveBandwidthMbit()==2500,"zero disables Advanced override only");
+        CheckInt(tuning,"targetBandwidth",-7,"invalid Max Bitrate is never replaced by a default in writer");
+        config.customBandwidthMbit=2500;
+        Check(GalaxyXR_EffectiveBandwidthMbit()==2500,"Max Bitrate alone drives the requested budget");
     }
 
     // The old value-list restoration missed arbitrary prior requests when

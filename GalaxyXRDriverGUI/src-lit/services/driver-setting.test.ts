@@ -31,7 +31,7 @@ const services: DriverSettingService[] = [];
 // Force CBR OFF per the 2026-10-23 owner directive.
 // Literal expectations pin parity independently of generated GUI defaults.
 const referenceEncoderDefaults = {
-  nvencTap: true, nvencFixLevel: true, nvencBitrateMbit: 0, nvencBandwidthOverrideMbit: 0,
+  nvencTap: true, nvencFixLevel: true, nvencBitrateMbit: 0,
   nvencSettingsVersion: 0, nvencMaxQp: 0, nvencAqStrength: 0, nvencMinQp: 0,
   nvencMinQpIntra: 0, nvencForceCbr: false, nvencLowDelayKfScale: 2,
   nvencMaxBitrateHeadroomPct: 0, nvencVbvFrames: 2, nvencForceFps: 90,
@@ -63,9 +63,9 @@ describe('vendor defaults before info.json exists', () => {
     const state = new GalaxySettingsBase({ values: () => ({}) } as any, service, { values: () => undefined } as any);
     await new Promise<void>(resolve => setTimeout(resolve, 0));
     await service.flush();
-    expect(state.settings).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
+    expect(state.settings).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 5 });
     expect(await service.loadSetting()).toBe(true);
-    expect(service.values()?.streamFrame).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
+    expect(service.values()?.streamFrame).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 5 });
   });
 
   it.each(['', 'galaxyxr'])('pins the SDR10 default On for the %s build against stale info.json telemetry while a stored Off wins', async vendor => {
@@ -92,7 +92,7 @@ describe('vendor defaults before info.json exists', () => {
 
   it('retains explicit encoder and post-pack Off choices against stale Off telemetry', async () => {
     const stock = {
-      nvencSettingsVersion: 4, nvencTap: false, nvencFixLevel: false,
+      nvencSettingsVersion: 5, nvencTap: false, nvencFixLevel: false,
       nvencForceCbr: false, nvencBitrateConstancyPct: 100, nvencPresetMerge: false,
       postPack: { enable: false, casEnable: false, limitedRange: false },
     };
@@ -115,7 +115,7 @@ describe('vendor defaults before info.json exists', () => {
       nvencPreset: 7, nvencAqStrength: 4, nvencMinQp: 5, nvencMinQpIntra: 7,
       nvencMaxQp: 31, nvencVuiFullRange: 1, nvencVuiMatrix: 1,
       nvencVuiPrimaries: 1, nvencVuiTransfer: 1,
-      nvencBitrateMbit: 123, nvencBandwidthOverrideMbit: 234,
+      nvencBitrateMbit: 123,
     };
     const service = await load('galaxyxr', {
       galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 1856 },
@@ -124,14 +124,14 @@ describe('vendor defaults before info.json exists', () => {
     const state = new GalaxySettingsBase({ values: () => ({}) } as any, service, { values: () => undefined } as any);
     await new Promise<void>(resolve => setTimeout(resolve, 0));
     await service.flush();
-    expect(state.settings).toMatchObject({ ...chosen, nvencSettingsVersion: 4 });
+    expect(state.settings).toMatchObject({ ...chosen, nvencSettingsVersion: 5 });
     expect(await service.save(service.values()!)).toBe(true);
     const persisted = JSON.parse(storage.files.get(filePath)!);
-    expect(persisted.streamFrame).toMatchObject({ ...chosen, nvencSettingsVersion: 4 });
+    expect(persisted.streamFrame).toMatchObject({ ...chosen, nvencSettingsVersion: 5 });
     expect(persisted.galaxyXr.customStreamFormatWidth).toBe(1856);
     service.dispose();
     const reopened = await load('galaxyxr', persisted);
-    expect(reopened.values()?.streamFrame).toMatchObject({ ...chosen, nvencSettingsVersion: 4 });
+    expect(reopened.values()?.streamFrame).toMatchObject({ ...chosen, nvencSettingsVersion: 5 });
     expect(reopened.values()?.galaxyXr?.customStreamFormatWidth).toBe(1856);
   });
 
@@ -143,7 +143,7 @@ describe('vendor defaults before info.json exists', () => {
     };
     const info = { values: () => ({ defaultSettings: { streamFrame: old } }) } as unknown as DriverInfoService;
     const service = await load(vendor, {
-      streamFrame: { streamFrameSchema: 4, nvencSettingsVersion: 4, ...old },
+      streamFrame: { streamFrameSchema: 4, nvencSettingsVersion: 5, ...old },
     }, { streamFrame: old });
     const state = new GalaxySettingsBase({ values: () => ({}) } as any, service, info);
     expect(state.defaults).toMatchObject(referenceEncoderDefaults);
@@ -153,16 +153,16 @@ describe('vendor defaults before info.json exists', () => {
     }
     await new Promise<void>(resolve => setTimeout(resolve, 0));
     await service.flush();
-    expect(state.settings).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
+    expect(state.settings).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 5 });
     expect(state.settings?.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: false });
     expect(await service.loadSetting()).toBe(true);
-    expect(service.values()?.streamFrame).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 4 });
+    expect(service.values()?.streamFrame).toMatchObject({ ...referenceEncoderDefaults, nvencSettingsVersion: 5 });
     expect(service.values()?.streamFrame?.postPack).toMatchObject({ enable: true, casEnable: true, limitedRange: false });
   });
 
   it('preserves a saved legacy encoder-off profile through migrations, sparse saves and reloads', async () => {
     const stock = {
-      nvencSettingsVersion: 4, nvencTap: false, nvencFixLevel: false,
+      nvencSettingsVersion: 5, nvencTap: false, nvencFixLevel: false,
       nvencForceCbr: false, nvencBitrateConstancyPct: 100, nvencPresetMerge: false,
       nvencVbvFrames: 0, nvencLowDelayKfScale: 0, nvencForceFps: 0, nvencSplitMode: 0,
       postPack: { enable: false, casEnable: false },
@@ -279,7 +279,7 @@ describe('vendor defaults before info.json exists', () => {
 
   it('uses neutral controller defaults for explicit resets while preserving other tuning', async () => {
     const service = await load('', {
-      streamFrame: { streamFrameSchema: 4, nvencSettingsVersion: 4 },
+      streamFrame: { streamFrameSchema: 4, nvencSettingsVersion: 5 },
       controllers: {
         mirrorOffsetsForRightHand: true,
         rotationOffsetDeg: { x: 1, y: 9, z: 2 },
@@ -316,7 +316,7 @@ describe('vendor defaults before info.json exists', () => {
       positionOffsetCm: { x: 4, y: 5, z: 6 },
     };
     const service = await load('', {
-      streamFrame: { streamFrameSchema: 3, nvencSettingsVersion: 4 },
+      streamFrame: { streamFrameSchema: 3, nvencSettingsVersion: 5 },
       controllers: {
         mirrorOffsetsForRightHand: true,
         rotationOffsetDeg: { x: 2, y: 8, z: 1 },

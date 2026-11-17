@@ -1,5 +1,5 @@
 // Unit tests for the Galaxy settings state (state/galaxy-settings.ts):
-// persisted-schema migrations (schema 2/3/4/5, NVENC v3/v4), defaults
+// persisted-schema migrations (schema 2/3/4/5, NVENC v3/v4/v5), defaults
 // resolution, per-codec encoder defaults, tuner band/segment generation,
 // matrix text parsing, CAS mode switching, calibration lifecycle, and
 // profile import semantics.
@@ -83,8 +83,9 @@ describe('stream-frame integer validation', () => {
       'streamFrame.nvencVbvFrames', 'streamFrame.nvencQpFovea', 'streamFrame.nvencQpPeriphery']) {
       expect(contractKeys).toContain(key);
     }
-    // 2026-10-21: -1 with the retirement of streamFrame.nvencVrlinkFallbackMode.
-    expect(contractKeys).toHaveLength(29);
+    // 2026-10-21: -1 with the retirement of streamFrame.nvencVrlinkFallbackMode;
+    // 2026-11-17: -1 more with streamFrame.nvencBandwidthOverrideMbit.
+    expect(contractKeys).toHaveLength(28);
   });
 
   it.each([
@@ -172,7 +173,7 @@ describe('schema migrations', () => {
   it.each([false, true])('migrates SDR10 OFF preserving explicit compatibility=%s and tuning', async legacy10bit => {
     const stored = structuredClone(driverDefaults);
     stored.streamFrame!.streamFrameSchema = 6;
-    stored.streamFrame!.nvencSettingsVersion = 4;
+    stored.streamFrame!.nvencSettingsVersion = 5;
     stored.galaxyXr!.sdr10Baseline = false;
     stored.galaxyXr!.profileSupports10bit = legacy10bit;
     stored.galaxyXr!.customBandwidthMbit = 177;
@@ -192,7 +193,7 @@ describe('schema migrations', () => {
   it('retires only an absent SDR compatibility default after service default merging', async () => {
     const raw: any = {
       galaxyXr: { sdr10Baseline: false },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5 },
     };
     const merged = structuredClone(driverDefaults);
     Object.assign(merged.galaxyXr!, raw.galaxyXr);
@@ -207,7 +208,7 @@ describe('schema migrations', () => {
   it('preserves explicit SDR compatibility true after service default merging', async () => {
     const raw: any = {
       galaxyXr: { sdr10Baseline: false, profileSupports10bit: true },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 1 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 1 },
     };
     const merged = structuredClone(driverDefaults);
     Object.assign(merged.galaxyXr!, raw.galaxyXr);
@@ -221,7 +222,7 @@ describe('schema migrations', () => {
   it.each([false, true])('keeps active SDR10 and its legacy compatibility=%s during migration', async legacy10bit => {
     const stored = structuredClone(driverDefaults);
     stored.streamFrame!.streamFrameSchema = 6;
-    stored.streamFrame!.nvencSettingsVersion = 4;
+    stored.streamFrame!.nvencSettingsVersion = 5;
     stored.galaxyXr!.sdr10Baseline = true;
     stored.galaxyXr!.profileSupports10bit = legacy10bit;
     const { flush } = buildHarness(stored);
@@ -260,7 +261,7 @@ describe('schema migrations', () => {
     expect(stored.controllers.mirrorOffsetsForRightHand).toBe(driverDefaults.controllers!.mirrorOffsetsForRightHand);
     expect(stored.streamFrame.streamFrameSchema).toBe(6);
     // NVENC v3 + v4 ride along
-    expect(stored.streamFrame.nvencSettingsVersion).toBe(4);
+    expect(stored.streamFrame.nvencSettingsVersion).toBe(5);
     expect(stored.streamFrame.postPack.enable).toBe(true);
     expect(stored.streamFrame.postPack.casEnable).toBe(true);
     expect(saved.length).toBeGreaterThan(0);
@@ -321,7 +322,7 @@ describe('schema migrations', () => {
         velocityFixMode: 'kalmanCA',
         kalmanCaJerk: 99, kalmanCaPosNoiseMm: 3.3, kalmanCaOriNoiseDeg: 3.3,
         kalmanCaAccelTauMs: 50, kalmanCaExactCov: true,
-        streamFrameSchema: 6, nvencSettingsVersion: 4,
+        streamFrameSchema: 6, nvencSettingsVersion: 5,
       },
     };
     const { saved, flush } = buildHarness(stored);
@@ -338,7 +339,7 @@ describe('schema migrations', () => {
   it('normalises the integer kalmanAngularOutFrame to the string enum', async () => {
     const cases: Array<[number, string]> = [[0, 'world'], [1, 'body'], [2, 'zero'], [99, 'body']];
     for (const [raw, expected] of cases) {
-      const stored: any = { streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, kalmanAngularOutFrame: raw } };
+      const stored: any = { streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, kalmanAngularOutFrame: raw } };
       const { flush } = buildHarness(stored);
       await flush();
       expect(stored.streamFrame.kalmanAngularOutFrame).toBe(expected);
@@ -351,7 +352,7 @@ describe('schema migrations', () => {
       nvencForceFps: 72, nvencSplitMode: 3, nvencPreset: 7, nvencAqStrength: 4,
       nvencMinQp: 5, nvencMinQpIntra: 7, nvencMaxQp: 31, nvencVuiFullRange: 1,
       nvencVuiMatrix: 1, nvencVuiPrimaries: 1, nvencVuiTransfer: 1,
-      nvencBitrateMbit: 123, nvencBandwidthOverrideMbit: 234,
+      nvencBitrateMbit: 123,
     };
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 1856 },
@@ -362,7 +363,7 @@ describe('schema migrations', () => {
     };
     const { flush } = buildHarness(stored);
     await flush();
-    expect(stored.streamFrame).toMatchObject({ ...chosen, nvencSettingsVersion: 4 });
+    expect(stored.streamFrame).toMatchObject({ ...chosen, nvencSettingsVersion: 5 });
     expect(stored.galaxyXr.customStreamFormatWidth).toBe(1856);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();
@@ -373,11 +374,11 @@ describe('schema migrations', () => {
   it('migrates the retired bitrate bool to constancy from the stored object', async () => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2 },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5 },
     };
     const rawStored: any = {
       galaxyXr: { sdr10SettingsVersion: 2 },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencBitrateScale: false },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencBitrateScale: false },
     };
     const { gs, flush } = buildHarness(stored, undefined, rawStored);
     await flush();
@@ -400,7 +401,7 @@ describe('schema migrations', () => {
     };
     const { flush } = buildHarness(stored);
     await flush();
-    expect(stored.streamFrame).toMatchObject({ ...off, nvencSettingsVersion: 4 });
+    expect(stored.streamFrame).toMatchObject({ ...off, nvencSettingsVersion: 5 });
     expect(stored.galaxyXr.vrlinkHeadsetProfile).toBe(false);
     const reopened = buildHarness(structuredClone(stored));
     await reopened.flush();
@@ -451,7 +452,7 @@ describe('schema migrations', () => {
     const { flush } = buildHarness(stored);
     await flush();
     expect(stored.streamFrame.postPack).toMatchObject({ ...mode, foveaStrength: 0.23 });
-    expect(stored.streamFrame.nvencSettingsVersion).toBe(4);
+    expect(stored.streamFrame.nvencSettingsVersion).toBe(5);
   });
 
   it.each([false, true])('keeps legacy CAS Off with independent limitedRange=%s', async limitedRange => {
@@ -499,7 +500,7 @@ describe('schema migrations', () => {
     expect(stored.streamFrame.postPack.enable).toBe(true);
     expect(stored.streamFrame.postPack.casEnable).toBe(true);
     expect(stored.streamFrame.postPack.foveaStrength).toBe(0.9);
-    expect(stored.streamFrame.nvencSettingsVersion).toBe(4);
+    expect(stored.streamFrame.nvencSettingsVersion).toBe(5);
   });
 
   it('leaves pre-encode CAS enabled when the NVENC tap is off', async () => {
@@ -510,13 +511,13 @@ describe('schema migrations', () => {
     await flush();
     expect(stored.streamFrame.cas.enable).toBe(true);
     expect(stored.streamFrame.postPack.enable).toBe(false);
-    expect(stored.streamFrame.nvencSettingsVersion).toBe(4);
+    expect(stored.streamFrame.nvencSettingsVersion).toBe(5);
   });
 
   it('does not touch a config that is already at the latest schema', async () => {
     const stored: any = {
       streamFrame: {
-        velocityFixMode: 'kalmanCA', streamFrameSchema: 6, nvencSettingsVersion: 4,
+        velocityFixMode: 'kalmanCA', streamFrameSchema: 6, nvencSettingsVersion: 5,
         kalmanAngularOutFrame: 'body', kalmanDirLeadMs: 3,
       },
     };
@@ -527,13 +528,118 @@ describe('schema migrations', () => {
     expect(stored.streamFrame.streamFrameSchema).toBe(6);
     expect(saved.length).toBe(0);
   });
+
+  // 2026-11-17 (owner directive): streamFrame.nvencBandwidthOverrideMbit was
+  // retired because it duplicated Max Bitrate. The fold is an approved
+  // exception to "never-set values only": a nonzero override becomes the
+  // visible Max Bitrate, and a named tier becomes custom at that tier's tile
+  // width so only the budget moves.
+  it('folds the retired bandwidth override into Max Bitrate on a named tier', async () => {
+    const stored: any = {
+      galaxyXr: {
+        sdr10SettingsVersion: 2, streamQuality: 'sharp',
+        customStreamFormatWidth: 2048, customBandwidthMbit: 300,
+      },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencBandwidthOverrideMbit: 450 },
+    };
+    const { gs, saved, flush } = buildHarness(stored);
+    await flush();
+    expect(stored.galaxyXr.streamQuality).toBe('custom');
+    expect(stored.galaxyXr.customStreamFormatWidth).toBe(1536); // the sharp tier's width
+    expect(stored.galaxyXr.customBandwidthMbit).toBe(450);
+    expect(stored.streamFrame.nvencBandwidthOverrideMbit).toBeUndefined();
+    expect(stored.streamFrame.nvencSettingsVersion).toBe(5);
+    expect(saved).toHaveLength(1);
+    expect(gs.streamQualityValues).toEqual({ width: 1536, bandwidth: 450 });
+    const reopened = buildHarness(structuredClone(stored));
+    await reopened.flush();
+    expect(reopened.saved).toHaveLength(0);
+    expect(reopened.gs.galaxyXr.customBandwidthMbit).toBe(450);
+  });
+
+  it('folds the override onto custom without changing the stored tile width', async () => {
+    const stored: any = {
+      galaxyXr: {
+        sdr10SettingsVersion: 2, streamQuality: 'custom',
+        customStreamFormatWidth: 2048, customBandwidthMbit: 350,
+      },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencBandwidthOverrideMbit: 420 },
+    };
+    const { gs, flush } = buildHarness(stored);
+    await flush();
+    expect(stored.galaxyXr.streamQuality).toBe('custom');
+    expect(stored.galaxyXr.customStreamFormatWidth).toBe(2048);
+    expect(stored.galaxyXr.customBandwidthMbit).toBe(420);
+    expect(stored.streamFrame.nvencBandwidthOverrideMbit).toBeUndefined();
+    expect(stored.streamFrame.nvencSettingsVersion).toBe(5);
+    expect(gs.streamQualityValues).toEqual({ width: 2048, bandwidth: 420 });
+  });
+
+  it('uses the driver default tile width when the stored quality name has no tier', async () => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, streamQuality: 'mystery' },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencBandwidthOverrideMbit: 400 },
+    };
+    const { flush } = buildHarness(stored);
+    await flush();
+    expect(stored.galaxyXr.streamQuality).toBe('custom');
+    expect(stored.galaxyXr.customStreamFormatWidth).toBe(driverDefaults.galaxyXr!.customStreamFormatWidth);
+    expect(stored.galaxyXr.customBandwidthMbit).toBe(400);
+    expect(stored.streamFrame.nvencSettingsVersion).toBe(5);
+  });
+
+  it('removes a zero or absent override without touching the budget', async () => {
+    for (const streamFrame of [
+      { nvencSettingsVersion: 4, nvencBandwidthOverrideMbit: 0 },
+      { nvencSettingsVersion: 4 },
+    ]) {      const stored: any = {
+        galaxyXr: {
+          sdr10SettingsVersion: 2, streamQuality: 'custom',
+          customStreamFormatWidth: 1536, customBandwidthMbit: 350,
+        },
+        streamFrame: { streamFrameSchema: 6, ...streamFrame },
+      };
+      const { flush } = buildHarness(stored);
+      await flush();
+      expect(stored.galaxyXr.customBandwidthMbit).toBe(350);
+      expect(stored.galaxyXr.streamQuality).toBe('custom');
+      expect(stored.streamFrame.nvencBandwidthOverrideMbit).toBeUndefined();
+      expect(stored.streamFrame.nvencSettingsVersion).toBe(5);
+    }
+  });
+
+  it('leaves an already v5 file with a stale override key untouched', async () => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, streamQuality: 'custom', customBandwidthMbit: 350 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencBandwidthOverrideMbit: 450 },
+    };
+    const { saved, flush } = buildHarness(stored);
+    await flush();
+    expect(saved).toHaveLength(0);
+    expect(stored.streamFrame.nvencBandwidthOverrideMbit).toBe(450);
+    expect(stored.galaxyXr.customBandwidthMbit).toBe(350);
+  });
+
+  // Native parity (ConfigLoader.cpp v5): only an int in 1..2147483647 folds.
+  it.each([-25, 1.5, 2147483648])('drops a non-foldable override %s without changing the budget', async raw => {
+    const stored: any = {
+      galaxyXr: { sdr10SettingsVersion: 2, streamQuality: 'sharp', customBandwidthMbit: 320 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencBandwidthOverrideMbit: raw },
+    };
+    const { flush } = buildHarness(stored);
+    await flush();
+    expect(stored.galaxyXr.streamQuality).toBe('sharp');
+    expect(stored.galaxyXr.customBandwidthMbit).toBe(320);
+    expect(stored.streamFrame.nvencBandwidthOverrideMbit).toBeUndefined();
+    expect(stored.streamFrame.nvencSettingsVersion).toBe(5);
+  });
 });
 
 describe('defaults resolution', () => {
   it('defaults Hitch Diagnostics to off and resets an explicit opt-in to off', async () => {
     const stored = structuredClone(driverDefaults);
     stored.streamFrame!.streamFrameSchema = 6;
-    stored.streamFrame!.nvencSettingsVersion = 4;
+    stored.streamFrame!.nvencSettingsVersion = 5;
     stored.streamFrame!.hitchDiag = true;
     const { gs, flush } = buildHarness(stored);
     await flush();
@@ -581,7 +687,7 @@ describe('Debug Mode preservation', () => {
     };
     const stored: any = {
       debugMode, galaxyXr: { sdr10SettingsVersion: 2, vrlinkDebugOverlay: true },
-      streamFrame: { streamFrameSchema: 4, nvencSettingsVersion: 4, ...chosen },
+      streamFrame: { streamFrameSchema: 4, nvencSettingsVersion: 5, ...chosen },
     };
     const { gs, saved, flush } = buildHarness(stored);
     await flush();
@@ -813,13 +919,13 @@ describe('galaxyXr config', () => {
     // page must show the same values instead of the inert custom pair.
     expect(gs.streamQualityValues).toEqual({ width: 1536, bandwidth: 350 });
     expect(gs.streamQualityNotice()).toEqual({ name: 'mystery', tile: 1536, bandwidth: 350 });
-    // A nonzero Advanced bandwidth override replaces the fallback budget; the
-    // notice must quote the value the driver will actually use.
+    // 2026-11-17: the retired Advanced bandwidth override no longer feeds the
+    // notice; the band the driver applies is the shipped custom default.
     const { gs: overrideNotice } = buildHarness({
       galaxyXr: { streamQuality: 'mystery' },
-      streamFrame: { nvencBandwidthOverrideMbit: 600 },
+      streamFrame: { nvencSettingsVersion: 5, nvencBandwidthOverrideMbit: 600 },
     });
-    expect(overrideNotice.streamQualityNotice()).toEqual({ name: 'mystery', tile: 1536, bandwidth: 600 });
+    expect(overrideNotice.streamQualityNotice()).toEqual({ name: 'mystery', tile: 1536, bandwidth: 350 });
     // The first explicit edit switches to custom and adopts the displayed
     // defaults for the other field, so what the rows show is what is saved.
     gs.setStreamQualityValue('width', 1024);
@@ -1007,7 +1113,7 @@ describe('per-codec encoder defaults', () => {
   it('switches to H.264 loading its optimized defaults over entered values', async () => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 2048, customBandwidthMbit: 600 },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 0, nvencForceCbr: false, nvencVbvFrames: 9, nvencLowDelayKfScale: 3, nvencSplitMode: 2 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 0, nvencForceCbr: false, nvencVbvFrames: 9, nvencLowDelayKfScale: 3, nvencSplitMode: 2 },
     };
     const { gs, saved, flush } = buildHarness(stored);
     await flush();
@@ -1035,7 +1141,7 @@ describe('per-codec encoder defaults', () => {
   it.each([0, 2])('switches to codec %s loading its optimized defaults', async codec => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 2048, customBandwidthMbit: 600 },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 1, nvencForceCbr: false, nvencVbvFrames: 1, nvencLowDelayKfScale: 3, nvencSplitMode: 2 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 1, nvencForceCbr: false, nvencVbvFrames: 1, nvencLowDelayKfScale: 3, nvencSplitMode: 2 },
     };
     const { gs, saved, flush } = buildHarness(stored);
     await flush();
@@ -1057,7 +1163,7 @@ describe('per-codec encoder defaults', () => {
   it('switches only the codec and the codec-owned keys that actually differ (HEVC -> AV1)', () => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, streamQuality: 'custom', customStreamFormatWidth: 1536, customBandwidthMbit: 350 },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 0, nvencForceCbr: false, nvencVbvFrames: 2, nvencLowDelayKfScale: 2, nvencSplitMode: 1 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 0, nvencForceCbr: false, nvencVbvFrames: 2, nvencLowDelayKfScale: 2, nvencSplitMode: 1 },
     };
     const { gs } = buildHarness(stored);
     void gs.galaxyXr; void gs.settings; // materialize getter default fills before the baseline clone
@@ -1085,7 +1191,7 @@ describe('per-codec encoder defaults', () => {
     };
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, streamQuality: 'custom' },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 1, ...chosen },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 1, ...chosen },
     };
     let harness = buildHarness(stored);
     await harness.flush();
@@ -1119,7 +1225,7 @@ describe('per-codec encoder defaults', () => {
     // request (profileSupports10bit) stays user-owned and untouched.
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, sdr10Baseline: true, sdr10AllowEnhancements: true, profileSupports10bit: true },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 0 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 0 },
     };
     const { gs, saved, flush } = buildHarness(stored);
     await flush();
@@ -1151,7 +1257,7 @@ describe('per-codec encoder defaults', () => {
     };
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2 },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 1, ...chosen },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 1, ...chosen },
     };
     const { gs, saved, flush } = buildHarness(stored);
     await flush();
@@ -1168,7 +1274,7 @@ describe('per-codec encoder defaults', () => {
   it('keeps entered tile/bandwidth and encoder rows through a codec-1 reload', async () => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 2048, customBandwidthMbit: 600 },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 1, nvencForceCbr: false, nvencVbvFrames: 9, nvencLowDelayKfScale: 3, nvencSplitMode: 2 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 1, nvencForceCbr: false, nvencVbvFrames: 9, nvencLowDelayKfScale: 3, nvencSplitMode: 2 },
     };
     const { gs, saved, flush } = buildHarness(stored);
     await flush();
@@ -1228,7 +1334,7 @@ describe('H.264 stored-profile migration', () => {
     const stored: any = {
       galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 1536, customBandwidthMbit: 350 },
       streamFrame: {
-        streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 1,
+        streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 1,
         nvencForceCbr: true, nvencVbvFrames: 2, nvencLowDelayKfScale: 2, nvencSplitMode: 1,
       },
     };
@@ -1250,7 +1356,7 @@ describe('H.264 stored-profile migration', () => {
     // an explicit 2048 tile (and its entered bandwidth) under H.264 stays
     const explicit: any = {
       galaxyXr: { sdr10SettingsVersion: 2, customStreamFormatWidth: 2048, customBandwidthMbit: 600 },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 1 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 1 },
     };
     const { gs: gsExplicit, saved: savedExplicit, flush: flushExplicit } = buildHarness(explicit);
     await flushExplicit();
@@ -1263,7 +1369,7 @@ describe('H.264 stored-profile migration', () => {
   it('keeps a deviated H.264 profile untouched (explicit user choices)', async () => {
     const stored: any = {
       streamFrame: {
-        streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 1,
+        streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 1,
         nvencForceCbr: true, nvencVbvFrames: 1,
       },
     };
@@ -1287,7 +1393,7 @@ describe('H.264 stored-profile migration', () => {
   it('keeps a legacy tier selection and its default bandwidth without a codec stamp', async () => {
     const stored: any = {
       galaxyXr: { streamQuality: 'sharp' },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 1 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 1 },
     };
     const { gs, flush } = buildHarness(stored);
     await flush();
@@ -1301,7 +1407,7 @@ describe('H.264 stored-profile migration', () => {
   it.each(['width', 'bandwidth'] as const)('editing %s leaves the other displayed legacy-tier value unchanged', async key => {
     const { gs, flush } = buildHarness({
       galaxyXr: { streamQuality: 'max', customStreamFormatWidth: 1536, customBandwidthMbit: 350, sdr10SettingsVersion: 2 },
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4 }
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5 }
     });
     await flush();
     expect(gs.streamQualityValues).toEqual({ width: 2048, bandwidth: 450 });
@@ -1312,7 +1418,7 @@ describe('H.264 stored-profile migration', () => {
 
   it('leaves HEVC profiles untouched', async () => {
     const stored: any = {
-      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 4, nvencCodec: 0 },
+      streamFrame: { streamFrameSchema: 6, nvencSettingsVersion: 5, nvencCodec: 0 },
     };
     const { gs, flush } = buildHarness(stored);
     await flush();
@@ -1334,11 +1440,11 @@ describe('seven-point custom bitrate curve', () => {
         { x: 0.6, y: 0.8 }, { x: 0.8, y: 0.95 }, { x: 0.9, y: 1 }, { x: 1, y: 1 },
       ],
     };
-    const stored = { streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4, ...structuredClone(chosen) } };
+    const stored = { streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 5, ...structuredClone(chosen) } };
     const { gs, saved, flush } = buildHarness(stored);
     await flush();
     expect(gs.settings).toMatchObject(chosen);
-    expect(stored.streamFrame).toMatchObject({ streamFrameSchema: 6, nvencSettingsVersion: 4, ...chosen });
+    expect(stored.streamFrame).toMatchObject({ streamFrameSchema: 6, nvencSettingsVersion: 5, ...chosen });
     expect(saved).toHaveLength(1);
     const reopened = buildHarness(structuredClone(saved[0] as any));
     await reopened.flush();
@@ -1347,7 +1453,7 @@ describe('seven-point custom bitrate curve', () => {
   });
 
   it.each(['inspection', 'write failure'])('does not stamp schema 6 during %s', async reason => {
-    const stored = { streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 4 } };
+    const stored = { streamFrame: { streamFrameSchema: 5, nvencSettingsVersion: 5 } };
     const saved: unknown[] = [];
     const dss = { values: () => stored, inspecting: reason === 'inspection',
       writeFileError: () => reason === 'write failure' ? new Error('write failed') : undefined,
@@ -1391,7 +1497,7 @@ describe('seven-point custom bitrate curve', () => {
   it('upgrades a stored five-point custom shape on load and persists seven points', async () => {
     const stored = {
       streamFrame: {
-        streamFrameSchema: 6, nvencSettingsVersion: 4, nvencBitrateCurve: 3,
+        streamFrameSchema: 6, nvencSettingsVersion: 5, nvencBitrateCurve: 3,
         nvencBitrateCurvePoints: [
           { x: 0, y: 0 }, { x: 0.1, y: 0.05 }, { x: 0.4, y: 0.3 },
           { x: 0.7, y: 0.9 }, { x: 1, y: 1 },
