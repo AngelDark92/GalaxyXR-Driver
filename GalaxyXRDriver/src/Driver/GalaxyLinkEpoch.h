@@ -13,8 +13,8 @@
 //      Number: %s (%d)" with the ORIGINAL model "xrvst2ue"       (ObserveLog)
 //   3. vrlink calls IVRServerDriverHost::TrackedDeviceAdded(HMD); the detour
 //      passes its own _ReturnAddress() and the original driver (BeginHmd).
-//      Opens a PROVISIONAL epoch only with a fresh handshake, a caller inside
-//      the exact driver_vrlink.dll module and vtable[0] inside that module.
+//      Opens a PROVISIONAL epoch only with a fresh handshake, an immediate or
+//      bounded-chain caller inside driver_vrlink.dll and vtable[0] inside it.
 //   4. Activate runs; the ownership shim binds the device index (BindHmd)
 //      then reports Activate success + Prop_ParentDriver_Uint64 ==
 //      GetDriverHandle("vrlink") + original-model corroboration (ConfirmHmd).
@@ -55,6 +55,40 @@ inline constexpr const char* kPropsFormat = "ReceivedHMDStaticProps. Model Numbe
 inline constexpr const char* kOriginalModel = "xrvst2ue";
 inline constexpr const char* kVrlinkModule = "driver_vrlink.dll";
 inline constexpr uint32_t kInvalidDevice = 0xFFFFFFFFu;
+inline constexpr uint16_t kCallChainCapacity = 16;
+
+struct CallChain {
+    const void* frames[kCallChainCapacity] = {};
+    uint16_t count = 0;
+};
+
+// 2026-11-17: another driver may hook our detour, moving the immediate return
+// address out of vrlink. Bound the walk and validate every frame by module name.
+inline CallChain CaptureCallChain() noexcept {
+    CallChain chain;
+#if defined(_WIN32) && !defined(GXR_GALAXYLINK_PURE)
+    void* frames[kCallChainCapacity] = {};
+    chain.count = static_cast<uint16_t>(CaptureStackBackTrace(0, kCallChainCapacity, frames, nullptr));
+    for (uint16_t i = 0; i < chain.count; ++i) chain.frames[i] = frames[i];
+#endif
+    return chain;
+}
+
+struct CallProvenance {
+    bool directCallerInVrlink = false;
+    bool callerChainInVrlink = false;
+    int vrlinkDepth = -1; // 0 = immediate caller; N = captured frame N - 1
+};
+
+struct HmdAdmissionReport : CallProvenance {
+    bool sessionSeen = false;
+    bool handshakeSeen = false;
+    bool handshakeAvailable = false;
+    bool targetClosed = false;
+    bool vtableSlot0InVrlink = false;
+    const void* caller = nullptr;
+    const void* vtableSlot0 = nullptr;
+};
 
 enum class TargetState : uint8_t { Closed = 0, Provisional = 1, Admitted = 2 };
 
@@ -106,31 +140,53 @@ public:
     }
 
     // ---- target lifecycle --------------------------------------------------
+    CallProvenance ValidateCall(const void* caller, const CallChain& chain) const noexcept {
+        CallProvenance provenance;
+        provenance.directCallerInVrlink = caller && IsVrlinkAddress(caller);
+        if (provenance.directCallerInVrlink) {
+            provenance.callerChainInVrlink = true;
+            provenance.vrlinkDepth = 0;
+            return provenance;
+        }
+        const uint16_t count = chain.count < kCallChainCapacity ? chain.count : kCallChainCapacity;
+        for (uint16_t i = 0; i < count; ++i) {
+            if (IsVrlinkAddress(chain.frames[i])) {
+                provenance.callerChainInVrlink = true;
+                provenance.vrlinkDepth = static_cast<int>(i) + 1;
+                break;
+            }
+        }
+        return provenance;
+    }
+
     bool BeginHmd(void* originalDriver, const void* caller) noexcept {
+        return BeginHmd(originalDriver, caller, CallChain{}, nullptr);
+    }
+
+    bool BeginHmd(void* originalDriver, const void* caller, const CallChain& chain,
+            HmdAdmissionReport* report = nullptr) noexcept {
         // Module evidence is gathered before taking the lock; it never calls
         // back into this tracker.
-        const bool callerOk = caller && IsVrlinkAddress(caller);
+        const CallProvenance provenance = ValidateCall(caller, chain);
         const void* slot0 = originalDriver && vtableReader ? vtableReader(originalDriver) : nullptr;
         const bool vtableOk = slot0 && IsVrlinkAddress(slot0);
-        return BeginHmdValidated(originalDriver, callerOk && vtableOk);
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (report) {
+            static_cast<CallProvenance&>(*report) = provenance;
+            report->sessionSeen = sessionSeen_;
+            report->handshakeSeen = handshakeSeen_;
+            report->handshakeAvailable = handshakeAvailable_;
+            report->targetClosed = state_ == TargetState::Closed;
+            report->vtableSlot0InVrlink = vtableOk;
+            report->caller = caller;
+            report->vtableSlot0 = slot0;
+        }
+        return BeginHmdLocked(originalDriver, provenance.callerChainInVrlink && vtableOk);
     }
 
     bool BeginHmdValidated(void* originalDriver, bool moduleOwned) noexcept {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!moduleOwned || !originalDriver) return false;
-        if (state_ != TargetState::Closed) return false; // never steal an open target
-        if (!sessionSeen_ || !handshakeSeen_ || !handshakeAvailable_) return false;
-        handshakeAvailable_ = false; // one handshake admits at most one HMD add
-        driver_ = originalDriver;
-        device_ = kInvalidDevice;
-        state_ = TargetState::Provisional;
-        // a new HMD object starts a new lineage; nothing retained survives it
-        retained_ = Retained();
-        retainedDevice_.store(kInvalidDevice, std::memory_order_release);
-        lineage_.store(++lineageCounter_, std::memory_order_release);
-        openFlag_.store(true, std::memory_order_release);
-        epoch_.store(++generation_, std::memory_order_release); // published LAST: 0 never shows an old generation
-        return true;
+        return BeginHmdLocked(originalDriver, moduleOwned);
     }
 
     // Reconnect of the SAME HMD object (no new TrackedDeviceAdded): called from
@@ -138,15 +194,28 @@ public:
     // brand-new epoch and the SAME lineage (so only wrappers of that object
     // wake up), only when ALL hold:
     //   * the target is closed and this device index is the retained one;
-    //   * the pose is connected (live) and `caller` is inside driver_vrlink.dll;
+    //   * the pose is connected (live) and its direct/chain caller is in vrlink;
     //   * the parent-driver evidence (`parentOwned`) was verified by the caller;
     //   * a FRESH session marker + exact xrvst2ue handshake were observed since
     //     the disconnect (spent here, so it cannot admit twice).
     // Anything else leaves the target closed (log "restart required" upstream).
     bool RebindHmd(uint32_t deviceIndex, const void* caller, bool connected, bool parentOwned) noexcept {
-        const bool callerOk = caller && IsVrlinkAddress(caller);
+        return RebindHmd(deviceIndex, caller, connected, parentOwned, CallChain{}, nullptr);
+    }
+
+    bool RebindHmd(uint32_t deviceIndex, const void* caller, bool connected, bool parentOwned,
+            const CallChain& chain, HmdAdmissionReport* report = nullptr) noexcept {
+        const CallProvenance provenance = ValidateCall(caller, chain);
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!connected || !callerOk || !parentOwned || deviceIndex == kInvalidDevice) return false;
+        if (report) {
+            static_cast<CallProvenance&>(*report) = provenance;
+            report->sessionSeen = sessionSeen_;
+            report->handshakeSeen = handshakeSeen_;
+            report->handshakeAvailable = handshakeAvailable_;
+            report->targetClosed = state_ == TargetState::Closed;
+            report->caller = caller;
+        }
+        if (!connected || !provenance.callerChainInVrlink || !parentOwned || deviceIndex == kInvalidDevice) return false;
         if (state_ != TargetState::Closed || retained_.device != deviceIndex || !retained_.driver) return false;
         if (!sessionSeen_ || !handshakeSeen_ || !handshakeAvailable_) return false;
         handshakeAvailable_ = false;
@@ -324,6 +393,23 @@ private:
         uint64_t lineage = 0;
     };
 
+    bool BeginHmdLocked(void* originalDriver, bool moduleOwned) noexcept {
+        if (!moduleOwned || !originalDriver) return false;
+        if (state_ != TargetState::Closed) return false; // never steal an open target
+        if (!sessionSeen_ || !handshakeSeen_ || !handshakeAvailable_) return false;
+        handshakeAvailable_ = false; // one handshake admits at most one HMD add
+        driver_ = originalDriver;
+        device_ = kInvalidDevice;
+        state_ = TargetState::Provisional;
+        // a new HMD object starts a new lineage; nothing retained survives it
+        retained_ = Retained();
+        retainedDevice_.store(kInvalidDevice, std::memory_order_release);
+        lineage_.store(++lineageCounter_, std::memory_order_release);
+        openFlag_.store(true, std::memory_order_release);
+        epoch_.store(++generation_, std::memory_order_release); // published LAST: 0 never shows an old generation
+        return true;
+    }
+
     // `retainObject`: remember the ADMITTED HMD object for a later fresh-evidence
     // rebind. Only an admitted target is ever retained; every other close (failed
     // confirm, model change, deactivate, cleanup) forgets the object.
@@ -413,6 +499,10 @@ inline void ObserveLog(const char* format, const char* formatted, size_t length)
 inline bool BeginHmd(void* originalDriver, const void* caller) noexcept {
     return detail::Global().BeginHmd(originalDriver, caller);
 }
+inline bool BeginHmd(void* originalDriver, const void* caller, const CallChain& chain,
+        HmdAdmissionReport* report = nullptr) noexcept {
+    return detail::Global().BeginHmd(originalDriver, caller, chain, report);
+}
 inline void ConfirmHmd(uint32_t deviceIndex, bool successfulAndOwned) noexcept {
     detail::Global().ConfirmHmd(deviceIndex, successfulAndOwned);
 }
@@ -458,6 +548,13 @@ inline uint32_t RetainedDevice() noexcept { return detail::Global().RetainedDevi
 inline bool CanRebind(uint32_t deviceIndex, bool connected) noexcept { return detail::Global().CanRebind(deviceIndex, connected); }
 inline bool RebindHmd(uint32_t deviceIndex, const void* caller, bool connected, bool parentOwned) noexcept {
     return detail::Global().RebindHmd(deviceIndex, caller, connected, parentOwned);
+}
+inline bool RebindHmd(uint32_t deviceIndex, const void* caller, bool connected, bool parentOwned,
+        const CallChain& chain, HmdAdmissionReport* report = nullptr) noexcept {
+    return detail::Global().RebindHmd(deviceIndex, caller, connected, parentOwned, chain, report);
+}
+inline bool CallerInVrlink(const void* caller, const CallChain& chain) noexcept {
+    return detail::Global().ValidateCall(caller, chain).callerChainInVrlink;
 }
 
 } // namespace galaxylink
