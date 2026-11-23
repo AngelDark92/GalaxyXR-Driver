@@ -21,14 +21,14 @@ export class DistortionProfilePage extends BasePage {
   static styles = [fieldStyles, css`
     :host { display: block; padding: 0 1rem 2rem 1rem; }
     .rgb-control { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-    .rgb-control span { opacity: 0.75; font-size: 90%; }
+    .rgb-control span { color: var(--colorNeutralForeground2, #605e5c); font-size: 0.85rem; }
     .matrix-control { flex-direction: column; align-items: flex-start; gap: 0.3rem; }
-    .note-inline { opacity: 0.75; font-size: 0.9rem; }
+    .note-inline { color: var(--colorNeutralForeground2, #605e5c); font-size: 0.9rem; }
     .curve-field { display: block; padding: 0.5rem 0; }
     .share-field { display: block; }
     .share-control { display: flex; flex-direction: column; gap: 0.5rem; }
     .share-buttons { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-    textarea { background: var(--colorNeutralBackground2, #f4f4f4); border: 0.1rem solid var(--colorNeutralStroke1, #888); border-radius: 0.25rem; width: 100%; font-family: monospace; font-size: 0.8rem; padding: 0.5rem; resize: vertical; color: var(--colorNeutralForeground1, #202020); }
+    textarea { background: var(--colorNeutralBackground2, #f4f4f4); border: 1px solid var(--colorNeutralStroke1, #888); border-radius: 4px; width: 100%; font-family: var(--fontFamilyMonospace, ui-monospace, Consolas, monospace); font-size: 0.82rem; padding: 8px; resize: vertical; color: var(--colorNeutralForeground1, #202020); }
 
   `];
 

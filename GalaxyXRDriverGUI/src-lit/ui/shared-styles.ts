@@ -6,7 +6,7 @@ export const interactiveStyles = css`
   *, *::before, *::after { box-sizing: border-box; }
   :host {
     color: var(--colorNeutralForeground1, #242424);
-    font-family: var(--fontFamilyBase, "Segoe UI", system-ui, sans-serif);
+    font-family: var(--gxr-font-ui, var(--fontFamilyBase, "Segoe UI", system-ui, sans-serif));
     /* 2026-10-23 (owner directive): desktop-application text is not
        selectable. Document CSS cannot reach a shadow root, so every component
        adopting this stylesheet repeats the policy and its copy exceptions. */
@@ -60,8 +60,8 @@ export const interactiveStyles = css`
   a[href^="#/"]:active { background: var(--colorNeutralBackground1Pressed); }
   hr { border: 0; border-top: 1px solid var(--colorNeutralStroke2, #e0e0e0); }
   .page-intro { padding: 24px 4px 12px; }
-  .page-intro h1 { margin: 0; font-size: 1.5rem; font-weight: 600; line-height: 1.3; }
-  .page-intro p { margin: 6px 0 0; color: var(--colorNeutralForeground2); line-height: 1.5; }
+  .page-intro h1 { margin: 0; font-size: 1.5rem; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }
+  .page-intro p { margin: 6px 0 0; max-width: 78ch; color: var(--colorNeutralForeground2); font-size: 0.95rem; line-height: 1.5; }
   .status-message { margin: 12px 0; width: 100%; overflow-wrap: anywhere; }
   .status-message .status-title { display: block; font-weight: 600; }
   .status-body { margin-top: 3px; line-height: 1.5; }

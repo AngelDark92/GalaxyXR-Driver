@@ -16,8 +16,8 @@ export class DriverSettingsPage extends BasePage {
   static styles = [fieldStyles, css`
     :host { display: block; padding: 0 1rem 2rem 1rem; }
     .rgb-control { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-    .rgb-control span { opacity: 0.75; font-size: 90%; }
-    .note-inline { opacity: 0.75; font-size: 0.9rem; }
+    .rgb-control span { color: var(--colorNeutralForeground2, #605e5c); font-size: 0.85rem; }
+    .note-inline { color: var(--colorNeutralForeground2, #605e5c); font-size: 0.9rem; }
     .range-control {
       display: grid; grid-template-columns: minmax(9rem, max-content) minmax(12rem, 1fr);
       align-items: center; gap: 0.75rem; width: 100%;

@@ -5238,6 +5238,9 @@ Value: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — write
       <trans-unit id="encoder-evidence-20261113-014" datatype="html"><source>Ultra low latency</source></trans-unit>
       <trans-unit id="encoder-evidence-20261113-015" datatype="html"><source>Lossless</source></trans-unit>
       <trans-unit id="encoder-evidence-20261113-016" datatype="html"><source>Ultra high quality</source></trans-unit>
+      <trans-unit id="row-guidance-20261123-001" datatype="html"><source>Higher resolutions increase GPU load. Requires a SteamVR restart.</source></trans-unit>
+      <trans-unit id="row-guidance-20261123-002" datatype="html"><source>Changing the codec loads its optimized defaults. Requires a SteamVR restart. Reconnect your headset afterward.</source></trans-unit>
+      <trans-unit id="row-guidance-20261123-003" datatype="html"><source>A requested budget, not measured bitrate. Requires a SteamVR restart.</source></trans-unit>
     </body>
   </file>
 </xliff>

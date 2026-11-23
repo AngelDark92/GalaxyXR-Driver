@@ -24,53 +24,60 @@ export const fieldStyles = css`
   /* The page is a size container: when the docked navigator opens or closes,
      the page's own width changes and these queries reflow the rows. */
   :host { container-type: inline-size; container-name: page; }
-  /* 2026-10-30 (owner design): each row is its own card. No table lines,
-     no vertical divider; the control sits at the trailing edge. */
+  /* 2026-11-23 (owner-approved refresh): rows are flat list lines inside one
+     group surface. The section card owns the border; a hairline separates rows
+     and the control stays at the trailing edge. */
   .field {
     position: relative;
     display: grid;
     flex-shrink: 0;
-    grid-template-columns: minmax(13rem, 22rem) minmax(0, 1fr);
-    gap: 0 0.5rem;
-    padding: 12px 14px;
-    min-height: 56px;
-    border: 1px solid var(--colorNeutralStroke2, #d1d1d1);
-    border-radius: 8px;
-    background: var(--colorNeutralBackground1, #fff);
+    grid-template-columns: minmax(11rem, 18rem) minmax(0, 1fr);
+    align-items: center;
+    gap: 4px 1.25rem;
+    padding: 13px 2px;
+    min-height: 52px;
+    border: 0;
+    border-radius: 0;
+    background: none;
   }
-  .field + .field { margin-top: 8px; }
+  .field + .field { margin-top: 0; border-top: 1px solid var(--colorNeutralStroke3, #f0f0f0); }
   .field:has(> .note) {
-    margin-top: 0; padding: 0.5rem 0; min-height: 0;
+    margin-top: 0; padding: 10px 2px; min-height: 0;
     border: 0; border-radius: 0; background: none;
   }
-  .field:has(> .title):hover { background: var(--colorNeutralBackground1Hover); }
   /* 2026-10-16: rows are not selectable - only the control in the second
      column is interactive. user-select:none covers the whole row and the
      focus highlight paints only for keyboard/deep-link focus (:focus-visible),
      so a mouse click on the row neither selects text nor looks "selected". */
   .field { user-select: none; }
   .field :is(input, textarea, select, [contenteditable]) { -webkit-user-select: text; user-select: text; }
-  .field[data-setting-id]:focus-visible, .field[data-setting-id].revealed { outline: 2px solid var(--colorBrandStroke1); outline-offset: 3px; border-radius: 8px; background: var(--colorNeutralBackground3); }
+  .field[data-setting-id]:focus-visible, .field[data-setting-id].revealed { outline: 2px solid var(--colorBrandStroke1); outline-offset: 2px; border-radius: 6px; background: var(--colorNeutralBackground2); }
   .field .title {
     display: flex;
     align-items: center;
     position: relative;
+    /* The title is a grid item: without min-width it floors at the label's
+       min-content and pushes the row past the card. It wraps instead, so the
+       label keeps its own line and the help/reset controls move below it. */
+    min-width: 0;
+    flex-wrap: wrap;
     user-select: none;
     padding-right: 0.5rem;
-    gap: 0.25rem;
-    font-size: 0.9rem;
-    line-height: 1.25;
+    gap: 0.4rem;
+    color: var(--colorNeutralForeground1, #242424);
+    font-size: 0.94rem;
+    line-height: 1.35;
   }
   .field .title .changed-dot {
     width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%;
     background: var(--colorBrandBackground, #0f6cbd);
   }
-  /* 2026-10-30 (owner design): row-owned notices live inside the same card,
-     below a divider, and read as a compact toast instead of a page banner.
-     Auto-placement keeps the stack in row 2 of the two-column card and row 3
-     of the one-column card used by .section-card below 720px. */
+  /* 2026-11-23: row-owned notices live under the row's hairline and read as a
+     compact inline message instead of a page banner. Auto-placement keeps the
+     stack below the description and the control row. */
   .field-notices {
     grid-column: 1 / -1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -85,10 +92,10 @@ export const fieldStyles = css`
     gap: 8px;
     padding: 8px 10px;
     border: 1px solid var(--colorNeutralStroke2, #e0e0e0);
-    border-radius: 6px;
+    border-radius: 4px;
     background: var(--colorNeutralBackground2, #f5f5f5);
-    font-size: 0.8rem;
-    line-height: 1.4;
+    font-size: 0.85rem;
+    line-height: 1.45;
     overflow-wrap: anywhere;
   }
   .field-notice__icon { width: 16px; height: 16px; flex: 0 0 16px; margin-top: 1px; }
@@ -127,150 +134,140 @@ export const fieldStyles = css`
     align-items: center;
     justify-content: flex-start;
     text-align: start;
-    font-weight: 700;
+    font-weight: 600;
     grid-column: span 2;
     position: relative;
     user-select: none;
-    background: linear-gradient(90deg, transparent, var(--colorNeutralBackground3, rgba(0, 0, 0, 0.06)) 30% 70%, transparent);
-    padding-right: 1rem;
+    background: none;
   }
   .section-field { border-bottom: 0; padding: 0; margin: 1.25rem 0 0.5rem; min-height: 0; }
   .field .section-title {
     margin: 0; min-height: 44px; gap: 10px; padding: 10px 14px;
     width: 100%; border: 1px solid var(--colorNeutralStroke2, #d1d1d1);
-    border-inline-start: 4px solid var(--colorBrandStroke1, #0f6cbd);
-    border-radius: 6px; background: var(--colorNeutralBackground3, #f5f5f5);
-    color: var(--colorNeutralForeground1, #242424); font-size: 1.08rem;
+    border-radius: 6px; background: var(--colorNeutralBackground2, #fafafa);
+    color: var(--colorNeutralForeground1, #242424); font-size: 1rem;
   }
   .section-field.level-1 { margin-inline-start: 20px; margin-top: 0.75rem; }
   .section-field.level-2 { margin-inline-start: 40px; margin-top: 0.65rem; }
   .section-field.level-3 { margin-inline-start: 60px; margin-top: 0.6rem; }
   .field.level-1 .section-title, .field.level-2 .section-title, .field.level-3 .section-title {
-    font-size: 1rem; border-inline-start-width: 3px;
-    border-inline-start-color: var(--colorNeutralStrokeAccessible, #616161);
-    background: var(--colorNeutralBackground2, #fafafa);
+    font-size: 0.95rem; border-color: var(--colorNeutralStroke3, #f0f0f0);
+    background: none;
   }
   .field .section-title.collapsible { cursor: pointer; }
   .section-label { flex: 1; }
   .mode-notice { padding: 12px 16px; margin: 12px 0; border-inline-start: 4px solid var(--colorBrandStroke1, #0f6cbd); background: var(--colorNeutralBackground3, #f5f5f5); }
   .mode-error { color: var(--colorPaletteRedForeground1, #b00020); }
-  .field .note { grid-column: span 2; padding: 0.5rem 1rem; font-size: 95%; opacity: 0.85; }
-  .field .note p { margin: 0.5rem; }
+  .field .note { grid-column: span 2; min-width: 0; padding: 6px 0; font-size: 0.85rem; color: var(--colorNeutralForeground2, #605e5c); }
+  .field .note p { margin: 4px 0; }
   .field .value { width: 10%; }
+  .field .row-description { grid-column: 1 / -1; min-width: 0; margin: 2px 0 0; max-width: 76ch;
+    color: var(--colorNeutralForeground2, #605e5c); font-size: 0.85rem; line-height: 1.45; }
   .field .control { min-width: 0; display: flex; align-items: center; justify-content: flex-end; flex: 1 1 auto; gap: 0.5rem; flex-wrap: wrap; }
   .field .control .wide { flex: 1 1 auto; min-width: 0; }
-  .field .control > * { max-width: 100%; }
+  .field .control > * { max-width: 100%; min-width: 0; }
   .chevron { display: inline-block; width: 1em; flex: 0 0 auto; text-align: center; transition: transform 150ms ease; }
   .chevron.closed { transform: rotate(-90deg); }
-  .section-card { animation: card-in 180ms cubic-bezier(0.2, 0, 0, 1) both; }
-  @keyframes card-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
   @container page (max-width: 700px) {
     .field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
     .field .section-title, .field .note { grid-column: 1; }
     .field-notice { padding: 7px 9px; }
     .field-notice__actions { flex-basis: 100%; }
+    .field .control { justify-content: flex-start; }
   }
   .section-card { margin: 1rem 0; border: 1px solid var(--colorNeutralStroke2);
-    border-inline-start: 4px solid var(--colorBrandStroke1); border-radius: 8px;
-    background: var(--colorNeutralBackground1); min-width: 0; }
+    border-radius: 10px; background: var(--colorNeutralBackground1); min-width: 0; }
   .section-card > .card-heading .section-title { display: flex; align-items: center; gap: 10px;
-    width: 100%; min-height: 46px; margin: 0; padding: 12px 16px; border: 0; border-radius: 4px;
+    width: 100%; min-height: 48px; margin: 0; padding: 12px 16px; border: 0;
+    border-radius: 9px 9px 0 0;
     background: var(--colorNeutralBackground3); color: var(--colorNeutralForeground1);
-    text-align: start; justify-content: flex-start; font-size: 1.05rem; font-weight: 700; }
+    text-align: start; justify-content: flex-start; font-size: 1.02rem; font-weight: 600; }
+  .section-card > .card-heading .section-title .chevron { color: var(--colorNeutralForeground3); }
+  /* Collapsed cards paint only the header, so its bottom corners must follow
+     the card radius instead of leaving square pixels outside the stroke. */
+  .section-card:has(> .section-body[hidden]) > .card-heading .section-title { border-radius: 9px; }
   .section-card > .card-heading .collapsible:hover { background: var(--colorNeutralBackground1Hover); }
   .section-card > .card-heading .collapsible:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: -3px; }
-  .section-body { --card-body-pad-x: 14px; padding: 12px var(--card-body-pad-x) 16px; min-width: 0; }
+  .section-body { --card-body-pad-x: 14px; padding: 2px var(--card-body-pad-x) 10px; min-width: 0; }
   .section-body[hidden] { display: none; }
   /* 2026-10-30: only depth-0 sections are collapsible cards. Every nested
-     section is a group: a banded heading with a brand rule, not a button and
-     not a row. Depth indentation carries the book hierarchy. */
-  .section-group { --group-indent: 0px; margin: 16px 0 8px; min-width: 0; }
-  .section-group.level-1 { --group-indent: 10px; margin-inline-start: 10px; }
-  .section-group.level-2 { --group-indent: 22px; margin-inline-start: 22px; }
-  .section-group.level-3 { --group-indent: 34px; margin-inline-start: 34px; }
+     section is a group: a banded heading, not a button and not a row.
+     Depth indentation carries the book hierarchy. */
+  /* 2026-11-23 (owner-approved refresh): a nested group is an indented
+     sub-list, not a second box. One quiet spine carries the hierarchy. */
+  .section-group { margin: 14px 0 6px; min-width: 0; }
+  .section-group.level-1 { margin-inline-start: 10px; }
+  .section-group.level-2 { margin-inline-start: 22px; }
+  .section-group.level-3 { margin-inline-start: 34px; }
   .section-group-label {
     display: flex; align-items: center; gap: 8px;
-    margin: 0; padding: 6px 10px;
-    border-inline-start: 3px solid var(--colorBrandStroke1, #0f6cbd);
-    border-radius: 0 6px 6px 0;
-    background: linear-gradient(90deg,
-      var(--colorNeutralBackground3, #f5f5f5) 0,
-      transparent 88%);
+    margin: 0; padding: 6px 0;
+    border: 0; border-radius: 0;
+    background: none;
     color: var(--colorNeutralForeground1, #242424);
-    font-size: 0.96rem; font-weight: 700;
-    letter-spacing: 0.06em; line-height: 1.25; text-transform: uppercase;
+    font-size: 0.95rem; font-weight: 600;
+    letter-spacing: 0; line-height: 1.3; text-transform: none;
     user-select: none;
   }
-  .section-group.source > .section-group-label {
-    border-inline-start-color: var(--colorNeutralStrokeAccessible, #616161);
-  }
-  /* 2026-10-30 (owner design): a major group inside a card is a full-bleed
-     delimiter bar in the card-header family: background3, bold sentence
-     case, no chevron/collapse/brand edge. It spans to the card edges beside
-     the card's own blue rule, so it clearly delimits without becoming an
-     inner card. */
+  .section-group.source > .section-group-label { color: var(--colorNeutralForeground2, #605e5c); }
+  /* 2026-11-23: a major group inside a card is a tonal delimiter bar in the
+     card-header family: sentence case, no chevron, collapse or accent edge.
+     It is inset by the card body padding and rounded, so the card never needs
+     overflow clipping to hide a full-bleed edge. */
   .section-body .section-group:not(.nested) > .section-group-label {
-    margin-block: 0 8px;
-    margin-inline-start: calc(-1 * (var(--card-body-pad-x, 14px) + var(--group-indent, 0px)));
-    margin-inline-end: calc(-1 * var(--card-body-pad-x, 14px));
-    padding-block: 10px;
-    padding-inline-start: calc(var(--card-body-pad-x, 14px) + var(--group-indent, 0px) + 14px);
-    padding-inline-end: calc(var(--card-body-pad-x, 14px) + 14px);
+    margin-block: 0 6px;
+    padding: 8px 12px;
     border: 0;
-    border-block: 1px solid var(--colorNeutralStroke2, #d1d1d1);
-    border-radius: 0;
-    background: var(--colorNeutralBackground3, #141414);
-    color: var(--colorNeutralForeground1, #fff);
-    font-size: 1rem;
-    font-weight: 700;
+    border-radius: 6px;
+    background: var(--colorNeutralBackground2, #fafafa);
+    color: var(--colorNeutralForeground1, #242424);
+    font-size: 0.98rem;
+    font-weight: 600;
     letter-spacing: 0;
-    line-height: 1.25;
+    line-height: 1.3;
     text-transform: none;
   }
-  /* 2026-10-30: a group inside another group is a fieldset, not a second
-     band. The border and the legend-style sentence-case label carry the
-     child level; rows keep the flat field separators. Source groups are
-     diagnostic labels, so they keep the quiet indented subhead instead. */
+  /* 2026-11-23: a group inside another group is an indented sub-list with a
+     single quiet spine. No second border, background or floating legend. */
   .section-group.nested {
     margin-top: 14px;
-    margin-inline-start: 0;
-    padding: 0 12px 10px;
-    border: 1px solid var(--colorNeutralStroke2, #d1d1d1);
-    border-radius: 8px;
-    background: var(--colorNeutralBackground1, #fff);
+    margin-inline-start: 12px;
+    padding: 0 0 2px 14px;
+    border: 0;
+    border-inline-start: 1px solid var(--colorNeutralStroke3, #f0f0f0);
+    border-radius: 0;
+    background: none;
   }
   .section-group.nested > .section-group-label {
-    position: relative;
-    top: -9px;
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 8px;
     width: auto;
-    margin: 0;
-    padding: 0 8px;
+    margin: 0 0 4px;
+    padding: 0;
     border: 0;
     border-radius: 0;
-    background: var(--colorNeutralBackground1, #fff);
+    background: none;
     color: var(--colorNeutralForeground1, #242424);
-    font-size: 0.95rem;
+    font-size: 0.92rem;
     font-weight: 600;
     letter-spacing: 0;
-    line-height: 1.25;
+    line-height: 1.3;
     text-transform: none;
   }
-  .section-group.nested > .section-group-label::after { content: none; }
   .section-group:focus-visible, .section-card:focus-visible {
     outline: 2px solid var(--colorBrandStroke1, #0f6cbd); outline-offset: 2px;
   }
-  .section-group.revealed, .section-card.revealed {
+  .section-card.revealed, .section-group.revealed {
     outline: 2px solid var(--colorBrandStroke1, #0f6cbd); outline-offset: 2px;
   }
   .section-group > .field:first-of-type { border-top: 0; }
-  .section-card .field { grid-template-columns: minmax(12rem, 22rem) minmax(0, 1fr); }
   @container page (max-width: 720px) {
     .section-body { --card-body-pad-x: 12px; padding-inline: var(--card-body-pad-x); }
     .section-body > .section-card { margin-inline-start: 6px; }
-    .section-card .field { grid-template-columns: 1fr; }
+    /* A bare 1fr carries an auto minimum, so the track floors at the title's
+       min-content and overflows a narrow card. Zero minimum lets it shrink. */
+    .section-card .field { grid-template-columns: minmax(0, 1fr); }
     .section-card .field .note { grid-column: 1; }
   }
   .primary-color { color: var(--colorBrandForeground1, #1a73e8); }
@@ -455,6 +452,8 @@ export interface FieldReset {
 
 export interface FieldRowOptions {
   tip?: string;
+  /** View-only one-line consequence shown under the row. Already localized. */
+  description?: string;
   reset?: FieldReset;
   wide?: boolean;
   settingId?: string;
@@ -492,6 +491,7 @@ export function fieldRow(
       ${opts?.reset ? html`<app-reset .canReset=${opts.reset.can} @resetClick=${opts.reset.on}></app-reset>` : html``}
     </div>
     <div class="control ${opts?.wide ? 'wide' : ''}">${control}</div>
+    ${opts?.description ? html`<p class="row-description">${opts.description}</p>` : nothing}
     ${notices.length ? html`<div class="field-notices" role="group" aria-label=${heading ?? nothing}>
       ${notices.map(notice => fieldNotice(notice))}
     </div>` : nothing}

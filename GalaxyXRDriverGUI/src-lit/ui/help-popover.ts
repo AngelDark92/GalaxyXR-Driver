@@ -23,15 +23,17 @@ const POPUP_CSS = `
     padding:16px 18px; border:1px solid var(--colorNeutralStroke1, #888);
     border-radius:10px; background:var(--colorNeutralBackground1, #fff);
     color:var(--colorNeutralForeground1, #202020); color-scheme:inherit;
-    font:400 14px/1.55 'Segoe UI', system-ui, sans-serif;
+    font:400 14px/1.55 var(--gxr-font-ui, 'Segoe UI', system-ui, sans-serif);
     box-shadow:0 8px 32px #0004; text-align:left; white-space:normal;
     overflow-wrap:anywhere; user-select:none; }
   [data-gxr-help]::backdrop { background:transparent; }
-  [data-gxr-help] header { display:flex; align-items:flex-start; gap:16px; }
-  [data-gxr-help] h2 { margin:0; flex:1; font:600 16px/1.4 'Segoe UI',system-ui,sans-serif; }
-  [data-gxr-help] button { flex-shrink:0; cursor:pointer; padding:2px 8px;
-    border:1px solid var(--colorNeutralStroke1,#888); border-radius:4px;
-    background:var(--colorNeutralBackground1,#fff); color:inherit; font:inherit; }
+  [data-gxr-help] header { display:flex; align-items:center; gap:16px; }
+  [data-gxr-help] h2 { margin:0; flex:1; font:600 16px/1.4 var(--gxr-font-ui, 'Segoe UI', system-ui, sans-serif); }
+  [data-gxr-help] button { flex-shrink:0; cursor:pointer; display:inline-grid; place-items:center;
+    box-sizing:border-box; min-width:44px; min-height:44px; padding:0;
+    font-size:17px; line-height:1;
+    border:1px solid var(--colorNeutralStroke1,#888); border-radius:6px;
+    background:var(--colorNeutralBackground1,#fff); color:inherit; }
   [data-gxr-help] :focus-visible { outline:2px solid var(--colorBrandStroke1,#0067c0); outline-offset:2px; }
   [data-gxr-help] p { margin:10px 0 0; white-space:pre-line; }
   [data-gxr-help] details { margin-top:12px; border-top:1px solid var(--colorNeutralStroke2,#aaa); padding-top:10px; }

@@ -218,13 +218,13 @@ export class StreamFramePage extends BasePage {
     }
     .evidence-strip > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .evidence-strip .k {
-      color: var(--colorNeutralForeground3); font-size: 0.75rem;
-      text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--colorNeutralForeground3); font-size: 0.8rem;
+      font-weight: 500; letter-spacing: 0; text-transform: none;
     }
     .evidence-strip .v { font-variant-numeric: tabular-nums; font-weight: 600; overflow-wrap: anywhere; }
-    .rgb-control span { opacity: 0.75; font-size: 90%; }
+    .rgb-control span { color: var(--colorNeutralForeground2, #605e5c); font-size: 0.85rem; }
     .matrix-control { flex-direction: column; align-items: flex-start; gap: 0.3rem; }
-    .note-inline { opacity: 0.75; font-size: 0.9rem; }
+    .note-inline { color: var(--colorNeutralForeground2, #605e5c); font-size: 0.9rem; }
 
   `];
 
@@ -326,6 +326,7 @@ if (galaxy.calibrationActive()) {
       };
       parts.push(
         settingFieldRow('galaxyXr.nativeResolution', html`<app-switch .checked=${!!gx.nativeResolution} @change=${(e: CustomEvent) => { gx.nativeResolution = e.detail; save(); }}></app-switch>`, {
+          description: t('Higher resolutions increase GPU load. Requires a SteamVR restart.'),
           tip: t('Choose the render target size in pixels per eye at SteamVR 100% resolution. The native default is 3552 × 3840. Higher values increase GPU load. Requires a SteamVR restart. SteamVR Auto, global resolution and per-game scaling still apply; use Custom 100% to compare the requested size. Turning this off restores the previous resolution while keeping your manual values. Refresh rate and stream encoding size are separate settings. Advanced VRLink resolution overrides take priority.'),
         }),
         settingFieldRow('galaxyXr.renderWidth', html`
@@ -492,6 +493,7 @@ if (vendor) {
       })}
             `, {
   notices: codecNotice ? [codecNotice] : undefined,
+  description: t('Changing the codec loads its optimized defaults. Requires a SteamVR restart. Reconnect your headset afterward.'),
   tip: t("Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Selecting H.264 turns the SDR 10-bit baseline off (its toggle on Driver Settings shows Off and is disabled until another codec is selected). Requires a SteamVR restart and reconnect.\n\nValue: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.")
             }));
         if (!settings.nvencTap) {
@@ -527,6 +529,7 @@ if (vendor) {
       </div>
           `, {
   notices: bandwidth.notices,
+  description: t('A requested budget, not measured bitrate. Requires a SteamVR restart.'),
   tip: t("Set the stream bandwidth budget.\n\nFor Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. In VBR the entered value is the encoder maximum; under Force CBR the encoder average and maximum both equal this budget, bypassing the curve, constancy and headroom. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.\n\nWith the NVENC Tap off or unsupported, only the Steam Link pacing budget applies: the scaling above 350 Mbit/s, the bitrate curve, constancy, headroom and Force CBR need the tap.\n\nA target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect.\n\nValue: galaxyXr.customBandwidthMbit (settings.json). Requires a SteamVR restart."),
   reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
           }));

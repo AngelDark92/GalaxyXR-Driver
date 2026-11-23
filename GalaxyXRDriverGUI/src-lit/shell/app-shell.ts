@@ -35,8 +35,6 @@ export class AppShell extends LitElement {
     .main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
     .content { flex: 1; overflow: auto; min-height: 0; padding: 0; }
     .panel { max-width: 1500px; margin: 0 auto; outline-offset: -2px; padding: 12px 8px; }
-    .page-enter { animation: page-in 140ms cubic-bezier(0.2, 0, 0, 1) both; }
-    @keyframes page-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
     .status { margin: 8px 20px; }
     .stream-toast { position: fixed; right: 16px; bottom: 16px; z-index: 1000; margin: 0; max-width: min(440px, calc(100vw - 32px)); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); }
     .warn { color: var(--colorPaletteDarkOrangeForeground1); margin-left: 0.35rem; }

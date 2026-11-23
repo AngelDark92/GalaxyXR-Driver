@@ -17,9 +17,9 @@ export class CurvePreviewWindow extends LitElement {
   static styles = css`
     :host { display: block; padding-top: 0.75rem; -webkit-user-select: none; user-select: none; }
     header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.35rem; }
-    .meta { font-size: 0.85rem; opacity: 0.8; margin-left: auto; }
-    .error { color: #c42b1c; font-size: 0.85rem; margin: 0.5rem 0 0; -webkit-user-select: text; user-select: text; }
-    .locked { color: #b07a2a; font-size: 0.85rem; }
+    .meta { font-size: 0.85rem; color: var(--colorNeutralForeground2, #605e5c); margin-left: auto; font-variant-numeric: tabular-nums; }
+    .error { color: var(--colorPaletteRedForeground1, #c42b1c); font-size: 0.85rem; margin: 0.5rem 0 0; -webkit-user-select: text; user-select: text; }
+    .locked { color: var(--colorPaletteDarkOrangeForeground1, #b07a2a); font-size: 0.85rem; }
   `;
 
   private state?: CurvePreviewState;

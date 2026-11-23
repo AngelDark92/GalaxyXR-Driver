@@ -13,7 +13,9 @@
 :root {
   /* The shell effect overrides this from the app-setting colorScheme. */
   --color-scheme: light;
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  /* One UI stack for the document, shadow roots and the help popover. */
+  --gxr-font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--gxr-font-ui);
 }
 
 html {

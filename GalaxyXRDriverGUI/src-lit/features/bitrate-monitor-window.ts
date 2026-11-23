@@ -92,7 +92,7 @@ export class BitrateMonitorWindow extends LitElement {
       --bitrate-headset: #7ab8ff;
     }
     .page { max-width: 1500px; margin: 0 auto; padding: 14px 22px 22px; }
-    .intro { margin: 0 0 12px; color: var(--colorNeutralForeground3, #5f6b7a); }
+    .intro { margin: 0 0 12px; color: var(--colorNeutralForeground2, #424242); }
     .controls {
       display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px;
       padding: 12px 14px; margin-bottom: 12px;
@@ -120,19 +120,19 @@ export class BitrateMonitorWindow extends LitElement {
       padding: 14px; border: 1px solid var(--colorNeutralStroke2, #e0e0e0); border-radius: 8px;
       background: var(--colorNeutralBackground1, #fff); min-width: 0;
     }
-    .card h2 { margin: 0; font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
+    .card h2 { margin: 0; font-size: 0.9rem; font-weight: 600; letter-spacing: 0; text-transform: none; }
     .card.nvenc h2 { color: var(--bitrate-nvenc); }
     .card.headset h2 { color: var(--bitrate-headset); }
-    .current { font-size: 2.35rem; font-weight: 600; line-height: 1.15; margin-top: 4px; }
+    .current { font-size: 2.35rem; font-weight: 600; line-height: 1.15; margin-top: 4px; font-variant-numeric: tabular-nums; }
     .unit { color: var(--colorNeutralForeground3, #5f6b7a); font-size: 0.8rem; }
     .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 6px; }
-    .fields span { display: block; color: var(--colorNeutralForeground3, #5f6b7a); font-size: 0.78rem; }
-    .fields strong { display: block; font-size: 1.15rem; font-weight: 600; }
+    .fields span { display: block; color: var(--colorNeutralForeground3, #5f6b7a); font-size: 0.8rem; }
+    .fields strong { display: block; font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }
     .status { margin: 6px 0 0; min-height: 3.1em; white-space: pre-line; overflow-wrap: anywhere; font-size: 0.86rem; }
     .note { margin: 4px 0 0; color: var(--colorNeutralForeground3, #5f6b7a); font-size: 0.8rem; }
     .codec { margin: 8px 0 0; color: var(--colorPaletteDarkOrangeForeground1, #8a5a00); font-size: 0.84rem; white-space: pre-line; overflow-wrap: anywhere; }
     .codec.verified { color: var(--colorPaletteGreenForeground1, #0b6a0b); }
-    .chart-title { margin: 16px 0 4px; color: var(--colorNeutralForeground3, #5f6b7a); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; }
+    .chart-title { margin: 16px 0 6px; color: var(--colorNeutralForeground2, #424242); font-size: 0.85rem; font-weight: 600; letter-spacing: 0; }
     canvas {
       display: block; width: 100%; height: 190px;
       border: 1px solid var(--colorNeutralStroke2, #e0e0e0); border-radius: 8px;

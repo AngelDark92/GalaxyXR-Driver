@@ -19,16 +19,16 @@ export class SetupPage extends BasePage {
     :host { display: block; padding: 0 1rem 2rem; }
     .step-grid, .maintenance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .step-card, .action-card { border: 1px solid var(--colorNeutralStroke2); border-radius: 8px; padding: 20px; background: var(--colorNeutralBackground1); min-width: 0; }
-    .step-card h3, .action-card h3 { margin: 0; font-size: 16px; }
+    .step-card h3, .action-card h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
     .step-card p, .action-card p { color: var(--colorNeutralForeground2); line-height: 1.5; }
     .step-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
     .setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
     .check-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
     .check-toolbar p { margin: 4px 0; color: var(--colorNeutralForeground2); }
     .check-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
-    .secondary { color: var(--colorNeutralForeground2); font-size: 13px; }
+    .secondary { color: var(--colorNeutralForeground2); font-size: 0.85rem; }
     .check-table-scroll { overflow: auto; max-height: 32rem; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
     th, td { text-align: left; padding: 12px; border-bottom: 1px solid var(--colorNeutralStroke2); vertical-align: top; }
     th { position: sticky; top: 0; z-index: 1; background: var(--colorNeutralBackground2); font-weight: 600; }
     .location { min-width: 15rem; line-height: 1.7; }
