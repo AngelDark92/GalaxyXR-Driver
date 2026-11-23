@@ -128,8 +128,8 @@ retired('streamFrame.skipColorWhileDashboardOpen', 'Skip Color While Dashboard O
 retired('streamFrame.eyeGaze.calibDot', 'Fixation Dot (VOR probe)');
 retired('streamFrame.eyeGaze.swimProbe', 'Swim Probe Logging');
 controllerRetired('streamFrame.deriveLatchPoseAssist', 'Velocity Consumer Test / Pose Assist');
-controllerRetired('streamFrame.kalmanDirLeadAdaptive', 'Adaptive Direction Lead - EXPERIMENT A');
-controllerRetired('streamFrame.kalmanAdaptiveR', 'Adaptive Measurement Trust - EXPERIMENT B');
+controllerRetired('streamFrame.kalmanDirLeadAdaptive', 'Adaptive Direction Lead');
+controllerRetired('streamFrame.kalmanAdaptiveR', 'Adaptive Measurement Trust');
 controllerRetired('streamFrame.kalmanGripEnable', 'Grip-Point Velocity Compensator');
 retired('streamFrame.blackFloor.shadowLift', 'Black Floor: Shadow Lift (floor / knee, sRGB codes)');
 retired('streamFrame.zeroCopyV3', 'Zero-Copy v3 (experimental)');

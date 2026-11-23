@@ -1255,11 +1255,11 @@ function fixture() {
     let restoreDialog = page.locator('fluent-dialog');
     await restoreDialog.getByText('Restore Steam Link encoder behaviour?', { exact: true }).waitFor();
     await restoreDialog.locator('fluent-button').nth(1).click();
-    await restoreDialog.getByText("NVENC Tap is OFF. Saved tuning was kept. Start SteamVR to use Steam Link's encoder parameters.", { exact: true }).waitFor();
+    await restoreDialog.getByText("NVENC Tap is off. Saved tuning was kept. Start SteamVR to use Steam Link's encoder parameters.", { exact: true }).waitFor();
     await restoreDialog.locator('fluent-button').click();
     assert.equal(await page.evaluate(() => appContext.dss.values().streamFrame.nvencTap), false);
     assert.equal(await page.evaluate(() => appContext.dss.values().streamFrame.nvencPreset), 2);
-    await encoder.getByText('NVENC Tap OFF saved', { exact: true }).waitFor();
+    await encoder.getByText('NVENC Tap off saved', { exact: true }).waitFor();
     await encoder.getByText('Restore encoder behaviour', { exact: true }).waitFor();
     results.push('Encoder restore remains accessible with Tap OFF and preserves saved tuning');
     await page.evaluate(async () => {
@@ -1268,11 +1268,11 @@ function fixture() {
       await appContext.startup.refresh();
       window.__qa.holdRuntime = true;
     });
-    await encoder.getByText('NVENC Tap OFF confirmed', { exact: true }).waitFor();
+    await encoder.getByText('NVENC Tap off confirmed', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(out, 'encoder-off-confirmed.png'), animations: 'disabled' });
     await page.waitForFunction(() => window.__qa.pendingRuntime.length > 0);
-    await encoder.getByText('NVENC Tap OFF saved', { exact: true }).waitFor({timeout:8000});
-    assert.equal(await encoder.getByText('NVENC Tap OFF confirmed', { exact: true }).count(), 0);
+    await encoder.getByText('NVENC Tap off saved', { exact: true }).waitFor({timeout:8000});
+    assert.equal(await encoder.getByText('NVENC Tap off confirmed', { exact: true }).count(), 0);
     assert.equal(await encoder.getByText('Restore encoder behaviour', { exact: true }).getAttribute('disabled'), '');
     await page.evaluate(async () => {
       window.__qa.holdRuntime = false; window.__qa.runtime = null;

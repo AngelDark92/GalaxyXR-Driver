@@ -80,23 +80,23 @@ if (sections.distortion) {
           parts.push(fieldRow(t('Mode'), html`
       <app-select .value=${settings.distortion.mode} .options=${[{ value: 'k1k2', label: 'Two-value curve (k1/k2)' }, { value: 'spline', label: 'Smooth curve (control points)' }]} @change=${(e: CustomEvent) => { settings.distortion.mode = e.detail; save(); }}></app-select>
           `, {
-  tip: t("Choose how finely you can adjust the lens correction. Start with the two-number curve; use a spline for more control over different parts of the image.\n\nk1/k2 is a simple two value polynomial curve. Spline gives per radius control points. Convert from k1/k2 keeps the current shape as a starting point.\n\nValue: streamFrame.distortion.mode (settings.json). Driver side — selects the radial curve model evaluated per frame.")
+  tip: t("Choose how finely you can adjust the lens correction. Start with the two-number curve; use a spline for more control over different parts of the image.\n\nk1/k2 is a simple two-value polynomial curve. The spline gives control points at individual radii. Convert from k1/k2 keeps the current shape as a starting point.\n\nValue: streamFrame.distortion.mode (settings.json). Driver side: selects the radial curve model evaluated per frame.")
           }));
           parts.push(settingFieldRow('streamFrame.distortion.perEye', html`
       <app-switch .checked=${!!settings.distortion.perEye} @change=${(e: CustomEvent) => { settings.distortion.perEye = e.detail; save(); }}></app-switch>
           `, {
-  tip: t("Adjust the left and right eye separately when one shared correction does not suit both eyes. Your current curve is copied before you start.\n\nSeparate correction curves for the left and right eye. Existing curve is copied to both eyes as a starting point.\n\nValue: streamFrame.distortion.perEye (settings.json). Driver side — separate left/right curve evaluation.")
+  tip: t("Adjust the left and right eye separately when one shared correction does not suit both eyes. Your current curve is copied before you start.\n\nValue: streamFrame.distortion.perEye (settings.json). Driver side: separate left/right curve evaluation.")
           }));
           parts.push(settingFieldRow('streamFrame.distortion.perAxis', html`
       <app-switch .checked=${!!settings.distortion.perAxis} @change=${(e: CustomEvent) => { settings.distortion.perAxis = e.detail; save(); }}></app-switch>
           `, {
-  tip: t("Adjust horizontal and vertical lens correction separately. Start with a shared curve unless you have measured a difference between the two directions.\n\nSeparate horizontal and vertical curves blended around the ring, capturing elliptic error such as lens tilt. Existing curve is copied to both axes as a starting point.\n\nValue: streamFrame.distortion.perAxis (settings.json). Driver side — separate horizontal/vertical curve evaluation.")
+  tip: t("Adjust horizontal and vertical lens correction separately. Start with a shared curve unless you have measured a difference between the two directions.\n\nSeparate horizontal and vertical curves blended around the ring, which can capture elliptic error such as lens tilt. The existing curve is copied to both axes as a starting point.\n\nValue: streamFrame.distortion.perAxis (settings.json). Driver side: separate horizontal/vertical curve evaluation.")
           }));
 if (advancedMode) {
             parts.push(settingFieldRow('streamFrame.distortion.tune.enable', html`
       <app-switch .checked=${!!settings.distortion.tune.enable} @change=${(e: CustomEvent) => { settings.distortion.tune.enable = e.detail; save(); }}></app-switch>
             `, {
-  tip: t("Show the lens-correction controls inside the headset. Use the GxR Tuner and Scoring guide before changing a working profile.\n\nIn-headset configurable distortion profile tuner. For usage refer to the GxR Tuner and Scoring guide.\n\nValue: streamFrame.distortion.tune.enable (settings.json). Driver side — runs the in-headset tuner session.")
+  tip: t("Show the lens-correction controls inside the headset. Use the GxR Tuner and Scoring guide before changing a working profile.\n\nValue: streamFrame.distortion.tune.enable (settings.json). Driver side: runs the in-headset tuner session.")
             }));
 }
 if (advancedMode && settings.distortion.tune.enable) {
@@ -104,41 +104,41 @@ if (advancedMode && settings.distortion.tune.enable) {
       ${numberControl('streamFrame.distortion.tune.rate', { value: settings.distortion.tune.rate, ctx: controlContext, onCommit: value => { settings.distortion.tune.rate = value; save(); } })}
       ${sliderControl('streamFrame.distortion.tune.rate', { value: settings.distortion.tune.rate, onChange: value => { settings.distortion.tune.rate = value; save(); } })}
             `, {
-  tip: t("Set how quickly the correction changes when you move the thumbstick. A lower speed makes small final adjustments easier.\n\nScale change per second at full stick deflection (analog mode, used when Step Size is 0). The response is squared, so partial deflection is much slower for fine nulling. Lower it if the last bit of swim is hard to dial in.\n\nValue: streamFrame.distortion.tune.rate (settings.json). Driver side — tuner stick-response rate.")
+  tip: t("Set how quickly the correction changes when you move the thumbstick. A lower speed makes small final adjustments easier.\n\nScale change per second at full thumbstick deflection (analog mode, used when Step Size is 0). The response is squared, so partial deflection moves much more slowly, which helps with fine adjustment. Lower this rate if the last bit of swim is hard to settle.\n\nValue: streamFrame.distortion.tune.rate (settings.json). Driver side: tuner stick-response rate.")
             }));
             parts.push(fieldRow(t('Tuner Step Size'), html`
       ${numberControl('streamFrame.distortion.tune.stepSize', { value: settings.distortion.tune.stepSize, ctx: controlContext, onCommit: value => { settings.distortion.tune.stepSize = value; save(); } })}
       ${sliderControl('streamFrame.distortion.tune.stepSize', { value: settings.distortion.tune.stepSize, onChange: value => { settings.distortion.tune.stepSize = value; save(); } })}
             `, {
-  tip: t("Choose smooth thumbstick adjustment or fixed-size steps. Set this to 0 for smooth adjustment.\n\n0 = analog mode. For higher values apply this step per 0.1s while the joystick is deflected.\n\nValue: streamFrame.distortion.tune.stepSize (settings.json). Driver side — fixed step per 0.1 s; 0 = analog.")
+  tip: t("Choose smooth thumbstick adjustment or fixed-size steps. Set this to 0 for smooth adjustment.\n\n0 uses analog mode. At higher values, one step is applied per 0.1 s while the stick is deflected.\n\nValue: streamFrame.distortion.tune.stepSize (settings.json). Driver side: fixed step per 0.1 s; 0 = analog.")
             }));
             parts.push(fieldRow(t('Band Segments'), html`
       <app-select .value=${settings.distortion.tune.segments} .options=${[{ value: 1, label: 'Off (radial only)' }, { value: 4, label: '4 (quadrants)' }, { value: 8, label: '8 (octants)' }]} @change=${(e: CustomEvent) => { settings.distortion.tune.segments = e.detail; save(); }}></app-select>
             `, {
-  tip: t("Split each tuning ring into smaller areas for local corrections. Adjust the lens center first, then the rings, and only then these smaller areas.\n\n1 = classic radial tuning. 4 or 8 splits every band into angular segments with their own adjustment: in the headset, the X button walks ALL -> segment 0..N-1 -> ALL, and a joystick CLICK cycles the eye (linked/L/R) instead of X. ALL edits the whole band as before; a segment nudges only that sector (the band ring dims outside it). Positional correction for top/bottom or nasal/temporal asymmetry that radial bands cannot express. Tune segments LAST: center first, radial bands second - a wrong center masquerades as exactly the asymmetry segments would absorb. Applies when the tuner is next toggled on.\n\nValue: streamFrame.distortion.tune.segments (settings.json). Driver side — angular segment count per tuning band.")
+  tip: t("Split each tuning ring into smaller areas with their own adjustment. Set the lens center first, then the rings, and only then these areas.\n\n1 = classic radial tuning. 4 or 8 splits every band into angular segments that you can adjust one at a time: in the headset, the X button walks ALL, then segment 0 to N-1, then back to ALL, and a joystick CLICK cycles the eye (linked/L/R) instead of X. ALL edits the whole band as before; a segment nudges only that sector, and the band ring dims outside it. This catches top/bottom or nasal/temporal asymmetry that radial bands cannot express. Tune segments last: center first, radial bands second. A wrong center looks exactly like the asymmetry that segments would absorb. Takes effect when the tuner is next switched on.\n\nValue: streamFrame.distortion.tune.segments (settings.json). Driver side: angular segment count per tuning band.")
             }));
             parts.push(fieldRow(t('Segment Layout (per band)'), html`
       <input type="text" .value=${galaxy.segLayoutText} placeholder="e.g. 4, 4, 8, 8, 12, 16, 16" @input=${(e: Event) => { galaxy.segLayoutText = (e.target as HTMLInputElement).value; galaxy.updateSegLayout() }}></input>
             `, {
-  tip: t("Give different tuning rings different numbers of adjustment areas. Leave the list empty to use the same number everywhere.\n\nOptional: a comma list of segment counts, one per band from INNER to OUTER (e.g. 4, 4, 8, 8, 12, 16, 16). Outer bands cover far more circumference, so they usually deserve more segments than inner ones. Empty = the uniform Band Segments value everywhere. Shorter than the band list = the last entry repeats. Counts 1-32. The X walk covers the current band's own segments; switching bands restarts at ALL. Applies when the tuner is next toggled on.\n\nValue: streamFrame.distortion.tune.segmentLayout (settings.json). Driver side — per-band segment counts, inner to outer.")
+  tip: t("Give different tuning rings different numbers of adjustment areas. Leave the list empty to use the same number everywhere.\n\nOptional, comma-separated segment counts, one per band from inner to outer (such as 4, 4, 8, 8, 12, 16, 16). Outer bands cover more circumference, so they usually need more segments than inner ones. Empty uses the uniform Band Segments value everywhere. A list shorter than the band count repeats the last entry. Counts range from 1 to 32. The X walk covers the current band's own segments; switching bands restarts at ALL. Takes effect when the tuner is next switched on.\n\nValue: streamFrame.distortion.tune.segmentLayout (settings.json). Driver side: per-band segment counts, inner to outer.")
             }));
             parts.push(fieldRow(t('Band Ring Opacity'), html`
       ${numberControl('streamFrame.distortion.tune.ringOpacity', { value: settings.distortion.tune.ringOpacity, ctx: controlContext, onCommit: value => { settings.distortion.tune.ringOpacity = value; save(); } })}
       ${sliderControl('streamFrame.distortion.tune.ringOpacity', { value: settings.distortion.tune.ringOpacity, onChange: value => { settings.distortion.tune.ringOpacity = value; save(); } })}
             `, {
-  tip: t("Set how visible the orange tuning ring is. Lower it when the marker distracts you from judging image movement; 0 hides it.\n\nOpacity of the orange ring marking the band being edited. 0 hides it entirely (the band position is still logged); lower it if the ring itself distracts from judging the swim.\n\nValue: streamFrame.distortion.tune.ringOpacity (settings.json). Driver side — band ring highlight opacity.")
+  tip: t("Set how visible the orange tuning ring is. Lower it when the marker distracts you from judging image movement; 0 hides it.\n\nOpacity of the orange ring marking the band being edited. 0 hides it entirely (the band position is still logged); lower it if the ring itself distracts from judging the swim.\n\nValue: streamFrame.distortion.tune.ringOpacity (settings.json). Driver side: band ring highlight opacity.")
             }));
             parts.push(fieldRow(t('Band Layout (count / first r / last r)'), html`
       <app-number .value=${galaxy.tuneBandCount} step="1" min="2" max="12" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxy.tuneBandCount = e.detail; } galaxy.updateBands(); }}></app-number>
       <app-number .value=${galaxy.tuneBandFirst} step="0.01" min="0.05" max="1" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxy.tuneBandFirst = e.detail; } galaxy.updateBands(); }}></app-number>
       <app-number .value=${galaxy.tuneBandLast} step="0.01" min="0.1" max="1.2" @change=${(e: CustomEvent) => { if (e.detail !== undefined) { galaxy.tuneBandLast = e.detail; } galaxy.updateBands(); }}></app-number>
             `, {
-  tip: t("Choose how many rings the lens tuner uses and how much of the image they cover. More rings give finer control but take longer to tune.\n\nHow many radius bands the tuner edits and where they start and end, spaced evenly (defaults: 7 bands, 0.15 to 0.65). More bands = finer control but a longer session. Edits regenerate the band list; the active session picks it up next time the tuner is toggled on.\n\nValue: streamFrame.distortion.tune.bands (settings.json). Driver side — band count and radius span.")
+  tip: t("Choose how many rings the lens tuner uses and how much of the image they cover. More rings give finer control but take longer to tune.\n\nHow many radius bands the tuner edits and where they start and end, spaced evenly (defaults: 7 bands, 0.15 to 0.65). More bands give finer control but make a session longer. An edit regenerates the band list; the running session picks it up the next time the tuner is switched on.\n\nValue: streamFrame.distortion.tune.bands (settings.json). Driver side: band count and radius span.")
             }));
             parts.push(settingFieldRow('streamFrame.distortion.tune.forceGrid', html`
       <app-switch .checked=${!!settings.distortion.tune.forceGrid} @change=${(e: CustomEvent) => { settings.distortion.tune.forceGrid = e.detail; save(); }}></app-switch>
             `, {
-  tip: t("Automatically show the reference grid while using the lens tuner. Turn this off only when you want to control the overlays yourself.\n\nOn (default): the tuner forces the angular grid + warped overlays on while active. Off: overlays follow your own toggles below.\n\nValue: streamFrame.distortion.tune.forceGrid (settings.json). Driver side — forces grid overlays during tuner sessions.")
+  tip: t("Automatically show the reference grid while using the lens tuner. Turn this off only when you want to control the overlays yourself.\n\nOn (default): the tuner forces the angular grid and warped overlays on while it is active. Off: overlays follow your own toggles below.\n\nValue: streamFrame.distortion.tune.forceGrid (settings.json). Driver side: forces grid overlays during tuner sessions.")
             }));
 if (settings.distortion.tune.forceGrid) {
               parts.push(statusMessage('info', t('Calibration grid is forced on'), t('Angular grid and warped overlays are active. World-Locked Grid remains independent.')));
@@ -149,53 +149,53 @@ if (settings.distortion.tune.forceGrid) {
       <span>deg</span>
       ${numberControl('streamFrame.eyeGaze.gridAngularDeg', { value: settings.eyeGaze.gridAngularDeg, ctx: controlContext, onCommit: value => { settings.eyeGaze.gridAngularDeg = value; save(); } })}
               `, {
-  tip: t("Show reference lines to check whether the image bends or moves as your eyes move. This unwanted movement is often called pupil swim.\n\nOverlays straight reference lines for pupil swim tuning. Fixate a grid intersection, then move only your eyes around it: if the nearby lines bend or shift as your gaze moves, that's pupil swim.\n\nValue: streamFrame.eyeGaze.debugGrid, gridMode, gridAngularDeg (settings.json). Driver side — reference grid overlay, its mode and spacing.")
+  tip: t("Show reference lines to check whether the image bends or moves as your eyes move. This unwanted movement is often called pupil swim.\n\nOverlays straight reference lines for pupil swim tuning. Fixate a grid intersection, then move only your eyes around it: if the nearby lines bend or shift as your gaze moves, that's pupil swim.\n\nValue: streamFrame.eyeGaze.debugGrid, gridMode, gridAngularDeg (settings.json). Driver side: reference grid overlay, its mode and spacing.")
               }));
 if (settings.eyeGaze.gridMode == 'sboys') {
                 parts.push(settingFieldRow('streamFrame.eyeGaze.gridOpaque', html`
       <app-switch .checked=${!!settings.eyeGaze.gridOpaque} @change=${(e: CustomEvent) => { settings.eyeGaze.gridOpaque = e.detail; save(); }}></app-switch>
                 `, {
-  tip: t("Replace the game view with a colored calibration pattern for camera measurements. This is a measurement tool, not a normal-play setting.\n\nThe sboys pattern draws per-axis angle lines whose COLOR encodes their angular index (hue = line number / 6), so the calibrated camera and the fit script can identify every line absolutely - no counting from center, and residual camera pose can be solved jointly with the distortion. This toggle replaces game content with a dim grey background so the camera sees only the pattern. Turn on Warped Overlays for measurement runs: the pattern must pass through the active distortion profile exactly like game content, so the camera reads the residual OF the correction, not the raw lens. Keep 2.5 deg spacing to match the reference tooling.\n\nValue: streamFrame.eyeGaze.gridOpaque (settings.json). Driver side — swaps game content for the camera calibration pattern.")
+  tip: t("Replace the game view with a colored calibration pattern for camera measurements. This is a measurement tool, not a normal-play setting.\n\nThe sboys pattern draws angle lines per axis whose color encodes their angular index (hue = line number / 6), so the calibrated camera and the fit script can identify every line without counting from center, and residual camera pose can be solved along with the distortion. This toggle replaces game content with a dim grey background so the camera sees only the pattern. Turn on Warped Overlays for measurement runs: the pattern must pass through the active distortion profile exactly like game content, so the camera reads the residual of the correction, not the raw lens. Keep 2.5 deg spacing to match the reference tooling.\n\nValue: streamFrame.eyeGaze.gridOpaque (settings.json). Driver side: swaps game content for the camera calibration pattern.")
                 }));
 }
               parts.push(settingFieldRow('streamFrame.eyeGaze.overlayWarped', html`
       <app-switch .checked=${!!settings.eyeGaze.overlayWarped} @change=${(e: CustomEvent) => { settings.eyeGaze.overlayWarped = e.detail; save(); }}></app-switch>
               `, {
-  tip: t("Apply your lens correction to the calibration overlays too. Use this when checking how well the current correction works.\n\nDraws the calibration grid and the fixation dot in content space, so the active distortion profile warps them exactly like scene content. With the ANGULAR grid: a correct profile makes the lines look straight through the lens. With the fixation dot + swim probe: run probe sessions with profile off / A / B and let the fitter score which one flattens the residual. Leave off for plain measurement runs.\n\nValue: streamFrame.eyeGaze.overlayWarped (settings.json). Driver side — draws the overlays through the active distortion profile.")
+  tip: t("Apply your lens correction to the calibration overlays too. Use this when checking how well the current correction works.\n\nDraws the calibration grid and the fixation dot in content space, so the active distortion profile warps them exactly like scene content. With the angular grid: a correct profile makes the lines look straight through the lens. With the fixation dot and swim probe: run probe sessions with the profile off, A, or B, and let the fitter score which one flattens the residual. Leave off for plain measurement runs.\n\nValue: streamFrame.eyeGaze.overlayWarped (settings.json). Driver side: draws the overlays through the active distortion profile.")
               }));
 }
             parts.push(settingFieldRow('streamFrame.eyeGaze.gridWorldLocked', html`
       <app-switch .checked=${!!settings.eyeGaze.gridWorldLocked} @change=${(e: CustomEvent) => { settings.eyeGaze.gridWorldLocked = e.detail; save(); }}></app-switch>
             `, {
-  tip: t("Keep the reference grid fixed in the virtual world instead of moving it with your head. This only affects the angular grid.\n\nDraws the angular grid at fixed WORLD azimuth/elevation instead of head-locked lens angles. Angular grid mode only.\n\nValue: streamFrame.eyeGaze.gridWorldLocked (settings.json). Driver side — world-locked placement of the angular grid.")
+  tip: t("Keep the reference grid fixed in the virtual world instead of moving it with your head. This only affects the angular grid.\n\nDraws the angular grid at fixed world azimuth and elevation instead of head-locked lens angles. Angular grid mode only.\n\nValue: streamFrame.eyeGaze.gridWorldLocked (settings.json). Driver side: world-locked placement of the angular grid.")
             }));
 }
 if (advancedMode) {
             parts.push(settingFieldRow('streamFrame.distortion.centerTune.enable', html`
       <app-switch .checked=${!!settings.distortion.centerTune.enable} @change=${(e: CustomEvent) => { settings.distortion.centerTune.enable = e.detail; save(); }}></app-switch>
             `, {
-  tip: t("Find the center of each lens correction before tuning the surrounding rings. A gently pulsing image and a cross mark the point you are adjusting.\n\nInteractive tuning of the distortion CENTER offsets. While on: the image gently 'breathes' (pulses radially) around the currently configured center, an amber cross marks it, and the fine grid is shown. The lens's true center is the point where color fringing on the grid lines vanishes and sharpness peaks. Drag the breathing's still-point onto it with the stick. X cycles both-shift / both-mirrored(IPD) / left / right. Y resets, holding a grip 1.5s saves a centers profile + paste block. Do this BEFORE band tuning.\n\nValue: streamFrame.distortion.centerTune.enable (settings.json). Driver side — the in-headset center-offset tuner.")
+  tip: t("Find the center of each lens correction before tuning the surrounding rings. A gently pulsing image and a cross mark the point you are adjusting.\n\nInteractive tuning of the distortion center offsets. While on, the image gently pulses radially around the configured center, an amber cross marks it, and the fine grid is shown. The lens's true center is the point where color fringing on the grid lines vanishes and sharpness peaks. Drag the pulse's still point onto it with the stick. X cycles both-shift, both-mirrored (IPD), left and right; Y resets. Holding a grip for 1.5 s saves a centers profile and a paste block. Do this before band tuning.\n\nValue: streamFrame.distortion.centerTune.enable (settings.json). Driver side: the in-headset center-offset tuner.")
             }));
 }
           parts.push(fieldRow(t('Correction Gain'), html`
       ${numberControl('streamFrame.distortion.gain', { value: settings.distortion.gain, ctx: controlContext, onCommit: value => { settings.distortion.gain = value; save(); } })}
       ${sliderControl('streamFrame.distortion.gain', { value: settings.distortion.gain, onChange: value => { settings.distortion.gain = value; save(); } })}
           `, {
-  tip: t("Adjust the overall strength and direction of lens correction. 1 uses the saved curve, 0 disables it, and negative values reverse its direction.\n\nMultiplies the whole correction: 1 = curve as authored, 0 = off, -1 = opposite-sign correction, values between scale it. THE perceptual search knob: turn on Warped Overlays + the angular grid, fixate a grid intersection, slowly rotate your head, and sweep the gain until the lines swim least. Settles the correction's sign and strength in one pass, without trusting eye tracking.\n\nValue: streamFrame.distortion.gain (settings.json). Driver side — global multiplier on the correction.")
+  tip: t("Adjust the overall strength and direction of lens correction. 1 uses the saved curve, 0 disables it, and negative values reverse its direction.\n\nMultiplies the whole correction: 1 = curve as authored, 0 = off, -1 = opposite-sign correction, values in between scale it. This is the main perceptual search knob: turn on Warped Overlays and the angular grid, fixate a grid intersection, slowly rotate your head, and sweep the gain until the lines swim the least. That settles the correction's sign and strength in one pass, without relying on eye tracking.\n\nValue: streamFrame.distortion.gain (settings.json). Driver side: global multiplier on the correction.")
           }));
 if (settings.distortion.mode == 'k1k2' && !settings.distortion.perEye && !settings.distortion.perAxis) {
             parts.push(fieldRow(t('k1'), html`
       ${numberControl('streamFrame.k1', { value: settings.k1, ctx: controlContext, onCommit: value => { settings.k1 = value; save(); } })}
       ${sliderControl('streamFrame.k1', { value: settings.k1, onChange: value => { settings.k1 = value; save(); } })}
             `, {
-  tip: t("Adjust the broad lens-correction curve across the image. Make small changes and compare them using the reference grid.\n\nQuadratic radial term. Affects the whole field, growing with distance from the center.\n\nValue: streamFrame.k1 (settings.json). Driver side — quadratic radial term of the curve."),
+  tip: t("Adjust the broad lens-correction curve across the image. Make small changes and compare them using the reference grid.\n\nQuadratic radial term. Affects the whole field, growing with distance from the center.\n\nValue: streamFrame.k1 (settings.json). Driver side: quadratic radial term of the curve."),
   reset: { can: settings.k1 != defaults.k1, on: () => { galaxy.reset('k1'); } }
             }));
             parts.push(fieldRow(t('k2'), html`
       ${numberControl('streamFrame.k2', { value: settings.k2, ctx: controlContext, onCommit: value => { settings.k2 = value; save(); } })}
       ${sliderControl('streamFrame.k2', { value: settings.k2, onChange: value => { settings.k2 = value; save(); } })}
             `, {
-  tip: t("Adjust lens correction mostly toward the image edges. Tune the broad correction first, then use this for the outer areas.\n\nQuartic radial term. Mostly affects the periphery.\n\nValue: streamFrame.k2 (settings.json). Driver side — quartic radial term of the curve."),
+  tip: t("Adjust lens correction mostly toward the image edges. Tune the broad correction first, then use this for the outer areas.\n\nQuartic radial term. Mostly affects the periphery.\n\nValue: streamFrame.k2 (settings.json). Driver side: quartic radial term of the curve."),
   reset: { can: settings.k2 != defaults.k2, on: () => { galaxy.reset('k2'); } }
             }));
 }
@@ -206,7 +206,7 @@ if (advancedMode) {
             parts.push(settingFieldRow('streamFrame.distortion.annulus.enable', html`
       <app-switch .checked=${!!settings.distortion.annulus.enable} @change=${(e: CustomEvent) => { settings.distortion.annulus.enable = e.detail; save(); }}></app-switch>
             `, {
-  tip: t("Show the area of the image affected by a tuning ring. Turn this diagnostic display off for normal play.\n\nDiagnostic: limit the correction to a radius band so one region of the curve can be tuned against untouched surroundings. Disable for normal use, the band edges are intentionally not geometric.\n\nValue: streamFrame.distortion.annulus.enable (settings.json). Driver side — limits the correction to a radius band.")
+  tip: t("Show the area of the image affected by a tuning ring. Turn this diagnostic display off for normal play.\n\nDiagnostic: limits the correction to a radius band so one region of the curve can be tuned against untouched surroundings. Disable for normal use; the band edges are intentionally not geometric.\n\nValue: streamFrame.distortion.annulus.enable (settings.json). Driver side: limits the correction to a radius band.")
             }));
 }
 if (advancedMode && settings.distortion.annulus.enable) {
@@ -217,7 +217,7 @@ if (advancedMode && settings.distortion.annulus.enable) {
       ${numberControl('streamFrame.distortion.annulus.rMax', { value: settings.distortion.annulus.rMax, ctx: controlContext, label: t('Outer radius'), onCommit: value => { settings.distortion.annulus.rMax = value; save(); } })}
       <span>feather</span>
       ${numberControl('streamFrame.distortion.annulus.feather', { value: settings.distortion.annulus.feather, ctx: controlContext, label: t('Band feather'), onCommit: value => { settings.distortion.annulus.feather = value; save(); } })}
-            `, {  tip: t("Set how far the ring band reaches into the image and how soft its edge is. Match the band you are tuning.\n\nValue: streamFrame.distortion.annulus.rMin, rMax, feather (settings.json). Driver side — radius span and soft edge of the tuning band.") }
+            `, {  tip: t("Set how far the ring band reaches into the image and how soft its edge is. Match the band you are tuning.\n\nValue: streamFrame.distortion.annulus.rMin, rMax, feather (settings.json). Driver side: radius span and soft edge of the tuning band.") }
           ));
           {
             const issues = crossFieldIssues({
@@ -238,7 +238,7 @@ if (advancedMode && settings.distortion.annulus.enable) {
       <span>y</span>
       ${numberControl('streamFrame.centerOffsetY', { value: settings.centerOffsetY, ctx: controlContext, label: t('Optical centre Y'), onCommit: value => { settings.centerOffsetY = value; save(); } })}
           `, {
-  tip: t("Move the center around which the lens correction is applied. Small changes can affect both image sharpness and apparent movement.\n\nMoves the center the correction rings are anchored to, in uv units per eye. Use if the residual wobble is asymmetric.\n\nValue: streamFrame.centerOffsetXLeft, centerOffsetXRight, centerOffsetY (settings.json). Driver side — per-eye uv-space center of the correction.")
+  tip: t("Move the center around which the lens correction is applied. Small changes can affect both image sharpness and apparent movement.\n\nMoves the center the correction rings are anchored to, in uv units per eye. Use it if the residual wobble is asymmetric.\n\nValue: streamFrame.centerOffsetXLeft, centerOffsetXRight, centerOffsetY (settings.json). Driver side: per-eye uv-space center of the correction.")
           }));
 if (advancedMode) {
             parts.push(sectionGroup(t('Eye Alignment'), 1, 'group', 'eye-align'));
@@ -247,26 +247,26 @@ if (advancedMode) {
       ${numberControl('streamFrame.alignment.leftH', { value: settings.alignment.leftH, ctx: controlContext, onCommit: value => { settings.alignment.leftH = value; save(); } })}
       ${sliderControl('streamFrame.alignment.leftH', { value: settings.alignment.leftH, onChange: value => { settings.alignment.leftH = value; save(); } })}
               `, {
-  tip: t("Move the left-eye image sideways for alignment. Change this carefully: a poor setting can affect comfort and depth perception.\n\nPrism correction: shifts the LEFT eye's whole image horizontally, in fractions of the image (positive = right). Corrects binocular misalignment when an eye sits off its lens axis. Use sparingly: horizontal shift also changes apparent depth. Typical useful values are within a few thousandths.\n\nValue: streamFrame.alignment.leftH (settings.json). Driver side — horizontal prism shift for the left eye (fractions of image width)."),
+  tip: t("Move the left-eye image sideways for alignment. Change this carefully: a poor setting can affect comfort and depth perception.\n\nPrism correction: shifts the left eye's whole image horizontally, in fractions of the image (positive = right). Corrects binocular misalignment when an eye sits off its lens axis. Use sparingly: a horizontal shift also changes apparent depth. Typical useful values are within a few thousandths.\n\nValue: streamFrame.alignment.leftH (settings.json). Driver side: horizontal prism shift for the left eye (fractions of image width)."),
   reset: { can: galaxy.alignmentDirty(), on: () => { galaxy.reset('alignment'); } }
               }));
               parts.push(fieldRow(t('Eye Alignment Left V'), html`
       ${numberControl('streamFrame.alignment.leftV', { value: settings.alignment.leftV, ctx: controlContext, onCommit: value => { settings.alignment.leftV = value; save(); } })}
       ${sliderControl('streamFrame.alignment.leftV', { value: settings.alignment.leftV, onChange: value => { settings.alignment.leftV = value; save(); } })}
               `, {
-  tip: t("Move the left-eye image up or down for alignment. A mismatch between the eyes can be uncomfortable; keep a known-good profile to restore.\n\nPrism correction: shifts the LEFT eye's whole image vertically, in fractions of the image (positive = up). Vertical misalignment between the eyes is can contribute to one-eye 'something is off' strain: fusional range is tiny vertically. Tune while alternately closing each eye against a horizontal line until the line does not jump.\n\nValue: streamFrame.alignment.leftV (settings.json). Driver side — vertical prism shift for the left eye.")
+  tip: t("Move the left-eye image up or down for alignment. A mismatch between the eyes can be uncomfortable; keep a known-good profile to restore.\n\nPrism correction: shifts the left eye's whole image vertically, in fractions of the image (positive = up). Vertical misalignment between the eyes can cause a one-eye 'something is off' strain: the vertical fusional range is tiny. Tune while alternately closing each eye against a horizontal line until the line does not jump.\n\nValue: streamFrame.alignment.leftV (settings.json). Driver side: vertical prism shift for the left eye.")
               }));
               parts.push(fieldRow(t('Eye Alignment Right H'), html`
       ${numberControl('streamFrame.alignment.rightH', { value: settings.alignment.rightH, ctx: controlContext, onCommit: value => { settings.alignment.rightH = value; save(); } })}
       ${sliderControl('streamFrame.alignment.rightH', { value: settings.alignment.rightH, onChange: value => { settings.alignment.rightH = value; save(); } })}
               `, {
-  tip: t("Move the right-eye image sideways for alignment. Change this carefully and compare both eyes together.\n\nPrism correction: shifts the RIGHT eye's whole image horizontally, in fractions of the image (positive = right).\n\nValue: streamFrame.alignment.rightH (settings.json). Driver side — horizontal prism shift for the right eye.")
+  tip: t("Move the right-eye image sideways for alignment. Change this carefully and compare both eyes together.\n\nPrism correction: shifts the right eye's whole image horizontally, in fractions of the image (positive = right).\n\nValue: streamFrame.alignment.rightH (settings.json). Driver side: horizontal prism shift for the right eye.")
               }));
               parts.push(fieldRow(t('Eye Alignment Right V'), html`
       ${numberControl('streamFrame.alignment.rightV', { value: settings.alignment.rightV, ctx: controlContext, onCommit: value => { settings.alignment.rightV = value; save(); } })}
       ${sliderControl('streamFrame.alignment.rightV', { value: settings.alignment.rightV, onChange: value => { settings.alignment.rightV = value; save(); } })}
               `, {
-  tip: t("Move the right-eye image up or down for alignment. Use small changes and stop if the result is uncomfortable.\n\nPrism correction: shifts the RIGHT eye's whole image vertically, in fractions of the image (positive = up). Usually only ONE eye needs a vertical correction; pick the eye that feels off.\n\nValue: streamFrame.alignment.rightV (settings.json). Driver side — vertical prism shift for the right eye.")
+  tip: t("Move the right-eye image up or down for alignment. Use small changes and stop if the result is uncomfortable.\n\nPrism correction: shifts the right eye's whole image vertically, in fractions of the image (positive = up). Usually only one eye needs a vertical correction; pick the eye that feels off.\n\nValue: streamFrame.alignment.rightV (settings.json). Driver side: vertical prism shift for the right eye.")
               }));
 
 }

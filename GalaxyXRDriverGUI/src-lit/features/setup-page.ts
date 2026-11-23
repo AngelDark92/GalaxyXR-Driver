@@ -81,7 +81,7 @@ export class SetupPage extends BasePage {
               ${installed ? t('Installed') : sds.driverState() === 'checking' ? t('Checking…') : sds.driverState() === 'unknown' ? t('Unknown') : t('Not installed')}
             </fluent-badge>
           </div>
-          <p>${installed ? t('Updates keep your saved settings.') : t('Install the driver to unlock headset and image settings.')}</p>
+          <p>${installed ? t('Updates keep your saved settings.') : t('Install the driver to enable headset and image settings.')}</p>
           <p><strong>${t('Installed Driver Version')}:</strong> ${version ?? '—'}</p>
           ${sds.driverCheckError() ? statusMessage('error', t('Installation could not be verified'), t('Check the installation again to retry.')) : nothing}
           <div class="setup-actions">
@@ -133,7 +133,7 @@ export class SetupPage extends BasePage {
         <span slot="heading">${t('Runtime tools and details')}</span>
         ${fieldRow(t('Restart Compositor'), html`<fluent-button ?disabled=${busy || !installed}
           @click=${() => sds.restartCompositor()}>${t('Restart Compositor')}</fluent-button>`, {
-          tip: t("Restart SteamVR's display process to try to fix display problems without closing the game. Your headset view may briefly disappear; save anything important first.\n\nRestarting the compositor can fix some issues and allows changing various settings like refresh rate without restarting SteamVR or the game."),
+          tip: t("Restart SteamVR's display process to fix some display problems without closing the game. Restarting can also apply settings such as the refresh rate without restarting SteamVR or the game. Your headset view may briefly disappear; save anything important first."),
         })}
         <p class="secondary"><strong>${t('Last reported driver version (not live verification)')}:</strong> ${dis.values()?.driverVersion ?? t('No runtime information')}</p>
         ${sds.driverVersionMismatch() ? statusMessage('warning', t('Version mismatch'), t('Restart SteamVR to load the installed driver version.')) : nothing}

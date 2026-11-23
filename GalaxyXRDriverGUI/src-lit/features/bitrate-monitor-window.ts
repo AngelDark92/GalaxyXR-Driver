@@ -602,7 +602,7 @@ export class BitrateMonitorWindow extends LitElement {
     if (sample.kind === 'decoderInput') {
       return t('USB {serial}; existing fresh decoder telemetry. Not display/presentation proof.', { serial });
     }
-    return `${t('USB {serial}; decoder byte telemetry unavailable. Includes audio, FEC, retransmits and other traffic; NOT video-only bitrate.', { serial })}\n${t('Decoder video bytes unavailable; network total shown.')}`;
+    return `${t('USB {serial}; decoder byte telemetry unavailable. Includes audio, FEC, retransmits and other traffic; not video-only bitrate.', { serial })}\n${t('Decoder video bytes unavailable; network total shown.')}`;
   }
 
   private codecLine(key: SourceKey): { text: string; note: string; verified: boolean } {
@@ -630,7 +630,7 @@ export class BitrateMonitorWindow extends LitElement {
     }
     return {
       text: t('Frame codec: unverified'),
-      note: `${t('Captured frame did not provide conclusive codec evidence.')} ${evidence}`.trim(),
+      note: `${t('The captured frame did not provide conclusive codec evidence.')} ${evidence}`.trim(),
       verified: false,
     };
   }
@@ -650,7 +650,7 @@ export class BitrateMonitorWindow extends LitElement {
       <section class="card ${key}">
         <h2>${title}</h2>
         <div class="current">${rates ? rates.current.toFixed(2) : '—'}</div>
-        <div class="unit">${t('CURRENT Mbps')}</div>
+        <div class="unit">${t('Current Mbps')}</div>
         <div class="fields">
           ${([['average', t('Average')], ['minimum', t('Min window')], ['maximum', t('Max window')]] as const).map(([field, label]) => html`
             <div><span>${label}</span><strong>${rates ? rates[field].toFixed(2) : '—'}</strong></div>`)}
@@ -762,10 +762,10 @@ export class BitrateMonitorWindow extends LitElement {
         </section>
         ${this.openError ? html`<p class="error" role="alert">${this.openError}</p>` : nothing}
         <div class="cards">
-          ${this.renderCard('nvenc', t('NVENC OUTPUT'))}
-          ${this.renderCard('headset', t('HEADSET VIA USB ADB'))}
+          ${this.renderCard('nvenc', t('NVENC output'))}
+          ${this.renderCard('headset', t('Headset via USB ADB'))}
         </div>
-        <h2 class="chart-title">${t('LAST 300 SAMPLES')}</h2>
+        <h2 class="chart-title">${t('Last 300 samples')}</h2>
         <canvas aria-label=${t('Measured bitrate history')}></canvas>
         <p class="note">${t('Min/max are sampling-window rates, not per-packet peaks. Average is weighted by elapsed time.')}</p>
         <p class="note warn">${t('Headset WLAN RX includes all interface traffic and protocol overhead; it is not video-only bitrate.')}</p>

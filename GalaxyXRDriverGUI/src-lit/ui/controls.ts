@@ -212,7 +212,7 @@ export class AppSelect extends LitElement {
         title=${o.reason ?? ''}
         aria-description=${o.reason ?? nothing}
         ?selected=${String(o.value) === String(this.value)}
-      >${o.label}${o.disabled ? ' — ' + t('unavailable') : ''}</fluent-option>`)}</fluent-listbox></fluent-dropdown>`;
+      >${o.label}${o.disabled ? ': ' + t('unavailable') : ''}</fluent-option>`)}</fluent-listbox></fluent-dropdown>`;
   }
 }
 
@@ -282,7 +282,7 @@ export class AppChoice extends LitElement {
         ?disabled=${this.disabled}
         title=${option.reason ?? ''}
         @click=${() => this.select(option)}>${option.label}${option.disabled && option.reason
-          ? html`<span class="vh">${' — ' + option.reason}</span>` : nothing}</button>`)}
+          ? html`<span class="vh">${': ' + option.reason}</span>` : nothing}</button>`)}
     </div>`;
   }
 }

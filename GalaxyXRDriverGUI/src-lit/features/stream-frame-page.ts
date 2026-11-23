@@ -132,7 +132,7 @@ export class StreamFramePage extends BasePage {
     this.ctx.startup.invalidate();
     this.ctx.checks.clear();
     await this.ctx.dialog.message(t('Restore Steam Link encoder behaviour'),
-      t('NVENC Tap is OFF. Saved tuning was kept. Start SteamVR to use Steam Link\'s encoder parameters.'),
+      t("NVENC Tap is off. Saved tuning was kept. Start SteamVR to use Steam Link's encoder parameters."),
       [t('Recovery backup') + ': ' + report.backupPath, ...report.unresolvedItems].join('\n'));
     await this.ctx.startup.refresh();
     this.requestUpdate();
@@ -327,7 +327,7 @@ if (galaxy.calibrationActive()) {
       parts.push(
         settingFieldRow('galaxyXr.nativeResolution', html`<app-switch .checked=${!!gx.nativeResolution} @change=${(e: CustomEvent) => { gx.nativeResolution = e.detail; save(); }}></app-switch>`, {
           description: t('Higher resolutions increase GPU load. Requires a SteamVR restart.'),
-          tip: t('Choose the render target size in pixels per eye at SteamVR 100% resolution. The native default is 3552 × 3840. Higher values increase GPU load. Requires a SteamVR restart. SteamVR Auto, global resolution and per-game scaling still apply; use Custom 100% to compare the requested size. Turning this off restores the previous resolution while keeping your manual values. Refresh rate and stream encoding size are separate settings. Advanced VRLink resolution overrides take priority.'),
+          tip: t("Set the resolution the driver renders at, in pixels per eye, with SteamVR resolution at 100%. The native default is 3552 × 3840. Higher values show more detail but increase GPU load. Requires a SteamVR restart.\n\nSteamVR Auto, the global resolution and per-game scaling still apply on top, so use Custom 100% if you want to compare the requested size directly. Turning this off restores the previous resolution and keeps your manual values. Refresh rate and stream encoding size are separate settings. Advanced VRLink resolution overrides take priority."),
         }),
         settingFieldRow('galaxyXr.renderWidth', html`
           <div class="range-control">
@@ -384,7 +384,7 @@ if (galaxy.calibrationActive()) {
               <span class="range-scale" aria-hidden="true"><span>${t('Long edge')}</span><span>8192 px</span></span>
             </div>` : nothing}
           </div>`, {
-          tip: t('Link the render width and height sliders. Linked by default, one slider scales both axes proportionally and shows the longer edge in pixels; the current width and height set the ratio. The slider stops at 8192 px, while the number fields still accept 1 to 16384 px. Unlinked, each axis has its own slider. The link preference is saved in gui-settings.json. Changing the render size requires a SteamVR restart.\n\nValue: renderResolutionLinked (gui-settings.json) with galaxyXr.renderWidth and renderHeight (settings.json). SteamVR side — renderWidth, renderHeight, overrideRenderWidth and overrideRenderHeight in steamvr.vrsettings.'),
+          tip: t("Links the render width and height sliders so one control scales both axes. Linked is the default: the single slider scales both axes proportionally, shows the longer edge in pixels, and keeps the ratio of the current width and height. It stops at 8192 px, while the number fields still accept 1 to 16384 px. Unlinked, each axis gets its own slider. The link preference is saved in gui-settings.json. Changing the render size requires a SteamVR restart.\n\nValue: renderResolutionLinked (gui-settings.json) with galaxyXr.renderWidth and renderHeight (settings.json). SteamVR side: renderWidth, renderHeight, overrideRenderWidth and overrideRenderHeight in steamvr.vrsettings."),
           reset: linked ? resolutionReset : { can: !linked, on: () => this.setRenderResolutionLink(true) },
         }),
       );
@@ -411,7 +411,7 @@ if (vendor) {
       ` : nothing}
           `, {
   notices: tileWidthNotices,
-  tip: t("Tile width is a preset class sent unchanged for every codec. Each frame contains four stacked tiles. The codec and GPU determine the supported dimensions; unsupported requests report an encoder error instead of changing resolution. The selected codec caps the tile: H.264 1024, HEVC/AV1 2048, because tile × 4 must fit the encoder's height. A stored value outside the presets is kept and shown here; choose a preset to replace it. Requires a SteamVR restart.\n\nValue: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side — streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap's tile answers."),
+  tip: t("Set the tile width the stream is encoded in. Each frame is delivered as four stacked tiles, so this preset class is sent unchanged for every codec. The codec and the GPU determine which sizes work; an unsupported request reports an encoder error instead of quietly changing the resolution. The selected codec caps the tile: H.264 at 1024, HEVC and AV1 at 2048, because four tiles must fit in the encoder height. A stored value outside the presets is kept and shown here; pick a preset to replace it. Requires a SteamVR restart.\n\nValue: galaxyXr.customStreamFormatWidth (settings.json), applied through the shared stream-quality values. SteamVR side: streamFormatWidth/encodeWidth in steamvr.vrsettings; also feeds the encoder tap's tile answers."),
   reset: { can: galaxy.streamQualityValues.width != codecDef.streamFormatWidth, on: () => { galaxy.setStreamQualityValue('width', codecDef.streamFormatWidth); save(); } }
           }));
           const expired = expiredEncoderEvidence(this.ctx.dis.values(), this.ctx.startup.status());
@@ -471,7 +471,7 @@ if (vendor) {
         @change=${(e: CustomEvent) => { settings.nvencTap = e.detail; save(); }}></app-switch>
             `, {
   notices: tapNotices,
-  tip: t("Allow this driver to adjust NVIDIA's video encoder. OFF bypasses NVIDIA parameter overrides and post-pack processing; saved tuning is kept. Stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.\n\nAn encoder already created with the tap can retain its earlier parameters and API version until SteamVR is closed. The restore action requires SteamVR to be stopped so the next session starts without the tap.\n\nValue: streamFrame.nvencTap (settings.json). Encoder side — hooks NVIDIA NVENC session creation and reconfiguration."),
+  tip: t("Let this driver adjust the NVIDIA video encoder (NVENC). Turn it off to bypass the driver's NVIDIA parameter overrides and post-pack processing; your saved tuning is kept, and stream quality, bandwidth, resolution and 10-bit requests still apply. Requires a SteamVR restart.\n\nAn encoder session created while the tap is active can keep its earlier parameters and API version until SteamVR is closed. The restore action needs SteamVR to be stopped so the next session starts without the tap.\n\nValue: streamFrame.nvencTap (settings.json). Encoder side: hooks NVIDIA NVENC session creation and reconfiguration."),
   reset: {
     can: settings.nvencTap != defaults.nvencTap && !(defaults.nvencTap && tapVerdict.verdict === 'unsupported'),
     on: () => { if (!(defaults.nvencTap && tapVerdict.verdict === 'unsupported')) galaxy.reset('nvencTap'); },
@@ -494,10 +494,10 @@ if (vendor) {
             `, {
   notices: codecNotice ? [codecNotice] : undefined,
   description: t('Changing the codec loads its optimized defaults. Requires a SteamVR restart. Reconnect your headset afterward.'),
-  tip: t("Choose the video codec for the streamed video. HEVC (default) keeps Steam Link's own encoder behaviour; H.264 and AV1 are forced through the NVENC Tap override and need the Steam Link client Codecs Support patch on the headset to decode. The override rewrites the encoder's codec and profile when the encoder session is created and on every reconfigure; H.264 runs 8-bit; AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when on). With the SDR 10-bit baseline off, a stored explicit 10-bit request stays user tuning and asks the HEVC or AV1 session class for 10-bit. Switching applies the selected codec's optimized Tile Width, Bandwidth and encoder default rows at once; afterwards every value can be changed freely, and switching codecs again loads that codec's optimized values. Selecting H.264 turns the SDR 10-bit baseline off (its toggle on Driver Settings shows Off and is disabled until another codec is selected). Requires a SteamVR restart and reconnect.\n\nValue: streamFrame.nvencCodec (settings.json). Encoder side — rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.")
+  tip: t("Choose the codec the video is streamed with. HEVC (default) keeps Steam Link's own encoder behaviour. H.264 and AV1 go through the NVENC Tap override and also need the Steam Link client Codecs Support patch on the headset to decode.\n\nThe override rewrites the codec and profile when the encoder session is created and on every reconfigure. H.264 runs 8-bit. AV1 follows the SDR 10-bit baseline (10-bit 4:2:0 when it is on). With the baseline off, a stored explicit 10-bit request stays as user tuning and asks the HEVC or AV1 session class for 10-bit.\n\nSwitching codecs applies that codec's optimized Tile Width, Bandwidth and encoder default rows at once. Afterwards you can change every value freely, and switching again loads that codec's optimized values. Selecting H.264 turns the SDR 10-bit baseline off: its toggle on Driver Settings shows Off and stays disabled until another codec is selected. Requires a SteamVR restart and reconnect.\n\nValue: streamFrame.nvencCodec (settings.json). Encoder side: rewrites the encoder session at create and every reconfigure; the Steam Link client must also support the codec.")
             }));
         if (!settings.nvencTap) {
-          parts.push(noteRow(html`Requires the NVENC Tap — enable it above to choose a codec. With the tap off the codec choice is saved but not applied.`));
+          parts.push(noteRow(html`${t('Requires the NVENC Tap; enable it above to choose a codec. With the tap off the codec choice is saved but not applied.')}`));
         } else if (codecState === 'running') {
           parts.push(noteRow(html`${t('Codec switching is disabled while SteamVR is running. Close SteamVR completely, then choose the codec. The saved choice applies at the next SteamVR session.')}`));
         } else if (codecState === 'unconfirmed') {
@@ -530,7 +530,7 @@ if (vendor) {
           `, {
   notices: bandwidth.notices,
   description: t('A requested budget, not measured bitrate. Requires a SteamVR restart.'),
-  tip: t("Set the stream bandwidth budget.\n\nFor Galaxy XR, Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. In VBR the entered value is the encoder maximum; under Force CBR the encoder average and maximum both equal this budget, bypassing the curve, constancy and headroom. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.\n\nWith the NVENC Tap off or unsupported, only the Steam Link pacing budget applies: the scaling above 350 Mbit/s, the bitrate curve, constancy, headroom and Force CBR need the tap.\n\nA target is not measured encoded output or delivered bitrate. Takes effect at the next SteamVR start or headset connect.\n\nValue: galaxyXr.customBandwidthMbit (settings.json). Requires a SteamVR restart."),
+  tip: t("Set the bandwidth budget for the stream.\n\nFor Galaxy XR, a Max Bitrate above 350 Mbit/s raises the adaptive streamer request by Max Bitrate / 350 before the selected curve and constancy are evaluated. At or below 350, Linear at 0% follows the streamer request up to Max Bitrate. In VBR the value you enter is the encoder maximum. Under Force CBR the encoder average and maximum both equal this budget, and the curve, constancy and headroom are bypassed. The budget is also written to targetBandwidth and recommendedBandwidthMbit for pacing.\n\nWith the NVENC Tap off or unsupported, only the Steam Link pacing budget applies. The scaling above 350 Mbit/s, the bitrate curve, constancy, headroom and Force CBR all need the tap.\n\nThis is a target, not measured encoded output or delivered bitrate. It takes effect at the next SteamVR start or headset connect.\n\nValue: galaxyXr.customBandwidthMbit (settings.json). Requires a SteamVR restart."),
   reset: { can: galaxy.streamQualityValues.bandwidth != codecDef.bandwidthMbit, on: () => { galaxy.setStreamQualityValue('bandwidth', codecDef.bandwidthMbit); save(); } }
           }));
         if (!Number.isInteger(galaxy.streamQualityValues.width) || galaxy.streamQualityValues.width <= 0
@@ -540,15 +540,15 @@ if (vendor) {
         parts.push(fieldRow(t('Restore Steam Link encoder behaviour'), html`
           <fluent-button appearance="outline" ?disabled=${this.ctx.sds.installingDriver() || this.ctx.startup.status()?.steamvrRunning !== false}
             @click=${() => this.restoreEncoder()}>${t('Restore encoder behaviour')}</fluent-button>
-        `, { tip: t("Disable NVENC Tap without deleting your custom tuning. Stream quality, bandwidth, resolution, 10-bit requests and other settings are kept. Close SteamVR completely before restoring.\n\nValue: streamFrame.nvencTap off + journal restore. Driver action — removes the encoder hook for the next session; needs SteamVR fully stopped.") }));
+        `, { tip: t("Turn the NVENC Tap off without deleting your custom tuning. Stream quality, bandwidth, resolution, 10-bit requests and other settings are kept. Close SteamVR completely first.\n\nValue: streamFrame.nvencTap off + journal restore. Driver action: removes the encoder hook for the next session; SteamVR must be fully stopped.") }));
         if (!settings.nvencTap) {
           const runtime = this.ctx.startup.status();
           const state = encoderTapStatus(false, runtime);
           parts.push(statusMessage(state === 'restart-required' ? 'warning' : 'info',
-            t(state === 'confirmed-off' ? 'NVENC Tap OFF confirmed' : state === 'restart-required' ? 'NVENC Tap OFF: restart required' : 'NVENC Tap OFF saved'),
+            t(state === 'confirmed-off' ? 'NVENC Tap off confirmed' : state === 'restart-required' ? 'NVENC Tap off: restart required' : 'NVENC Tap off saved'),
             t(state === 'confirmed-off' ? 'The current driver process reports no NVENC hook. Your selected stream settings remain active.'
               : state === 'restart-required' ? 'This SteamVR process already installed the hook. Close SteamVR completely and start it again to clear the encoder session.'
-              : 'Start SteamVR to verify OFF in a fresh driver process. Old or missing runtime information cannot confirm it.')));
+              : 'Start SteamVR to verify off in a fresh driver process. Old or missing runtime information cannot confirm it.')));
           if (state === 'confirmed-off' && runtime?.encoderTap) {
             parts.push(noteRow(html`${t('Driver configuration')}: ${runtime.encoderTap.configPath}<br />
               ${t('Loaded driver')}: ${runtime.encoderTap.modulePath}`));
@@ -598,7 +598,7 @@ parts.push(sectionHeading(t('Image Processing'), 0, 'image-processing'));
             void this.changeBaseline(e.detail, e.currentTarget as AppSwitch);
           }}></app-switch>`, {
           notices: baselineNotices,
-          tip: t("Send the stream as 10-bit SDR. On by default. Works with Image Enhancements on or off. H.264 cannot carry 10-bit: its switch stays Off and disabled while that codec is selected, and selecting H.264 turns it off. Switching back to HEVC or AV1 turns it on again; a saved Off on HEVC or AV1 is restored to On by the next codec switch.\n\nTurning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR + encoder sides — writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit)."),
+          tip: t("Sends the stream as 10-bit SDR. On by default. Works with Image Enhancements on or off.\n\nH.264 cannot carry 10-bit, so while that codec is selected this switch stays Off and disabled, and selecting H.264 turns it off. Switching back to HEVC or AV1 turns it on again; a saved Off on HEVC or AV1 is restored to On by the next codec switch.\n\nTurning it on also disables the custom shader target for this headset, which would otherwise own the color path. Requires a SteamVR restart and reconnect.\n\nValue: galaxyXr.sdr10Baseline (settings.json). SteamVR and encoder sides: writes supports10bit into steamvr.vrsettings and drives the encoder bit depth (H.264 stays 8-bit)."),
           reset: {
             can: !baselineDisabled && !!galaxy.baselineRequested !== (driverDefaults.galaxyXr?.sdr10Baseline ?? true),
             on: () => { if (!baselineDisabled) void galaxy.setSdr10Baseline(driverDefaults.galaxyXr?.sdr10Baseline ?? true); },
@@ -615,48 +615,48 @@ if (galaxy.imageEnhancementsEnabled) {
       ${numberControl('streamFrame.brightness', { value: settings.brightness, ctx: controlContext, onCommit: value => { settings.brightness = value; save(); } })}
       ${sliderControl('streamFrame.brightness', { value: settings.brightness, onChange: value => { settings.brightness = value; save(); } })}
           `, {
-  tip: t("Adjust the overall picture brightness. Lower values darken the image; this is a display preference, not a guarantee about panel lifespan.\n\nScales output brightness in the host image-processing path. Compare against a known neutral setting and avoid compensating for a video-range mismatch with brightness alone. Panel wear depends on many factors; this control does not provide a measured or guaranteed lifespan improvement.\n\nValue: streamFrame.brightness (settings.json). Driver side — per-frame brightness scale in the host image pipeline."),
+  tip: t("Make the picture brighter or darker. Lower values darken the image. This is a display preference, not a guarantee about panel lifespan.\n\nThe driver scales output brightness before the encode. Compare against a known neutral setting, and do not use brightness alone to compensate for a video-range mismatch. Panel wear depends on many factors; this control provides no measured or guaranteed lifespan improvement.\n\nValue: streamFrame.brightness (settings.json). Driver side: per-frame brightness scale in the host image pipeline."),
   reset: { can: settings.brightness != defaults.brightness, on: () => { galaxy.reset('brightness'); } }
           }));
           parts.push(fieldRow(t('Saturation'), html`
       ${numberControl('streamFrame.saturation', { value: settings.saturation, ctx: controlContext, onCommit: value => { settings.saturation = value; save(); } })}
       ${sliderControl('streamFrame.saturation', { value: settings.saturation, onChange: value => { settings.saturation = value; save(); } })}
           `, {
-  tip: t("Adjust the strength of colors. The neutral value keeps the original color saturation.\n\nIncrease or decrease the variation of the colors. 50 is neutral, 0 is grayscale.\n\nValue: streamFrame.saturation (settings.json). Driver side — per-frame color saturation; mirrored into the compositor-shader path."),
+  tip: t("Make colors weaker or stronger. 50 keeps the original saturation, 0 is grayscale.\n\nThe driver adjusts color saturation per frame and mirrors it into the compositor-shader path.\n\nValue: streamFrame.saturation (settings.json). Driver side: per-frame color saturation; mirrored into the compositor-shader path."),
   reset: { can: settings.saturation != defaults.saturation, on: () => { galaxy.reset('saturation'); } }
           }));
           parts.push(fieldRow(t('Vibrance'), html`
       ${numberControl('streamFrame.vibrance', { value: settings.vibrance, ctx: controlContext, onCommit: value => { settings.vibrance = value; save(); } })}
       ${sliderControl('streamFrame.vibrance', { value: settings.vibrance, onChange: value => { settings.vibrance = value; save(); } })}
           `, {
-  tip: t("Boost quieter colors without changing all colors equally. Use small adjustments to avoid an unnatural-looking picture.\n\nSmart saturation: changes muted colors the most and already vivid colors the least. Positive enriches dull colors with far less clipping and skin tone blowout than raw saturation; negative fades muted colors toward gray while vivid accents remain. 0 is off, stacks with Saturation.\n\nValue: streamFrame.vibrance (settings.json). Driver side — selective saturation boost for muted colors."),
+  tip: t("Boosts muted colors without pushing them to clipping. Small adjustments look most natural.\n\nThis is smart saturation: muted colors change the most, already vivid colors change the least. A positive value enriches dull colors with far less clipping and skin-tone blowout than raw saturation. A negative value fades muted colors toward gray while vivid accents remain. 0 is off. It stacks with Saturation.\n\nValue: streamFrame.vibrance (settings.json). Driver side: selective saturation boost for muted colors."),
   reset: { can: settings.vibrance != defaults.vibrance, on: () => { galaxy.reset('vibrance'); } }
           }));
           parts.push(fieldRow(t('Contrast'), html`
       ${numberControl('streamFrame.contrast', { value: settings.contrast, ctx: controlContext, onCommit: value => { settings.contrast = value; save(); } })}
       ${sliderControl('streamFrame.contrast', { value: settings.contrast, onChange: value => { settings.contrast = value; save(); } })}
           `, {
-  tip: t("Adjust the difference between light and dark areas. Stronger contrast can hide details in shadows or highlights.\n\nContrast around the midpoint. 50 is neutral.\n\nValue: streamFrame.contrast (settings.json). Driver side — midpoint contrast; mirrored into the compositor-shader path."),
+  tip: t("Lightens highlights and darkens shadows relative to each other. Stronger contrast can hide details in shadows or highlights. 50 is neutral.\n\nValue: streamFrame.contrast (settings.json). Driver side: midpoint contrast; mirrored into the compositor-shader path."),
   reset: { can: settings.contrast != defaults.contrast, on: () => { galaxy.reset('contrast'); } }
           }));
           parts.push(fieldRow(t('Contrast Midpoint'), html`
       ${numberControl('streamFrame.contrastMidpoint', { value: settings.contrastMidpoint, ctx: controlContext, onCommit: value => { settings.contrastMidpoint = value; save(); } })}
       ${sliderControl('streamFrame.contrastMidpoint', { value: settings.contrastMidpoint, onChange: value => { settings.contrastMidpoint = value; save(); } })}
           `, {
-  tip: t("Choose the brightness level around which contrast is adjusted. Change this only when the normal contrast control does not give the desired balance.\n\nThe brightness level from 0 to 100 percent of white that the contrast pivots around.\n\nValue: streamFrame.contrastMidpoint (settings.json). Driver side — the brightness pivot of the contrast curve."),
+  tip: t("Choose the brightness level the contrast control pivots around.\n\nGiven as a percentage of white, 0 to 100. Change it only if the normal contrast control cannot produce the balance you want.\n\nValue: streamFrame.contrastMidpoint (settings.json). Driver side: the brightness pivot of the contrast curve."),
   reset: { can: settings.contrastMidpoint != defaults.contrastMidpoint, on: () => { galaxy.reset('contrastMidpoint'); } }
           }));
           parts.push(settingFieldRow('streamFrame.contrastLinear', html`
       <app-switch .checked=${!!settings.contrastLinear} @change=${(e: CustomEvent) => { settings.contrastLinear = e.detail; save(); }}></app-switch>
           `, {
-  tip: t("Apply contrast in linear light rather than the usual display-encoded space. This changes the effect of the contrast control.\n\nApply the contrast in linear space instead of gamma space.\n\nValue: streamFrame.contrastLinear (settings.json). Driver side — applies contrast in linear light instead of gamma space."),
+  tip: t("Apply contrast in linear light instead of the usual display-encoded (gamma) space. It changes how the contrast control behaves.\n\nValue: streamFrame.contrastLinear (settings.json). Driver side: applies contrast in linear light instead of gamma space."),
   reset: { can: settings.contrastLinear != defaults.contrastLinear, on: () => { galaxy.reset('contrastLinear'); } }
           }));
           parts.push(fieldRow(t('Gamma'), html`
       ${numberControl('streamFrame.gamma', { value: settings.gamma, ctx: controlContext, onCommit: value => { settings.gamma = value; save(); } })}
       ${sliderControl('streamFrame.gamma', { value: settings.gamma, onChange: value => { settings.gamma = value; save(); } })}
           `, {
-  tip: t("Adjust midtone brightness without using the overall brightness control. The neutral pipeline value is 2.2.\n\nGamma of the output. 2.2 is neutral, lower brightens midtones. The driver does not clamp this value; 0 or a negative gamma is not usable, so the field refuses it.\n\nValue: streamFrame.gamma (settings.json). Driver side — output gamma; 2.2 neutral."),
+  tip: t("Adjusts midtone brightness on its own, separate from the overall brightness control. 2.2 is neutral; lower values brighten midtones.\n\nThe driver does not clamp this value, but 0 or a negative gamma is not usable, so the field refuses it.\n\nValue: streamFrame.gamma (settings.json). Driver side: output gamma; 2.2 neutral."),
   reset: { can: settings.gamma != defaults.gamma, on: () => { galaxy.reset('gamma'); } }
           }));
           parts.push(fieldRow(t('Color Multiplier'), html`
@@ -670,23 +670,23 @@ if (galaxy.imageEnhancementsEnabled) {
         ${numberControl('streamFrame.colorMultiplier.b', { value: settings.colorMultiplier.b, ctx: controlContext, label: t('Color multiplier, blue'), onCommit: value => { settings.colorMultiplier.b = value; save(); } })}
       </span>
           `, {
-  tip: t("Adjust the red, green, and blue channels separately to correct a color tint. 1 on every channel leaves the balance unchanged.\n\nPer channel tint multiplier applied to the image. 1 for each channel is neutral.\n\nValue: streamFrame.colorMultiplier.r/g/b (settings.json). Driver side — per-channel tint multipliers."),
+  tip: t("Corrects a color tint by scaling the red, green, and blue channels separately. 1 on every channel leaves the balance unchanged.\n\nValue: streamFrame.colorMultiplier.r/g/b (settings.json). Driver side: per-channel tint multipliers."),
   reset: { can: settings.colorMultiplier.r != defaults.colorMultiplier.r || settings.colorMultiplier.g != defaults.colorMultiplier.g || settings.colorMultiplier.b != defaults.colorMultiplier.b, on: () => { galaxy.reset('colorMultiplier'); } }
           }));
           parts.push(fieldRow(t('Color Matrix'), html`
       <input type="text" .value=${galaxy.matrixText()} placeholder="empty = disabled" @input=${(e: Event) => { galaxy.onMatrixTextChanged((e.target as HTMLInputElement).value) }}></input>
       ${galaxy.matrixError() ? statusMessage('error', t('Color matrix could not be applied'), galaxy.matrixError()!) : html``}
           `, {
-  tip: t("Apply a nine-value color correction matrix. This is an advanced calibration tool; an incorrect matrix can strongly distort colors.\n\nOptional 3x3 linear rgb matrix, row major, 9 comma separated numbers. Used for gamut or white point correction. Leave empty to disable.\n\nValue: streamFrame.srgbMatrix - 9 comma-separated values (settings.json). Driver side — 3x3 linear RGB matrix applied per frame; empty disables."),
+  tip: t("Apply a nine-value color correction matrix for gamut or white-point work. This is an advanced calibration tool; an incorrect matrix can strongly distort colors.\n\nEnter 9 comma-separated numbers: a row-major 3x3 linear RGB matrix. Leave empty to disable.\n\nValue: streamFrame.srgbMatrix, 9 comma-separated values (settings.json). Driver side: 3x3 linear RGB matrix applied per frame; empty disables."),
   reset: { can: settings.srgbMatrix.length != 0, on: () => { galaxy.reset('srgbMatrix'); } }
           }));
 
         parts.push(sectionGroup(t('Image Enhancements'), 1, 'group', 'image-enhancements'));
 
           parts.push(fieldRow(t('Edge Smoothing (FXAA)'), html`
-      <app-select .value=${settings.fxaa} .options=${[{ value: 'off', label: 'Off' }, { value: 'fast', label: 'Fast - in-pass (single pass, lightest)' }, { value: 'quality', label: 'Quality - separate pre-pass (best edges)' }]} @change=${(e: CustomEvent) => { settings.fxaa = e.detail; save(); }}></app-select>
+      <app-select .value=${settings.fxaa} .options=${[{ value: 'off', label: 'Off' }, { value: 'fast', label: 'Fast: in-pass (single pass, lightest)' }, { value: 'quality', label: 'Quality: separate pre-pass (best edges)' }]} @change=${(e: CustomEvent) => { settings.fxaa = e.detail; save(); }}></app-select>
           `, {
-  tip: t("Reduce jagged edges with a post-processing filter. The quality mode does more work than the fast mode and may cost performance.\n\nFXAA applied BEFORE CAS so sharpening enhances resolved edges instead of amplifying jagged staircases. Best for titles with heavy edge shimmer (specular geometry, foliage, thin railings); slightly softens fine text - leave off for text-heavy apps. Fast: integrated into the main pass; CAS sharpens raw neighbors around the AA-resolved center (can faintly re-jag very strong edges at high CAS strength). Quality: a separate FXAA pre-pass, so CAS sees fully resolved edges - costs one extra full-frame pass and VRAM for an intermediate texture; falls back to Fast automatically (with a log line) if the pass shader or intermediate is unavailable. Check 'pixel shader ready (... fxaa: yes, fxaaPass: yes)' in the log after updating.\n\nValue: streamFrame.fxaa (settings.json). Driver side — FXAA pass applied before CAS."),
+  tip: t("Reduces jagged edges with a post-processing filter. The quality mode does more work than the fast mode and can cost performance.\n\nFXAA runs before CAS, so sharpening enhances resolved edges instead of amplifying jagged staircases. It helps most in games with heavy edge shimmer (specular geometry, foliage, thin railings). It slightly softens fine text, so leave it off in text-heavy apps.\n\nFast: integrated into the main pass. CAS sharpens the raw neighbors around the AA-resolved center, which can faintly re-jag very strong edges at high CAS strength. Quality: a separate FXAA pre-pass, so CAS sees fully resolved edges. It costs one extra full-frame pass and VRAM for an intermediate texture. It falls back to Fast automatically, with a log line, if the pass shader or intermediate is unavailable. After updating, check 'pixel shader ready (... fxaa: yes, fxaaPass: yes)' in the log.\n\nValue: streamFrame.fxaa (settings.json). Driver side: FXAA pass applied before CAS."),
   reset: { can: settings.fxaa != defaults.fxaa, on: () => { galaxy.reset('fxaa'); } }
           }));
           const casNotices: FieldNotice[] = galaxy.casMode === 'postpack' && nvencGone
@@ -697,9 +697,9 @@ if (galaxy.imageEnhancementsEnabled) {
               : [];
           const casOptions = [
             { value: 'off', label: 'Off' },
-            { value: 'postpack', label: 'Post-pack — on the encoded frame (recommended)',
+            { value: 'postpack', label: 'Post-pack: on the encoded frame (recommended)',
               disabled: nvencGone && galaxy.casMode !== 'postpack', reason: nvencGone ? nvencGoneReason : undefined },
-            { value: 'preencode', label: 'Pre-encode — full-resolution pass (AMD / tap off)' },
+            { value: 'preencode', label: 'Pre-encode: full-resolution pass (AMD / tap off)' },
           ];
           parts.push(settingFieldRow('cas-sharpening', html`
       <app-select .width=${300} .value=${galaxy.casMode} .options=${casOptions} @change=${(e: CustomEvent) => {
@@ -708,48 +708,48 @@ if (galaxy.imageEnhancementsEnabled) {
       }}></app-select>
           `, {
   notices: casNotices,
-  tip: t("Choose where contrast-adaptive sharpening is applied. The modes use different processing paths; avoid adding the same sharpening twice.\n\nContrast adaptive sharpening. POST-PACK (recommended, NVIDIA + NVENC Tap): runs on the frame the encoder actually sends - the foveated transport image - with separate strengths for the gaze region and the periphery; the periphery is sharpened after Steam Link downscales it, so it survives to the panel, at ~0.04 ms per frame. PRE-ENCODE: the older full-resolution pass on the eye textures; only for AMD GPUs or with the NVENC Tap off. Never run both.\n\nValue: streamFrame.cas.enable + streamFrame.postPack.enable/casEnable (settings.json). Driver + encoder sides — post-pack sharpening runs on the encoded frame through the tap; pre-encode is the full-resolution driver pass.")
+  tip: t("Choose where sharpening is applied. The two modes use different processing paths, so avoid adding the same sharpening twice.\n\nContrast adaptive sharpening. Post-pack (recommended, NVIDIA + NVENC Tap): runs on the frame the encoder actually sends, the foveated transport image. The gaze region and the periphery get separate strengths. The periphery is sharpened after Steam Link downscales it, so the sharpening survives to the panel, at about 0.04 ms per frame.\n\nPre-encode: the older full-resolution pass on the eye textures. Only for AMD GPUs or with the NVENC Tap off. Never run both.\n\nValue: streamFrame.cas.enable + streamFrame.postPack.enable/casEnable (settings.json). Driver and encoder sides: post-pack sharpening runs on the encoded frame through the tap; pre-encode is the full-resolution driver pass.")
           }));
 if (galaxy.casMode === 'postpack') {
             parts.push(fieldRow(t('Center Sharpness'), html`
       ${numberControl('streamFrame.postPack.foveaStrength', { value: settings.postPack.foveaStrength, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.postPack.foveaStrength = value; save(); } })}
       ${sliderControl('streamFrame.postPack.foveaStrength', { value: settings.postPack.foveaStrength, disabled: nvencGone, onChange: value => { settings.postPack.foveaStrength = value; save(); } })}
             `, {
-  tip: t("Adjust sharpening in the high-detail center of the streamed image. Too much sharpening can create bright outlines or noise.\n\nSharpening for the gaze cut-out tile (1:1 render-target pixels), 0 to 1. Under CBR sharpening costs bits: spend them here.\n\nValue: streamFrame.postPack.foveaStrength (settings.json). Encoder side — post-pack sharpening of the gaze tile."),
+  tip: t("Sharpens the high-detail center of the streamed image, where you look. Too much sharpening creates bright outlines or noise.\n\nStrength 0 to 1, applied to the gaze cut-out tile at 1:1 render-target pixels. Under CBR, sharpening costs bits, so spend them here.\n\nValue: streamFrame.postPack.foveaStrength (settings.json). Encoder side: post-pack sharpening of the gaze tile."),
   reset: { can: !nvencGone && settings.postPack.foveaStrength != defaults.postPack.foveaStrength, on: () => { if (nvencGone) return; settings.postPack.foveaStrength = defaults.postPack.foveaStrength; save(); } }
             }));
             parts.push(fieldRow(t('Edge Sharpness'), html`
       ${numberControl('streamFrame.postPack.peripheryStrength', { value: settings.postPack.peripheryStrength, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.postPack.peripheryStrength = value; save(); } })}
       ${sliderControl('streamFrame.postPack.peripheryStrength', { value: settings.postPack.peripheryStrength, disabled: nvencGone, onChange: value => { settings.postPack.peripheryStrength = value; save(); } })}
             `, {
-  tip: t("Adjust sharpening outside the high-detail center. This affects the lower-detail edges of the streamed image.\n\nSharpening for the downscaled whole-view tile, 0 to 1. Applied after the downscale, so it is visible on the panel; keep it lower than the fovea to avoid haloing on the stretched periphery.\n\nValue: streamFrame.postPack.peripheryStrength (settings.json). Encoder side — post-pack sharpening of the downscaled whole-view tile."),
+  tip: t("Sharpens the lower-detail edges of the streamed image, outside the high-detail center.\n\nStrength 0 to 1, applied to the downscaled whole-view tile. It runs after the downscale, so it is visible on the panel. Keep it lower than the center strength to avoid haloing on the stretched periphery.\n\nValue: streamFrame.postPack.peripheryStrength (settings.json). Encoder side: post-pack sharpening of the downscaled whole-view tile."),
   reset: { can: !nvencGone && settings.postPack.peripheryStrength != defaults.postPack.peripheryStrength, on: () => { if (nvencGone) return; settings.postPack.peripheryStrength = defaults.postPack.peripheryStrength; save(); } }
             }));
             parts.push(fieldRow(t('Center-Edge Blend'), html`
       ${numberControl('streamFrame.postPack.edgeFalloff', { value: settings.postPack.edgeFalloff ?? defaults.postPack.edgeFalloff ?? 0.12, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.postPack.edgeFalloff = value; save(); } })}
       ${sliderControl('streamFrame.postPack.edgeFalloff', { value: settings.postPack.edgeFalloff ?? defaults.postPack.edgeFalloff ?? 0.12, disabled: nvencGone, onChange: value => { settings.postPack.edgeFalloff = value; save(); } })}
             `, {
-  tip: t("Smooth the transition between center and edge sharpening. Use this when a visible boundary appears around the sharp region.\n\nFraction of the fovea tile over which its sharpening ramps down to the periphery strength at the tile border, so the seam where the headset composites the cut-out over the stretched periphery is not a sharpness step. 0 = hard edge. The native contract accepts 0 to 1; the slider covers the tested 0 to 0.5 band.\n\nValue: streamFrame.postPack.edgeFalloff (settings.json). Encoder side — ramp width of the center-to-edge sharpening transition."),
+  tip: t("Softens the boundary between the center and edge sharpening. Use it if a visible edge appears around the sharp region.\n\nIt is the fraction of the fovea tile over which the center sharpening ramps down to the periphery strength at the tile border. That hides the step where the headset composites the cut-out over the stretched periphery. 0 = hard edge. The driver accepts 0 to 1; the slider covers the tested 0 to 0.5 band.\n\nValue: streamFrame.postPack.edgeFalloff (settings.json). Encoder side: ramp width of the center-to-edge sharpening transition."),
   reset: { can: !nvencGone && settings.postPack.edgeFalloff != defaults.postPack.edgeFalloff, on: () => { if (nvencGone) return; settings.postPack.edgeFalloff = defaults.postPack.edgeFalloff ?? 0.12; save(); } }
             }));
             parts.push(settingFieldRow('streamFrame.postPack.foveaTop', html`
       <app-switch .checked=${!!settings.postPack.foveaTop} ?disabled=${nvencGone} @change=${(e: CustomEvent) => { settings.postPack.foveaTop = e.detail; save(); }}></app-switch>
             `, {
-  tip: t("Adjust sharpening for the upper and lower center tiles. These values fine-tune the streamed image layout.\n\nWhich tile of each eye's pair is the gaze cut-out. On = upper tile (what the streamer's shader indicates). If the wrong region looks sharpened - e.g. periphery crisp, fovea soft - flip this.\n\nValue: streamFrame.postPack.foveaTop (settings.json). Encoder side — selects which tile is the gaze cut-out.")
+  tip: t("Choose which of each eye's two stacked tiles is the gaze cut-out, so sharpening lands on the right region. On = upper tile, which is what the streamer's shader indicates. If the wrong region looks sharpened (for example, periphery crisp and the gaze area soft), flip it.\n\nValue: streamFrame.postPack.foveaTop (settings.json). Encoder side: selects which tile is the gaze cut-out.")
             }));
 }
 if (galaxy.casMode === 'preencode') {
             parts.push(settingFieldRow('streamFrame.cas.perEye', html`
       <app-switch .checked=${!!settings.cas.perEye} @change=${(e: CustomEvent) => { settings.cas.perEye = e.detail; save(); }}></app-switch>
             `, {
-  tip: t("Use different sharpening values for the left and right eye. Leave linked unless you need an eye-specific correction.\n\nSharpen each eye independently. Useful when one eye sits slightly off its lens axis (facial asymmetry) and only that eye needs extra sharpening to mask the mild off-axis blur; the other eye is spared the over-sharpening.\n\nValue: streamFrame.cas.perEye (settings.json). Driver side — independent pre-encode strengths per eye.")
+  tip: t("Let the two eyes use different sharpening values. Leave linked unless one eye needs its own correction.\n\nFor example, if one eye sits slightly off its lens axis (facial asymmetry), only that eye needs extra sharpening to mask the mild off-axis blur. The other eye is spared the over-sharpening.\n\nValue: streamFrame.cas.perEye (settings.json). Driver side: independent pre-encode strengths per eye.")
             }));
 if (!settings.cas.perEye) {
               parts.push(fieldRow(t('CAS Strength'), html`
       ${numberControl('streamFrame.cas.strength', { value: settings.cas.strength, ctx: controlContext, onCommit: value => { settings.cas.strength = value; save(); } })}
       ${sliderControl('streamFrame.cas.strength', { value: settings.cas.strength, onChange: value => { settings.cas.strength = value; save(); } })}
               `, {
-  tip: t("Set the overall sharpening strength. Higher values can improve apparent detail but may also amplify noise or create halos.\n\nStrength of the sharpening from 0 to 1.\n\nValue: streamFrame.cas.strength (settings.json). Driver side — pre-encode sharpening strength (0-1).")
+  tip: t("Set the sharpening strength for both eyes, 0 to 1. Higher values bring out more apparent detail but can amplify noise or create halos.\n\nValue: streamFrame.cas.strength (settings.json). Driver side: pre-encode sharpening strength (0 to 1).")
               }));
 }
 if (settings.cas.perEye) {
@@ -757,26 +757,26 @@ if (settings.cas.perEye) {
       ${numberControl('streamFrame.cas.strengthLeft', { value: settings.cas.strengthLeft, ctx: controlContext, onCommit: value => { settings.cas.strengthLeft = value; save(); } })}
       ${sliderControl('streamFrame.cas.strengthLeft', { value: settings.cas.strengthLeft, onChange: value => { settings.cas.strengthLeft = value; save(); } })}
               `, {
-  tip: t("Set sharpening strength for the left eye. Compare both eyes to avoid an uneven-looking image.\n\nSharpening strength for the left eye only, 0 to 1.\n\nValue: streamFrame.cas.strengthLeft (settings.json). Driver side — per-eye pre-encode strength, left (0-1).")
+  tip: t("Set sharpening for the left eye only, 0 to 1. Compare both eyes to keep the picture looking even.\n\nValue: streamFrame.cas.strengthLeft (settings.json). Driver side: per-eye pre-encode strength, left (0 to 1).")
               }));
               parts.push(fieldRow(t('Strength Right'), html`
       ${numberControl('streamFrame.cas.strengthRight', { value: settings.cas.strengthRight, ctx: controlContext, onCommit: value => { settings.cas.strengthRight = value; save(); } })}
       ${sliderControl('streamFrame.cas.strengthRight', { value: settings.cas.strengthRight, onChange: value => { settings.cas.strengthRight = value; save(); } })}
               `, {
-  tip: t("Set sharpening strength for the right eye. Compare both eyes to avoid an uneven-looking image.\n\nSharpening strength for the right eye only, 0 to 1.\n\nValue: streamFrame.cas.strengthRight (settings.json). Driver side — per-eye pre-encode strength, right (0-1).")
+  tip: t("Set sharpening for the right eye only, 0 to 1. Compare both eyes to keep the picture looking even.\n\nValue: streamFrame.cas.strengthRight (settings.json). Driver side: per-eye pre-encode strength, right (0 to 1).")
               }));
 }
 }
           parts.push(settingFieldRow('streamFrame.dither', html`
       <app-switch .checked=${!!settings.dither} @change=${(e: CustomEvent) => { settings.dither = e.detail; save(); }}></app-switch>
           `, {
-  tip: t("Add a small amount of noise to make color banding less obvious. It can improve smooth gradients but does not add real color detail.\n\nAdds a small amount of noise before the encode to reduce banding in dark gradients.\n\nValue: streamFrame.dither (settings.json). Driver side — pre-encode noise against banding."),
+  tip: t("Reduces color banding by adding a little noise before the encode. Smooth gradients look calmer, but no real color detail is added.\n\nValue: streamFrame.dither (settings.json). Driver side: pre-encode noise against banding."),
   reset: { can: settings.dither != defaults.dither, on: () => { galaxy.reset('dither'); } }
           }));
           parts.push(settingFieldRow('streamFrame.stationaryDimming.enable', html`
       <app-switch .checked=${!!settings.stationaryDimming.enable} @change=${(e: CustomEvent) => { settings.stationaryDimming.enable = e.detail; save(); }}></app-switch>
           `, {
-  tip: t("Dim the picture when the headset is not moving. This reduces visible brightness during still periods rather than pausing the game.\n\nFades the streamed image uniformly toward black when the headset has not moved for the configured time, then restores brightness on movement. This reduces time spent showing a bright stationary image; it does not guarantee protection from panel wear. Tracking and the game can continue while the picture is dimmed.\n\nValue: streamFrame.stationaryDimming.enable (settings.json). Driver side — fades the streamed image to black when the headset is still.")
+  tip: t("Dims the picture while the headset stands still. It fades the streamed image uniformly toward black after the configured time and restores it as soon as you move. Tracking and the game keep running while the picture is dimmed.\n\nThis reduces the time spent showing a bright stationary image; it does not guarantee protection from panel wear.\n\nValue: streamFrame.stationaryDimming.enable (settings.json). Driver side: fades the streamed image to black when the headset is still.")
           }));
 if (settings.stationaryDimming.enable) {
             parts.push(fieldRow(t('Dimming Timing'), html`
@@ -795,7 +795,7 @@ if (settings.stationaryDimming.enable) {
         onCommit: value => { settings.stationaryDimming.dimSeconds = value; save(); },
       })}
             `, {
-  tip: t("Set how long the headset must stay still before dimming starts and how quickly the picture fades.\n\nSeconds of stillness before dimming starts, and seconds to fade fully to black.\n\nValue: streamFrame.stationaryDimming.movementTime + dimSeconds (settings.json). Driver side — stillness threshold and fade duration, in seconds.")
+  tip: t("Set how long the headset must stay still before dimming starts, and how quickly the picture fades. Both values are seconds.\n\nValue: streamFrame.stationaryDimming.movementTime + dimSeconds (settings.json). Driver side: stillness threshold and fade duration, in seconds.")
             }));
 }
 
@@ -819,7 +819,7 @@ if (vendor && settings) {
       ${this.ofxrError ? html`<span class="mode-error" role="alert">${this.ofxrError}</span>` : ''}
             `, {
   notices: [ofxrRuntimeNotice],
-  tip: t("Arm the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using the graphics card's optical-flow engine (NVIDIA Turing generation or newer for the NVIDIA backends; FidelityFX works on other cards) and needs no headset patch. The game must be restarted for the layer to load. While armed, quitting the Companion disarms it; minimizing or closing to the tray keeps it running.\n\nValue: ofxr.enabled (gui-settings.json). Companion side — registers and configures the OFXR Bridge OpenXR layer for the current user.")
+  tip: t("Turn on the OFXR Bridge optical-flow layer. It inserts intermediate frames on the PC using your graphics card's optical-flow engine, so no headset patch is needed. The NVIDIA backends want a Turing generation or newer card; FidelityFX works on other cards. The game must be restarted for the layer to load.\n\nWhile armed, quitting the Companion disarms it. Minimizing or closing to the tray keeps it running.\n\nValue: ofxr.enabled (gui-settings.json). Companion side: registers and configures the OFXR Bridge OpenXR layer for the current user.")
             }));
         const ofxrNvidiaVerdict = ofxrNvidiaSupport(this.ctx.gpu.caps());
         const ofxrModeOptions = [
@@ -838,17 +838,17 @@ if (vendor && settings) {
       <app-select .value=${ofxr.mode} ?disabled=${this.ctx.ofxr.changing()} .options=${ofxrModeOptions} @change=${(e: CustomEvent) => { void this.updateOfxr({ mode: e.detail }); }}></app-select>
             `, {
   notices: ofxrModeNotice ? [ofxrModeNotice] : undefined,
-  tip: t("Choose who computes the optical flow. FidelityFX runs on any graphics card. The NVIDIA options use the GPU's hardware Optical Flow engine and require an NVIDIA Turing generation or newer card with Optical Flow support (TU117-based GTX 1650 class cards are not supported). NVIDIA Medium with 50% resolution is the recommended starting point; the GPU cost and quality trade off against each other.\n\nValue: ofxr.mode (gui-settings.json). Companion side — writes backend and nvidia_preset into the OFXR layer configuration; applies at the next game start.")
+  tip: t("Choose which backend computes the optical flow. FidelityFX runs on any graphics card. The NVIDIA options use the GPU's hardware Optical Flow engine and need an NVIDIA Turing generation or newer card with Optical Flow support (TU117-based GTX 1650 class cards are not supported). Start with NVIDIA Medium at 50% resolution. Higher quality costs more GPU time.\n\nValue: ofxr.mode (gui-settings.json). Companion side: writes backend and nvidia_preset into the OFXR layer configuration; applies at the next game start.")
             }));
         parts.push(settingFieldRow('ofxr.bidirectional', html`
       <app-switch .checked=${ofxr.bidirectional} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed() || ofxr.mode === 'fidelityfx'} @change=${(e: CustomEvent) => { void this.updateOfxr({ bidirectional: e.detail }); }}></app-switch>
             `, {
-  tip: t("Compute optical flow in both directions and reject inconsistent vectors. Better quality around occlusions for slightly more GPU cost.\n\nValue: ofxr.bidirectional (gui-settings.json). Companion side — writes nvidia_bidirectional; applies at the next game start.")
+  tip: t("Computes flow in both directions and rejects inconsistent vectors. Quality improves around occlusions, at a slightly higher GPU cost.\n\nValue: ofxr.bidirectional (gui-settings.json). Companion side: writes nvidia_bidirectional; applies at the next game start.")
             }));
         parts.push(settingFieldRow('ofxr.logging', html`
       <app-switch .checked=${ofxr.logging} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed()} @change=${(e: CustomEvent) => { void this.updateOfxr({ logging: e.detail }); }}></app-switch>
             `, {
-  tip: t("Write the OFXR diagnostic flight log for problem reports. Turn it off when not diagnosing.\n\nValue: ofxr.logging (gui-settings.json). Companion side — writes logging_enabled; applies at the next game start.")
+  tip: t("Writes the OFXR diagnostic flight log for problem reports. Turn it off when you are not diagnosing a problem.\n\nValue: ofxr.logging (gui-settings.json). Companion side: writes logging_enabled; applies at the next game start.")
             }));
         parts.push(settingFieldRow('ofxr.maxLogMb', html`
       ${numberControl('ofxr.maxLogMb', {
@@ -859,12 +859,12 @@ if (vendor && settings) {
       })}
             `, {
   ctx: controlContext,
-  tip: t("Maximum size of the flight log before it rolls over.\n\nValue: ofxr.maxLogMb (gui-settings.json). Companion side — writes max_file_mb.")
+  tip: t("Caps the flight log size before it rolls over.\n\nValue: ofxr.maxLogMb (gui-settings.json). Companion side: writes max_file_mb.")
             }));
         parts.push(settingFieldRow('ofxr.flushEachEvent', html`
       <app-switch .checked=${ofxr.flushEachEvent} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed() || !ofxr.logging} @change=${(e: CustomEvent) => { void this.updateOfxr({ flushEachEvent: e.detail }); }}></app-switch>
             `, {
-  tip: t("Write each flight-log event to disk immediately. Safer for crash reports, slower.\n\nValue: ofxr.flushEachEvent (gui-settings.json). Companion side — writes flush_each_event.")
+  tip: t("Writes each flight-log event to disk immediately. Safer for crash reports, slightly slower.\n\nValue: ofxr.flushEachEvent (gui-settings.json). Companion side: writes flush_each_event.")
             }));
         parts.push(settingFieldRow('ofxr.version', html`
       <app-select .value=${ofxr.version} ?disabled=${this.ctx.ofxr.changing()} .options=${[
@@ -880,14 +880,14 @@ if (vendor && settings) {
         }))
       ]} @change=${(e: CustomEvent) => { void this.selectOfxrVersion(e.detail); }}></app-select>
             `, {
-  tip: t("Which OFXR Bridge payload the Companion arms. Empty means the newest installed version. Bundled ships with the Companion; Imported is a build you copied from a folder; Downloaded is reserved for future use; External belongs to OFXR's own tray. Imported builds are used as-is with no version-compatibility check: download any fork, unzip it, and install it from its folder. Switching versions disarms first because the layer's arm event belongs to the payload path.\n\nValue: ofxr.version (gui-settings.json).")
+  tip: t("Choose which OFXR Bridge payload the Companion arms. Empty means the newest installed version.\n\nBundled ships with the Companion. Imported is a build you copied from a folder. Downloaded is reserved for future use. External belongs to OFXR's own tray. Imported builds are used as-is, with no version-compatibility check: download any fork, unzip it, and install it from its folder. Switching versions disarms first, because the layer's arm event belongs to the payload path.\n\nValue: ofxr.version (gui-settings.json).")
             }));
         parts.push(fieldRow(t('Manage OFXR Bridge'), html`
       <fluent-button ?disabled=${this.ctx.ofxr.changing()} @click=${() => { void this.importOfxr(); }}>${t('Install from folder…')}</fluent-button>
       <fluent-button ?disabled=${this.ctx.ofxr.changing() || !ofxrStatus || ofxrStatus.state === 'unavailable'} @click=${() => { void this.reinstallOfxr(); }}>${t('Reinstall')}</fluent-button>
       <fluent-button appearance="primary" class="danger" ?disabled=${this.ctx.ofxr.changing()} @click=${() => { void this.removeOfxr(); }}>${t('Uninstall Optical Flow')}</fluent-button>
             `, {
-  tip: t("Install from folder copies a downloaded OFXR Bridge build into the Companion's own runtime area. The build must contain XR_APILAYER_XRFrameBridge_diagnostic.dll and its own ofxr_bridge.ini; the whole payload folder is copied so fork-specific helper DLLs survive. No version check is applied. The Companion only manages the settings shared by every fork (backend, NVIDIA preset, bidirectional flow, flight recorder and overlay position); Hybrid, 3X, NVIDIA input scale, frame-generation mode, Vulkan/D3D11 bridges and other build-specific options stay in the downloaded build's own tray. Reinstall re-stages the bundled payload. Uninstall removes the Companion's copies but leaves external tray installs untouched. Driver uninstall keeps imported builds.")
+  tip: t("Installs, reinstalls or removes OFXR Bridge builds.\n\nInstall from folder copies a downloaded build into the Companion's own runtime area. The build must contain XR_APILAYER_XRFrameBridge_diagnostic.dll and its own ofxr_bridge.ini. The whole payload folder is copied so fork-specific helper DLLs survive, and no version check is applied. The Companion only manages the settings shared by every fork (backend, NVIDIA preset, bidirectional flow, flight recorder and overlay position). Hybrid, 3X, NVIDIA input scale, frame-generation mode, Vulkan/D3D11 bridges and other build-specific options stay in the downloaded build's own tray. Reinstall re-stages the bundled payload. Uninstall removes the Companion's copies but leaves external tray installs untouched. Driver uninstall keeps imported builds.")
             }));
         parts.push(settingFieldRow('ofxr.overlay', html`
       <app-select .value=${ofxr.overlay} ?disabled=${this.ctx.ofxr.changing() || !this.ctx.ofxr.isArmed()} .options=${[
@@ -898,7 +898,7 @@ if (vendor && settings) {
         { value: 'lower-right', label: t('Lower right') }
       ]} @change=${(e: CustomEvent) => { void this.updateOfxr({ overlay: e.detail }); }}></app-select>
             `, {
-  tip: t("Show the OFXR frame counter in the headset at the chosen corner; Off hides it.\n\nValue: ofxr.overlay (gui-settings.json). Companion side — writes the overlay position.")
+  tip: t("Show the OFXR frame counter in the headset at the chosen corner; Off hides it.\n\nValue: ofxr.overlay (gui-settings.json). Companion side: writes the overlay position.")
             }));
 }
 if (advancedMode) {
@@ -907,38 +907,38 @@ if (advancedMode) {
       ${numberControl('streamFrame.syncTimeoutMs', { value: settings.syncTimeoutMs, ctx: controlContext, onCommit: value => { settings.syncTimeoutMs = value; save(); } })}
       ${sliderControl('streamFrame.syncTimeoutMs', { value: settings.syncTimeoutMs, onChange: value => { settings.syncTimeoutMs = value; save(); } })}
           `, {
-  tip: t("Skip a synchronization wait in the image-processing path. This is a latency experiment and can cause flashes or other display artifacts.\n\nHow long to wait for the frame sync before letting a frame through unprocessed (a brief 'flash' of ungraded color). Higher values trade flashes under heavy load for slightly later frames. After a skipped frame the wait automatically escalates to break flash streaks. Default 10, sensible range 3-15.\n\nValue: streamFrame.syncTimeoutMs (settings.json). Driver side — frame-sync wait before passing a frame unprocessed, in ms."),
+  tip: t("Let a frame through unprocessed instead of waiting for the frame sync. This is a latency experiment; it can cause flashes or other display artifacts.\n\nThe value is how long to wait before the frame passes through unprocessed, which shows as a brief flash of ungraded color. Higher values trade more flashes under load for slightly later frames. After a skipped frame the wait escalates automatically to break flash streaks. Default 10; sensible range 3 to 15.\n\nValue: streamFrame.syncTimeoutMs (settings.json). Driver side: frame-sync wait before passing a frame unprocessed, in ms."),
   reset: { can: settings.syncTimeoutMs != defaults.syncTimeoutMs, on: () => { galaxy.reset('syncTimeoutMs'); } }
           }));
           parts.push(fieldRow(t('Gaze Prediction (ms)'), html`
       ${numberControl('streamFrame.eyeGaze.predictionMs', { value: settings.eyeGaze.predictionMs, ctx: controlContext, onCommit: value => { settings.eyeGaze.predictionMs = value; save(); } })}
       ${sliderControl('streamFrame.eyeGaze.predictionMs', { value: settings.eyeGaze.predictionMs, onChange: value => { settings.eyeGaze.predictionMs = value; save(); } })}
           `, {
-  tip: t("Adjust how far ahead eye movement is predicted for processing. Too much prediction can place the correction ahead of your actual gaze.\n\nLeads the gaze point by extrapolating recent eye motion, compensating the capture-to-display latency that makes the ring trail your eyes. Raise if the ring lags behind saccades, lower if it overshoots. 0 disables.\n\nValue: streamFrame.eyeGaze.predictionMs (settings.json). Driver side — gaze-point lead time, in ms; 0 disables.")
+  tip: t("Moves the gaze correction ahead of your eyes to compensate latency. Too much prediction places the correction ahead of where you actually look.\n\nThe driver leads the gaze point by extrapolating recent eye motion, so the ring does not trail your eyes behind the capture-to-display latency. Raise it if the ring lags behind quick eye movements; lower it if it overshoots. 0 disables.\n\nValue: streamFrame.eyeGaze.predictionMs (settings.json). Driver side: gaze-point lead time, in ms; 0 disables.")
           }));
           parts.push(settingFieldRow('streamFrame.directRender', html`
       <app-switch .checked=${!!settings.directRender} @change=${(e: CustomEvent) => { settings.directRender = e.detail; save(); }}></app-switch>
           `, {
-  tip: t("Request a more direct rendering path. Performance and compatibility depend on the runtime; compare carefully before leaving it enabled.\n\nPerformance: draws the processed frame directly into the layer texture instead of a scratch target plus copy-back (about a third less GPU memory traffic). Falls back automatically per texture if a layer refuses a render target view. Only turn off to A/B against the old path; the log line 'direct render path' / 'copy-back path' shows which is active per app.\n\nValue: streamFrame.directRender (settings.json). Driver side — renders the processed frame directly into the layer texture."),
+  tip: t("Draws the processed frame directly into the layer texture instead of a scratch target plus copy-back, at about a third less GPU memory traffic. Performance and compatibility depend on the runtime, so compare carefully before leaving it set.\n\nIf a layer refuses a render target view, that texture falls back automatically. Only turn this off to A/B against the old path. The log line 'direct render path' / 'copy-back path' shows which one is active per app.\n\nValue: streamFrame.directRender (settings.json). Driver side: renders the processed frame directly into the layer texture."),
   reset: { can: settings.directRender != defaults.directRender, on: () => { galaxy.reset('directRender'); } }
           }));
           parts.push(settingFieldRow('streamFrame.deferredEviction', html`
       <app-switch .checked=${!!settings.deferredEviction} @change=${(e: CustomEvent) => { settings.deferredEviction = e.detail; save(); }}></app-switch>
           `, {
-  tip: t("Keep cached resources longer to try to reduce short stutters. This changes resource handling and may use more memory.\n\nPerformance: when the scratch texture cache is full and a new resolution arrives, the old set's release is postponed a few frames and performed after the frame sync mutex is released, instead of inside the same frame that already pays the unavoidable creation stall. Spreads transition cost so resolution/app switches hitch less. Off restores the old synchronous eviction for A/B; score the difference with Hitch Diagnostics on ('creates'/'evicts' counters and HITCH tags mark the transitions).\n\nValue: streamFrame.deferredEviction (settings.json). Driver side — postpones scratch-texture release past the frame-sync mutex."),
+  tip: t("Hold cached resources a few frames longer so resolution and app switches hitch less. This can use more memory.\n\nWhen the scratch texture cache is full and a new resolution arrives, the old set's release is postponed a few frames and performed after the frame sync mutex is released. That avoids paying the release inside the same frame that already pays the unavoidable creation stall. Off restores the old synchronous eviction for A/B. Score the difference with Hitch Diagnostics on: the 'creates'/'evicts' counters and HITCH tags mark the transitions.\n\nValue: streamFrame.deferredEviction (settings.json). Driver side: postpones scratch-texture release past the frame-sync mutex."),
   reset: { can: settings.deferredEviction != defaults.deferredEviction, on: () => { galaxy.reset('deferredEviction'); } }
           }));
           parts.push(settingFieldRow('streamFrame.processAtSubmitLayer', html`
       <app-switch .checked=${!!settings.processAtSubmitLayer} @change=${(e: CustomEvent) => { settings.processAtSubmitLayer = e.detail; save(); }}></app-switch>
           `, {
-  tip: t("Choose an alternate point in the rendering pipeline for image processing. This is a compatibility and performance experiment.\n\nProcesses frames during SubmitLayer instead of Present. Only needed if processing at Present has no visible effect on your driver.\n\nValue: streamFrame.processAtSubmitLayer (settings.json). Driver side — processes frames in SubmitLayer instead of Present."),
+  tip: t("Processes frames during SubmitLayer instead of Present. This is a compatibility and performance experiment. You only need it if processing at Present has no visible effect on your driver.\n\nValue: streamFrame.processAtSubmitLayer (settings.json). Driver side: processes frames in SubmitLayer instead of Present."),
   reset: { can: settings.processAtSubmitLayer != defaults.processAtSubmitLayer, on: () => { galaxy.reset('processAtSubmitLayer'); } }
           }));
           parts.push(settingFieldRow('streamFrame.calib.blackout', html`
       <app-switch .checked=${!!settings.calib?.blackout} ?disabled=${!settings.enable} @change=${(e: CustomEvent) => { galaxy.setBlackout(e.detail); }}></app-switch>
       ${!settings.enable ? html`<span class="note">enable Image Processing first</span>` : html``}
           `, {
-  tip: t("Make the headset image black while keeping tracking and the game running. Use this for testing, not as a way to stop or pause the application.\n\nBlack out the headset's screens to protect from burn in. Tracking, streaming and the game keep running; only the panels go black. Useful while developing or leaving the headset connected. Needs Enable Image Processing on.\n\nValue: streamFrame.calib.blackout (settings.json). Driver side — renders black to the panels; tracking and streaming continue."),
+  tip: t("Turn the headset panels black while tracking, streaming and the game keep running. It protects the panels from burn-in. Use it for testing or while leaving the headset connected, not as a way to stop or pause the application.\n\nNeeds Enable Image Processing on.\n\nValue: streamFrame.calib.blackout (settings.json). Driver side: renders black to the panels; tracking and streaming continue."),
   reset: { can: !!settings.calib?.blackout, on: () => { galaxy.setBlackout(false); } }
           }));
 if (vendor && settings.nvencTap) {
@@ -952,7 +952,7 @@ if (settings.nvencTap) {
         onCommit: value => { settings.nvencVbvFrames = value; save(); },
       })}
                 `, {
-  tip: t("Request an NVENC VBV buffer budget in nominal frame units. A smaller budget can reduce buffering but makes complex scenes harder to encode cleanly.\n\nFor N > 0, requested VBV = (target bits/s / nominal fps) × N, in bits. 0 preserves the caller's VBV value. This is a rate-control buffer request, not a guaranteed maximum encoded frame size or a transport limit. Requires a SteamVR restart.\n\nValue: streamFrame.nvencVbvFrames (settings.json). Encoder side — requested VBV buffer size in bits."),
+  tip: t("Requests an NVENC VBV buffer budget in nominal frame units. A smaller budget reduces buffering, but complex scenes become harder to encode cleanly.\n\nFor N > 0, requested VBV = (target bits/s / nominal fps) × N, in bits. 0 preserves the caller's VBV value. This is a rate-control buffer request, not a guaranteed maximum encoded frame size and not a transport limit. Requires a SteamVR restart.\n\nValue: streamFrame.nvencVbvFrames (settings.json). Encoder side: requested VBV buffer size in bits."),
   reset: { can: settings.nvencVbvFrames != codecDef.vbvFrames, on: () => { settings.nvencVbvFrames = codecDef.vbvFrames; save(); } }
                 }));
                 const presetNotice = hardwareChoiceNotice('streamFrame.nvencPreset', settings.nvencPreset, controlContext);
@@ -964,7 +964,7 @@ if (settings.nvencTap) {
       })}
                 `, {
   notices: presetNotice ? [presetNotice] : undefined,
-  tip: t("Choose the NVIDIA encoding preset. Keep automatic selection unless you are testing a specific quality or latency trade-off.\n\n0 = automatic by NVENC engine count (3 engines: P7, 2: P5, 1: P4; logged as 'preset AUTO'). Higher presets spend more encoder time for better quality at the same bitrate; P7 needs the split across three engines to hold 90 fps. Auto resolves to P2 for H.264 (P7/P5/P4 by engine count otherwise).\n\nValue: streamFrame.nvencPreset (settings.json). Encoder side — NVENC preset selector; 0 = automatic by engine count."),
+  tip: t("Choose the NVENC quality preset. Leave it on automatic unless you are testing a specific quality or latency trade-off.\n\n0 = automatic by NVENC engine count (3 engines: P7, 2: P5, 1: P4; logged as 'preset AUTO'). Higher presets spend more encoder time for better quality at the same bitrate. P7 needs the split across three engines to hold 90 fps. Auto resolves to P2 for H.264; otherwise P7, P5 or P4 by engine count.\n\nValue: streamFrame.nvencPreset (settings.json). Encoder side: NVENC preset selector; 0 = automatic by engine count."),
   reset: { can: settings.nvencPreset != defaults.nvencPreset, on: () => { galaxy.reset('nvencPreset'); } }
                 }));
                 parts.push(settingFieldRow('streamFrame.nvencForceCbr', html`
@@ -973,7 +973,7 @@ if (settings.nvencTap) {
         rc: evidence.effectiveRateControl === 2 ? 'CBR' : evidence.effectiveRateControl === 1 ? 'VBR'
           : evidence.effectiveRateControl === 0 ? t('Constant QP') : t('Unknown') })}</span>` : html``}
                 `, {
-  tip: t("Force CBR selects constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits. Off is the default for every codec and preserves upstream rate control, which may already be CBR. When on, the encoder average and maximum both equal the Max Bitrate budget; the saved bitrate curve, constancy and headroom are preserved but not applied. The reset arrow restores Off. Requires a SteamVR restart.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side — requests CBR rate control with low-delay keyframes; average bitrate is pinned to the Max Bitrate ceiling."),
+  tip: t("Forces constant-bitrate rate control. It does not guarantee constant encoded output or constant sent bits.\n\nOff, the default for every codec, keeps the upstream rate control, which may already be CBR. When on, the encoder average and maximum both equal the Max Bitrate budget; the saved bitrate curve, constancy and headroom are preserved but not applied. The reset arrow restores Off. Requires a SteamVR restart.\n\nValue: streamFrame.nvencForceCbr (settings.json). Encoder side: requests CBR rate control with low-delay keyframes; average bitrate is pinned to the Max Bitrate ceiling."),
   reset: { can: settings.nvencForceCbr != codecDef.forceCbr, on: () => { settings.nvencForceCbr = codecDef.forceCbr; save(); } }
                 }));
                 {
@@ -994,7 +994,7 @@ if (settings.nvencTap) {
       ${curveNote}
                   `, {
   notices: cbrCurveNotice ? [cbrCurveNotice] : undefined,
-  tip: t("Choose how the streamer's adaptive request becomes the requested encoder target.\n\nGalaxy XR uses a request domain of min(Max Bitrate, 350 Mbit/s). Above 350, default Linear at 0% scales each request by Max Bitrate / 350; below 350 it follows the request up to Max Bitrate. Power knee raises the middle of this domain; soft knee reaches the base ceiling from 60% upward. Custom uses seven normalized points: P1 has a request-zero floor, P2-P5 are free, P6 starts the plateau, and hidden P7 is the fixed endpoint. Point edits change the native encoder override; the scale is applied once. Bitrate Constancy lifts this base curve, then any headroom reservation limits the average. Force CBR bypasses the curve, constancy and headroom; the saved values are kept and apply again when CBR is off. Close SteamVR to change this. Requires a SteamVR restart.\n\nThese are requested targets, not measured encoded or wire rates. Neutral builds retain normalization against Max Bitrate.\n\nValue: streamFrame.nvencBitrateCurve and streamFrame.nvencBitrateCurvePoints (settings.json)."),
+  tip: t("Choose how the streamer's adaptive request becomes the requested encoder target.\n\nGalaxy XR uses a request domain of min(Max Bitrate, 350 Mbit/s). Above 350, the default Linear at 0% scales each request by Max Bitrate / 350. Below 350 it follows the request up to Max Bitrate. Power knee raises the middle of this domain. Soft knee reaches the base ceiling from 60% upward. Custom uses seven normalized points: P1 has a request-zero floor, P2-P5 are free, P6 starts the plateau, and hidden P7 is the fixed endpoint. Point edits change the native encoder override; the scale is applied once. Bitrate Constancy lifts this base curve, then any headroom reservation limits the average. Force CBR bypasses the curve, constancy and headroom; the saved values are kept and apply again when CBR is off. Close SteamVR to change this. Requires a SteamVR restart.\n\nThese are requested targets, not measured encoded or wire rates. Neutral builds retain normalization against Max Bitrate.\n\nValue: streamFrame.nvencBitrateCurve and streamFrame.nvencBitrateCurvePoints (settings.json)."),
   reset: { can: (settings.nvencBitrateCurve ?? 0) !== defaults.nvencBitrateCurve, on: () => galaxy.resetBitrateCurve() }
                   }));
                   const cbrConstancyNotice: FieldNotice | undefined = settings.nvencForceCbr
@@ -1015,13 +1015,13 @@ if (settings.nvencTap) {
       ${curveNote}
                   `, {
   notices: cbrConstancyNotice ? [cbrConstancyNotice] : undefined,
-  tip: t("Lift the selected curve toward Max Bitrate.\n\n0 leaves the selected base curve unchanged; 100 selects the base ceiling for positive requests. A headroom reservation can lower the final average. Force CBR bypasses constancy, the curve and headroom; the saved percentage is kept and applies again when CBR is off. For Galaxy XR with Max Bitrate 500 and a request of 320 Mbit/s, Linear at 0% requests about 457.14 Mbit/s before headroom. With Max Bitrate 280 and a request of 200, it requests 200. Higher constancy reduces the response to congestion. Close SteamVR to change this. Requires a SteamVR restart.\n\nA requested average does not guarantee constant encoded output or constant sent bits.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json)."),
+  tip: t("Lifts the selected curve toward Max Bitrate, so the encoder target hugs the ceiling more of the time.\n\n0 leaves the selected base curve unchanged. 100 selects the base ceiling for positive requests. A headroom reservation can lower the final average. Force CBR bypasses constancy, the curve and headroom; the saved percentage is kept and applies again when CBR is off. Examples for Galaxy XR: at Max Bitrate 500 and a request of 320 Mbit/s, Linear at 0% requests about 457.14 Mbit/s before headroom; at Max Bitrate 280 and a request of 200, it requests 200. Higher constancy reduces the response to congestion. Close SteamVR to change this. Requires a SteamVR restart.\n\nA requested average does not guarantee constant encoded output or constant sent bits.\n\nValue: streamFrame.nvencBitrateConstancyPct (settings.json)."),
   reset: { can: (settings.nvencBitrateConstancyPct ?? 0) !== defaults.nvencBitrateConstancyPct, on: () => galaxy.reset('nvencBitrateConstancyPct') }
                   }));
                   parts.push(fieldRow(t('Bitrate Curve Graph'), html`
       <fluent-button appearance="outline" @click=${() => { void this.openCurveWindow(); }}>${t('Open graph window')}</fluent-button>
                   `, {
-  tip: t("Open the curve graph in its own resizable window.\n\nFor Galaxy XR, the request axis always ends at 350 Mbit/s and the target axis ends at the higher of 350 or the entered Max Bitrate. Dashed line: the streamer standard ending at (350, 350). Thin line and P1-P6: the editable base curve. Solid line: the final requested average after constancy and headroom, or the fixed Max Bitrate under Force CBR. Above 350, default Linear is raised by Max Bitrate / 350. Below 350, it follows the request and then holds Max Bitrate. Custom point edits are validated and saved by the main Companion and affect the native encoder override.\n\nThe graph shows positive-request, steady-state targets, not measured encoded output or wire rates. The five-frame request filter and zero or missing request fallback are not drawn. The graph follows edits immediately, is locked while SteamVR runs, hides with the Companion tray lifecycle and closes when the Companion quits.\n\nValue: streamFrame.nvencBitrateCurve + streamFrame.nvencBitrateCurvePoints (settings.json).")
+  tip: t("Opens the curve graph in its own resizable window.\n\nFor Galaxy XR, the request axis always ends at 350 Mbit/s and the target axis ends at the higher of 350 or the entered Max Bitrate. The dashed line is the streamer standard, ending at (350, 350). The thin line and P1-P6 are the editable base curve. The solid line is the final requested average after constancy and headroom, or the fixed Max Bitrate under Force CBR. Above 350, the default Linear is raised by Max Bitrate / 350. Below 350 it follows the request, then holds Max Bitrate. Custom point edits are validated and saved by the main Companion and affect the native encoder override.\n\nThe graph shows positive-request, steady-state targets, not measured encoded output or wire rates. The five-frame request filter and the zero or missing request fallback are not drawn. It follows edits immediately, is locked while SteamVR runs, hides with the Companion tray lifecycle and closes when the Companion quits.\n\nValue: streamFrame.nvencBitrateCurve + streamFrame.nvencBitrateCurvePoints (settings.json).")
                   }));
                   if (this.curveWindowError) {
                     parts.push(noteRow(html`${t('The graph window could not be opened: {reason}', { reason: this.curveWindowError })}`));
@@ -1035,7 +1035,7 @@ if (settings.nvencTap) {
                     onCommit: value => { settings.nvencMultiPass = Number(value); save(); },
                   })}
                 `, { notices: multiPassNotice ? [multiPassNotice] : undefined,
-                  tip: t("Explicit multipass selection applies even when preset merge is off. Automatic preserves the upstream caller's pass hint for AV1, and follows the tested codec/preset recommendation for HEVC and H.264. Unsupported requests fail without fallback.\n\nValue: streamFrame.nvencMultiPass (settings.json). Encoder side — pass count hint; automatic preserves the AV1 caller value and follows the codec/preset recommendation otherwise."),
+                  tip: t("Choose the NVENC multipass mode. An explicit selection applies even when preset merge is off. Automatic preserves the upstream caller's pass hint for AV1 and follows the tested codec/preset recommendation for HEVC and H.264. Unsupported requests fail without fallback.\n\nValue: streamFrame.nvencMultiPass (settings.json). Encoder side: pass count hint; automatic preserves the AV1 caller value and follows the codec/preset recommendation otherwise."),
                   reset: { can: settings.nvencMultiPass !== defaults.nvencMultiPass, on: () => galaxy.reset('nvencMultiPass') } }));
                 if (settings.nvencCodec === 1) {
                   parts.push(noteRow(html`${t('H.264 compatibility defaults are editable below. Reset arrows restore the tested values. Split-Frame is not applicable to H.264; its saved choice is retained.')}`));
@@ -1114,7 +1114,7 @@ if (settings.nvencTap) {
                 `, {
   noticeKey: 'streamFrame.nvencLowDelayKfScale',
   ctx: controlContext,
-  tip: t("Request the keyframe-to-P-frame size ratio (0–255, NVENC byte field). NVENC documents this ratio for CBR with a single-frame VBV buffer, and the driver writes it for every session with a bitrate budget. It is not a hard keyframe size limit or a transport limit. The optimized recommendation is 2. Unsupported requests fail without rewriting the value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side — requested low-delay keyframe ratio."),
+  tip: t("Requests the keyframe-to-P-frame size ratio, 0 to 255, as an NVENC byte field. NVENC documents this ratio for CBR with a single-frame VBV buffer, and the driver writes it for every session with a bitrate budget. It is not a hard keyframe size limit and not a transport limit. The optimized recommendation is 2. Unsupported requests fail without rewriting the value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencLowDelayKfScale (settings.json). Encoder side: requested low-delay keyframe ratio."),
   reset: { can: settings.nvencLowDelayKfScale != codecDef.lowDelayKfScale, on: () => { settings.nvencLowDelayKfScale = codecDef.lowDelayKfScale; save(); } }
                 }));
                 const splitNotice = hardwareChoiceNotice('streamFrame.nvencSplitMode', settings.nvencSplitMode, controlContext);
@@ -1129,7 +1129,7 @@ if (settings.nvencTap) {
   noticeKey: 'streamFrame.nvencSplitMode',
   ctx: controlContext,
   notices: splitNotices,
-  tip: t("0 = automatic; 1 = forced, driver-selected strips; 2–4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and retains this choice without applying it. AV1 API upgrade is independent of this value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencSplitMode (settings.json). Encoder side — multi-engine split; nonzero opens the API 12.1 encoder session."),
+  tip: t("Choose the multi-engine split mode. 0 = automatic; 1 = forced, driver-selected strips; 2 to 4 = requested strips; 15 = disabled. Other values are rejected. Values above 0 require an accepted NVENC API 12.1 session upgrade, and a refusal shows in the driver log and the Stream Frame evidence row. H.264 does not support split encoding and keeps this choice without applying it. The AV1 API upgrade is independent of this value. Requires a SteamVR restart.\n\nValue: streamFrame.nvencSplitMode (settings.json). Encoder side: multi-engine split; nonzero opens the API 12.1 encoder session."),
   reset: { can: settings.nvencSplitMode != codecDef.splitMode, on: () => { settings.nvencSplitMode = codecDef.splitMode; save(); } }
                 }));
                 parts.push(fieldRow(t('Center Quality Boost (QP)'), html`
@@ -1150,13 +1150,13 @@ if (settings.nvencTap) {
         })}
       </span>
                 `, {
-  tip: t("Spend more encoding quality on the center of the image than on the edges. This advanced option can change artifacts in different areas.\n\nMoves bits within the same bitrate: a QP offset per block, negative for the gaze cut-out tile (finer, more bits) and positive for the periphery tile (coarser, fewer bits), blended over the same edge falloff as the sharpening. 0 / 0 = off. Small values (-2 / 2, -3 / 3) work; large ones starve the whole frame. The ramp shape and fovea-tile parity come from the Edge Falloff and fovea-top controls (shown with CAS in post-process mode) — one value drives both the sharpening and the encoder QP ramp. The native range is -128..127; the slider covers the tested band.\n\nValue: streamFrame.nvencQpFovea + nvencQpPeriphery (settings.json). Encoder side — per-block QP offsets that move bits to the gaze tile."),
+  tip: t("Moves encoding quality from the edges to the center, or the other way. This advanced option shifts where artifacts appear.\n\nIt is a QP offset per block within the same bitrate. Negative values target the gaze cut-out tile (finer, more bits); positive values target the periphery tile (coarser, fewer bits). The offset blends over the same edge falloff as the sharpening. 0 / 0 = off. Small values (-2 / 2, -3 / 3) work; large ones starve the whole frame. The ramp shape and fovea-tile parity come from the Edge Falloff and fovea-top controls (shown with CAS in post-process mode); one value drives both the sharpening and the encoder QP ramp. The native range is -128 to 127; the slider covers the tested band.\n\nValue: streamFrame.nvencQpFovea + nvencQpPeriphery (settings.json). Encoder side: per-block QP offsets that move bits to the gaze tile."),
   reset: { can: settings.nvencQpFovea != 0 || settings.nvencQpPeriphery != 0, on: () => { settings.nvencQpFovea = 0; settings.nvencQpPeriphery = 0; save(); } }
                 }));
                 parts.push(settingFieldRow('streamFrame.postPack.limitedRange', html`
       <app-switch .checked=${!!settings.postPack.limitedRange} ?disabled=${nvencGone && !settings.postPack.limitedRange} @change=${(e: CustomEvent) => { settings.postPack.limitedRange = e.detail; settings.postPack.enable = settings.postPack.enable || settings.postPack.limitedRange; save(); }}></app-switch>
                 `, {
-  tip: t("Correct a mismatch between full-range and limited-range video levels. Off by default; turn it on only if the headset shows washed-out blacks or crushed shadows. The reset arrow restores Off; it requires the NVIDIA encoder adjustment path.\n\nSteam Link produces full-range video; the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the Galaxy XR client (xrvst2ue). Needs the NVENC Tap. Additionally requires Image Enhancements on; with them off this is saved but not applied.\n\nValue: streamFrame.postPack.limitedRange (settings.json). Encoder + client sides — remaps luma to 16-235 and tags the stream limited range."),
+  tip: t("Fixes washed-out blacks or crushed shadows caused by a full-range and limited-range mismatch. Off by default; turn it on only if the headset shows that symptom, because it needs the NVIDIA encoder adjustment path. The reset arrow restores Off.\n\nSteam Link produces full-range video, but the Galaxy XR client handles full-range imperfectly and lifts the 'black floor'. This remaps luma to 16-235 and chroma to 16-240 on the packed frame and tags the stream as limited range, so the headset expands it on its standard path. Measured to fix the black floor with the Galaxy XR client (xrvst2ue). Needs the NVENC Tap. It also needs Image Enhancements on; with them off it is saved but not applied.\n\nValue: streamFrame.postPack.limitedRange (settings.json). Encoder and client sides: remaps luma to 16-235 and tags the stream limited range."),
   reset: { can: settings.postPack.limitedRange != false, on: () => { settings.postPack.limitedRange = false; save(); } }
                 }));
 
@@ -1168,28 +1168,28 @@ if (sections.graveyard) {
 parts.push(settingFieldRow('streamFrame.eyeGaze.probeCapture', html`
       <app-switch .checked=${!!settings.eyeGaze.probeCapture} @change=${(e: CustomEvent) => { settings.eyeGaze.probeCapture = e.detail; save(); }}></app-switch>
             `, {
-  tip: "Use a controlled comparison preset for measuring image movement. This changes a group of calibration settings; it is not intended for normal play.\n\nOne switch for an A/B scoring run: acts as Fixation Dot + Swim Probe logging + Warped Overlays together, in the right combination, so nothing can be toggled in the wrong order. Procedure: face forward, flip this on (the dot latches ahead), fixate the dot, rotate your head slowly for 60-90s sweeping it around, flip off, save vrserver.txt. Do one run with the profile off (gain 0) and one with it on, then compare with swimprobe_score.py."
+  tip: t("Runs a controlled comparison for measuring image movement. It changes a group of calibration settings at once and is not intended for normal play.\n\nIt is one switch for an A/B scoring run: Fixation Dot + Swim Probe logging + Warped Overlays together, in the right combination, so nothing can be toggled in the wrong order. Procedure: face forward, turn this on (the dot latches ahead), fixate the dot, rotate your head slowly for 60-90 s while sweeping it around, turn it off, save vrserver.txt. Do one run with the profile off (gain 0) and one with it on, then compare with swimprobe_score.py.")
             }));
 parts.push(settingFieldRow('streamFrame.skipColorWhileDashboardOpen', html`
       <app-switch .checked=${!!settings.skipColorWhileDashboardOpen} @change=${(e: CustomEvent) => { settings.skipColorWhileDashboardOpen = e.detail; save(); }}></app-switch>
             `, {
-  tip: "Avoid applying color correction twice when the dashboard's custom shader is active. Choose one processing path for a fair comparison.\n\nOnly needed if the custom shader is also enabled with color adjustments: avoids applying them twice while the dashboard is open. Recommended setup for streamed headsets is custom shader off and this off.",
+  tip: t("Skips color processing while the dashboard's custom shader is open, so correction is not applied twice. You only need this if the custom shader is also enabled with color adjustments. The recommended setup for streamed headsets is custom shader off and this off."),
   reset: { can: settings.skipColorWhileDashboardOpen != defaults.skipColorWhileDashboardOpen, on: () => { galaxy.reset('skipColorWhileDashboardOpen'); } }
             }));
 parts.push(settingFieldRow('streamFrame.eyeGaze.calibDot', html`
       <app-switch .checked=${!!settings.eyeGaze.calibDot} @change=${(e: CustomEvent) => { settings.eyeGaze.calibDot = e.detail; save(); }}></app-switch>
             `, {
-  tip: "Show a target fixed in the virtual world for gaze and lens-correction tests. Follow the target as directed by the measurement workflow.\n\nDraws a world-locked cyan dot, latched to your view direction the moment it's enabled (toggle off and on to re-center it). Stare at the dot and slowly ROTATE your head in place - don't translate, the dot is at infinity. With the gaze ring on, the red ring should stay centered on the dot. This is the fixation target for swim probe data collection."
+  tip: t("Show a cyan dot fixed in the virtual world for gaze and lens-correction tests.\n\nIt latches to your view direction the moment you enable it; toggle it off and on to re-center it. Stare at the dot and slowly rotate your head in place. Do not move your position; the dot sits at infinity. With the gaze ring on, the red ring should stay centered on the dot. This is the fixation target for swim probe data collection.")
             }));
 parts.push(settingFieldRow('streamFrame.eyeGaze.swimProbe', html`
       <app-switch .checked=${!!settings.eyeGaze.swimProbe} @change=${(e: CustomEvent) => { settings.eyeGaze.swimProbe = e.detail; save(); }}></app-switch>
             `, {
-  tip: "Record data for measuring image movement as your eyes or head move. Use the probe with the matching calibration tools.\n\nWhile the fixation dot is on, writes throttled SwimProbe lines to vrserver.txt: gaze-vs-dot angular residual (raw and smoothed), head angular velocity, gaze sample age, and per-eye lens UVs of both. This is the raw data for empirical distortion / pupil swim calibration. Leave off when not collecting."
+  tip: t("Records the data used to measure image movement as your eyes or head move. Use it together with the fixation dot and the matching calibration tools.\n\nWhile the fixation dot is on, it writes throttled SwimProbe lines to vrserver.txt: the gaze-vs-dot angular residual (raw and smoothed), head angular velocity, gaze sample age, and the per-eye lens UVs of both. This is the raw data for empirical distortion and pupil swim calibration. Leave it off when you are not collecting.")
             }));
 parts.push(fieldRow(t('Black Floor: Range Remap'), html`
       <app-select .value=${settings.blackFloor.rangeMode} .options=${[{ value: 'off', label: 'Off' }, { value: 'compress', label: 'Compress (fix crushed blacks below code 16)' }, { value: 'expand', label: 'Expand (fix grey blacks / clipped whites)' }]} @change=${(e: CustomEvent) => { settings.blackFloor.rangeMode = e.detail; save(); }}></app-select>
             `, {
-  tip: "Adjust video black levels to diagnose a range mismatch. Incorrect compression or expansion can wash out blacks or erase shadow detail.\n\nFix for a full-vs-limited video range mismatch in the stream chain. Compress: pre-maps into limited range (16-235) before encode - the fix when the first ~8 ramp patches are indistinguishable black (display decoding full as limited). Expand: the inverse - the fix when black looks grey and highlights clip. Leave off unless the ramp bar diagnosed one of the two."
+  tip: t("Fixes a full-vs-limited video range mismatch in the stream chain; it can also diagnose one. Compress pre-maps into limited range (16-235) before the encode. Use it when the first ~8 ramp patches are indistinguishable black, which means the display decodes full range as limited. Expand is the inverse; use it when black looks gray and highlights clip. Incorrect compression or expansion can wash out blacks or erase shadow detail, so leave it off unless the ramp bar diagnosed one of the two.")
             }));
 parts.push(settingFieldRow('streamFrame.blackFloor.shadowLift', html`
       <app-switch .checked=${!!settings.blackFloor.shadowLift} @change=${(e: CustomEvent) => { settings.blackFloor.shadowLift = e.detail; save(); }}></app-switch>
@@ -1198,9 +1198,9 @@ parts.push(settingFieldRow('streamFrame.blackFloor.shadowLift', html`
       <span>K</span>
       ${numberControl('streamFrame.blackFloor.kneeCode', { value: settings.blackFloor.kneeCode, ctx: controlContext, onCommit: value => { settings.blackFloor.kneeCode = value; save(); } })}
             `, {
-  tip: "Brighten the darkest visible shades. Use small values to reveal shadow detail without making black areas look gray.\n\nLifts the deepest shadows before encoding: values below the knee are remapped so black reaches the selected floor, while values above the knee are unchanged. This may make dark detail more visible, but cannot recreate detail already lost elsewhere in the pipeline. Floor 2 / knee 8 is a small starting adjustment. Check near-black test patches; excessive lifting can make blacks look gray."
+  tip: t("Brightens the darkest visible shades so you can see detail in shadows. Use small values.\n\nIt lifts the deepest shadows before encoding. Values below the knee are remapped so black reaches the selected floor; values above the knee are unchanged. Dark detail becomes more visible, but this cannot recreate detail already lost elsewhere in the pipeline. Floor 2 / knee 8 is a small starting adjustment. Check near-black test patches; too much lifting makes blacks look gray.")
             }));
-parts.push(fieldRow(t('Field-retired experiments - kept for reproducibility. Each lost a live test. Values here stay ACTIVE while hidden; re-test only if the transport fresh-rate materially improves.'), html`
+parts.push(fieldRow(t("Field-retired experiments, kept for reproducibility. Each lost a live test. Values here stay active while hidden; re-test only if the transport fresh rate materially improves."), html`
 
             `, {
   reset: { can: true, on: () => { galaxy.resetGraveyard(); } }
@@ -1210,31 +1210,31 @@ parts.push(fieldRow(t('Field-retired experiments - kept for reproducibility. Eac
 parts.push(settingFieldRow('streamFrame.zeroCopyV3', html`
       <app-switch .checked=${!!settings.zeroCopyV3} @change=${(e: CustomEvent) => { settings.zeroCopyV3 = e.detail; save(); }}></app-switch>
             `, {
-  tip: "Use an alternate texture-staging path for image processing. This is a performance and compatibility experiment, not a picture-quality control.\n\nPerformance: instead of writing the processed frame back into the layer, it is drawn into a shared shadow texture and the streamer's own per-frame staging copy is redirected to read it - roughly halving this driver's GPU memory traffic on top of Direct Render. Failure mode is benign: any miss ships one unprocessed frame (a brief ungraded flash), the same as a sync timeout skip. Test in a disposable session first: grep the log for 'zero-copy v3: redirect active' to confirm engagement, and 'passthrough' lines to see misses. Turn off if you see persistent unprocessed frames or flicker. Requires Image Enhancements on; with them off this is saved but not applied.",
+  tip: t("Roughly halves this driver's GPU memory traffic on top of Direct Render, using an alternate texture-staging path. This is a performance and compatibility experiment, not a picture-quality control.\n\nInstead of writing the processed frame back into the layer, the frame is drawn into a shared shadow texture and the streamer's own per-frame staging copy reads it. Failure is benign: any miss ships one unprocessed frame (a brief ungraded flash), the same as a sync timeout skip. Test in a disposable session first. Grep the log for 'zero-copy v3: redirect active' to confirm engagement, and 'passthrough' lines to see misses. Turn it off if you see persistent unprocessed frames or flicker. Requires Image Enhancements on; with them off it is saved but not applied."),
   reset: { can: settings.zeroCopyV3 != defaults.zeroCopyV3, on: () => { galaxy.reset('zeroCopyV3'); } }
             }));
 parts.push(fieldRow(t('NVENC (retired): AQ Strength'), html`
       ${numberControl('streamFrame.nvencAqStrength', { value: settings.nvencAqStrength, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.nvencAqStrength = value; save(); } })}
             `, {
-  tip: "Do not use spatial adaptive quantization for normal play in this build. It has caused encoder stalls in testing, and the driver's safety checks may reset it.\n\nDO NOT USE. Any spatial AQ, at any strength, makes nvEncEncodePicture block 4-6 ms per frame on these tall frames and trips the streamer's 10 ms watchdog (encoder resets, soft key frames, storms). No longer forced to 0; leave at 0 unless measuring.",
+  tip: t("Do not use spatial adaptive quantization for normal play in this build. It has caused encoder stalls in testing, and the driver's safety checks may reset it.\n\nAny spatial AQ, at any strength, makes nvEncEncodePicture block for 4 to 6 ms per frame on these tall frames. That trips the streamer's 10 ms watchdog and causes encoder resets, soft key frames and storms. It is no longer forced to 0. Leave it at 0 unless you are measuring."),
   reset: { can: settings.nvencAqStrength != defaults.nvencAqStrength, on: () => { galaxy.reset('nvencAqStrength'); } }
             }));
 parts.push(fieldRow(t('NVENC (retired): Max QP'), html`
       ${numberControl('streamFrame.nvencMaxQp', { value: settings.nvencMaxQp, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.nvencMaxQp = value; save(); } })}
             `, {
-  tip: t("Set the encoder's quantization constraint. This is an advanced quality/bandwidth constraint, not a simple quality slider.\n\nA quality floor can fight CBR and increase encoded frame sizes in complex scenes. VBV and keyframe ratios do not guarantee a hard encoded frame size limit."),
+  tip: t("Constrains the encoder's quantizer range. This is an advanced quality and bandwidth constraint, not a simple quality slider.\n\nA quality floor can fight CBR and increase encoded frame sizes in complex scenes. VBV and keyframe ratios do not guarantee a hard limit on encoded frame size."),
   reset: { can: settings.nvencMaxQp != defaults.nvencMaxQp, on: () => { galaxy.reset('nvencMaxQp'); } }
             }));
 parts.push(fieldRow(t('NVENC (retired): Min QP / Min QP intra'), html`
       ${numberControl('streamFrame.nvencMinQp', { value: settings.nvencMinQp, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.nvencMinQp = value; save(); } })}
       ${numberControl('streamFrame.nvencMinQpIntra', { value: settings.nvencMinQpIntra, ctx: controlContext, disabled: nvencGone, onCommit: value => { settings.nvencMinQpIntra = value; save(); } })}
             `, {
-  tip: t("Request a lower quantizer bound for P/B pictures and, separately, intra pictures. A higher bound can reduce quality and encoded size where supported by the selected codec and rate-control mode.\n\nThis request is not a hard encoded-output size limit. Validate its actual effect on the running encoder.")
+  tip: t("Requests a floor for the quantizer on P/B pictures and, separately, on intra pictures. Where the selected codec and rate-control mode support it, a higher bound reduces encoded size but also quality.\n\nThis is not a hard limit on encoded output size. Validate the actual effect on the running encoder.")
             }));
 parts.push(settingFieldRow('streamFrame.nvencPresetMerge', html`
       <app-switch .checked=${!!settings.nvencPresetMerge} ?disabled=${nvencGone} @change=${(e: CustomEvent) => { settings.nvencPresetMerge = e.detail; save(); }}></app-switch>
             `, {
-  tip: t("Preset merge adopts canonical preset settings. Explicit multipass and H.264 controls below remain authoritative. Automatic multipass uses the tested H.264 single-pass default or the HEVC/AV1 preset recommendation.\n\nValue: streamFrame.nvencPresetMerge (settings.json). Encoder side — preset merge adoption on encoder session setup; the H.264 multipass adoption stays 0."),
+  tip: t("Adopts the canonical NVENC preset settings on the session. Explicit multipass and the H.264 controls below remain authoritative. Automatic multipass uses the tested H.264 single-pass default, or the HEVC/AV1 preset recommendation.\n\nValue: streamFrame.nvencPresetMerge (settings.json). Encoder side: preset merge adoption on encoder session setup; the H.264 multipass adoption stays 0."),
   reset: { can: settings.nvencPresetMerge != defaults.nvencPresetMerge, on: () => { galaxy.reset('nvencPresetMerge'); } }
             }));
 parts.push(fieldRow(t('NVENC (retired): VUI Full Range'), html`
@@ -1246,7 +1246,7 @@ parts.push(fieldRow(t('NVENC (retired): VUI Full Range'), html`
             `, {
   noticeKey: 'streamFrame.nvencVuiFullRange',
   ctx: controlContext,
-  tip: "Override video color-range metadata. Leave automatic unless diagnosing a known mismatch; incompatible client handling can darken the image.\n\n-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated - the client mishandles explicit tags, so these stay inert until the APK changes. A full-range value conflicting with active post-pack limited-range output is refused visibly in the driver log and the Stream Frame evidence row."
+  tip: t("Overrides the video color-range metadata. Leave it automatic unless you are diagnosing a known mismatch.\n\n-1 leaves the streamer's tags. The correct BT.709 tags (1/1/1) make the client render dim and saturated, because the client mishandles explicit tags, so these stay inert until the APK changes. A full-range value conflicting with active post-pack limited-range output is refused visibly in the driver log and the Stream Frame evidence row.")
             }));
 parts.push(fieldRow(t('NVENC (retired): VUI Matrix'), html`
       ${choiceControl('streamFrame.nvencVuiMatrix', {
@@ -1257,7 +1257,7 @@ parts.push(fieldRow(t('NVENC (retired): VUI Matrix'), html`
             `, {
   noticeKey: 'streamFrame.nvencVuiMatrix',
   ctx: controlContext,
-  tip: "Colour matrix coefficients written into the stream's VUI. -1 leaves the streamer's tag. HEVC/H.264 only; the AV1 path does not write these tags."
+  tip: t('Color matrix coefficients written into the stream\'s VUI. -1 leaves the streamer\'s tag. HEVC/H.264 only; the AV1 path does not write these tags.'),
             }));
 parts.push(fieldRow(t('NVENC (retired): VUI Primaries'), html`
       ${choiceControl('streamFrame.nvencVuiPrimaries', {
@@ -1268,7 +1268,7 @@ parts.push(fieldRow(t('NVENC (retired): VUI Primaries'), html`
             `, {
   noticeKey: 'streamFrame.nvencVuiPrimaries',
   ctx: controlContext,
-  tip: "Colour primaries written into the stream's VUI. -1 leaves the streamer's tag. HEVC/H.264 only; the client mishandles explicit tags."
+  tip: t('Color primaries written into the stream\'s VUI. -1 leaves the streamer\'s tag. HEVC/H.264 only; the client mishandles explicit tags.'),
             }));
 parts.push(fieldRow(t('NVENC (retired): VUI Transfer'), html`
       ${choiceControl('streamFrame.nvencVuiTransfer', {
@@ -1279,19 +1279,19 @@ parts.push(fieldRow(t('NVENC (retired): VUI Transfer'), html`
             `, {
   noticeKey: 'streamFrame.nvencVuiTransfer',
   ctx: controlContext,
-  tip: "Transfer characteristics written into the stream's VUI. -1 leaves the streamer's tag. HEVC/H.264 only; the client mishandles explicit tags."
+  tip: t('Color transfer characteristics written into the stream\'s VUI. -1 leaves the streamer\'s tag. HEVC/H.264 only; the client mishandles explicit tags.'),
             }));
 parts.push(fieldRow(t('vrlink (retired): Encode Width'), html`
       ${numberControl('galaxyXr.customEncodeWidth', { value: galaxyXr.customEncodeWidth ?? 3072, ctx: controlContext, onCommit: value => { galaxyXr.customEncodeWidth = value; save(); } })}
             `, {
-  tip: "Compatibility value for encoder width. It does not control the actual tile width in the current foveated streaming path.\n\nNo observable effect in foveated mode (the streamer's sampling shader never reads it); written as 3072 for compatibility.",
+  tip: t("Holds a compatibility value for encoder width. It does nothing in the current foveated streaming path: the streamer's sampling shader never reads it, so there is no observable effect in foveated mode. It is written as 3072 for compatibility."),
   reset: { can: galaxyXr.customEncodeWidth != 3072, on: () => { galaxyXr.customEncodeWidth = 3072; save(); } }
             }));
 parts.push(fieldRow(t('vrlink (retired): Max Video Queue Latency (us) / Backoff Recovery Coefficient'), html`
       ${numberControl('galaxyXr.vrlinkMaxVideoQueueLatencyUs', { value: galaxyXr.vrlinkMaxVideoQueueLatencyUs ?? 0, ctx: controlContext, onCommit: value => { galaxyXr.vrlinkMaxVideoQueueLatencyUs = value; save(); } })}
       ${numberControl('galaxyXr.vrlinkBackoffRecoveryCoefficient', { value: galaxyXr.vrlinkBackoffRecoveryCoefficient ?? 0, ctx: controlContext, onCommit: value => { galaxyXr.vrlinkBackoffRecoveryCoefficient = value; save(); } })}
             `, {
-  tip: "Test undocumented Steam Link settings. 0 or the default value leaves the override unused; there is no guarantee that a particular client reads these keys.\n\nUndocumented streamer keys found in driver_vrlink.dll. No measurable effect in A/B (V1/V2). 0 leaves the streamer's defaults."
+  tip: t("Holds two undocumented Steam Link keys for testing. 0 or the default value leaves the override unused, and there is no guarantee that a particular client reads these keys.\n\nThe keys were found in driver_vrlink.dll. A/B testing showed no measurable effect (V1/V2); 0 leaves the streamer's defaults."),
             }));
 parts.push(fieldRow(t('Gaze FOV Tangents'), html`
       <span>X</span>
@@ -1299,7 +1299,7 @@ parts.push(fieldRow(t('Gaze FOV Tangents'), html`
       <span>Y</span>
       ${numberControl('streamFrame.eyeGaze.tanHalfFovY', { value: settings.eyeGaze.tanHalfFovY, ctx: controlContext, onCommit: value => { settings.eyeGaze.tanHalfFovY = value; save(); } })}
             `, {
-  tip: "Set the field-of-view values used to map eye gaze into the image. Incorrect values can misplace gaze-based correction.\n\nHalf-FOV tangents used to map gaze direction to screen position. 1.19 corresponds to ~100 degrees. If the ring moves too far for your gaze, increase; too little, decrease. Tune X with horizontal gaze, Y with vertical."
+  tip: t("Set the field of view used to map eye gaze into the image. Incorrect values misplace gaze-based correction.\n\nThe values are half-FOV tangents that map gaze direction to screen position. 1.19 corresponds to about 100 degrees. If the ring moves too far for your gaze, increase it; if it moves too little, decrease it. Tune X with horizontal gaze and Y with vertical."),
             }));
 }
 }
