@@ -93,6 +93,11 @@ private:
 	// SAME lineage is admitted again with fresh evidence (RebindHmd)
 	uint32_t lastObjectId = vr::k_unTrackedDeviceIndexInvalid;
 	uint32_t rearmObjectId = vr::k_unTrackedDeviceIndexInvalid;
+	// shared activation body. configLockHeld is true on the RunFrame re-arm
+	// path, where GalaxyXRDeviceProvider::RunFrame already holds
+	// driverConfigLock; locking it again there throws std::system_error from
+	// the non-recursive std::mutex and takes vrserver down.
+	void ActivateShim(uint32_t &unObjectId, vr::EVRInitError &returnValue, bool configLockHeld);
 	// write identity + icon properties; only touches values that differ
 	void ApplyIdentity();
 	void UpdateTrackingCapabilities();

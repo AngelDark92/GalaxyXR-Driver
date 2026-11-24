@@ -725,6 +725,11 @@ void GalaxyXRHmdShim::PosDisplayComponentGetRecommendedRenderTargetSize(uint32_t
 }
 
 void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInitError &returnValue){
+	// SteamVR's activation path: driverConfigLock is not held here.
+	ActivateShim(unObjectId, returnValue, false);
+}
+
+void GalaxyXRHmdShim::ActivateShim(uint32_t &unObjectId, vr::EVRInitError &returnValue, bool configLockHeld){
 	identityApplied = false;
 	iconPollFrames = 0;
 	ownershipReleased = false;
@@ -769,8 +774,12 @@ void GalaxyXRHmdShim::PosTrackedDeviceActivate(uint32_t &unObjectId, vr::EVRInit
 	ApplyStreamQualitySetting();
 	// 2026-09-19 SDR10 baseline: track the EFFECTIVE values (not the stored
 	// ones) so a baseline toggle re-applies the profile request even when
-	// the stored booleans do not change
-	const gxr::Sdr10BaselinePolicy baselinePolicy = ResolveSdr10PolicyLocked();
+	// the stored booleans do not change. On the RunFrame re-arm path the
+	// provider already holds driverConfigLock, so resolve directly there
+	// (same rule as the SDR10 resolve in GalaxyXRHmdShim::RunFrame).
+	const gxr::Sdr10BaselinePolicy baselinePolicy = configLockHeld
+		? gxr::ResolveSdr10Policy(driverConfig)
+		: ResolveSdr10PolicyLocked();
 	ApplyHeadsetProfileSetting(origModelNumber, baselinePolicy);
 	// 2026-09-25: explicit overrides must win after activation reapplies the
 	// normal profile/stream/geometry keys, just as they do during early init.
@@ -928,7 +937,8 @@ void GalaxyXRHmdShim::RunFrame(){
         rearmObjectId = vr::k_unTrackedDeviceIndexInvalid;
         vr::EVRInitError rearmError = vr::VRInitError_None;
         DriverLog("GalaxyXRHmdShim: device %u re-admitted with fresh evidence; re-arming", id);
-        PosTrackedDeviceActivate(id, rearmError);
+        // GalaxyXRDeviceProvider::RunFrame holds driverConfigLock around this call
+        ActivateShim(id, rearmError, true);
     }
     UpdateTrackingCapabilities();
     // vrlink can replace icon properties without delivering PropertyChanged.
