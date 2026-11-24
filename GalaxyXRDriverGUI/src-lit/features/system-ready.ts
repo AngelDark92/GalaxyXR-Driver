@@ -32,7 +32,7 @@ export class DriverTroubleshooter extends BasePage {
       .catch(error => console.error('Readiness check failed', error))
       .then(() => {
         this.wait = true;
-        // (2026-09-22) SteamVR detection keeps polling — it has no 'checking'
+        // (2026-09-22) SteamVR detection keeps polling: it has no 'checking'
         // state, so it cannot flicker the driver row. The driver-install check
         // is on-demand only (app start, "Check installation", install flow).
         if (!sds.steamVRinstalled()) sds.pullingSteamVRinstall.start();

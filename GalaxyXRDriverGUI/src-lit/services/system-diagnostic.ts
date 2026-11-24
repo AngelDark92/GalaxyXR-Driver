@@ -429,7 +429,7 @@ export class SystemDiagnosticService {
         installedSuccessfully = true;
         return true;
       } else {
-        await this.dialog.message(t('Driver files not valid'), t('the folder seems not include driver file, please check again'))
+        await this.dialog.message(t('Driver files not valid'), t('The folder does not seem to contain the driver files. Check the folder and try again.'))
         return false;
       }
     } catch (e) {

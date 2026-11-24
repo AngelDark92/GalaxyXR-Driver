@@ -27,8 +27,14 @@ function accessibleLabel(element: HTMLElement, explicit = ''): string {
 
 export const controlStyles = css`
   ${interactiveStyles}
+  /* Common boundary for every settings control: the host may shrink inside a
+     narrow row instead of forcing its preferred width on the field. Each
+     control keeps its own preferred widths, which only apply while they fit. */
   :host {
     display: inline-block;
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
   }
 `;
 
@@ -91,14 +97,19 @@ export interface AppSelectOption {
  */
 @customElement('app-select')
 export class AppSelect extends LitElement {
-  static styles = css`
+  static styles = [controlStyles, css`
     :host {
       display: inline-block;
       min-width: min(14rem, 100%);
       max-width: 100%;
     }
+    /* The preferred width lives on the dropdown's inline style; these bounds
+       let it and its host shrink with the row instead of overflowing it. */
     fluent-dropdown {
       width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
     }
     fluent-listbox { transform-origin: top center; }
     fluent-listbox:popover-open { animation: dropdown-in 120ms cubic-bezier(0.2, 0, 0, 1) both; }
@@ -109,7 +120,7 @@ export class AppSelect extends LitElement {
     @media (prefers-reduced-motion: reduce) {
       fluent-listbox:popover-open { animation: none; }
     }
-  `;
+  `];
 
   @property({ type: String }) value = '';
   @property({ attribute: false }) options: AppSelectOption[] = [];
@@ -201,7 +212,7 @@ export class AppSelect extends LitElement {
         title=${o.reason ?? ''}
         aria-description=${o.reason ?? nothing}
         ?selected=${String(o.value) === String(this.value)}
-      >${o.label}${o.disabled ? ' — ' + t('unavailable') : ''}</fluent-option>`)}</fluent-listbox></fluent-dropdown>`;
+      >${o.label}${o.disabled ? ': ' + t('unavailable') : ''}</fluent-option>`)}</fluent-listbox></fluent-dropdown>`;
   }
 }
 
@@ -215,8 +226,7 @@ export class AppSelect extends LitElement {
  */
 @customElement('app-choice')
 export class AppChoice extends LitElement {
-  static styles = css`
-    ${interactiveStyles}
+  static styles = [controlStyles, css`
     :host { display: inline-block; max-width: 100%; }
     .segmented {
       display: inline-flex;
@@ -248,7 +258,7 @@ export class AppChoice extends LitElement {
       position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
       overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
     }
-  `;
+  `];
 
   @property({ attribute: false }) options: AppSelectOption[] = [];
   @property({ attribute: false }) value: string | number = '';
@@ -272,7 +282,7 @@ export class AppChoice extends LitElement {
         ?disabled=${this.disabled}
         title=${option.reason ?? ''}
         @click=${() => this.select(option)}>${option.label}${option.disabled && option.reason
-          ? html`<span class="vh">${' — ' + option.reason}</span>` : nothing}</button>`)}
+          ? html`<span class="vh">${': ' + option.reason}</span>` : nothing}</button>`)}
     </div>`;
   }
 }
@@ -295,8 +305,7 @@ export interface VectorAxis {
  */
 @customElement('app-vector')
 export class AppVector extends LitElement {
-  static styles = css`
-    ${interactiveStyles}
+  static styles = [controlStyles, css`
     :host { display: block; max-width: 100%; }
     .vector {
       display: grid;
@@ -309,9 +318,9 @@ export class AppVector extends LitElement {
       color: var(--colorNeutralForeground3, #616161);
       font-size: 0.8rem;
       font-weight: 600;
-      letter-spacing: 0.02em;
+      letter-spacing: 0;
     }
-  `;
+  `];
 
   @property({ attribute: false }) axes: VectorAxis[] = [];
   @property({ attribute: false }) ctx?: ControlContext;
@@ -349,8 +358,7 @@ export class AppVector extends LitElement {
  */
 @customElement('app-number')
 export class AppNumber extends LitElement {
-  static styles = css`
-    ${interactiveStyles}
+  static styles = [controlStyles, css`
     :host {
       display: inline-flex;
       flex-direction: column;
@@ -361,9 +369,13 @@ export class AppNumber extends LitElement {
       position: relative;
       display: inline-flex;
       align-items: center;
+      min-width: 0;
+      max-width: 100%;
     }
     input {
       width: 6rem;
+      max-width: 100%;
+      min-width: 0;
       height: 1.8rem;
       padding: 0 0.4rem;
       font-size: 130%;
@@ -401,7 +413,7 @@ export class AppNumber extends LitElement {
       font-size: 0.8rem;
       line-height: 1.35;
     }
-  `;
+  `];
 
   @property({ type: Number }) value = 0;
   @property({ type: Number }) min = -Infinity;
@@ -571,8 +583,7 @@ export function sliderStepMarkerStyle(min: number, max: number, step: number): s
  */
 @customElement('app-slider')
 export class AppSlider extends LitElement {
-  static styles = css`
-    ${interactiveStyles}
+  static styles = [controlStyles, css`
     :host {
       display: inline-block;
       flex: 1 1 12rem;
@@ -580,12 +591,16 @@ export class AppSlider extends LitElement {
     }
     fluent-slider {
       width: 100%;
+      max-width: 100%;
+      /* Fluent's own :host sets a 120px minimum; the outer tree wins, so the
+         slider can follow a narrow row. */
+      min-width: 0;
       --thumb-size: 18px;
       --track-size: 6px;
       --track-color: var(--colorNeutralStroke1, #d1d1d1);
       --border-radius: 999px;
     }
-  `;
+  `];
 
   @property({ type: Number }) value = 0;
   @property({ type: Number }) min = 0;

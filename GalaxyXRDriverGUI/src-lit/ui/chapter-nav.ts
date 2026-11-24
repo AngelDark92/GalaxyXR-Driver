@@ -18,8 +18,8 @@ import { findOutlineItem, type ChapterView, type OutlineItem } from '../domain/p
 export class ChapterNav extends LitElement {
   static styles = css`
     :host {
-      --spine-width: 36px;
-      --rail-width: 210px;
+      --spine-width: 44px;
+      --rail-width: 224px;
       --nav-open-width: calc(var(--spine-width) + var(--rail-width));
       display: block;
       box-sizing: border-box;
@@ -27,7 +27,6 @@ export class ChapterNav extends LitElement {
       height: 100%;
       overflow: hidden;
       background: var(--colorNeutralBackground1);
-      border-inline-end: 1px solid var(--colorNeutralStroke2);
       color: var(--colorNeutralForeground1);
       transition: width 170ms cubic-bezier(0.2, 0, 0, 1);
     }
@@ -52,7 +51,10 @@ export class ChapterNav extends LitElement {
       gap: 10px;
       padding: 10px 0;
       background: var(--colorNeutralBackground2);
-      border-inline-end: 1px solid var(--colorNeutralStroke2);
+      /* 2026-11-23: an inset rule keeps the separator without consuming the
+         44px spine width, so the brand link and spine toggle are a full 44px
+         wide target instead of 43px. */
+      box-shadow: inset -1px 0 0 var(--colorNeutralStroke2);
     }
     .brand-link {
       flex: 0 0 auto;
@@ -60,6 +62,7 @@ export class ChapterNav extends LitElement {
       align-items: center;
       justify-content: center;
       width: 100%;
+      min-height: 44px;
       padding: 4px 0;
       border-radius: 4px;
       text-decoration: none;
@@ -70,6 +73,7 @@ export class ChapterNav extends LitElement {
     .spine-toggle {
       flex: 1;
       width: 100%;
+      min-height: 44px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -87,12 +91,13 @@ export class ChapterNav extends LitElement {
     .vertical-label {
       writing-mode: vertical-rl;
       transform: rotate(180deg);
-      font-size: 0.68rem;
-      font-weight: 700;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--colorNeutralForeground2);
     }
-    .spine-chevron { font-size: 1.05rem; line-height: 1; transition: transform 160ms ease; }
+    .spine-chevron { font-size: 1.05rem; line-height: 1; color: var(--colorNeutralForeground3); transition: transform 160ms ease; }
     .spine-chevron.open { transform: rotate(180deg); }
 
     .rail {
@@ -112,19 +117,21 @@ export class ChapterNav extends LitElement {
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      padding: 2px 6px 8px;
-      color: var(--colorNeutralForeground3);
-      font-size: 0.66rem;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
+      min-height: 44px;
+      padding: 0 0 6px 4px;
+      color: var(--colorNeutralForeground2);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
     }
     .rail-close {
-      width: 22px; height: 22px;
+      width: 44px; height: 44px;
+      flex: 0 0 44px;
       display: inline-flex; align-items: center; justify-content: center;
-      border: 0; border-radius: 4px; padding: 0;
+      border: 0; border-radius: 6px; padding: 0;
       background: transparent; color: inherit;
-      font: inherit; font-size: 1rem; line-height: 1; cursor: pointer;
+      font: inherit; font-size: 1.05rem; line-height: 1; cursor: pointer;
     }
     .rail-close:hover { background: var(--colorNeutralBackground1Hover); color: var(--colorNeutralForeground1); }
     .rail-close:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: 0; }
@@ -149,6 +156,7 @@ export class ChapterNav extends LitElement {
       color: var(--colorBrandForeground1);
       font-weight: 600;
     }
+    .chapter-row.active .chapter-link { font-weight: 600; }
     .chapter-row.active::before {
       content: '';
       position: absolute;
@@ -162,34 +170,36 @@ export class ChapterNav extends LitElement {
       min-width: 0;
       display: flex;
       align-items: center;
-      gap: 6px;
-      min-height: 42px;
+      gap: 8px;
+      min-height: 44px;
       box-sizing: border-box;
-      padding: 7px 34px 7px 16px;
+      padding: 8px 52px 8px 14px;
       border-radius: 6px;
       color: inherit;
       text-decoration: none;
-      font-size: 0.84rem;
-      line-height: 1.2;
+      font-size: 0.94rem;
+      font-weight: 500;
+      line-height: 1.3;
     }
     .chapter-link:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: -2px; }
     .chapter-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
     .chapter-disclosure {
       position: absolute;
       top: 50%;
-      right: 4px;
-      width: 24px;
-      height: 24px;
+      right: 0;
+      width: 44px;
+      height: 44px;
       display: flex;
       align-items: center;
       justify-content: center;
       transform: translateY(-50%);
       border: 0;
-      border-radius: 4px;
+      border-radius: 6px;
       padding: 0;
       background: transparent;
       color: var(--colorNeutralForeground3);
       font: inherit;
+      font-size: 1.1rem;
       cursor: pointer;
       z-index: 1;
     }
@@ -207,20 +217,20 @@ export class ChapterNav extends LitElement {
     }
 
     .submenu {
-      margin: 4px 0 8px 6px;
-      padding: 8px;
+      margin: 4px 0 0;
+      padding: 6px;
       background: var(--colorNeutralBackground2, #fafafa);
       border: 1px solid var(--colorNeutralStroke2);
-      border-radius: 6px;
+      border-radius: 8px;
     }
     .submenu[hidden] { display: none; }
     .submenu-label {
-      padding: 1px 5px 7px;
+      padding: 2px 6px 6px;
       color: var(--colorNeutralForeground2);
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
       user-select: none;
     }
     .outline {
@@ -234,45 +244,47 @@ export class ChapterNav extends LitElement {
       border-inline-start: 1px solid var(--colorNeutralStroke2);
     }
     .outline-link {
-      display: block;
-      padding: 6px 7px;
-      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      min-height: 44px;
+      padding: 8px;
+      border-radius: 6px;
       color: var(--colorNeutralForeground2);
       text-decoration: none;
-      font-size: 0.84rem;
-      font-weight: 500;
-      line-height: 1.3;
+      font-size: 0.92rem;
+      font-weight: 400;
+      line-height: 1.35;
       overflow-wrap: anywhere;
     }
     .outline > li > .outline-link {
       color: var(--colorNeutralForeground1);
-      font-weight: 600;
+      font-weight: 500;
     }
     .outline-link.group,
     .outline > li > .outline-link.group,
     .outline .outline .outline-link.group {
       color: var(--colorNeutralForeground1);
-      font-weight: 700;
-      font-size: 0.86rem;
+      font-weight: 600;
+      font-size: 0.92rem;
     }
-    .outline .outline .outline-link { font-size: 0.84rem; }
+    .outline .outline .outline-link { font-size: 0.9rem; }
     .outline-link:hover { background: var(--colorNeutralBackground1Hover); }
     .outline-link:focus-visible { outline: 2px solid var(--colorBrandStroke1); outline-offset: -2px; }
     .outline-link.active-path { color: var(--colorNeutralForeground1); font-weight: 600; }
-    .outline-link.group.active-path { font-weight: 700; }
+    .outline-link.group.active-path { font-weight: 600; }
     .outline-link.active {
-      padding-left: 9px;
+      padding-left: 10px;
       color: var(--colorBrandForeground1);
       background: var(--colorNeutralBackground3);
       box-shadow: inset 2px 0 0 var(--colorBrandStroke1);
       font-weight: 600;
     }
-    .outline-link.group.active { font-weight: 700; }
+    .outline-link.group.active { font-weight: 600; }
     .empty {
       margin: 4px 7px;
       color: var(--colorNeutralForeground3);
-      font-size: 0.84rem;
-      line-height: 1.35;
+      font-size: 0.9rem;
+      line-height: 1.4;
     }
 
     .sr-only {
@@ -366,6 +378,26 @@ export class ChapterNav extends LitElement {
     }));
   };
 
+  /**
+   * Escape collapses the open section tree and returns focus to the disclosure
+   * that owns it. Scoped to the navigator frame on purpose: a keydown listener
+   * on document/window would also swallow Escape in settings rows and dialogs.
+   * Only unhandled Escape presses are taken.
+   */
+  private readonly onFrameKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+    if (this.busy || !this.open || !this.expandedRoute) return;
+    const route = this.expandedRoute;
+    event.preventDefault();
+    event.stopPropagation();
+    this.expandedRoute = undefined;
+    this.requestUpdate();
+    void this.updateComplete.then(() => {
+      this.renderRoot.querySelector<HTMLButtonElement>(`#sections-toggle-${route}`)
+        ?.focus({ preventScroll: true });
+    });
+  };
+
   private revealActiveSection(): void {
     const list = this.renderRoot.querySelector<HTMLElement>('.rail-list');
     const active = list?.querySelector<HTMLElement>('.submenu .outline-link.active');
@@ -443,7 +475,7 @@ export class ChapterNav extends LitElement {
   render() {
     const homeLabel = t('Go to {page}', { page: t(ROUTE_LABELS[this.homeRoute]) });
     return html`
-      <div class="frame">
+      <div class="frame" @keydown=${this.onFrameKeydown}>
         <div class="spine">
           <a class="brand-link" href=${`#/${this.homeRoute}`}
             aria-label=${homeLabel} title=${homeLabel}

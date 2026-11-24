@@ -1080,7 +1080,7 @@ export class GalaxySettingsBase {
     classic: 'Classic (legacy)',
     full: 'Full (legacy)',
     derive: 'Derive (legacy, retired)',
-    kalmanCAM: 'Kalman CA \u2014 Magnitude (retired)',
+    kalmanCAM: 'Kalman CA: Magnitude (retired)',
   };
   // a stored graveyarded mode still renders (as the sole extra option)
   // when the graveyard is hidden, so old configs never break

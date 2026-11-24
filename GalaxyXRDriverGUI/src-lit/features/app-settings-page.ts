@@ -134,7 +134,7 @@ export class AppSettingsPage extends BasePage {
           .disabled=${!installed || !known || galaxy.imageModeChanging() || busy}
           @change=${(e: CustomEvent<boolean>) => { void this.setImageEnhancements(e.detail, e.currentTarget as HTMLElement & { checked: boolean }); }}></app-switch>
       `, {
-        tip: t("Master switch for the color, sharpening and lens-correction tools. Off restores the neutral picture without changing your saved values.\n\nValue: streamFrame.enable (settings.json). Driver side — the effective color-processing gate.") }),
+        tip: t("Master switch for the color, sharpening and lens-correction tools. Off restores the neutral picture without changing your saved values.\n\nValue: streamFrame.enable (settings.json). Driver side: the effective color-processing gate.") }),
       ...(!installed ? [statusMessage('info', t('Install the driver to enable image controls'), t('Appearance and advanced preferences are available now.'),
         html`<a href="#/setup">${t('Open Setup')}</a>`)] : []),
       sectionHeading(t('Updates'), 0, 'app-updates'),
@@ -162,7 +162,7 @@ export class AppSettingsPage extends BasePage {
             control.checked = galaxy.debugMode;
             this.requestUpdate();
           }}></app-switch>
-      `, { tip: t('Show the Debug tab and allow its selected diagnostic overlays and logging. Turning this off stops diagnostic effects while keeping their saved selections. Black-point correction and encoder compatibility/rate tuning remain active. Requires a SteamVR restart and reconnect for the Steam Link debug overlay.') }),
+      `, { tip: t('Show the Debug tab and allow its selected diagnostic overlays and logging. Turning this off stops diagnostic effects while keeping their saved selections. Black-point correction and encoder compatibility/rate tuning remain active. Requires a SteamVR restart and reconnect for the Steam Link debug overlay.\n\nValue: debugMode (settings.json). Driver side: unlocks the Debug tab\'s diagnostics and the SteamVR-side Steam Link debug keys.') }),
     ];
     if (appSetting.values().advanceMode || this.revealAdvanced) {
       body.push(settingFieldRow('streamFrame.graveyardEnable', html`
@@ -187,7 +187,7 @@ export class AppSettingsPage extends BasePage {
           { value: 'replace', label: t('Replace') }, { value: 'rewrite', label: t('Rewrite') },
         ]} @change=${(e: CustomEvent) => save({ updateMode: e.detail as AppSetting['updateMode'] })}></app-select>
       `, {
-        tip: t("How the updater installs a new build of the Companion app.\n\nValue: updateMode (gui-settings.json). GUI-only preference.\n\nValue: debugMode (settings.json). Driver side — unlocks the Debug tab's diagnostics and the SteamVR-side Steam Link debug keys.") }));
+        tip: t("How the updater installs a new build of the Companion app.\n\nValue: updateMode (gui-settings.json). GUI-only preference.") }));
     }
     return this.sectionCardsFor(body);
   }

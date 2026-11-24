@@ -23,15 +23,15 @@ export class BitrateCurvePanel extends LitElement {
     canvas.editable { cursor: crosshair; }
     canvas:focus-visible { outline: 2px solid #5f9fdf; outline-offset: 2px; }
     canvas.locked { opacity: 0.75; }
-    .legend { display: flex; gap: 1rem; align-items: center; font-size: 0.85rem; opacity: 0.9; flex-wrap: wrap; }
+    .legend { display: flex; gap: 1rem; align-items: center; font-size: 0.85rem; color: var(--colorNeutralForeground2, #605e5c); flex-wrap: wrap; }
     .legend span.item { display: inline-flex; gap: 0.35rem; align-items: center; }
     .swatch { width: 18px; height: 0; border-top-width: 2px; border-top-style: solid; }
     .swatch.solid { border-color: #5f9fdf; }
     .swatch.base { border-top-width: 1px; border-color: rgba(95,159,223,0.55); }
     .swatch.dashed { border-top-style: dashed; border-color: rgba(128,128,128,0.9); }
     .swatch.max { border-top-width: 2px; border-color: #b07a2a; }
-    .hint { font-size: 0.8rem; opacity: 0.75; }
-    .error { color: #c42b1c; font-size: 0.8rem; }
+    .hint { font-size: 0.82rem; color: var(--colorNeutralForeground2, #605e5c); }
+    .error { color: var(--colorPaletteRedForeground1, #c42b1c); font-size: 0.82rem; }
     input, .error { -webkit-user-select: text; user-select: text; }
     .points {
       display: grid;
@@ -50,9 +50,9 @@ export class BitrateCurvePanel extends LitElement {
       padding: 0 0 0.35rem;
       border-bottom: 1px solid rgba(128,128,128,0.14);
     }
-    .point-row .index { align-self: center; opacity: 0.75; font-size: 0.8rem; }
-    .point-row label { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; font-size: 0.72rem; opacity: 0.9; }
-    .point-row input { width: 100%; min-width: 0; box-sizing: border-box; }
+    .point-row .index { align-self: center; color: var(--colorNeutralForeground2, #605e5c); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+    .point-row label { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; font-size: 0.78rem; color: var(--colorNeutralForeground2, #605e5c); }
+    .point-row input { width: 100%; min-width: 0; box-sizing: border-box; font-variant-numeric: tabular-nums; }
     .actions { display: flex; gap: 0.5rem; align-items: center; }
     button.reset { font: inherit; font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 4px; border: 1px solid rgba(128,128,128,0.5); background: transparent; color: inherit; }
     button.reset:disabled { opacity: 0.45; }
@@ -447,7 +447,7 @@ export class BitrateCurvePanel extends LitElement {
     const hint = this.locked
       ? t('Close SteamVR to change the curve.')
       : this.editable
-        ? t('P1 is fixed at request 0 with an editable floor. P2–P5 move freely. P6 starts the flat Max Bitrate section; drag it left to begin the plateau earlier. P7 is the fixed endpoint and cannot be selected. Request must increase left-to-right and target must never decrease. The thin line shows the base curve before constancy and headroom.')
+        ? t('P1 sits at request 0 with an editable floor value. P2 to P5 move freely. P6 sets where the flat Max Bitrate section starts; drag it left to begin the plateau earlier. P7 is the fixed endpoint and cannot be selected. Request must increase left to right, and target must never decrease. The thin line shows the base curve before constancy and headroom are applied.')
         : '';
     const policyHint = this.forceCbr
       ? t('Force CBR pins the applied average to Max Bitrate. The saved curve, constancy and headroom are kept but not shown here.')
@@ -464,14 +464,14 @@ export class BitrateCurvePanel extends LitElement {
           @pointerup=${this.onPointerUp} @pointercancel=${this.onPointerUp}
           @keydown=${this.onKeyDown}></canvas>
         <div class="legend">
-          <span class="item"><span class="swatch solid"></span>${this.forceCbr ? t('Fixed Max Bitrate target (CBR)') : t('Final average target') + ' — ' + familyLabel + ', ' + this.pct + '%'}</span>
+          <span class="item"><span class="swatch solid"></span>${this.forceCbr ? t('Fixed Max Bitrate target (CBR)') : `${t('Final average target')}: ${familyLabel}, ${this.pct}%`}</span>
           <span class="item"><span class="swatch base"></span>${t('Base curve (points)')}</span>
           <span class="item"><span class="swatch dashed"></span>${t('Streamer standard (linear)')}</span>
           <span class="item"><span class="swatch max"></span>${t('Max Bitrate {value} Mbit/s', { value: String(Math.round(this.ceiling)) })}</span>
         </div>
         ${hint ? html`<div class="hint">${hint}</div>` : ''}
         ${policyHint ? html`<div class="hint">${policyHint}</div>` : ''}
-        <div class="hint">${t('Positive-request, steady-state targets only; not measured throughput. The five-frame request filter and the zero or missing request fallback are not shown.')}</div>
+        <div class="hint">${t('The graph shows steady-state targets for positive requests, not measured throughput. The five-frame request filter and the zero or missing request fallback are not shown.')}</div>
         ${this.inputError ? html`<p class="error" role="alert">${this.inputError}</p>` : ''}
         ${this.editable ? html`
           <div class="points">

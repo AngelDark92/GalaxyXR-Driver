@@ -4,9 +4,14 @@ import { describe, expect, it } from 'vitest';
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
 describe('row-owned notices', () => {
-  it('renders a full-width notice stack with a divider inside the field card', () => {
+  it('renders full-width notices after the control and optional description', () => {
     const base = read('./page-base.ts');
-    expect(base).toContain('Auto-placement keeps the stack in row 2');
+    const controlAt = base.indexOf('<div class="control ${opts?.wide');
+    const descriptionAt = base.indexOf('class="row-description"');
+    const noticesAt = base.indexOf('<div class="field-notices"');
+    expect(controlAt).toBeGreaterThanOrEqual(0);
+    expect(descriptionAt).toBeGreaterThan(controlAt);
+    expect(noticesAt).toBeGreaterThan(descriptionAt);
     expect(base).toContain('.field-notices {');
     expect(base).toContain('grid-column: 1 / -1;');
     expect(base).toContain('border-top: 1px solid var(--colorNeutralStroke2');

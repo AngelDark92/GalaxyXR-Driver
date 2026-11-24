@@ -19,16 +19,16 @@ export class SetupPage extends BasePage {
     :host { display: block; padding: 0 1rem 2rem; }
     .step-grid, .maintenance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .step-card, .action-card { border: 1px solid var(--colorNeutralStroke2); border-radius: 8px; padding: 20px; background: var(--colorNeutralBackground1); min-width: 0; }
-    .step-card h3, .action-card h3 { margin: 0; font-size: 16px; }
+    .step-card h3, .action-card h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
     .step-card p, .action-card p { color: var(--colorNeutralForeground2); line-height: 1.5; }
     .step-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
     .setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
     .check-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
     .check-toolbar p { margin: 4px 0; color: var(--colorNeutralForeground2); }
     .check-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
-    .secondary { color: var(--colorNeutralForeground2); font-size: 13px; }
+    .secondary { color: var(--colorNeutralForeground2); font-size: 0.85rem; }
     .check-table-scroll { overflow: auto; max-height: 32rem; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
     th, td { text-align: left; padding: 12px; border-bottom: 1px solid var(--colorNeutralStroke2); vertical-align: top; }
     th { position: sticky; top: 0; z-index: 1; background: var(--colorNeutralBackground2); font-weight: 600; }
     .location { min-width: 15rem; line-height: 1.7; }
@@ -81,7 +81,7 @@ export class SetupPage extends BasePage {
               ${installed ? t('Installed') : sds.driverState() === 'checking' ? t('Checking…') : sds.driverState() === 'unknown' ? t('Unknown') : t('Not installed')}
             </fluent-badge>
           </div>
-          <p>${installed ? t('Updates keep your saved settings.') : t('Install the driver to unlock headset and image settings.')}</p>
+          <p>${installed ? t('Updates keep your saved settings.') : t('Install the driver to enable headset and image settings.')}</p>
           <p><strong>${t('Installed Driver Version')}:</strong> ${version ?? '—'}</p>
           ${sds.driverCheckError() ? statusMessage('error', t('Installation could not be verified'), t('Check the installation again to retry.')) : nothing}
           <div class="setup-actions">
@@ -133,7 +133,7 @@ export class SetupPage extends BasePage {
         <span slot="heading">${t('Runtime tools and details')}</span>
         ${fieldRow(t('Restart Compositor'), html`<fluent-button ?disabled=${busy || !installed}
           @click=${() => sds.restartCompositor()}>${t('Restart Compositor')}</fluent-button>`, {
-          tip: t("Restart SteamVR's display process to try to fix display problems without closing the game. Your headset view may briefly disappear; save anything important first.\n\nRestarting the compositor can fix some issues and allows changing various settings like refresh rate without restarting SteamVR or the game."),
+          tip: t("Restart SteamVR's display process to fix some display problems without closing the game. Restarting can also apply settings such as the refresh rate without restarting SteamVR or the game. Your headset view may briefly disappear; save anything important first."),
         })}
         <p class="secondary"><strong>${t('Last reported driver version (not live verification)')}:</strong> ${dis.values()?.driverVersion ?? t('No runtime information')}</p>
         ${sds.driverVersionMismatch() ? statusMessage('warning', t('Version mismatch'), t('Restart SteamVR to load the installed driver version.')) : nothing}

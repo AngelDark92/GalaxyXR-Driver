@@ -34,8 +34,8 @@ export class AboutPage extends BasePage {
     .brand-copy { min-width: 0; }
     .brand-copy h2 { margin: 0 0 8px; font-size: 1.75rem; line-height: 1.2; font-weight: 600; letter-spacing: -0.025em; }
     .brand-copy p { margin: 8px 0 0; max-width: 62ch; color: var(--colorNeutralForeground2); line-height: 1.5; }
-    .section-card { border-inline-start-width: 1px; border-radius: 10px; overflow: hidden; }
-    .section-card > .card-heading .section-title { background: var(--colorNeutralBackground1); font-size: 1rem; font-weight: 600; padding: 14px 18px; }
+    .section-card { border-radius: 10px; }
+    .section-card > .card-heading .section-title { background: var(--colorNeutralBackground3); font-size: 1.02rem; font-weight: 600; padding: 14px 18px; }
     .section-body { padding: 0 18px 18px; }
     .version-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
       padding: 16px; border-radius: 8px; background: var(--colorNeutralBackground2); }

@@ -219,7 +219,7 @@
         <target state="translated">驅動程式檔案無效</target>
       </trans-unit>
       <trans-unit id="5010152287347780808" datatype="html">
-        <source>the folder seems not include driver file, please check again</source>
+        <source>The folder does not seem to contain the driver files. Check the folder and try again.</source>
         <target state="translated">資料夾似乎不包含驅動程式檔案，請重新檢查。</target>
       </trans-unit>
       <trans-unit id="7625955582398874896" datatype="html">

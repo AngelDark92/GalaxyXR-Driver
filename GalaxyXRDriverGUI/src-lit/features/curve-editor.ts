@@ -425,7 +425,7 @@ export class StreamFrameCurve extends LitElement {
         <span class="hint">
           ${mode === 'spline'
             ? t('Drag points to shape the curve. Double click adds a point, right click removes one.')
-            : t('k1/k2 mode: adjust the values below the plot. Convert to spline for per radius control.')}
+            : t('k1/k2 mode: adjust the values below the plot. Convert to spline for control at each radius.')}
         </span>
         <select class="range-select"
           .value=${String(this.scaleRange())}

@@ -6,6 +6,24 @@ New release entries are generated from commits on `main` and `dev`: `fix:` bumps
 version, `feat:` bumps the minor version, and `rework:` bumps the major version. See
 [the release workflow guide](Docs/Galaxy-XR-Companion/GITHUB-ACTIONS-RELEASE.md).
 
+## [2.3.0-dev.3] - 2026-11-24
+
+### Fixes
+
+- driver: avoid driverConfigLock re-entry on HMD re-arm (`dd60a02`)
+
+## [2.3.0-dev.2] - 2026-11-23
+
+### Fixes
+
+- companion: rewrite help text in plain language (`02e5156`)
+
+## [2.3.0-dev.1] - 2026-11-23
+
+### Features
+
+- companion: refresh settings UI layout and navigation (`d1dc0fd`)
+
 ## [2.2.0] - 2026-11-17
 
 ### Features

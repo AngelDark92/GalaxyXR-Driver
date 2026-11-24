@@ -12,6 +12,12 @@ const { chromium } = require('playwright');
 const repo = path.resolve(__dirname, '..');
 const dist = path.join(repo, '../builds/GalaxyXR-Driver/gui/dist/fluent');
 const out = process.env.COMPANION_BROWSER_OUTPUT || path.join(repo, '../builds/GalaxyXR-Driver/build/companion-ui-validation');
+// Default is the supported maximum: native 150% UI scale maps to zoom 1.35.
+// Set 2 only for the unsupported 200% stress diagnostic.
+const refreshZoom = Number(process.env.COMPANION_BROWSER_REFRESH_ZOOM || 1.35);
+if (!Number.isFinite(refreshZoom) || refreshZoom <= 0) throw new Error('COMPANION_BROWSER_REFRESH_ZOOM must be a positive finite number');
+const refreshZoomPercent = Math.round(refreshZoom * 100);
+const refreshZoomTag = String(refreshZoomPercent);
 fs.mkdirSync(out, { recursive: true });
 
 function fixture() {
@@ -56,7 +62,8 @@ function fixture() {
   window.__qa = { files, calls, data, github, writes, pendingWrites, holdWrites: {},
     writeErrors: JSON.parse(sessionStorage.getItem('qa-write-errors') || '{}'),
     releaseWrites() { this.holdWrites = {}; for (const pending of pendingWrites.splice(0)) pending.resolve(); },
-    openerError: '', runtime: null, holdRuntime: false, pendingRuntime: [], releaseGithub() {
+    openerError: '', runtime: null, holdRuntime: false, pendingRuntime: [],
+    requestedZoom: null, emulateNativeZoom: false, releaseGithub() {
     github.hold = false;
     for (const release of github.pending.splice(0)) release();
   } };
@@ -102,7 +109,12 @@ function fixture() {
           registeredPath: args.enabled ? 'C:\\Companion\\Galaxy XR Companion.exe' : null };
         return structuredClone(window.__qa.windowsStartup);
       }
-      if (command === 'plugin:event|unlisten' || command === 'sync_companion_lifecycle' || command === 'set_webview_zoom') return;
+      if (command === 'set_webview_zoom') {
+        window.__qa.requestedZoom = args.scale;
+        if (window.__qa.emulateNativeZoom) document.documentElement.style.zoom = String(args.scale);
+        return;
+      }
+      if (command === 'plugin:event|unlisten' || command === 'sync_companion_lifecycle') return;
       if (command === 'ofxr_status') return ofxrStatus();
       if (command === 'ofxr_arm') {
         const error = sessionStorage.getItem('qa-ofxr-error');
@@ -186,6 +198,14 @@ function fixture() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   let browser, page;
   const results = [];
+  const validationMetrics = {
+    hitTargets: [], contrast: [], layouts: [],
+    coverage: {
+      contrast: 'Computed RGB(A) foregrounds over composited solid ancestor backgrounds and the themed Canvas fallback; text 4.5:1, sampled control icons/focus outlines 3:1.',
+      contrastExclusions: 'Disabled controls and empty/hidden text are excluded. Opacity, gradients and images are unsupported and fail the probe rather than producing a ratio. This is targeted coverage, not a full WCAG audit.',
+      reflow: `960x600 CSS-pixel viewport at 100%, plus rendered ${refreshZoomPercent}% zoom emulated with CSS zoom in the mocked native-zoom fixture. Not a live Tauri/WebView2 run.`,
+    },
+  };
   try {
     browser = await chromium.launch({ channel: process.env.COMPANION_BROWSER || 'msedge', headless: true });
     const context = await browser.newContext({ viewport: { width: 1100, height: 900 }, reducedMotion: 'reduce' });
@@ -221,6 +241,331 @@ function fixture() {
     const openRoute = async route => {
       await page.evaluate(route => { location.hash = '/' + route; }, route);
       await page.locator(`app-${route}-page`).getByRole('heading', { level: 1 }).waitFor();
+    };
+    const assertNavHitTargets = async label => {
+      const audit = await page.locator('app-chapter-nav').evaluate((nav, label) => {
+        const root = nav.shadowRoot;
+        const intersects = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        const rect = (element, name = element.id || element.className) => {
+          const box = element.getBoundingClientRect();
+          return { element, name, left: box.left, top: box.top, right: box.right, bottom: box.bottom,
+            width: box.width, height: box.height,
+            center: { x: box.left + box.width / 2, y: box.top + box.height / 2 } };
+        };
+        const spineWidth = root.querySelector('.spine').getBoundingClientRect().width;
+        const targets = [...root.querySelectorAll('.brand-link, .spine-toggle, .rail-close, .chapter-disclosure, .chapter-link')]
+          .filter(element => element.getClientRects().length).map(element => rect(element));
+        const overlaps = [], labelOverlaps = [], hitErrors = [];
+        for (let i = 0; i < targets.length; i++) for (let j = i + 1; j < targets.length; j++) {
+          const a = targets[i], b = targets[j];
+          // The approved disclosure intentionally overlays the link's reserved
+          // 52px padding. Its label and actual hit target are checked below.
+          const intentionalLayer = a.element.closest('.chapter-row') === b.element.closest('.chapter-row')
+            && [a.element, b.element].some(element => element.matches('.chapter-disclosure'))
+            && [a.element, b.element].some(element => element.matches('.chapter-link'));
+          if (!intentionalLayer && intersects(a, b)) overlaps.push([a.name, b.name]);
+        }
+        for (const target of targets) {
+          const hitTest = (hitRect, expectedSelector, expected, part) => {
+            const { x, y } = hitRect.center;
+            const clip = (target.element.closest('.rail-list') || target.element.closest('.spine') || target.element.closest('.rail'))
+              ?.getBoundingClientRect();
+            const inside = x >= 0 && x < innerWidth && y >= 0 && y < innerHeight
+              && (!clip || (x >= clip.left && x < clip.right && y >= clip.top && y < clip.bottom));
+            // A scrollable rail can legitimately place rows outside its current
+            // viewport. Measure their boxes, but hit-test only visible centers.
+            if (!inside) return;
+            const hit = root.elementFromPoint(x, y);
+            if (hit?.closest(expectedSelector) !== expected) {
+              hitErrors.push(`${target.name}: ${part} hit ${hit?.className || hit?.tagName || 'null'}`);
+            }
+          };
+          if (target.element.matches('.chapter-link')) {
+            const labelRect = rect(target.element.querySelector('.chapter-label'), target.name + ' label');
+            const disclosure = target.element.closest('.chapter-row').querySelector('.chapter-disclosure');
+            if (disclosure && intersects(labelRect, rect(disclosure))) labelOverlaps.push(target.name);
+            hitTest(labelRect, '.chapter-link', target.element, 'label');
+          } else {
+            hitTest(target, '.brand-link, .spine-toggle, .rail-close, .chapter-disclosure', target.element, 'center');
+          }
+        }
+        const publicTargets = targets.map(({ element, center, ...target }) => target);
+        return { label, spineWidth, targets: publicTargets, overlaps, labelOverlaps, hitErrors };
+      }, label);
+      assert.ok(audit.spineWidth > 0, `${label}: missing spine`);
+      assert.ok(audit.targets.length >= 4, `${label}: missing navigation targets`);
+      for (const target of audit.targets) {
+        assert.ok(target.width >= 43.99 && target.height >= 43.99,
+          `${label}: undersized ${target.name} ${target.width}x${target.height}`);
+      }
+      assert.deepEqual(audit.overlaps, [], `${label}: overlapping navigation hit boxes`);
+      assert.deepEqual(audit.labelOverlaps, [], `${label}: chapter label intersects disclosure`);
+      assert.deepEqual(audit.hitErrors, [], `${label}: navigation hit-test failure`);
+      validationMetrics.hitTargets.push(audit);
+    };
+    const assertDeepFocus = async (locator, label) => {
+      assert.ok(await locator.evaluate(element => {
+        let active = document.activeElement;
+        while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+        return active === element;
+      }), `${label}: focus did not return to the invoking control`);
+    };
+    const installContrastProbe = () => page.evaluate(() => {
+      if (window.__qaContrast) return;
+      const parse = text => {
+        if (text === 'transparent') return { r: 0, g: 0, b: 0, a: 0 };
+        const match = /^rgba?\(\s*([\d.]+)[, ]+\s*([\d.]+)[, ]+\s*([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/.exec(text);
+        if (!match) throw Error(`Unsupported computed color: ${text}`);
+        return { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]), a: match[4] === undefined ? 1 : Number(match[4]) };
+      };
+      const over = (top, bottom) => {
+        const a = top.a + bottom.a * (1 - top.a);
+        if (!a) return { r: 0, g: 0, b: 0, a: 0 };
+        const channel = key => (top[key] * top.a + bottom[key] * bottom.a * (1 - top.a)) / a;
+        return { r: channel('r'), g: channel('g'), b: channel('b'), a };
+      };
+      const parent = element => element.parentElement || element.getRootNode()?.host || null;
+      const name = element => `${element.tagName.toLowerCase()}${element.id ? '#' + element.id : ''}${element.classList.length ? '.' + [...element.classList].join('.') : ''}`;
+      const luminance = color => {
+        const channel = key => {
+          const value = color[key] / 255;
+          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * channel('r') + 0.7152 * channel('g') + 0.0722 * channel('b');
+      };
+      const rgb = color => `rgba(${[color.r, color.g, color.b, color.a].map(value => Number(value.toFixed(4))).join(',')})`;
+      const themedCanvas = () => {
+        const probe = document.createElement('span');
+        probe.style.cssText = 'position:fixed;visibility:hidden;background:Canvas';
+        document.body.appendChild(probe);
+        const color = parse(getComputedStyle(probe).backgroundColor);
+        probe.remove();
+        return color;
+      };
+      window.__qaContrast = {
+        measure(element, property, skipSelfBackground = false) {
+          const style = getComputedStyle(element);
+          let background = { r: 0, g: 0, b: 0, a: 0 };
+          const backgroundChain = [];
+          for (let node = skipSelfBackground ? parent(element) : element; node; node = parent(node)) {
+            const nodeStyle = getComputedStyle(node);
+            if (Number(nodeStyle.opacity) !== 1) throw Error(`Contrast probe does not cover opacity on ${name(node)}`);
+            if (nodeStyle.backgroundImage !== 'none') throw Error(`Contrast probe cannot cover gradient/image on ${name(node)}`);
+            const layer = parse(nodeStyle.backgroundColor);
+            if (layer.a) backgroundChain.push({ element: name(node), color: rgb(layer) });
+            background = over(background, layer);
+          }
+          let canvasFallback = false, canvas = null;
+          if (background.a < 1) {
+            canvasFallback = true;
+            canvas = themedCanvas();
+            background = over(background, canvas);
+          }
+          const foreground = over(parse(style[property]), background);
+          const lighter = Math.max(luminance(foreground), luminance(background));
+          const darker = Math.min(luminance(foreground), luminance(background));
+          return { property, foreground: rgb(foreground), background: rgb(background), backgroundChain,
+            canvas: canvas ? rgb(canvas) : null, canvasFallback, ratio: (lighter + 0.05) / (darker + 0.05) };
+        },
+      };
+    });
+    const auditContrast = async theme => {
+      await installContrastProbe();
+      const samples = await page.evaluate(theme => {
+        const specs = [
+          ['app-stream-frame-page', '.page-intro h1', 'primary text', 4.5],
+          ['app-stream-frame-page', '.page-intro p', 'secondary text', 4.5],
+          ['app-stream-frame-page', '.field .title > span', 'primary text', 4.5],
+          ['app-stream-frame-page', '.row-description', 'secondary text', 4.5],
+          ['app-stream-frame-page', '.field .note', 'secondary text', 4.5],
+          ['app-stream-frame-page', '.section-card > .card-heading .section-title', 'primary text', 4.5],
+          ['app-stream-frame-page', '.section-group-label', 'primary/secondary text', 4.5],
+          ['app-chapter-nav', '.vertical-label', 'secondary text', 4.5],
+          ['app-chapter-nav', '.rail-head', 'secondary text', 4.5],
+          ['app-chapter-nav', '.chapter-label', 'primary text', 4.5],
+          ['app-chapter-nav', '.outline-link', 'primary/secondary text', 4.5],
+          ['app-chapter-nav', '.rail-close', 'control icon', 3],
+          ['app-chapter-nav', '.chapter-disclosure', 'control icon', 3],
+        ];
+        const samples = [];
+        for (const [hostSelector, selector, role, threshold] of specs) {
+          const shell = document.querySelector('app-shell');
+          const host = shell?.shadowRoot?.querySelector(hostSelector);
+          if (!host?.shadowRoot) throw Error(`Missing contrast host ${hostSelector}`);
+          for (const element of host.shadowRoot.querySelectorAll(selector)) {
+            if (!element.getClientRects().length || !element.textContent.trim()
+              || element.matches(':disabled,[disabled],[aria-disabled="true"]')) continue;
+            samples.push({ theme, host: hostSelector, selector, role, threshold,
+              text: element.textContent.trim().replace(/\s+/g, ' ').slice(0, 120),
+              ...window.__qaContrast.measure(element, 'color') });
+          }
+        }
+        return samples;
+      }, theme);
+      assert.ok(samples.length > 0, `${theme}: no contrast samples`);
+      for (const sample of samples) {
+        assert.ok(sample.ratio + 1e-9 >= sample.threshold,
+          `${theme}: ${sample.role} ${sample.selector} ratio ${sample.ratio.toFixed(3)} < ${sample.threshold}: ${sample.text}`);
+      }
+      validationMetrics.contrast.push(...samples);
+    };
+    const auditFocusContrast = async (locator, theme, name) => {
+      await locator.focus();
+      // Keyboard modality makes :focus-visible deterministic in headless Edge.
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Shift+Tab');
+      const sample = await locator.evaluate((element, details) => {
+        const style = getComputedStyle(element);
+        return {
+          theme: details.theme, name: details.name, role: 'focus indicator', threshold: 3,
+          focusVisible: element.matches(':focus-visible'),
+          outlineStyle: style.outlineStyle,
+          outlineWidth: parseFloat(style.outlineWidth),
+          outlineOffset: parseFloat(style.outlineOffset),
+          ...window.__qaContrast.measure(element, 'outlineColor', parseFloat(style.outlineOffset) >= 0),
+        };
+      }, { theme, name });
+      assert.ok(sample.focusVisible, `${theme}: ${name} did not receive keyboard-visible focus`);
+      assert.notEqual(sample.outlineStyle, 'none', `${theme}: ${name} has no focus outline`);
+      assert.ok(sample.outlineWidth >= 2, `${theme}: ${name} focus outline ${sample.outlineWidth}`);
+      assert.ok(sample.ratio + 1e-9 >= 3,
+        `${theme}: ${name} focus contrast ${sample.ratio.toFixed(3)} < 3`);
+      validationMetrics.contrast.push(sample);
+    };
+    const auditReflowAndLastControl = async (label, screenshotPrefix) => {
+      const audit = await page.evaluate(label => {
+        const shell = document.querySelector('app-shell');
+        const pageHost = shell.shadowRoot.querySelector('app-stream-frame-page');
+        const content = shell.shadowRoot.querySelector('main.content');
+        const parent = element => element.parentElement || element.getRootNode()?.host || null;
+        const inPage = element => {
+          for (let node = element; node; node = parent(node)) if (node === pageHost) return true;
+          return false;
+        };
+        const visible = element => {
+          const style = getComputedStyle(element);
+          return element.getClientRects().length && style.visibility !== 'hidden' && style.display !== 'none';
+        };
+        const selector = 'a[href],button,input,select,textarea,fluent-button,fluent-dropdown,fluent-slider,fluent-switch,app-choice,app-select,app-slider,app-switch,app-number,[role="button"]';
+        const controls = [];
+        const visit = root => {
+          for (const element of root.querySelectorAll('*')) {
+            if (inPage(element) && element.matches(selector) && visible(element)) controls.push(element);
+            if (element.shadowRoot) visit(element.shadowRoot);
+          }
+        };
+        visit(document);
+        const rect = element => {
+          const box = element.getBoundingClientRect();
+          return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height };
+        };
+        const name = element => `${element.tagName.toLowerCase()}${element.id ? '#' + element.id : ''}${element.getAttribute('aria-label') ? `[${element.getAttribute('aria-label')}]` : ''}`;
+        const clippedControls = controls.filter(element => {
+          const box = rect(element);
+          return box.left < -1 || box.right > innerWidth + 1;
+        }).map(element => ({ name: name(element), rect: rect(element) }));
+        const fieldClips = [], descendantClips = [], descendantMeasurements = [];
+        const closestAcrossRoots = (element, selector) => {
+          for (let node = element; node; node = parent(node)) {
+            if (node.matches?.(selector)) return node;
+          }
+          return null;
+        };
+        for (const field of pageHost.shadowRoot.querySelectorAll('.field')) {
+          if (!visible(field)) continue;
+          const fieldBox = rect(field);
+          const fieldTitle = field.querySelector(':scope > .title')?.textContent.trim().replace(/\s+/g, ' ').slice(0, 120);
+          for (const child of field.querySelectorAll(':scope > .title, :scope > .control, :scope > .row-description, :scope > .field-notices')) {
+            if (!visible(child)) continue;
+            const box = rect(child);
+            if (box.left < fieldBox.left - 1 || box.right > fieldBox.right + 1) {
+              fieldClips.push({ field: field.id || field.className,
+                title: fieldTitle,
+                gridColumns: getComputedStyle(field).gridTemplateColumns,
+                child: child.className, childMinWidth: getComputedStyle(child).minWidth,
+                fieldRect: fieldBox, childRect: box });
+            }
+          }
+          // Custom-element hosts can fit their grid track while a fixed-width
+          // native control inside their shadow root escapes it. Audit the
+          // rendered control, not only the host/direct .control wrapper.
+          const visitControls = root => {
+            for (const element of root.querySelectorAll('*')) {
+              const dropdownFace = element.matches('.control') && element.getRootNode()?.host?.tagName === 'FLUENT-DROPDOWN';
+              if (visible(element) && (element.matches('input,select,textarea,[part~="control"],fluent-slider,fluent-switch') || dropdownFace)) {
+                const box = rect(element);
+                const ownerField = closestAcrossRoots(element, '.field');
+                const ownerCard = closestAcrossRoots(element, '.section-card');
+                // Start at the parent because the Fluent dropdown face itself
+                // is named .control; its page-owned wrapper is the container.
+                const ownerControl = closestAcrossRoots(parent(element), '.control');
+                if (ownerField === field && ownerCard && ownerControl) {
+                  const cardBox = rect(ownerCard), controlBox = rect(ownerControl);
+                  const composedPath = [];
+                  for (let node = element; node; node = parent(node)) {
+                    composedPath.push(name(node));
+                    if (node === field) break;
+                  }
+                  const measurement = { field: field.id || field.className, title: fieldTitle,
+                    descendant: name(element), host: element.getRootNode()?.host?.tagName.toLowerCase(),
+                    composedPath, gridColumns: getComputedStyle(field).gridTemplateColumns,
+                    containerInlineWidth: rect(pageHost).width,
+                    descendantStyleWidth: getComputedStyle(element).width,
+                    descendantStyleMinWidth: getComputedStyle(element).minWidth,
+                    fieldRect: fieldBox, controlWrapperRect: controlBox, cardRect: cardBox, descendantRect: box };
+                  descendantMeasurements.push(measurement);
+                  if (box.left < controlBox.left - 1 || box.right > controlBox.right + 1
+                    || box.left < fieldBox.left - 1 || box.right > fieldBox.right + 1
+                    || box.left < cardBox.left - 1 || box.right > cardBox.right + 1) {
+                    descendantClips.push(measurement);
+                  }
+                }
+              }
+              if (element.shadowRoot) visitControls(element.shadowRoot);
+            }
+          };
+          visitControls(field);
+        }
+        const last = controls.filter(element => element.tabIndex >= 0 && !element.disabled).at(-1);
+        if (last) last.setAttribute('data-qa-refresh-last', '');
+        return { label, zoom: parseFloat(getComputedStyle(document.documentElement).zoom) || 1,
+          coordinateSpace: 'DOM CSS pixels from getBoundingClientRect; browser zoom simulated with CSS zoom',
+          container: { inlineWidth: rect(pageHost).width, type: getComputedStyle(pageHost).containerType,
+            name: getComputedStyle(pageHost).containerName },
+          viewport: { width: innerWidth, height: innerHeight },
+          visualViewport: { width: visualViewport.width, height: visualViewport.height, scale: visualViewport.scale },
+          documentWidth: document.documentElement.scrollWidth, documentClientWidth: document.documentElement.clientWidth,
+          contentWidth: content.scrollWidth, contentClientWidth: content.clientWidth,
+          controlCount: controls.length, clippedControls, fieldClips, descendantClips, descendantMeasurements, hasLastControl: !!last };
+      }, label);
+      assert.ok(audit.documentWidth <= audit.documentClientWidth + 1, `${label}: document horizontal overflow ${JSON.stringify(audit)}`);
+      assert.ok(audit.contentWidth <= audit.contentClientWidth + 1, `${label}: content horizontal overflow ${JSON.stringify(audit)}`);
+      assert.deepEqual(audit.clippedControls, [], `${label}: viewport-clipped controls`);
+      assert.deepEqual(audit.fieldClips, [], `${label}: field-clipped content`);
+      assert.deepEqual(audit.descendantClips, [], `${label}: shadow-descendant controls escape their field/card`);
+      assert.ok(audit.controlCount > 0 && audit.hasLastControl, `${label}: no focusable controls found`);
+      await page.screenshot({ path: path.join(out, `${screenshotPrefix}-top.png`), animations: 'disabled' });
+      const last = page.locator('[data-qa-refresh-last]');
+      await last.scrollIntoViewIfNeeded();
+      await last.focus();
+      const lastControl = await last.evaluate(element => {
+        const shell = document.querySelector('app-shell');
+        const contentBox = shell.shadowRoot.querySelector('main.content').getBoundingClientRect();
+        const box = element.getBoundingClientRect();
+        let active = document.activeElement;
+        while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+        return { name: element.getAttribute('aria-label') || element.textContent.trim() || element.tagName,
+          focused: active === element || element.contains(active),
+          rect: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+          contentRect: { left: contentBox.left, right: contentBox.right, top: contentBox.top, bottom: contentBox.bottom } };
+      });
+      assert.ok(lastControl.focused, `${label}: last control did not receive focus`);
+      assert.ok(lastControl.rect.left >= lastControl.contentRect.left - 1 && lastControl.rect.right <= lastControl.contentRect.right + 1
+        && lastControl.rect.top >= lastControl.contentRect.top - 1 && lastControl.rect.bottom <= lastControl.contentRect.bottom + 1,
+      `${label}: last control is not fully reachable ${JSON.stringify(lastControl)}`);
+      await page.screenshot({ path: path.join(out, `${screenshotPrefix}-bottom.png`), animations: 'disabled' });
+      await last.evaluate(element => element.removeAttribute('data-qa-refresh-last'));
+      validationMetrics.layouts.push({ ...audit, lastControl });
     };
     // Each page has its own sessionStorage. Seed through the existing fixture,
     // then reload so startup reads the scenario without changing baseline QA.
@@ -663,6 +1008,98 @@ function fixture() {
     await page.setViewportSize({ width: 600, height: 1700 });
     await page.screenshot({ path: path.join(out, 'about-dark-600-full.png'), animations: 'disabled', fullPage: true });
     results.push('Six production tabs captured in both themes and narrow layout');
+
+    // Approved presentation refresh: measure the real DOM, not screenshots.
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await openRoute('stream-frame');
+    await page.evaluate(async () => {
+      await appContext.appSetting.save({ ...appContext.appSetting.values(), colorScheme: 'light' });
+    });
+    const refreshNav = page.locator('app-chapter-nav');
+    const refreshDisclosure = refreshNav.locator('.chapter-row:has(#page-stream-frame) .chapter-disclosure');
+    const expectedDescriptions = [
+      ['galaxyXr.nativeResolution', 'Higher resolutions increase GPU load. Requires a SteamVR restart.',
+        page.locator('app-stream-frame-page [data-setting-id="galaxyXr.nativeResolution"]')],
+      ['streamFrame.nvencCodec', 'Changing the codec loads its optimized defaults. Requires a SteamVR restart. Reconnect your headset afterward.',
+        page.locator('app-stream-frame-page [data-setting-id="streamFrame.nvencCodec"]')],
+      ['Max Bitrate', 'A requested budget, not measured bitrate. Requires a SteamVR restart.',
+        page.locator('app-stream-frame-page .field').filter({ has: page.getByText('Max Bitrate (Mbit/s)', { exact: true }) })],
+    ];
+    for (const [id, expected, row] of expectedDescriptions) {
+      assert.equal(await row.count(), 1, `${id}: expected one rendered row`);
+      assert.equal((await row.locator('.row-description').textContent()).trim(), expected, id);
+    }
+    results.push('Resolution, codec and Max Bitrate rows expose the three exact approved consequence descriptions');
+
+    const beforeRefreshNavMutations = await mutations();
+    await assertNavHitTargets('1100x900 light rail open');
+    await auditContrast('light');
+    await auditFocusContrast(refreshNav.locator('.rail-close'), 'light', 'rail close');
+    const refreshHash = page.url();
+    await refreshDisclosure.click();
+    await page.waitForFunction(() => document.querySelector('app-shell').shadowRoot.querySelector('app-chapter-nav').shadowRoot
+      .querySelector('#sections-toggle-stream-frame').getAttribute('aria-expanded') === 'true');
+    assert.equal(page.url(), refreshHash, 'Disclosure must not navigate');
+    await assertNavHitTargets('1100x900 light disclosure open');
+    await auditContrast('light disclosure open');
+    await auditFocusContrast(refreshDisclosure, 'light', 'chapter disclosure');
+    assert.equal(await mutations(), beforeRefreshNavMutations, 'Navigation/disclosure must not write settings');
+
+    await page.evaluate(async () => {
+      await appContext.appSetting.save({ ...appContext.appSetting.values(), colorScheme: 'dark' });
+    });
+    await auditContrast('dark disclosure open');
+    await auditFocusContrast(refreshNav.locator('.rail-close'), 'dark', 'rail close');
+    await auditFocusContrast(refreshDisclosure, 'dark', 'chapter disclosure');
+    results.push('Targeted light/dark text, control icon and keyboard-focus contrast meets 4.5/3 thresholds');
+
+    await page.setViewportSize({ width: 960, height: 600 });
+    await assertNavHitTargets('960x600 dark disclosure open');
+    await auditReflowAndLastControl('960x600, 100%, dark, disclosure open', 'refresh-960x600-scale100');
+    await page.evaluate(async zoom => {
+      window.__qa.emulateNativeZoom = true;
+      await window.__TAURI_INTERNALS__.invoke('set_webview_zoom', { scale: zoom });
+    }, refreshZoom);
+    await page.waitForFunction(zoom => parseFloat(getComputedStyle(document.documentElement).zoom) === zoom, refreshZoom);
+    assert.equal(await page.evaluate(() => window.__qa.requestedZoom), refreshZoom);
+    await auditReflowAndLastControl(`960x600, rendered ${refreshZoomPercent}% CSS zoom, dark, disclosure open`, `refresh-960x600-zoom${refreshZoomTag}`);
+    await page.evaluate(() => {
+      window.__qa.emulateNativeZoom = false;
+      document.documentElement.style.zoom = '';
+    });
+    results.push(`960x600 and rendered ${refreshZoomPercent}% CSS zoom have no horizontal/control clipping and keep the last control keyboard reachable`);
+
+    // Keyboard activation and focus restoration come last so a source behavior
+    // failure does not hide the independent geometry/contrast evidence above.
+    const beforeKeyboardNavMutations = await mutations();
+    const outsideNavControl = page.locator('app-stream-frame-page [data-setting-id="galaxyXr.nativeResolution"] fluent-switch');
+    await outsideNavControl.focus();
+    assert.ok(await outsideNavControl.evaluate(element => element.getRootNode().activeElement === element),
+      'Test setup must focus a page control outside the navigator without changing its value');
+    const beforeOutsideEscape = await page.evaluate(() => ({ href: location.href, settings: JSON.stringify(appContext.dss.values()) }));
+    await page.keyboard.press('Escape');
+    // Allow any incorrect navigator handler to render before checking that the
+    // navigator-frame-only Escape contract left this page control alone.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await refreshDisclosure.getAttribute('aria-expanded'), 'true', 'Escape outside nav must not close sections');
+    assert.equal(page.url(), beforeOutsideEscape.href, 'Escape outside nav must not navigate');
+    assert.equal(await page.evaluate(() => JSON.stringify(appContext.dss.values())), beforeOutsideEscape.settings,
+      'Escape outside nav must not change settings');
+    await refreshDisclosure.focus();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('app-shell').shadowRoot.querySelector('app-chapter-nav').shadowRoot
+      .querySelector('#sections-toggle-stream-frame').getAttribute('aria-expanded') === 'false');
+    await assertDeepFocus(refreshDisclosure, 'Escape closes disclosure');
+    await refreshNav.locator('.rail-close').focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !document.querySelector('app-shell').shadowRoot.querySelector('app-chapter-nav').open);
+    await assertDeepFocus(refreshNav.locator('.spine-toggle'), 'Rail close keyboard activation');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelector('app-shell').shadowRoot.querySelector('app-chapter-nav').open);
+    await assertDeepFocus(refreshNav.locator('#page-stream-frame'), 'Rail reopen keyboard activation');
+    assert.equal(await mutations(), beforeKeyboardNavMutations, 'Keyboard navigation must not write settings');
+    results.push('Disclosure Escape restores focus; rail close/reopen work by keyboard and restore focus');
+
     await page.setViewportSize({ width: 1100, height: 900 });
     await openRoute('about');
     const about = page.locator('app-about-page');
@@ -818,11 +1255,11 @@ function fixture() {
     let restoreDialog = page.locator('fluent-dialog');
     await restoreDialog.getByText('Restore Steam Link encoder behaviour?', { exact: true }).waitFor();
     await restoreDialog.locator('fluent-button').nth(1).click();
-    await restoreDialog.getByText("NVENC Tap is OFF. Saved tuning was kept. Start SteamVR to use Steam Link's encoder parameters.", { exact: true }).waitFor();
+    await restoreDialog.getByText("NVENC Tap is off. Saved tuning was kept. Start SteamVR to use Steam Link's encoder parameters.", { exact: true }).waitFor();
     await restoreDialog.locator('fluent-button').click();
     assert.equal(await page.evaluate(() => appContext.dss.values().streamFrame.nvencTap), false);
     assert.equal(await page.evaluate(() => appContext.dss.values().streamFrame.nvencPreset), 2);
-    await encoder.getByText('NVENC Tap OFF saved', { exact: true }).waitFor();
+    await encoder.getByText('NVENC Tap off saved', { exact: true }).waitFor();
     await encoder.getByText('Restore encoder behaviour', { exact: true }).waitFor();
     results.push('Encoder restore remains accessible with Tap OFF and preserves saved tuning');
     await page.evaluate(async () => {
@@ -831,11 +1268,11 @@ function fixture() {
       await appContext.startup.refresh();
       window.__qa.holdRuntime = true;
     });
-    await encoder.getByText('NVENC Tap OFF confirmed', { exact: true }).waitFor();
+    await encoder.getByText('NVENC Tap off confirmed', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(out, 'encoder-off-confirmed.png'), animations: 'disabled' });
     await page.waitForFunction(() => window.__qa.pendingRuntime.length > 0);
-    await encoder.getByText('NVENC Tap OFF saved', { exact: true }).waitFor({timeout:8000});
-    assert.equal(await encoder.getByText('NVENC Tap OFF confirmed', { exact: true }).count(), 0);
+    await encoder.getByText('NVENC Tap off saved', { exact: true }).waitFor({timeout:8000});
+    assert.equal(await encoder.getByText('NVENC Tap off confirmed', { exact: true }).count(), 0);
     assert.equal(await encoder.getByText('Restore encoder behaviour', { exact: true }).getAttribute('disabled'), '');
     await page.evaluate(async () => {
       window.__qa.holdRuntime = false; window.__qa.runtime = null;
@@ -912,6 +1349,7 @@ function fixture() {
     const assets = path.join(dist, 'en-US/assets');
     const hashes = Object.fromEntries(fs.readdirSync(assets).filter(name => /\.(js|css)$/.test(name))
       .map(name => [name, createHash('sha256').update(fs.readFileSync(path.join(assets, name))).digest('hex')]));
+    fs.writeFileSync(path.join(out, 'refresh-metrics.json'), JSON.stringify(validationMetrics, null, 2));
     fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify({ productionBundle: true, nativeIPC: 'in-memory fixture only', hashes, results, errors }, null, 2));
     console.log(JSON.stringify({ passed: results.length, screenshots: out, results }, null, 2));
   } catch (error) {
@@ -921,6 +1359,7 @@ function fixture() {
         windowsStartup: window.appContext?.windowsStartup.status(), startupError: window.appContext?.windowsStartup.error() })));
       await page.screenshot({ path: path.join(out, 'failure.png'), animations: 'disabled' });
     }
+    fs.writeFileSync(path.join(out, 'refresh-metrics.json'), JSON.stringify(validationMetrics, null, 2));
     throw error;
   } finally {
     await browser?.close();
